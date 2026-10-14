@@ -58,7 +58,10 @@ class DccoSource(Source):
         return items
 
     def pre_classify(self, item: ListItem) -> str | None:
-        """제목 머리말: [공고결과]는 후속 안내, [모집공고]는 모집공고(정정 표시가 있으면 정정)."""
+        """제목 머리말: [공고결과]는 후속 안내, [모집공고]는 모집공고(정정 표시가 있으면 정정).
+        대전은 공사가 집을 사는 '매입공고'에도 [모집공고]를 붙여서, 제목이 제외 대상이면 머리말보다 먼저 제외해요."""
+        if cls.out_of_scope(item.title):
+            return cls.EXCLUDED
         tags = item.meta.get("머리말") or []
         if any("결과" in t for t in tags):
             return cls.FOLLOW_UP

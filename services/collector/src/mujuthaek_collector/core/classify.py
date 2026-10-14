@@ -31,8 +31,14 @@ RECRUIT = re.compile(r"모집\s*공고|입주자\s*모집|예비\s*입주자|추
 REF = re.compile(r"(?P<name>.+?)\s*\(\s*(?:공고일?\s*:?\s*)?[‘'’]?(?P<y>\d{2,4})\s*[._]\s*(?P<m>\d{1,2})\s*[._]\s*(?P<d>\d{1,2})\s*\.?\s*(?:공고)?\s*\)")
 
 
+def out_of_scope(title: str) -> bool:
+    """입주자 모집이 아닌 글(기존 입주자 안내, 매입·택지·보상 공고, 상가 등 사업공간).
+    기관이 목록 머리말로 '모집공고'를 붙여도 이 제목이면 제외해요 (예: 대전 '기존주택(청년임대) 3차 매입공고')."""
+    return bool(EXISTING.search(title) or NOT_TENANT.search(title) or BUSINESS_SPACE.search(title))
+
+
 def classify(title: str) -> str:
-    if EXISTING.search(title) or NOT_TENANT.search(title) or BUSINESS_SPACE.search(title):
+    if out_of_scope(title):
         return EXCLUDED
     ref = REF.search(title)
     if ref and re.search(r"모집\s*공고", ref.group("name")) and len(re.sub(r"[^가-힣]", "", title[ref.end() :])) >= 2:

@@ -132,3 +132,12 @@ def test_missing_list_structure_is_parse_error(code):
     source = SOURCES[code]
     with pytest.raises(ParseError):
         source.parse_list(source.boards[0], "<html><body>점검 중</body></html>", "")
+
+
+def test_dcco_purchase_notice_is_excluded_even_with_recruit_tag():
+    """대전은 공사가 집을 사는 매입공고에도 [모집공고] 머리말을 붙여요 (2026-10-15 실제 화면, 43-24807)."""
+    source, b = board("dcco", "43")
+    page = """<table><tr><td><a href="view.do?mId=43&brdIdx=24807"><span class="part">[모집공고][주택임대]</span>
+      2026년 기존주택(청년임대) 3차 매입공고</a></td><td class="part">모집종료</td><td>2026-08-27</td></tr></table>"""
+    item = source.parse_list(b, page, "")[0]
+    assert source.pre_classify(item) == EXCLUDED

@@ -3,7 +3,7 @@
 import re
 from dataclasses import dataclass
 
-PERSONAL_FILE = re.compile(r"명부|명단|당첨자|예비자|계약\s*대상자|합격자")  # 사람 이름이 담긴 파일: 받지도 열지도 않음
+PERSONAL_FILE = re.compile(r"명부|명단|당첨자|예비자|계약\s*대상자|합격자|추첨\s*결과")  # 사람 이름이 담긴 파일: 받지도 열지도 않음
 NOTICE_FILE_NAME = re.compile(r"공고문|모집\s*공고")
 NOT_NOTICE_FILE = re.compile(r"안내문|커트라인|결과|양식|서약서|위임장|동의서|신청서|위치도|평면도|배치도|도면")
 UNIT_LIST_FILE = re.compile(
