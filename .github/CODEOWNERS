@@ -1,42 +1,42 @@
-# 폴더별 담당자. @OWNER1~4를 팀원 GitHub 아이디로 바꿔주세요. 아래쪽 규칙이 위쪽보다 우선해요.
+# 폴더별 담당자. 아래쪽 규칙이 위쪽보다 우선해요.
 
-*                                              @OWNER1
+*                                              @kjungit
 
 # 인프라·공통 (담당자1)
-/infra/                                        @OWNER1
-/libs/                                         @OWNER1
-/.github/                                      @OWNER1
-/services/collector/                           @OWNER1
-/services/api/*.kts                            @OWNER1
-/services/api/gradle/                          @OWNER1
-/services/api/src/main/resources/              @OWNER1
-/services/api/src/main/java/kr/mujuthaek/api/common/                                    @OWNER1
-/services/api/src/main/java/kr/mujuthaek/api/ApiApplication.java                        @OWNER1
+/infra/                                        @kjungit
+/libs/                                         @kjungit
+/.github/                                      @kjungit
+/services/collector/                           @kjungit
+/services/api/*.kts                            @kjungit
+/services/api/gradle/                          @kjungit
+/services/api/src/main/resources/              @kjungit
+/services/api/src/main/java/kr/mujuthaek/api/common/                                    @kjungit
+/services/api/src/main/java/kr/mujuthaek/api/ApiApplication.java                        @kjungit
 
 # 데이터 흐름 (담당자2)
-/services/extraction/                          @OWNER2
-/services/api/src/main/java/kr/mujuthaek/api/notice/                                    @OWNER2
-/services/api/src/test/java/kr/mujuthaek/api/notice/                                    @OWNER2
+/services/extraction/                          @sangrock2
+/services/api/src/main/java/kr/mujuthaek/api/notice/                                    @sangrock2
+/services/api/src/test/java/kr/mujuthaek/api/notice/                                    @sangrock2
 
 # 사용자·알림·혜택 (담당자3)
-/services/api/src/main/java/kr/mujuthaek/api/benefit/                                   @OWNER3
-/services/api/src/main/java/kr/mujuthaek/api/user/                                      @OWNER3
-/services/api/src/main/java/kr/mujuthaek/api/notification/                              @OWNER3
-/services/api/src/test/java/kr/mujuthaek/api/benefit/                                   @OWNER3
-/services/api/src/test/java/kr/mujuthaek/api/user/                                      @OWNER3
-/services/api/src/test/java/kr/mujuthaek/api/notification/                              @OWNER3
-/services/collector/src/mujuthaek_collector/sources/policy/              @OWNER3
-/services/extraction/src/mujuthaek_extraction/rules/policy/              @OWNER3
-/services/extraction/src/mujuthaek_extraction/rules/startup_support/     @OWNER3
+/services/api/src/main/java/kr/mujuthaek/api/benefit/                                   @dlwodRns2
+/services/api/src/main/java/kr/mujuthaek/api/user/                                      @dlwodRns2
+/services/api/src/main/java/kr/mujuthaek/api/notification/                              @dlwodRns2
+/services/api/src/test/java/kr/mujuthaek/api/benefit/                                   @dlwodRns2
+/services/api/src/test/java/kr/mujuthaek/api/user/                                      @dlwodRns2
+/services/api/src/test/java/kr/mujuthaek/api/notification/                              @dlwodRns2
+/services/collector/src/mujuthaek_collector/sources/policy/              @dlwodRns2
+/services/extraction/src/mujuthaek_extraction/rules/policy/              @dlwodRns2
+/services/extraction/src/mujuthaek_extraction/rules/startup_support/     @dlwodRns2
 
 # 계산·LH 수집 (담당자4)
-/services/api/src/main/java/kr/mujuthaek/api/eligibility/                               @OWNER4
-/services/api/src/main/java/kr/mujuthaek/api/area/                                      @OWNER4
-/services/api/src/test/java/kr/mujuthaek/api/eligibility/                               @OWNER4
-/services/api/src/test/java/kr/mujuthaek/api/area/                                      @OWNER4
-/services/collector/src/mujuthaek_collector/sources/lh/                  @OWNER4
+/services/api/src/main/java/kr/mujuthaek/api/eligibility/                               @lucku-1111
+/services/api/src/main/java/kr/mujuthaek/api/area/                                      @lucku-1111
+/services/api/src/test/java/kr/mujuthaek/api/eligibility/                               @lucku-1111
+/services/api/src/test/java/kr/mujuthaek/api/area/                                      @lucku-1111
+/services/collector/src/mujuthaek_collector/sources/lh/                  @lucku-1111
 
 # 모두가 쓰는 약속과 마이그레이션 (관련 담당 승인)
-/services/api/src/main/java/kr/mujuthaek/api/common/event/                              @OWNER1 @OWNER2 @OWNER3 @OWNER4
-/services/api/src/main/resources/db/migration/ @OWNER1 @OWNER2 @OWNER3 @OWNER4
-/contracts/                                    @OWNER1 @OWNER2 @OWNER3 @OWNER4
+/services/api/src/main/java/kr/mujuthaek/api/common/event/                              @kjungit @sangrock2 @dlwodRns2 @lucku-1111
+/services/api/src/main/resources/db/migration/ @kjungit @sangrock2 @dlwodRns2 @lucku-1111
+/contracts/                                    @kjungit @sangrock2 @dlwodRns2 @lucku-1111
