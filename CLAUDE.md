@@ -1,0 +1,20 @@
+# 무주택자들 백엔드
+
+공공 주거·창업지원 공고를 수집하고, AI로 자격 조건을 뽑아, 사용자의 지원 가능 여부를 판정하는 서비스.
+
+## Commands
+```bash
+docker compose -f infra/docker-compose.yml --env-file infra/.env up -d postgres rabbitmq   # 로컬 인프라
+cd services/api && ./gradlew bootRun                                  # api 실행
+cd services/api && ./gradlew spotlessApply check                      # 포맷 + 테스트 (커밋 전)
+cd services/api && ./gradlew test --tests '*ModuleStructureTest'      # 모듈 경계 검사만
+#cd services/<collector|extraction> && uv run ruff check && uv run pytest
+```
+
+## Rules
+- 다른 모듈 데이터는 **service 계층에서 그 모듈의 service 조회 메서드**로만 가져온다. 다른 모듈의 repository·엔티티·테이블은 쓰지 않는다
+- 호출 방향은 notice → area·benefit / eligibility·user → notice·benefit / notification → user·notice·benefit 만 허용. area·benefit은 다른 모듈을 부르지 않는다
+- 다른 모듈에 영향을 주는 변경은 직접 호출하지 말고 `common/event` 이벤트로 (`@TransactionalEventListener`)
+- `eligibility/rule`은 스프링·JPA 없는 순수 자바로 유지한다
+- 마이그레이션은 기존 파일을 고치지 말고 `V<yyyyMMddHHmm>__<module>_<desc>.sql`로 새로 만든다
+- 사용자 소득·자산·나이는 저장하거나 로그에 남기지 않는다

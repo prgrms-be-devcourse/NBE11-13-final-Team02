@@ -1,0 +1,19 @@
+# IDE
+.idea/
+*.iml
+
+# 자바
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# 파이썬
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# 환경 변수
+.env
+# 구조 변경 스크립트 백업
+_backup_*/
