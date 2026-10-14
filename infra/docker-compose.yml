@@ -69,6 +69,25 @@ services:
     volumes:
       - ../services/collector/migrations:/flyway/sql:ro
 
+  # 수집 워커 (make up). 평소엔 make infra 후 services/collector에서 uv run으로 직접 실행해요.
+  # 컨테이너 안에서는 localhost가 아니라 서비스 이름으로 접속해요.
+  collector:
+    build: { context: .., dockerfile: services/collector/Dockerfile }
+    profiles: [apps]
+    depends_on:
+      migrate-collector: { condition: service_completed_successfully }
+      rabbitmq: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    environment:
+      SERVICE_NAME: collector
+      DB_URL: postgresql://collector_app:${COLLECTOR_DB_PASSWORD}@postgres:5432/collector
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@rabbitmq:5672/
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: ${S3_BUCKET}
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    ports: ["127.0.0.1:8091:8091"]   # 상태 확인 http://localhost:8091/health
+
 volumes:
   postgres-data:
   rabbitmq-data:
