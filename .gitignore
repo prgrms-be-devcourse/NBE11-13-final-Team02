@@ -17,3 +17,6 @@ __pycache__/
 .env
 # 구조 변경 스크립트 백업
 _backup_*/
+
+# macOS
+.DS_Store
