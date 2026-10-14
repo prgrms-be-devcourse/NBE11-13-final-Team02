@@ -29,10 +29,10 @@ from mujuthaek_platform.events import new_event
 
 event = new_event("raw.notice.collected", "collector", payload)
 with conn.transaction(), conn.cursor() as cur:
-    cur.execute("insert into …")   # 업무 데이터 저장
-    outbox.add(cur, event)          # 같은 트랜잭션
+    cur.execute("insert into …")  # 업무 데이터 저장
+    outbox.add(cur, event)  # 같은 트랜잭션
 
-outbox.relay_once(conn, channel)   # 발행기 (5초마다)
+outbox.relay_once(conn, channel)  # 발행기 (5초마다)
 ```
 
 ## 아웃박스 테이블
