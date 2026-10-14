@@ -1,0 +1,346 @@
+"""출처 하나를 끝까지 수집해요 (전체 흐름 그대로).
+
+run_source
+  └─ 게시판마다
+      ├─ 목록 1~N페이지 읽기 → 새 글 등록(분류) / 이미 본 글은 목록 상태만 갱신
+      ├─ 밀린 글(PENDING·FAILED) + 새 글을 한 번에 detail_limit건까지 처리 (process_post)
+      └─ 밀린 글이 없으면 목록 1페이지 해시 저장 (다음 회차에 같으면 바로 끝)
+
+오류 반응: BlockedError → 출처 회차 중단(BLOCKED), ParseError·HTTP 오류 → 그 글만 FAILED, FileRejected → 그 파일만 건너뜀
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from uuid import UUID
+
+import httpx
+
+from mujuthaek_collector.config import Settings
+from mujuthaek_collector.core import classify as cls
+from mujuthaek_collector.core.documents.tables import read_tables, summarize, units_from_tables
+from mujuthaek_collector.core.documents.text import extract_text
+from mujuthaek_collector.core.file_store import FileStore, content_type, object_key, stored_until, text_key
+from mujuthaek_collector.core.files import TABLE_EXTS, FileRef, pick_notice_files, pick_unit_lists
+from mujuthaek_collector.core.publisher import MAX_TEXT_CHARS, build_collected_event
+from mujuthaek_collector.core.storage import PENDING, SKIPPED, BoardState, NewVersion, PostRow, SavedFile, Store
+from mujuthaek_collector.core.versioning import content_hash, list_hash, sha256_hex
+from mujuthaek_collector.errors import BlockedError, FileRejected, ParseError
+from mujuthaek_collector.sources.base import Board, Detail, Fetcher, ListItem, Source
+from mujuthaek_platform.ids import uuid7
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class RunResult:
+    source_code: str
+    status: str = "SUCCESS"  # SUCCESS, BLOCKED, FAILED
+    new_count: int = 0  # 새로 저장한 버전 수
+    warnings: list[str] = field(default_factory=list)
+
+
+@dataclass
+class Context:
+    source: Source
+    client: Fetcher
+    store: Store
+    files: FileStore
+    settings: Settings
+    today: date
+    run_id: UUID
+    result: RunResult
+
+    def warn(self, message: str) -> None:
+        log.warning(message, extra={"source": self.source.code})
+        self.result.warnings.append(message)
+
+
+def run_source(
+    source: Source, client: Fetcher, store: Store, files: FileStore, settings: Settings, *, recheck: bool = False, today: date | None = None
+) -> RunResult:
+    """출처 하나를 수집해요. recheck=True(새벽 정정 확인)면 마감 전 공고를 다시 열어 바뀌었는지 봐요."""
+    today = today or date.today()
+    result = RunResult(source.code)
+    run_id = store.start_run(source.code)
+    ctx = Context(source, client, store, files, settings, today, run_id, result)
+    log.info("수집 시작", extra={"source": source.code, "recheck": recheck})
+    try:
+        if recheck:
+            count = store.requeue_open_posts(source.code, today, settings.since_days)
+            log.info("정정 확인 대상", extra={"source": source.code, "count": count})
+        for board in source.boards:
+            run_board(ctx, board, recheck=recheck)
+    except BlockedError as error:
+        result.status = "BLOCKED"
+        ctx.warn(f"차단으로 이번 회차를 멈춰요: {error}")
+    except Exception as error:  # noqa: BLE001 — 예상 못한 오류도 회차 기록은 남겨요
+        result.status = "FAILED"
+        ctx.warn(f"예상 못한 오류: {type(error).__name__}: {error}")
+        log.exception("수집 실패", extra={"source": source.code})
+    store.finish_run(run_id, result.status, result.new_count, result.warnings)
+    log.info("수집 끝", extra={"source": source.code, "status": result.status, "new": result.new_count})
+    return result
+
+
+# ── 게시판 ─────────────────────────────────────────────────────
+def run_board(ctx: Context, board: Board, *, recheck: bool = False) -> None:
+    source, store, settings = ctx.source, ctx.store, ctx.settings
+    state = store.board_state(source.code, board.key)
+    queued_before = store.queued_posts(source.code, board.key, 1)
+    cutoff = ctx.today - timedelta(days=settings.since_days)
+    first_page_hash: str | None = None
+
+    for page in range(1, settings.max_pages + 1):
+        try:
+            items = source.fetch_list(ctx.client, board, page)
+        except ParseError as error:
+            ctx.warn(f"[{board.name}] 목록 {page}페이지를 읽지 못해 이 게시판을 멈춰요 (구조 변경 의심): {error}")
+            store.save_board_state(source.code, board.key, BoardState(state.last_list_hash, state.empty_runs + 1))
+            return
+        if page == 1:
+            if not items:
+                state.empty_runs += 1
+                message = f"[{board.name}] 목록이 비어 있어요 ({state.empty_runs}회 연속)"
+                ctx.warn(message + (" — 사이트 구조 변경 의심" if state.empty_runs >= settings.empty_alert else ""))
+                store.save_board_state(source.code, board.key, state)
+                return
+            state.empty_runs = 0
+            first_page_hash = list_hash([f"{i.post_key}|{i.title}|{i.posted_on}|{i.list_status or ''}" for i in items])
+            if first_page_hash == state.last_list_hash and not queued_before and not recheck:
+                log.info("목록 변화 없음", extra={"source": source.code, "board": board.key})
+                store.save_board_state(source.code, board.key, state)
+                return
+        all_known = True
+        for item in items:
+            post = store.find_post(source.code, item.post_key)
+            if post is not None:
+                store.update_list_fields(post.id, item.list_status, item.deadline_on)
+                continue
+            all_known = False
+            register(ctx, item, cutoff)
+        dates = [i.posted_on for i in items if i.posted_on]
+        if all_known or (dates and min(dates) < cutoff) or not items:
+            break
+
+    for post in store.queued_posts(source.code, board.key, settings.detail_limit):
+        process_safely(ctx, post)
+
+    if not store.queued_posts(source.code, board.key, 1) and first_page_hash:
+        state.last_list_hash = first_page_hash  # 밀린 글이 없을 때만 저장해서, 남은 글이 있으면 다음 회차에 다시 봐요
+    store.save_board_state(source.code, board.key, state)
+
+
+def register(ctx: Context, item: ListItem, cutoff: date) -> None:
+    """목록에서 처음 본 글을 분류해서 저장해요. 열 글은 PENDING, 안 열 글은 SKIPPED."""
+    source, store = ctx.source, ctx.store
+    kind = source.pre_classify(item) or cls.classify(item.title)
+    status, parent, reason = SKIPPED, None, None
+    if item.posted_on and item.posted_on < cutoff:
+        reason = f"{ctx.settings.since_days}일 넘은 글"
+    elif kind == cls.NOTICE:
+        status = PENDING
+    elif kind == cls.CORRECTION:
+        status, parent = PENDING, find_correction_parent(store, source.code, item.title)
+    elif kind == cls.FOLLOW_UP:
+        parent = find_followup_parent(store, source.code, item.title)
+        if parent is not None:
+            status = PENDING
+        else:
+            reason = "원래 모집공고를 찾지 못한 후속 안내"
+    else:
+        reason = "모집공고가 아닌 글"
+    store.insert_post(
+        PostRow(
+            id=uuid7(),
+            source_code=source.code,
+            board_key=item.board,
+            post_key=item.post_key,
+            kind=kind,
+            title=item.title,
+            posted_on=item.posted_on,
+            detail_url=item.detail_url,
+            list_item=item.to_json(),
+            status=status,
+            last_error=reason,
+            list_status=item.list_status,
+            deadline_on=item.deadline_on,
+            parent_post_id=parent.id if parent else None,
+        )
+    )
+
+
+def find_followup_parent(store: Store, source_code: str, title: str) -> PostRow | None:
+    """후속 안내 제목 속 '(공고명, 공고일)'과 같은 모집공고."""
+    ref = cls.title_ref(title)
+    if ref is None:
+        return None
+    return next((p for p in store.notices_posted_on(source_code, ref.posted_on) if cls.same_notice(ref, p.title, p.posted_on)), None)
+
+
+def find_correction_parent(store: Store, source_code: str, title: str) -> PostRow | None:
+    """정정공고 이름(정정 표시를 뺀 것)과 같은 가장 최근 모집공고."""
+    base = cls.correction_base(title)
+    if not base:
+        return None
+    for post in store.recent_notices(source_code):
+        own = cls.norm_name(post.title)
+        if own and (own == base or own in base or base in own):
+            return post
+    return None
+
+
+# ── 글 하나 ────────────────────────────────────────────────────
+def process_safely(ctx: Context, post: PostRow) -> None:
+    try:
+        if process_post(ctx, post):
+            ctx.result.new_count += 1
+    except BlockedError:
+        raise  # 출처 회차를 멈춰요. 이 글은 PENDING·FAILED 그대로 남아 다음 회차에 먼저 처리돼요
+    except (ParseError, httpx.HTTPError) as error:
+        ctx.store.mark_failed(post.id, f"{type(error).__name__}: {error}")
+        ctx.warn(f"[{post.post_key}] {post.title[:40]} — 상세를 읽지 못했어요: {error}")
+    except Exception as error:  # noqa: BLE001 — S3·DB 오류 등. 그 글만 FAILED로 두고 다음 글로 가요
+        ctx.store.mark_failed(post.id, f"{type(error).__name__}: {error}")
+        ctx.warn(f"[{post.post_key}] {post.title[:40]} — 저장하지 못했어요: {type(error).__name__}: {error}")
+        log.exception("글 처리 실패", extra={"source": ctx.source.code, "post": post.post_key})
+
+
+def process_post(ctx: Context, post: PostRow) -> bool:
+    """상세 → 첨부 → 추출 → 버전 비교 → 저장·이벤트. 새 버전을 저장했으면 True."""
+    source, client = ctx.source, ctx.client
+    item = ListItem.from_json(post.list_item)
+    detail = source.fetch_detail(client, item)
+    candidates = detail.files or item.files
+    referer = item.detail_url or item.referer
+
+    saved: list[tuple[SavedFile, bytes]] = []  # (DB에 저장할 정보, S3에 올릴 원본)
+    notice_name, notice_text = None, None
+    units: list[dict] = [dict(u, source_file="상세 화면") for u in detail.units]
+    keep_until = stored_until(post.title, post.deadline_on, post.posted_on, ctx.today)
+
+    for file in pick_notice_files(candidates, source.prefer_doc):  # 공고문: 첫 번째가 실패하면 두 번째
+        data = download(ctx, file, referer)
+        if data is None:
+            continue
+        text, status = extract_text(data, file.ext)
+        saved.append((make_saved(file, "NOTICE_DOC", data, keep_until, status, text), data))
+        if file.ext in TABLE_EXTS:
+            units += [dict(u, source_file=file.name) for u in units_from_tables(read_tables(data, file.ext))]
+        if text:
+            notice_name, notice_text = file.name, text
+            break
+        ctx.warn(f"[{post.post_key}] 공고문을 읽지 못했어요 ({file.name}): {status}")
+
+    for file in pick_unit_lists(candidates):  # 주택목록: 엑셀 우선 최대 2개
+        data = download(ctx, file, referer)
+        if data is None:
+            continue
+        found = units_from_tables(read_tables(data, file.ext))
+        saved.append((make_saved(file, "UNIT_LIST", data, keep_until, f"호별 {len(found)}행", None), data))
+        units += [dict(u, source_file=file.name) for u in found]
+
+    if units:
+        log.info("호별 표", extra={"source": source.code, "post": post.post_key, "summary": summarize(units)})
+
+    body = detail.body_text
+    new_hash = content_hash(body, [f.file_hash for f, _ in saved])
+    latest = ctx.store.latest_hash(post.id)
+    if latest and latest[1] == new_hash:
+        ctx.store.mark_done(post.id)  # 바뀐 게 없음 (새벽 정정 확인에서 대부분 여기로)
+        return False
+    version = (latest[0] if latest else 0) + 1
+
+    for f, data in saved:  # 원본은 DB 트랜잭션 전에 S3에 올려요 (실패하면 그 글은 다음 회차에 다시 시도)
+        f.s3_key = ctx.files.put(object_key(source.code, post.post_key, version, f.idx, f.name), data, content_type(ext_of(f.name)))
+
+    meta = {**item.meta, **detail.meta}
+    if item.list_status:
+        meta.setdefault("목록상태", item.list_status)
+    full_text = compose_full_text(source, post, item, detail, meta, notice_name, notice_text)
+    long_text_key = None
+    if len(full_text) > MAX_TEXT_CHARS:
+        long_text_key = ctx.files.put(text_key(source.code, post.post_key, version), full_text.encode("utf-8"), content_type("txt"))
+
+    event = build_collected_event(
+        raw_post_id=post.id,
+        version=version,
+        source_code=source.code,
+        provider=source.provider,
+        kind=post.kind,
+        title=post.title,
+        posted_on=post.posted_on,
+        detail_url=post.detail_url,
+        parent_post_id=post.parent_post_id,
+        full_text=full_text,
+        text_key=long_text_key,
+        units=units,
+        files=[f.as_event_file() for f, _ in saved],
+        reprocess=False,
+    )
+    ctx.store.save_version(
+        NewVersion(
+            post=post,
+            version=version,
+            content_hash=new_hash,
+            body_text=body,
+            meta=meta,
+            full_text=full_text,
+            run_id=ctx.run_id,
+            files=[f for f, _ in saved],
+            units=units,
+            event=event,
+        )
+    )
+    log.info("새 버전 저장", extra={"source": source.code, "post": post.post_key, "version": version, "files": len(saved), "units": len(units)})
+    return True
+
+
+def download(ctx: Context, file: FileRef, referer: str | None) -> bytes | None:
+    if file.personal:
+        return None  # 명단 파일은 받지 않아요 (pick 단계에서 이미 빠지지만 한 번 더 막음)
+    try:
+        return ctx.client.download(file.url, referer=referer)
+    except FileRejected as error:
+        ctx.warn(f"첨부를 받지 않았어요 ({file.name}): {error}")
+    except httpx.HTTPError as error:
+        ctx.warn(f"첨부를 받지 못했어요 ({file.name}): {error}")
+    return None
+
+
+def make_saved(file: FileRef, role: str, data: bytes, keep_until: date, status: str | None, text: str | None) -> SavedFile:
+    return SavedFile(
+        idx=file.index,
+        name=file.name,
+        role=role,
+        download_url=file.url,
+        file_hash=sha256_hex(data),
+        size_bytes=len(data),
+        s3_key=None,
+        stored_until=keep_until,
+        text_status=status,
+        text=text,
+    )
+
+
+def ext_of(name: str) -> str:
+    return FileRef(name, "", 0).ext
+
+
+def compose_full_text(source: Source, post: PostRow, item: ListItem, detail: Detail, meta: dict, notice_name: str | None, notice_text: str | None) -> str:
+    """AI 추출(extraction)에 넘기는 전체 글자: 제목·게시 정보·항목·본문·공고문 순서."""
+    lines = [
+        f"제목: {post.title}",
+        f"출처: {source.name} ({post.board_key})",
+        f"게시일: {post.posted_on or detail.posted_on or ''}",
+        f"주소: {post.detail_url or ''}",
+    ]
+    if meta:
+        lines.append("[항목]")
+        lines += [f"{key}: {value}" for key, value in meta.items() if value not in (None, "", [], {})]
+    lines += ["[본문]", detail.body_text or "(본문 없음)"]
+    if notice_text:
+        lines += [f"[공고문: {notice_name}]", notice_text]
+    return "\n".join(lines)
