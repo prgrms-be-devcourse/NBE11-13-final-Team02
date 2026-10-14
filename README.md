@@ -16,7 +16,7 @@ EC2 1대에 Docker 컨테이너 3개, DB는 RDS(PostgreSQL + PostGIS) 1대에 �
 
 ```bash
 cp infra/.env.example infra/.env           # 값 채우기 (ANTHROPIC_API_KEY를 비우면 가짜 추출기로 동작)
-docker compose -f infra/docker-compose.yml --env-file infra/.env up -d postgres rabbitmq
+make infra                                 # PostgreSQL·RabbitMQ·MinIO (make help로 명령 보기)
 cd services/api && ./gradlew bootRun       # api
 ```
 파이썬 워커는 `services/collector`, `services/extraction`에서 `uv sync` 후 `uv run python -m mujuthaek_collector run`처럼 실행해요.
@@ -26,6 +26,7 @@ cd services/api && ./gradlew bootRun       # api
 | --- | --- |
 | api | http://localhost:8080 (`/actuator/health`) |
 | RabbitMQ 관리 화면 | http://localhost:15672 |
+| MinIO (S3 API) | http://localhost:9000 (minio / minio-pass, 버킷 `mujuthaek-raw`) |
 
 ## 담당
 | 담당자 | 맡는 폴더 |
