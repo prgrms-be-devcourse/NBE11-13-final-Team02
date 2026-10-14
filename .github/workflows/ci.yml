@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  pull-requests: write # PR에 커버리지 댓글
 
 jobs:
   api:
@@ -26,12 +27,22 @@ jobs:
           distribution: temurin
           java-version: "25"
       - uses: gradle/actions/setup-gradle@v5
-      # Testcontainers는 러너에 있는 Docker를 그대로 써요
+      # Testcontainers는 러너에 있는 Docker를 그대로 써요. check에 커버리지 기준(service·rule 80%)도 들어 있어요
       - run: ./gradlew check --console=plain
-      - if: failure()
+      - name: PR에 커버리지 표시
+        if: always() && github.event_name == 'pull_request' && hashFiles('services/api/build/reports/jacoco/test/jacocoTestReport.xml') != ''
+        uses: madrapps/jacoco-report@v1.7.2
+        with:
+          paths: services/api/build/reports/jacoco/test/jacocoTestReport.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          title: 커버리지 (service · eligibility/rule)
+          min-coverage-overall: 80
+          min-coverage-changed-files: 80
+          update-comment: true
+      - if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: api-test-reports
+          name: api-reports
           path: services/api/build/reports/
 
   python:
@@ -39,6 +50,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
       - run: uvx ruff check services/collector services/extraction libs/python-platform
       - run: uvx ruff format --check services/collector services/extraction libs/python-platform

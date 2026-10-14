@@ -3,6 +3,7 @@ plugins {
     id("org.springframework.boot") version "4.1.1"
     id("io.spring.dependency-management") version "1.1.7"
     id("com.diffplug.spotless") version "8.9.0"
+    jacoco
 }
 
 group = "kr.mujuthaek"
@@ -50,4 +51,41 @@ spotless {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+// 커버리지는 각 모듈의 service 패키지와 eligibility/rule만 재요 (controller·repository·dto 등은 제외)
+jacoco {
+    toolVersion = "0.8.14" // 자바 25 클래스 파일 지원
+}
+
+val coverageIncludes = listOf("kr/mujuthaek/api/*/service/**", "kr/mujuthaek/api/eligibility/rule/**")
+
+tasks.test {
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required = true
+        html.required = true
+    }
+    classDirectories.setFrom(files(classDirectories.files.map { fileTree(it) { include(coverageIncludes) } }))
+}
+
+tasks.jacocoTestCoverageVerification {
+    dependsOn(tasks.test)
+    classDirectories.setFrom(files(classDirectories.files.map { fileTree(it) { include(coverageIncludes) } }))
+    violationRules {
+        rule {
+            limit {
+                counter = "LINE"
+                minimum = "0.80".toBigDecimal()
+            }
+        }
+    }
+}
+
+tasks.check {
+    dependsOn(tasks.jacocoTestCoverageVerification)
 }
