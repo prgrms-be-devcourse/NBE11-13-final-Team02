@@ -60,3 +60,6 @@ jobs:
       - name: python-platform 테스트
         working-directory: libs/python-platform
         run: uv run --frozen pytest -q
+      - name: collector 테스트
+        working-directory: services/collector
+        run: uv run --frozen pytest -q  # 실제 DB 테스트(test_storage_postgres)는 COLLECTOR_TEST_DB_URL이 없어서 건너뛰어요

@@ -8,7 +8,7 @@ make infra                                                            # 로컬 �
 cd services/api && ./gradlew bootRun                                  # api 실행
 cd services/api && ./gradlew spotlessApply check                      # 포맷 + 테스트 (커밋 전)
 cd services/api && ./gradlew test --tests '*ModuleStructureTest'      # 모듈 경계 검사만
-#cd services/<collector|extraction> && uv run ruff check && uv run pytest
+cd services/collector && uv run ruff check && uv run pytest        # 수집기 린트 + 테스트
 ```
 
 ## Rules
