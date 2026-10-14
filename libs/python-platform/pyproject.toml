@@ -1,0 +1,32 @@
+[project]
+name = "mujuthaek-platform"
+version = "0.1.0"
+description = "파이썬 워커(collector·extraction) 공통 기술 코드: ID, 이벤트, 아웃박스, RabbitMQ, DB, 로그, 계약 검사"
+requires-python = ">=3.12"
+dependencies = [
+  "psycopg[binary]>=3.2",
+  "pika>=1.3",
+]
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.23"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mujuthaek_platform"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["mujuthaek_platform"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
