@@ -18,3 +18,9 @@ def test_hwp_first_when_preferred():
 def test_unit_list_takes_excel_once():
     files = refs("공급주택목록.pdf", "공급주택목록.xlsx", "예비자 명단.xlsx", "모집공고문.pdf")
     assert [f.name for f in pick_unit_lists(files)] == ["공급주택목록.xlsx"]
+
+
+def test_draw_result_files_are_personal():
+    """대전 결과 공고의 '추첨결과_….xlsx'에는 신청자 정보가 있을 수 있어서 받지 않아요."""
+    files = refs("2026년 상반기 청년매입임대주택 입주대기자 선정 결과 발표.pdf", "추첨결과_2026-09-03-10-00-23.xlsx")
+    assert files[1].personal and pick_unit_lists(files) == [] and pick_notice_files(files) == []

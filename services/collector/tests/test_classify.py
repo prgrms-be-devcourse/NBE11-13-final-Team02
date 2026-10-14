@@ -16,6 +16,13 @@ from mujuthaek_collector.core.classify import CORRECTION, EXCLUDED, FOLLOW_UP, N
         ("임대아파트 단지 내 상가 입점자 모집 공고", EXCLUDED),
         ("임대주택 재계약 안내", EXCLUDED),
         ("2026년 국민임대 예비입주자 모집공고", NOTICE),
+        # 대전 실제 제목 (2026-10-15)
+        ("2026년 2차 영구임대아파트 예비입주자 모집공고", NOTICE),
+        ("낭월 다가온 청년주택 추가모집 공고", NOTICE),
+        ("2026년 기존주택(청년임대) 3차 매입공고", EXCLUDED),
+        ("2026년 기존주택(청년) 추가 매입 공고", EXCLUDED),
+        ("갑천2 트리풀시티 엘리프 단지 내 상가 수의계약 공고", EXCLUDED),
+        ("대전평촌일반산업단지 산업ㆍ복합시설용지 일반공급 3차 공고", EXCLUDED),
     ],
 )
 def test_classify(title, kind):

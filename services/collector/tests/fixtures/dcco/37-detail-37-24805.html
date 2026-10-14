@@ -1,0 +1,1104 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+	<meta http-equiv="Content-Type" content="text/html; charset=utf-8" >
+	<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0, user-scalable=yes">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge" >
+
+	<!-- 네이버 웹마스터 도구 -->
+	<!-- 페이지 설명 -->
+	<link rel="canonical" href="https://www.dcco.kr/">
+	<meta name="description" content="지역개발 및 레저, 환경사업을 통하여 시민의 주거생활 안정과 복지향상, 균형발전에 기여하는 통합정보 포털 사이트입니다.">
+
+	<!-- 소셜미디어 -->
+	<meta property="og:type" content="website">
+	<meta property="og:title" content="대전도시공사">
+	<meta property="og:description" content="지역개발 및 레저, 환경사업을 통하여 시민의 주거생활 안정과 복지향상, 균형발전에 기여하는 통합정보 포털 사이트입니다.">
+	<meta property="og:image" content="https://www.dcco.kr/web/images/logo.png">
+	<!-- 사파리 전화번호 링크 제거-->
+	<meta name="format-detection" content="telephone=no">
+
+	<meta name="twitter:card" content="summary">
+	<meta name="twitter:title" content="대전도시공사">
+	<meta name="twitter:description" content="지역개발 및 레저, 환경사업을 통하여 시민의 주거생활 안정과 복지향상, 균형발전에 기여하는 통합정보 포털 사이트입니다.">
+	<meta name="twitter:image" content="https://www.dcco.kr/web/images/logo.png">
+	<meta name="twitter:domain" content="대전도시공사">
+
+	<!-- 모바일 앱 연결 -->
+	<meta property="al:ios:url" content="applinks://docs">
+	<meta property="al:ios:app_store_id" content="12345">
+	<meta property="al:ios:app_name" content="App Links">
+	<meta property="al:android:url" content="applinks://docs">
+	<meta property="al:android:app_name" content="App Links">
+	<meta property="al:android:package" content="org.applinks">
+	<meta property="al:web:url" content="http://applinks.org/documentation">
+	<!-- //네이버 웹마스터 도구 -->
+
+	<title>대전도시공사-분양공고</title>
+
+	<script type="text/javascript" src="/web/js/jquery-1.11.0.min.js"></script>
+	<script type="text/javascript" src="/include/js/jquery.form.min.js"></script>
+	<script type="text/javascript" src="/include/js/jquery-ui.js"></script>
+	<script type="text/javascript" src="/include/js/checkForm.js?cp=&amp;lg=ko&amp;st=web"></script>
+
+	<!-- libraries :S -->
+	<!-- jquery -->
+	<script src="/web/js/common/libs/jquery-3.6.0.min.js"></script>
+	<!-- jquery-ui -->
+	<link rel="stylesheet" type="text/css" href="/web/js/common/libs/jquery-ui-1.11.4/jquery-ui.min.css" >
+	<script src="/web/js/common/libs/jquery-ui-1.11.4/jquery-ui.min.js"></script>
+	<!-- gsap -->
+	<script src="/web/js/common/libs/scroll/gsap.min.js"></script>
+	<script src="/web/js/common/libs/scroll/ScrollTrigger.min.js"></script>
+	<script src="/web/js/common/libs/scroll/ScrollToPlugin.min.js"></script>
+	<!-- libraries :E -->
+
+	<!-- default js -->
+	<script src="/web/js/common/components.js"></script>
+	<script src="/web/js/common/common.js"></script>
+	<script src="/web/js/common/main.js"></script>
+
+	<link href="/web/images/favicon.ico" rel="shortcut icon" type="image/x-icon">
+	<link href="/web/images/favicon.ico" rel="apple-touch-icon">
+	<script type="text/javascript">
+$(function(){	
+	  
+	  
+	
+	// 수정
+	$(".fn_btn_modify").click(function(){
+		var varIsNMChk = $(this).attr("data-nm");
+		if(fn_isValFill(varIsNMChk)) {
+			
+			fn_showPwdDialog(varIsNMChk, $(this).attr("href"));
+			return false;
+		}
+			
+		return true;
+	});
+	
+	// 삭제
+	$(".fn_btn_delete").click(function(){
+		var varIsNMChk = $(this).attr("data-nm");
+		if(fn_isValFill(varIsNMChk)) {
+			
+			fn_showPwdDialog(varIsNMChk, $(this).attr("href"));
+			return false;
+		} else {
+			try {
+				var varConfirm = confirm("선택하신 게시물을 삭제하시겠습니까?");
+				if(!varConfirm) return false;
+			}catch(e){return false;}
+			return true;
+		}
+	});
+	
+	
+	$(".fn_btn_replyChange").click(function(){
+		var replyVal = $("#replyStateChange").val();
+		
+		$.ajax({
+			type:'POST', 
+			beforeSend:function(request){request.setRequestHeader('Ajax', 'true');},
+			dataType:'json', 
+			url:"replyStateChange.json?mId=37&brdIdx=24805&replyStateChange=" + replyVal , 
+			async:true, 
+			success:function(result){
+				console.log(result.result);
+				if(result.result == 1) alert("처리상태가 정상적으로 변경되었습니다.");
+				else alert("처리상태가 변경되지 않았습니다.\n관리자에게 문의하세요");
+			}, 
+			error:function(request,error){
+				fn_ajax.checkError(request);
+				//alert("code:"+request.status+"\n"+"message:"+request.responseText+"\n"+"error:"+error);
+			}
+		});
+		
+		return false;
+	});
+	
+	
+	
+	
+});
+</script>
+<script type="text/javascript">
+$(function(){	
+	// 상세보기
+	$(".fn_btn_view").click(function(){
+		var varIsNMChk = $(this).attr("data-nm");
+		if(fn_isValFill(varIsNMChk)) {
+			
+					fn_showPwdDialog(varIsNMChk, $(this).attr("href"), 'v');
+				
+			return false;
+		}
+		return true;
+	});
+});
+</script>
+<script type="text/javascript">
+$(function(){	
+	
+});
+</script><script type="text/javascript">
+$(function(){
+	// 등록/수정
+	$("#fn_passwordForm").submit(function(){
+		try {
+			$.ajax({
+		  		type:'POST', 
+		  		beforeSend:function(request){request.setRequestHeader('Ajax', 'true');},
+		  		url:$(this).prop('action'), 
+		  		data:$(this).serialize(),
+		  		success:function(result){
+		  			eval(result.replace(/<br\/>/g, '\\n'));
+		  			if(result == '' && $('#chkUrl').val().indexOf('&dataNm=') >= 0){
+		  				$.ajax({
+	  						beforeSend:function(request){request.setRequestHeader('Ajax', 'true');},
+	  						url:$('#chkUrl').val(),
+	  						success:function(data){
+	  							$('#fn_infoPwd').dialog("close");
+	  							eval(data);
+	  						}
+		  				});
+		  			}
+		  		}
+			});
+			return false;
+		}catch(e){return false;}
+	});	
+});
+
+function fn_showPwdDialog(theIdx, theAction, pageType) {
+	if(!fn_isValFill(theIdx)) return false;
+	var varIdx = theIdx.split('|');
+	var varChkUrl = (typeof(theAction) == "undefined")?"":theAction;
+	$("#fn_passwordForm input[name='pwd']").val("");
+	$("#fn_passwordForm input[name='chkUrl']").val(varChkUrl);
+	var varAction = $("#fn_passwordForm").attr("action");
+	if(typeof(pageType) == "undefined") pageType = ''; 
+	var passProcPath;
+	if(pageType == 'v') passProcPath = 'viewPassProc.do';
+	else passProcPath = 'passProc.do';
+	var varAction = passProcPath + "?mId=37&brdIdx=" + varIdx[0];
+	if(varIdx.length > 1) varAction += "&memIdx=" + varIdx[1];
+	$("#fn_passwordForm").attr("action", varAction);
+	var varDId = "fn_infoPwd";
+	$("#" + varDId).dialog({
+		bgifram: true,
+   		autoOpen: false,
+		resizable:false,
+   		modal: true
+   	});
+	$("#" + varDId).dialog("option", "title", "비밀번호 확인");
+	$("#" + varDId).dialog("option", "width", "500");
+	$("#" + varDId).dialog("option", "height", "150");
+	$("#" + varDId).css("z-index",10007);
+	$("#" + varDId).css("overflow",'hidden');
+	$("#" + varDId).css("background",'#FFF');
+	$("#" + varDId).css("padding",'0px');
+	$("#" + varDId).parent().css({"z-index":10006, "padding":"0px","border":"0px","background":"transparent"});
+	$("#" + varDId).dialog("open");
+}
+</script><link rel="stylesheet" type="text/css" href="/web/css/fullpage.css"/>
+	 <link rel="stylesheet" type="text/css" href="/web/css/ui_content.css?ver=0.9"/>
+	<link rel="stylesheet" type="text/css" href="/web/css/re.css"/>
+	<link rel="stylesheet" type="text/css" href="/web/css/etc.css?ver=0.1"/>
+	<link rel="stylesheet" type="text/css" href="/web/css/components.css"/>
+	<link rel="stylesheet" type="text/css" href="/web/css/layout.css"/>
+	<link rel="stylesheet" type="text/css" href="/web/css/main.css"/>
+	<script type="text/javascript" src="/web/js/jquery.easing.1.3.js"></script>
+	<script type="text/javascript" src="/web/js/fullpage.js"></script>
+	<script type="text/javascript" src="/web/js/scrolloverflow.min.js"></script>
+	<script type="text/javascript" src="/web/js/swiper.min.js"></script>
+	<script type="text/javascript" src="/web/js/common.js"></script>
+	<script type="text/javascript" src="/web/js/menu.js"></script>
+	<script type="text/javascript" src="/web/js/main.js"></script>
+	<script type="text/javascript" src="/web/js/jquery.cookie.js"></script>
+
+	<script type="text/javascript" src="/include/js/calendar.js"></script>
+	<link rel="stylesheet" type="text/css" href="/include/js/calendar/calendar.css"/>
+
+	<script type="text/javascript">
+	var gVarM = true;
+
+	$(document).ready(function(){
+		$(document).on('click', '#topPrint', function(){pagePrint(1);return false;});
+
+		// sns 공유버튼 클릭
+		$(".fn_btn_sns").click(function(){
+			var varSnsType = $(this).attr("data-type");
+			fn_shareSns(varSnsType, $(this).attr("data-img"));
+			// sns 공유로그
+			$.ajax({
+				type:'POST',
+				beforeSend:function(request){request.setRequestHeader('Ajax', 'true');},
+				url:'/web/stats/sns.do?mId=37&snsType=' + $(this).attr("data-type") + '&sn=%EB%8C%80%EC%A0%84%EB%8F%84%EC%8B%9C%EA%B3%B5%EC%82%AC&mn=%EB%B6%84%EC%96%91%EA%B3%B5%EA%B3%A0',
+				async:true,
+				success:function(result){
+				},
+				error:function(request,error){
+				}
+			});
+			return false;
+		});
+	});
+
+	function pagePrint(type){
+		try {
+			if(type == 1) window.open("/web/print/printView.jsp", "print", "width=1500,height=700,left=10px,top=10px,scrollbars=yes,toolbar=no,menubar=no");
+			else if(type == 2) window.open("/web/print/printView.jsp?type=" + type, "print", "width=800,height=700,left=10px,top=10px,scrollbars=yes,toolbar=no,menubar=no");
+			else  window.open("/web/print/printView.jsp?type=" + type, "print", "width=800,height=700,left=10px,top=10px,scrollbars=yes,toolbar=no,menubar=no");
+		}catch(e){}
+		return false;
+	}
+
+	</script>
+	<!-- kakao sdk 호출 -->
+	<script src="https://developers.kakao.com/sdk/js/kakao.js"></script>
+
+	<script type="text/javascript">
+	  // SDK를 초기화 합니다. 사용할 앱의 JavaScript 키를 설정해 주세요.
+	  Kakao.init('JAVASCRIPT_KEY');
+
+	  // SDK 초기화 여부를 판단합니다.
+	  console.log(Kakao.isInitialized());
+
+	  function kakaoShare() {
+	    Kakao.Link.sendDefault({
+	      objectType: 'feed',
+	      content: {
+	        title: '카카오공유하기 시 타이틀',
+	        description: '카카오공유하기 시 설명',
+	        imageUrl: '카카오공유하기 시 썸네일 이미지 경로',
+	        link: {
+	          mobileWebUrl: '카카오공유하기 시 클릭 후 이동 경로',
+	          webUrl: '카카오공유하기 시 클릭 후 이동 경로',
+	        },
+	      },
+	      buttons: [
+	        {
+	          title: '웹으로 보기',
+	          link: {
+	            mobileWebUrl: '카카오공유하기 시 클릭 후 이동 경로',
+	            webUrl: '카카오공유하기 시 클릭 후 이동 경로',
+	          },
+	        },
+	      ],
+	      // 카카오톡 미설치 시 카카오톡 설치 경로이동
+	      installTalk: true,
+	    })
+	  }
+	</script>
+<link href="/resource/rbs/board/default/default/style.css" rel="stylesheet" type="text/css" />
+<link rel="stylesheet" type="text/css" href="/include/js/jquery/css/jquery-ui.css"/><script type="text/javascript"><!--
+$(function(){
+	fn_contactSubmitForm('/web/stats/contact.do?mId=37&sn=%EB%8C%80%EC%A0%84%EB%8F%84%EC%8B%9C%EA%B3%B5%EC%82%AC&mn=%EB%B6%84%EC%96%91%EA%B3%B5%EA%B3%A0');
+});
+//--></script>
+</head>
+<body>
+<!-- skip navi -->
+<ul id="skip_navi">
+	<li><a href="#content">본문 바로가기</a></li>
+	<li><a href="#gnb">메인메뉴 바로가기</a></li>
+</ul>
+
+<!-- //skip navi -->
+
+<div id="wrapper">
+<!-- header -->
+	<header id="header">
+		<div class="header-wrap">
+			<!-- 로그인 상태 -->
+			<div class="header-in">
+				<h1 id="logo"><a href="/web/main/main.do?mId=1"><span class="blind">대전도시공사</span></a></h1>
+
+				<!-- 상단메뉴 -->
+				<nav id="gnb">
+					<ul class="depth-01">
+<li>
+				<a href="/web/contents/view.do?mId=52" class="menu-01" title="사업안내" target=""><span>사업안내</span></a>
+				<div class="sub">
+<!-- 							<div class="gnb_txt"> -->
+<!-- 								<p>오늘의 행복에서 내일의 행복까지<br> 대전시민 곁에 함께 합니다.</p> -->
+<!-- 							</div> -->
+							<ul class="depth-02">
+								<li>
+										<a href="/web/contents/view.do?mId=52" class="menu-02" title="사업현황" target=""><span>사업현황</span></a>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=61" class="menu-02" title="도시재생" target=""><span>도시재생</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=61" class="menu-03" title="도시재생 개념 및 체계" target=""><span>도시재생 개념 및 체계</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=188" class="menu-03" title="도시재생 추진방향" target=""><span>도시재생 추진방향</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=198" class="menu-02" title="신재생에너지" target=""><span>신재생에너지</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=198" class="menu-03" title="학하수소충전소 운영" target=""><span>학하수소충전소 운영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=229" class="menu-03" title="신대수소충전소 운영" target=""><span>신대수소충전소 운영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=238" class="menu-03" title="낭월수소충전소 운영" target=""><span>낭월수소충전소 운영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=273" class="menu-03" title="낭월 소규모 수소추출시설 운영" target=""><span>낭월 소규모 수소추출시설 운영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=199" class="menu-03" title="수소충전소 구축" target=""><span>수소충전소 구축</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=278" class="menu-03" title="실시간 수소충전소 대기현황" target=""><span>실시간 수소충전소 대기현황</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=231" class="menu-02" title="다가온 공공임대주택" target=""><span>다가온 공공임대주택</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=231" class="menu-03" title="사업개요" target=""><span>사업개요</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=232" class="menu-03" title="공급계획" target=""><span>공급계획</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=233" class="menu-03" title="홍보관" target=""><span>홍보관</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/apply/list.do?mId=56" class="menu-02" title="주택공급" target=""><span>주택공급</span></a>
+										</li>
+									<li>
+										<a href="/web/apply/list.do?mId=58" class="menu-02" title="택지/산업단지" target=""><span>택지/산업단지</span></a>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=59" class="menu-02" title="레저사업" target=""><span>레저사업</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="https://www.oworld.kr/newkfsweb/kfs/dcco/dccoMainindex.do" class="menu-03" title="대전 오월드" target="_blank"><span>대전 오월드</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/reser/fldTrip/main.do?mId=289" class="menu-02" title="환경사업" target=""><span>환경사업</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/reser/fldTrip/mainInfo.do?mId=289" class="menu-03" title="환경시설 견학신청" target=""><span>환경시설 견학신청</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=69" class="menu-03" title="위생매립장 조성운영" target=""><span>위생매립장 조성운영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=70" class="menu-03" title="도로 재비산먼지 저감사업" target=""><span>도로 재비산먼지 저감사업</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=71" class="menu-03" title="대전바이오에너지센터" target=""><span>대전바이오에너지센터</span></a>
+													</li>
+													<li>
+														<a href="/web/subcont/emsnGas/main.do?mId=288" class="menu-03" title="소각장 운영관리" target=""><span>소각장 운영관리</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=73" class="menu-03" title="도안크린넷시설운영" target=""><span>도안크린넷시설운영</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=275" class="menu-02" title="신기술·특허" target=""><span>신기술·특허</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=275" class="menu-03" title="신기술·특허 알림방" target=""><span>신기술·특허 알림방</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=276" class="menu-03" title="진행중인 신기술·특허" target=""><span>진행중인 신기술·특허</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=277" class="menu-03" title="신기술 사후평가 결과" target=""><span>신기술 사후평가 결과</span></a>
+													</li>
+													</ul>
+										</li>
+									</ul>
+				</div>
+				</li>
+		<li>
+				<a href="/web/board/list.do?mId=37" class="menu-01" title="분양/임대" target=""><span>분양/임대</span></a>
+				<div class="sub">
+<!-- 							<div class="gnb_txt"> -->
+<!-- 								<p>오늘의 행복에서 내일의 행복까지<br> 대전시민 곁에 함께 합니다.</p> -->
+<!-- 							</div> -->
+							<ul class="depth-02">
+								<li>
+										<a href="/web/board/list.do?mId=37" class="menu-02" title="분양안내" target=""><span>분양안내</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=37" class="menu-03" title="분양공고" target=""><span>분양공고</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/list.do?mId=38" class="menu-03" title="택지분양" target=""><span>택지분양</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/list.do?mId=39" class="menu-03" title="주택분양" target=""><span>주택분양</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/list.do?mId=40" class="menu-03" title="상가분양" target=""><span>상가분양</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/checkBuilding.do?mId=41" class="menu-03" title="분양대금 납부조회" target=""><span>분양대금 납부조회</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/onlnAply.do?mId=282" class="menu-03" title="온라인신청" target=""><span>온라인신청</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/certIssuance.do?mId=281" class="menu-03" title="증명서발급" target=""><span>증명서발급</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=43" class="menu-02" title="임대안내" target=""><span>임대안내</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=43" class="menu-03" title="임대공고" target=""><span>임대공고</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=239" class="menu-03" title="영구임대" target=""><span>영구임대</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=297" class="menu-03" title="다가온 청년주택 임대" target=""><span>다가온 청년주택 임대</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=240" class="menu-03" title="매입임대" target=""><span>매입임대</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=241" class="menu-03" title="청년임대" target=""><span>청년임대</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=211" class="menu-03" title="상가임대" target=""><span>상가임대</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/checkRent.do?mId=48" class="menu-03" title="임대료 납부조회" target=""><span>임대료 납부조회</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/checkWait.do?mId=49" class="menu-03" title="예비입주자 대기현황" target=""><span>예비입주자 대기현황</span></a>
+													</li>
+													<li>
+														<a href="/web/rent/input.do?mId=200" class="menu-03" title="임대아파트 알림 서비스" target=""><span>임대아파트 알림 서비스</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=50" class="menu-02" title="분양 및 임대관련 자료" target=""><span>분양 및 임대관련 자료</span></a>
+										</li>
+									<li>
+										<a href="/web/reser/list.do?mId=294" class="menu-02" title="(보상)분양상담예약" target=""><span>(보상)분양상담예약</span></a>
+										</li>
+									</ul>
+				</div>
+				</li>
+		<li>
+				<a href="/web/contents/view.do?mId=76" class="menu-01" title="고객센터" target=""><span>고객센터</span></a>
+				<div class="sub">
+<!-- 							<div class="gnb_txt"> -->
+<!-- 								<p>오늘의 행복에서 내일의 행복까지<br> 대전시민 곁에 함께 합니다.</p> -->
+<!-- 							</div> -->
+							<ul class="depth-02">
+								<li>
+										<a href="/web/contents/view.do?mId=76" class="menu-02" title="고객약속" target=""><span>고객약속</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=76" class="menu-03" title="고객서비스약속" target=""><span>고객서비스약속</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=77" class="menu-03" title="서비스이행기준" target=""><span>서비스이행기준</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=78" class="menu-03" title="계약서비스약속" target=""><span>계약서비스약속</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=79" class="menu-03" title="환경관리서비스약속" target=""><span>환경관리서비스약속</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=80" class="menu-02" title="고객마당" target=""><span>고객마당</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=80" class="menu-03" title="자주하는  질문(FAQ)" target=""><span>자주하는  질문(FAQ)</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=63" class="menu-03" title="고객의 소리" target=""><span>고객의 소리</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=202" class="menu-03" title="고객서비스" target=""><span>고객서비스</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=186" class="menu-03" title="고객신고" target=""><span>고객신고</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=166" class="menu-02" title="고객참여" target=""><span>고객참여</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=166" class="menu-03" title="주민참여예산" target=""><span>주민참여예산</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=169" class="menu-03" title="주민제안사업" target=""><span>주민제안사업</span></a>
+													</li>
+													</ul>
+										</li>
+									</ul>
+				</div>
+				</li>
+		<li>
+				<a href="/web/contents/view.do?mId=101" class="menu-01" title="정보공개" target=""><span>정보공개</span></a>
+				<div class="sub">
+<!-- 							<div class="gnb_txt"> -->
+<!-- 								<p>오늘의 행복에서 내일의 행복까지<br> 대전시민 곁에 함께 합니다.</p> -->
+<!-- 							</div> -->
+							<ul class="depth-02">
+								<li>
+										<a href="/web/contents/view.do?mId=101" class="menu-02" title="정보공개" target=""><span>정보공개</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=101" class="menu-03" title="정보공개 안내" target=""><span>정보공개 안내</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=102" class="menu-03" title="정보공개 청구/서식" target=""><span>정보공개 청구/서식</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=225" class="menu-03" title="비공개 세부기준" target=""><span>비공개 세부기준</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=95" class="menu-02" title="사전정보공표목록" target=""><span>사전정보공표목록</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=95" class="menu-03" title="사전정보공표목록" target=""><span>사전정보공표목록</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=214" class="menu-03" title="사전정보공표목록(2021년 이전자료)" target=""><span>사전정보공표목록(2021년 이전자료)</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/openInfoList/list.do?mId=96" class="menu-02" title="정보목록공개" target=""><span>정보목록공개</span></a>
+										<ul class="depth-03">
+												</ul>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=195" class="menu-02" title="공공데이터 개방" target=""><span>공공데이터 개방</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=195" class="menu-03" title="공공데이터 안내" target=""><span>공공데이터 안내</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=262" class="menu-03" title="공공데이터 상시 의견수렴" target=""><span>공공데이터 상시 의견수렴</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=235" class="menu-03" title="공공데이터 온라인 설문조사" target=""><span>공공데이터 온라인 설문조사</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=103" class="menu-03" title="공공데이터 개방 현황" target=""><span>공공데이터 개방 현황</span></a>
+													</li>
+													<li>
+														<a href="/web/apply/openDataList.do?mId=104" class="menu-03" title="폐기물 처리통계" target=""><span>폐기물 처리통계</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=98" class="menu-02" title="통합공시" target=""><span>통합공시</span></a>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=301" class="menu-02" title="경영공시" target=""><span>경영공시</span></a>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=105" class="menu-02" title="공사 사규" target=""><span>공사 사규</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=105" class="menu-03" title="공사 내규/규정" target=""><span>공사 내규/규정</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=106" class="menu-03" title="공사 사규 제/개정 예고" target=""><span>공사 사규 제/개정 예고</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=191" class="menu-02" title="계약정보공개" target=""><span>계약정보공개</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=109" class="menu-03" title="발주정보 및 발주계획" target=""><span>발주정보 및 발주계획</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=191" class="menu-03" title="입찰공고" target="_self"><span>입찰공고</span></a>
+													</li>
+													<li>
+														<a href="https://www.g2b.go.kr:8340/search.do?subCategory=ALL&amp;kwd=%C0%D4%C2%FB%B0%F8%B0%ED&amp;startDate=20230609&amp;endDate=20230909&amp;dateMonth=3&amp;dateType=2&amp;orgType=suyo&amp;orgName=%B4%EB%C0%FC%B5%B5%BD%C3%B0%F8%BB%E7&amp;orgCode=B552519&amp;swFlag=Y&amp;gonggoNo=&amp;preKwd=%C0%D4%C2%FB%B0%F8%B0%ED&amp;preKwds=&amp;detailSearch=true&amp;category=GC#self" class="menu-03" title="개찰결과" target="_blank"><span>개찰결과</span></a>
+													</li>
+													<li>
+														<a href="/web/subcont/ctrtSttsList.do?mId=283" class="menu-03" title="계약관리" target=""><span>계약관리</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=111" class="menu-03" title="부정당업자 제재" target=""><span>부정당업자 제재</span></a>
+													</li>
+													<li>
+														<a href="/web/subcont/ctrtDcmnt.do?mId=287" class="menu-03" title="계약서류 양식 다운로드" target=""><span>계약서류 양식 다운로드</span></a>
+													</li>
+													</ul>
+										</li>
+									</ul>
+				</div>
+				</li>
+		<li>
+				<a href="/web/board/list.do?mId=144" class="menu-01" title="dcco 홍보" target=""><span>dcco 홍보</span></a>
+				<div class="sub">
+<!-- 							<div class="gnb_txt"> -->
+<!-- 								<p>오늘의 행복에서 내일의 행복까지<br> 대전시민 곁에 함께 합니다.</p> -->
+<!-- 							</div> -->
+							<ul class="depth-02">
+								<li>
+										<a href="/web/board/list.do?mId=144" class="menu-02" title="공사소식" target=""><span>공사소식</span></a>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=114" class="menu-02" title="보도자료" target=""><span>보도자료</span></a>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=118" class="menu-02" title="홍보자료" target=""><span>홍보자료</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/list.do?mId=118" class="menu-03" title="홍보동영상" target=""><span>홍보동영상</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=120" class="menu-02" title="펜싱 선수단" target=""><span>펜싱 선수단</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=120" class="menu-03" title="선수단 소개" target=""><span>선수단 소개</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=122" class="menu-03" title="선수단 소식" target=""><span>선수단 소식</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/board/listView.do?mId=123" class="menu-02" title="dcco 서비스" target=""><span>dcco 서비스</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/board/listView.do?mId=123" class="menu-03" title="개인정보처리방침" target=""><span>개인정보처리방침</span></a>
+													</li>
+													<li>
+														<a href="/web/board/listView.do?mId=124" class="menu-03" title="영상정보처리기기 운영·관리 방침" target=""><span>영상정보처리기기 운영·관리 방침</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=237" class="menu-03" title="대전도시공사 부패방지 방침" target=""><span>대전도시공사 부패방지 방침</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=125" class="menu-03" title="뷰어다운로드" target=""><span>뷰어다운로드</span></a>
+													</li>
+													<li>
+														<a href="/web/main/sitemap.do?mId=126" class="menu-03" title="사이트맵" target=""><span>사이트맵</span></a>
+													</li>
+													</ul>
+										</li>
+									</ul>
+				</div>
+				</li>
+		<li>
+				<a href="/web/contents/view.do?mId=128" class="menu-01" title="dcco 소개" target=""><span>dcco 소개</span></a>
+				<div class="sub">
+<!-- 							<div class="gnb_txt"> -->
+<!-- 								<p>오늘의 행복에서 내일의 행복까지<br> 대전시민 곁에 함께 합니다.</p> -->
+<!-- 							</div> -->
+							<ul class="depth-02">
+								<li>
+										<a href="/web/contents/view.do?mId=128" class="menu-02" title="CEO" target=""><span>CEO</span></a>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=135" class="menu-02" title="일반현황" target=""><span>일반현황</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=135" class="menu-03" title="기관개요" target=""><span>기관개요</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=137" class="menu-03" title="경영전략" target=""><span>경영전략</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=295" class="menu-03" title="고객만족 전략 체계" target=""><span>고객만족 전략 체계</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/board/list.do?mId=113" class="menu-02" title="공지사항" target=""><span>공지사항</span></a>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=258" class="menu-02" title="ESG 경영" target=""><span>ESG 경영</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=258" class="menu-03" title="ESG 경영 " target=""><span>ESG 경영 </span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=150" class="menu-03" title="윤리경영" target=""><span>윤리경영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=154" class="menu-03" title="인권경영" target=""><span>인권경영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=171" class="menu-03" title="사회공헌" target=""><span>사회공헌</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=207" class="menu-03" title="안전보건경영" target=""><span>안전보건경영</span></a>
+													</li>
+													<li>
+														<a href="/web/contents/view.do?mId=249" class="menu-03" title="적극행정" target=""><span>적극행정</span></a>
+													</li>
+													</ul>
+										</li>
+									<li>
+										<a href="/web/orgDetp/orgDetp.do?mId=130" class="menu-02" title="조직 및 업무" target=""><span>조직 및 업무</span></a>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=133" class="menu-02" title="CI" target=""><span>CI</span></a>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=134" class="menu-02" title="찾아오시는길" target=""><span>찾아오시는길</span></a>
+										</li>
+									<li>
+										<a href="/web/contents/view.do?mId=227" class="menu-02" title="채용" target=""><span>채용</span></a>
+										<ul class="depth-03">
+												<li>
+														<a href="/web/contents/view.do?mId=227" class="menu-03" title="채용안내" target=""><span>채용안내</span></a>
+													</li>
+													<li>
+														<a href="/web/board/list.do?mId=158" class="menu-03" title="채용공고" target=""><span>채용공고</span></a>
+													</li>
+													</ul>
+										</li>
+									</ul>
+				</div>
+				</li>
+		</ul>
+</nav>
+				<div id="utils">
+					<ul class="list">
+						<li>
+							<button type="button" class="btn-sitemap type-pc"><span class="blind">전체메뉴 열기</span></button>
+							<button type="button" class="btn-sitemap type-mobile"><span class="blind">전체메뉴 열기</span></button>
+						</li>
+					</ul>
+				</div>
+			</div>
+		</div>
+			<!-- //상단메뉴 -->
+
+			<div class="mainLayPop">
+				<div class="popCon" style="max-width: 580px;">
+					<h2 class="popTit">로그인연장</h2>
+					<div style="text-align: center;">
+						로그아웃 남은시간 <span class="fn_autoLogout_countdown" style="color: red;"></span>
+					</div>
+					<div class="btnInfo">
+						<button class="mainBtn2 fn_login_extension" type="button" >로그인연장</button>
+						<button class="mainBtn1" type="button" onclick="location.href='/anyid/login/logout.jsp'" >로그아웃</button>
+					</div>
+				</div>
+			</div>
+
+			<script type="text/javascript">
+				$(function(){
+
+
+					$(".mainBtn2").click(function(){
+						$(".mainLayPop").hide();
+					});
+				});
+			</script>
+
+			<!-- //로그인 상태 -->
+
+			<div id="menuWrap">
+				<div id="sitemap">
+					<div class="content-wrap">
+						<h3 class="blind">Sitemap</h3>
+						<div class="con-head">
+							<a href="/web/main/main.do?mId=1" class="logo"><span class="blind">DCCO 대전도시공사</span></a>
+						</div>
+						<div class="con-body scrollbar-custom">
+							<div class="inner"></div>
+						</div>
+						<button type="button" class="btn-menu-close" title="사이트맵 닫기"><span class="blind">사이트맵 닫기</span></button>
+					</div>
+				</div>
+
+				<div id="mobileMenu">
+					<div class="con-head">
+						<div class="head-top">
+							<a href="/web/main/main.do?mId=1" class="logo"><span class="blind">DCCO 대전도시공사</span></a>
+							<ul class="sns-list">
+								<li><a href="https://blog.naver.com/dcco1993" class="btn-sns" data-type="blog" data-s="hexagon fix" title="새 창"><span class="icon" data-s="blog"></span><span class="blind">네이버 블로그</span></a></li>
+								<li><a href="https://www.instagram.com/dcco.kr/?img_index=2" class="btn-sns" data-type="instagram" data-s="hexagon fix" title="새 창"><span class="icon" data-s="instagram"></span><span class="blind">인스타그램</span></a></li>
+								<li><a href="https://www.youtube.com/@dcco_kr/featured" class="btn-sns" data-type="youtube" data-s="hexagon fix" title="새 창"><span class="icon" data-s="youtube"></span><span class="blind">유튜브</span></a></li>
+							</ul>
+						</div>
+					</div>
+					<div class="con-body scrollbar-custom prevent-scroll"></div>
+					<button type="button" class="icon-close btn-menu-close" title="전체메뉴 닫기"><span class="blind">전체메뉴 닫기</span></button>
+				</div>
+			</div>
+
+			<!-- 			<button type="button" class="btnBlog" onclick="window.open('https://blog.naver.com/dcco1993')"><span>블로그</span></button> -->
+<!-- 			<button type="button" class="btnMenu"><span>메뉴</span></button> -->
+<!-- 			<button type="button" class="btnTotalMenu"><span>전체메뉴</span></button> -->
+<!-- 			 전체메뉴 및 모바일메뉴  -->
+<!-- 			<nav id="totalMb"> -->
+<!-- 			</nav> -->
+<!-- 			 //전체메뉴 및 모바일메뉴  -->
+<!-- 		</div> -->
+<!-- 		<div class="gnb_Bg"></div> -->
+	</header>
+	<!-- //header -->
+
+<!-- container -->
+	<div id="subContainer">
+	<div class="subSkin bg1">
+				<h2>분양/임대</h2>
+				<p>당신 곁에 언제나 대전도시공사가 함께 합니다.</p>
+			</div>
+			<nav id="lnb">
+				<div class="lnbWrap">
+					<div class="lnbCon">
+						<div class="lnbBox">
+						   <ul>
+<li class="home"><a href="/web/main/main.do?mId=1" title="HOME">홈</a></li>
+	<li class="depth1">
+		<!-- 1차 메뉴도 콤보박스 만들기 -->
+		<button type="button">분양/임대</button>
+		<ul>
+		<li><a href="/web/contents/view.do?mId=52" title="사업안내" target="">사업안내</a></li>
+			<li class="on"><a href="/web/board/list.do?mId=37" title="분양/임대" target="">분양/임대</a></li>
+			<li><a href="/web/contents/view.do?mId=76" title="고객센터" target="">고객센터</a></li>
+			<li><a href="/web/contents/view.do?mId=101" title="정보공개" target="">정보공개</a></li>
+			<li><a href="/web/board/list.do?mId=144" title="dcco 홍보" target="">dcco 홍보</a></li>
+			<li><a href="/web/contents/view.do?mId=128" title="dcco 소개" target="">dcco 소개</a></li>
+			</ul>
+	</li>
+	<li class="depth2">
+		<button type="button">분양안내</button>
+		<ul>
+		<li class="on">
+			<a href="/web/board/list.do?mId=37" title="분양안내" target="">분양안내</a>
+			</li>
+			<li>
+			<a href="/web/board/list.do?mId=43" title="임대안내" target="">임대안내</a>
+			</li>
+			<li>
+			<a href="/web/contents/view.do?mId=50" title="분양 및 임대관련 자료" target="">분양 및 임대관련 자료</a>
+			</li>
+			<li>
+			<a href="/web/reser/list.do?mId=294" title="(보상)분양상담예약" target="">(보상)분양상담예약</a>
+			</li>
+			</ul>
+	</li>
+	<li class="depth3 on">
+		<button type="button">분양공고</button>
+		<ul>
+		<li class="on"><a href="/web/board/list.do?mId=37" title="분양공고" target="">분양공고</a>
+			</li>
+			<li><a href="/web/apply/list.do?mId=38" title="택지분양" target="">택지분양</a>
+			</li>
+			<li><a href="/web/apply/list.do?mId=39" title="주택분양" target="">주택분양</a>
+			</li>
+			<li><a href="/web/apply/list.do?mId=40" title="상가분양" target="">상가분양</a>
+			</li>
+			<li><a href="/web/apply/checkBuilding.do?mId=41" title="분양대금 납부조회" target="">분양대금 납부조회</a>
+			</li>
+			<li><a href="/web/apply/onlnAply.do?mId=282" title="온라인신청" target="">온라인신청</a>
+			</li>
+			<li><a href="/web/apply/certIssuance.do?mId=281" title="증명서발급" target="">증명서발급</a>
+			</li>
+			</ul>
+	</li>
+	</ul>
+<div class="etcBtn">
+								<button type="button" class="btnShar">공유</button>
+								<div class="btnSns">
+
+									<!-- <span class="sns3"><a id="kakao-link-btn" href="javascript:kakaoShare()"><img src="../images/kakao_small_img.png"/></a></span> -->
+									</div>
+								<span id="topPrint" class="btnPrint"><a href="#">인쇄</a></span>
+							</div>
+						</div>
+					</div>
+				</div>
+			</nav>
+			<div id="content">
+			<h1 class="title">분양공고</h1>
+				<div id="cms_board_article">
+	    
+		<table class="viewTypeA" summary="제목, 작성자, 작성일, 조회수, 첨부파일, 분양구분, 분양, 직장전화번호, 부서명, 임대구분코드, 게시기간, 모집기간, 게시여부내용을 제공하는 표">
+			<caption>
+			사업분야, 사업, 공고일, 사업담당부서, 사업담당자, 연락처, 첨부파일의 게시글 내용표입니다.
+			</caption>
+			
+			
+			<colgroup>
+			<col style="width:14%">
+			<col style="width:36%">
+			<col style="width:14%">
+			<col style="width:36%">
+			<col>
+			</colgroup>
+						
+			<thead>
+				<tr>
+					<th colspan="4" scope="col" class="viewTlt">
+					[공지] <span class="part">
+						[주택분양]<!-- 임대공고 -->
+						</span>
+					갑천3 트리풀시티 레이크포레 토지 소유권이전등기 안내</th>
+				</tr>
+			</thead>
+			<tbody>
+			    <tr>
+
+
+					<th scope="row">부서명</th><td colspan="3">판매전략팀</td></tr>
+				<tr>
+					<th scope="row">연락처</th><td>042-530-9192</td><th scope="row">등록일</th><td>2026-08-19</td>
+				</tr>
+				<tr class="con">
+					<td class="contents" colspan="4">
+						<!-- <div class="se2_outputarea"> -->
+					<p><span style="font-family: 나눔고딕코딩, NanumGothicCoding, sans-serif; font-size: 12pt;">트리풀시티 레이크포레 토지 소유권이전등기 안내문을 게시하오니, 대상 계약자께서는 안내문을 확인하시어&nbsp;</span>&nbsp;</p><p><span style="font-family: 나눔고딕코딩, NanumGothicCoding, sans-serif; font-size: 12pt;">토지 소유권이전 서류를 신청하여 주시기 바랍니다.</span></p><p><span style="font-family: 나눔고딕코딩, NanumGothicCoding, sans-serif; font-size: 12pt;">&nbsp;</span></p><p><span style="font-family: 나눔고딕코딩, NanumGothicCoding, sans-serif; font-size: 12pt;">아울러 대지권등기에 대한 이해를 돕기 위해 주요 내용을 단순화한 안내자료를 함께 게시하오니 참고하여 주시기 바랍니다.</span></p><!-- </div> -->
+				</td>
+				</tr>
+				<tr>
+					<th scope="row">첨부파일</th><td colspan="3"><span class="file"><ul class="fn_con_file">
+			<li>
+				<a href="download.do?mId=37&brdIdx=24805&fidx=3&itId=file" class="fn_filedown">트리풀시티 레이크포레 토지 소유권이전등기 안내문.pdf</a>
+					(1.31)MB
+					
+					[160]
+					</li>
+			<li>
+				<a href="download.do?mId=37&brdIdx=24805&fidx=4&itId=file" class="fn_filedown">대지권등기 안내자료.pdf</a>
+					(0.32)MB
+					
+					[45]
+					</li>
+			</ul>
+			</span></td>
+				</tr>
+				</tbody>
+		</table>
+		<div class="btnList">
+	<span class="btnBc"><a href="list.do?mId=37" title="목록">목록</a></span>
+</div>
+<ul class="viewlist" summary="이전글,다음글 바로가기">
+    <li class="before">
+				<span>이전글</span>
+				<a href="view.do?mId=37&brdIdx=24803" class="fn_btn_view">대전 평촌일반산업단지 산업시설용지 입주계약 심사결과 공고</a>
+			</li>
+		<li class="next">
+				<span>다음글</span>
+				<a href="view.do?mId=37&brdIdx=24811" class="fn_btn_view">대전 평촌일반산업단지 입주협약기업 입주계약 심사결과 공고</a>
+			</li>
+		</ul><div id="fn_infoPwd" style="display:none; width:500px; height:150px;">
+			<form name="fn_passwordForm" id="fn_passwordForm" method="post" target="submit_target">
+				<input type="hidden" id="chkUrl" name="chkUrl"/>
+				<fieldset>
+					<legend>글쓰기 서식</legend>
+					<table class="tbWriteA" summary="글쓰기 서식" style="margin:20px auto;width:90%;">
+						<caption>
+						글쓰기 서식
+						</caption>
+						<colgroup>
+						<col style="width:120px;" />
+						<col />
+						</colgroup>
+						<tbody>
+							<tr>
+								<th><label for="chk_pwd" class="required">비밀번호</label></th>
+								<td><input type="password" id="chk_pwd" name="pwd" class="inputTxt" maxlength="16" required="required" title="비밀번호"/></td>
+								<td><input type="submit" class="btnTypeA fn_btn_submit_nm" title="확인" value="확인" /></td>
+							</tr>
+						</tbody>
+					</table>
+				</fieldset>
+			</form>
+		</div></div>
+<link href="/resource/rbs/menu/default/style.css" rel="stylesheet" type="text/css" /><div id="cms_menu_point" class="changeCon">
+		<!-- 담당자정보 -->
+	<div class="infor">
+	  <ul>
+		<li class="ic1">담당부서 : 판매전략팀</li>
+	     </ul>
+	</div>
+</div>
+</div>
+
+		<!-- //콘텐츠 영역 -->
+	</div>
+	<!-- //container -->
+	<footer id="footer">
+		<div class="foot-top">
+			<ul class="menus">
+				<li><a href="/web/board/listView.do?mId=123" class="menu use">개인정보처리방침</a></li>
+				<li><a href="/web/board/listView.do?mId=124" class="menu">영상정보처리기기운영방침</a></li>
+				<li><a href="/web/contents/view.do?mId=76" class="menu">고객서비스헌장</a></li>
+				<li><a href="/web/contents/view.do?mId=125" class="menu">뷰어다운로드</a></li>
+			</ul>
+			<div class="site-box">
+				<button type="button" class="btn-toggle" data-related-btn="site04"><span>유관기관 사이트</span></button>
+				<ul class="list scrollbar-custom" data-related="site04">
+					<li><a href="http://council.daejeon.go.kr" target="_blank" title="새 창">대전광역시의회</a></li>
+					<li><a href="http://www.donggu.go.kr" target="_blank" title="새 창">대전광역시 동구</a></li>
+					<li><a href="http://www.djjunggu.go.kr/html/kr" target="_blank" title="새 창">대전광역시 중구</a></li>
+					<li><a href="http://www.seogu.go.kr/kor/main.do" target="_blank" title="새 창">대전광역시 서구</a></li>
+					<li><a href="http://www.yuseong.daejeon.kr" target="_blank" title="새 창">대전광역시 유성구</a></li>
+					<li><a href="http://www.daedeok.go.kr" target="_blank" title="새 창">엑스포과학공원</a></li>
+					<li><a href="http://www.djsiseol.or.kr" target="_blank" title="새 창">대전시설관리공단</a></li>
+					<li><a href="http://www.djet.co.kr" target="_blank" title="새 창">대전도시철도공사</a></li>
+					<li><a href="http://www.me.go.kr/gg/index.jsp" target="_blank" title="새 창">금강유역환경청</a></li>
+					<li><a href="http://www.lh.or.kr" target="_blank" title="새 창">한국토지주택공사</a></li>
+					<li><a href="https://www.mois.go.kr/frt/a01/frtMain.do" target="_blank" title="새 창">행정안전부</a></li>
+					<li><a href="http://www.cleaneye.go.kr" target="_blank" title="새 창">지방공기업 클린아이</a></li>
+					<li><a href="http://www.pps.go.kr" target="_blank" title="새 창">조달청</a></li>
+					<li><a href="http://www.acrc.go.kr" target="_blank" title="새 창">국민권익위원회</a></li>
+				</ul>
+			</div>
+		</div>
+		<div class="foot-content">
+			<div class="inner">
+				<div class="content">
+					<strong class="logo"><span class="blind">DCCO 대전도시공사</span></strong>
+					<div class="bd">
+						<div class="info">
+							<dl><dt>주소</dt><dd></dd>(34912) 대전광역시 중구 중앙로 118 (대흥동)</dl>
+							<dl><dt>TEL</dt><dd></dd>042-530-9200</dl>
+							<dl><dt>FAX</dt><dd></dd>042-530-9139</dl>
+						</div>
+						<p class="copyright">ⓒ 2025 Daejeon City Corporation. All Rights Reserved.</p>
+					</div>
+				</div>
+				<ul class="sns-list">
+					<li><a href="https://blog.naver.com/dcco1993" class="btn-sns" target="_blank" data-type="blog" data-s="hexagon" title="새 창"><span class="icon" data-s="blog"></span><span class="blind">네이버 블로그</span></a></li>
+					<li><a href="https://www.instagram.com/dcco.kr/?img_index=2" target="_blank" class="btn-sns" data-type="instagram" data-s="hexagon" title="새 창"><span class="icon" data-s="instagram"></span><span class="blind">인스타그램</span></a></li>
+					<li><a href="https://www.youtube.com/@dcco_kr/featured" target="_blank" class="btn-sns" data-type="youtube" data-s="hexagon" title="새 창"><span class="icon" data-s="youtube"></span><span class="blind">유튜브</span></a></li>
+				</ul>
+			</div>
+		</div>
+	</footer>
+	</div>
+</body>
+</html>
