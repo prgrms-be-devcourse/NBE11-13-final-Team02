@@ -4,7 +4,7 @@
 
 ## Commands
 ```bash
-docker compose -f infra/docker-compose.yml --env-file infra/.env up -d postgres rabbitmq   # 로컬 인프라
+make infra                                                            # 로컬 인프라 (PostgreSQL·RabbitMQ·MinIO), make help
 cd services/api && ./gradlew bootRun                                  # api 실행
 cd services/api && ./gradlew spotlessApply check                      # 포맷 + 테스트 (커밋 전)
 cd services/api && ./gradlew test --tests '*ModuleStructureTest'      # 모듈 경계 검사만
