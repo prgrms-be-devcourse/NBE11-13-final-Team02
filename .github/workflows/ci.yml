@@ -54,8 +54,9 @@ jobs:
       - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
-      - run: uvx ruff check services/collector services/extraction libs/python-platform
-      - run: uvx ruff format --check services/collector services/extraction libs/python-platform
+      # ruff 버전은 uv.lock과 같게 고정해요 (새 버전이 나와도 CI 결과가 갑자기 바뀌지 않게)
+      - run: uvx ruff@0.17.0 check services/collector services/extraction libs/python-platform
+      - run: uvx ruff@0.17.0 format --check services/collector services/extraction libs/python-platform
       - name: python-platform 테스트
         working-directory: libs/python-platform
         run: uv run --frozen pytest -q
