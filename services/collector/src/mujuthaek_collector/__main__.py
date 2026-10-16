@@ -105,7 +105,7 @@ class Relay:
                 self.store = PostgresStore(self.settings.db_url)
             if self.connection is None or self.connection.is_closed:
                 self.connection = broker.connect(self.settings.rabbitmq_url)
-                self.channel = self.connection.channel()
+                self.channel = outbox.open_channel(self.connection)  # 확인 모드: 브로커가 받았다고 답해야 보낸 것으로 쳐요
             self.connection.process_data_events(0)  # 보낼 게 없을 때도 RabbitMQ 연결 확인(heartbeat)을 처리해요
             return outbox.relay_once(self.store.conn, self.channel)
         except Exception:

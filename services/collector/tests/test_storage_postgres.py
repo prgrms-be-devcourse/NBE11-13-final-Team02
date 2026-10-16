@@ -65,10 +65,7 @@ def test_recheck_and_relay(pg, client, file_store, settings, monkeypatch):
         def __init__(self):
             self.sent = []
 
-        def exchange_declare(self, *args, **kwargs):
-            pass
-
-        def basic_publish(self, exchange, routing_key, body, properties):
+        def basic_publish(self, exchange, routing_key, body, properties, mandatory=False):
             self.sent.append((exchange, routing_key))
 
     channel = Channel()
