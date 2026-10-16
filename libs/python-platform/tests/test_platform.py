@@ -48,14 +48,35 @@ class FakeConn:
 
 
 class FakeChannel:
-    def __init__(self):
+    def __init__(self, fail_on=None):
         self.declared, self.sent = [], []
+        self.confirming = False
+        self.fail_on = fail_on  # 이 eventId를 보낼 때 브로커가 거부한 것처럼 예외
+
+    def confirm_delivery(self):
+        self.confirming = True
 
     def exchange_declare(self, *args, **kwargs):
         self.declared.append(kwargs)
 
-    def basic_publish(self, exchange, routing_key, body, properties):
-        self.sent.append((exchange, routing_key, json.loads(body), properties.message_id))
+    def basic_publish(self, exchange, routing_key, body, properties, mandatory=False):
+        if properties.message_id == self.fail_on:
+            raise RuntimeError("unroutable")
+        self.sent.append((exchange, routing_key, json.loads(body), properties.message_id, mandatory))
+
+
+class FakeConnection:
+    def __init__(self):
+        self.opened = FakeChannel()
+
+    def channel(self):
+        return self.opened
+
+
+def test_open_channel_turns_on_confirm_and_declares_exchange():
+    channel = outbox.open_channel(FakeConnection())
+    assert channel.confirming
+    assert channel.declared[0]["exchange"] == "mujuthaek.events" and channel.declared[0]["durable"]
 
 
 def test_relay_once_publishes_envelope_with_routing_key():
@@ -63,10 +84,18 @@ def test_relay_once_publishes_envelope_with_routing_key():
     conn = FakeConn([(event["eventId"], event["eventType"], event)])
     channel = FakeChannel()
     assert outbox.relay_once(conn, channel) == 1
-    assert channel.declared[0]["exchange"] == "mujuthaek.events" and channel.declared[0]["durable"]
-    exchange, key, body, message_id = channel.sent[0]
+    exchange, key, body, message_id, mandatory = channel.sent[0]
     assert (exchange, key, message_id) == ("mujuthaek.events", "raw.notice.collected", event["eventId"])
+    assert mandatory  # 받을 큐가 없으면 조용히 버려지지 않게
     assert body == event and conn.updated == [event["eventId"]]
+
+
+def test_relay_once_stops_without_marking_when_publish_fails():
+    first, second = (new_event("raw.notice.collected", "collector", {"n": n}) for n in (1, 2))
+    conn = FakeConn([(e["eventId"], e["eventType"], e) for e in (first, second)])
+    with pytest.raises(RuntimeError):
+        outbox.relay_once(conn, FakeChannel(fail_on=second["eventId"]))
+    assert conn.updated == [first["eventId"]]  # 실패한 이벤트는 표시하지 않아요 (실제 DB에서는 첫 번째도 되돌려져요)
 
 
 def sample_event(**payload):

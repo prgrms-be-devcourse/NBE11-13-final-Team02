@@ -7,7 +7,8 @@
 | `ids` | `uuid7()` | 시간 순으로 정렬되는 UUID v7 (DB 기본 키) |
 | `events` | `new_event(type, producer, payload)` | 이벤트 봉투 만들기 (`eventId`, `eventType`, `schemaVersion`, `occurredAt`, `producer`, `payload`) |
 | `outbox` | `add(cur, event)` | 저장과 **같은 트랜잭션**에서 아웃박스 테이블에 이벤트 기록 |
-|  | `relay_once(conn, channel)` | 안 보낸 이벤트를 RabbitMQ `mujuthaek.events`(topic)로 발행. 라우팅 키는 `eventType` |
+|  | `open_channel(connection)` | 발행용 채널 열기. 확인(confirm) 모드를 켜고 exchange `mujuthaek.events`(topic)를 만들어 둠 |
+|  | `relay_once(conn, channel)` | 안 보낸 이벤트를 발행. 라우팅 키는 `eventType`. 브로커가 거부하거나 받을 큐가 없으면 예외가 나고 아웃박스에 남음 |
 | `broker` | `connect(url)` | RabbitMQ 연결 (pika) |
 | `db` | `connect(url)` | PostgreSQL 연결 (psycopg 3) |
 | `logging` | `setup(service)` | JSON 한 줄 로그. `extra` 값도 칸으로 남김 |
@@ -24,7 +25,7 @@ mujuthaek-platform = { path = "../../libs/python-platform", editable = true }
 ```
 
 ```python
-from mujuthaek_platform import outbox
+from mujuthaek_platform import broker, outbox
 from mujuthaek_platform.events import new_event
 
 event = new_event("raw.notice.collected", "collector", payload)
@@ -32,6 +33,7 @@ with conn.transaction(), conn.cursor() as cur:
     cur.execute("insert into …")  # 업무 데이터 저장
     outbox.add(cur, event)  # 같은 트랜잭션
 
+channel = outbox.open_channel(broker.connect(url))  # 연결할 때 한 번
 outbox.relay_once(conn, channel)  # 발행기 (5초마다)
 ```
 
