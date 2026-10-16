@@ -56,6 +56,7 @@ services:
       retries: 10
 
   # collector 데이터베이스 테이블 (services/collector/migrations). make migrate-collector
+  # COLLECTOR_DB로 대상 DB를 바꿀 수 있어요 (make migrate-collector-test는 collector_test)
   migrate-collector:
     image: flyway/flyway:11.14
     profiles: [apps]
@@ -63,7 +64,7 @@ services:
       postgres:
         condition: service_healthy
     command: >
-      -url=jdbc:postgresql://postgres:5432/collector -user=collector_app -password=${COLLECTOR_DB_PASSWORD}
+      -url=jdbc:postgresql://postgres:5432/${COLLECTOR_DB:-collector} -user=collector_app -password=${COLLECTOR_DB_PASSWORD}
       -locations=filesystem:/flyway/sql -connectRetries=10 migrate
     volumes:
       - ../services/collector/migrations:/flyway/sql:ro
