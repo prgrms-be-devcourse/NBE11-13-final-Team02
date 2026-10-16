@@ -2,7 +2,7 @@
 
 로컬 DB가 떠 있을 때만 돌아요 (없으면 건너뜀):
   COLLECTOR_TEST_DB_URL=postgresql://collector_app:collector-pass@localhost:5432/collector_test uv run pytest tests/test_storage_postgres.py
-테스트용 데이터베이스(collector_test)를 따로 만들고 마이그레이션을 적용한 뒤 쓰세요. 테스트가 테이블을 비워요.
+테스트용 데이터베이스(collector_test)는 저장소 루트에서 make migrate-collector-test로 만들고 테이블을 적용해요. 테스트가 테이블을 비워요.
 """
 
 import os
