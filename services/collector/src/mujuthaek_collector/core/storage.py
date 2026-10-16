@@ -1,0 +1,304 @@
+"""수집 DB 저장. 파이프라인은 Store 규격만 알고, 운영은 PostgresStore, 테스트는 MemoryStore(tests/fakes.py)를 써요.
+
+- 글(raw_posts)은 목록에서 본 순간 한 번 저장하고, 상태(SKIPPED·PENDING·DONE·FAILED)만 바꿔요
+- 새 버전은 save_version 한 번의 트랜잭션으로 저장해요: 버전 + 첨부 + 추출 글자 + 호별 표 + 글 상태 + 아웃박스 이벤트
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field
+from datetime import date, timedelta
+from typing import Any, Protocol
+from uuid import UUID
+
+from mujuthaek_platform import outbox
+from mujuthaek_platform.ids import uuid7
+
+MAX_ATTEMPTS = 3  # FAILED 글은 3번까지 다시 시도
+
+SKIPPED, PENDING, DONE, FAILED = "SKIPPED", "PENDING", "DONE", "FAILED"
+
+
+@dataclass
+class PostRow:
+    id: UUID
+    source_code: str
+    board_key: str
+    post_key: str
+    kind: str
+    title: str
+    posted_on: date | None
+    detail_url: str | None
+    list_item: dict[str, Any]
+    status: str
+    attempts: int = 0
+    last_error: str | None = None
+    list_status: str | None = None
+    deadline_on: date | None = None
+    parent_post_id: UUID | None = None
+    latest_version: int = 0
+
+
+@dataclass
+class BoardState:
+    last_list_hash: str = ""
+    empty_runs: int = 0
+
+
+@dataclass
+class SavedFile:
+    idx: int
+    name: str
+    role: str  # NOTICE_DOC, UNIT_LIST
+    download_url: str
+    file_hash: str
+    size_bytes: int
+    s3_key: str | None
+    stored_until: date
+    text_status: str | None = None
+    text: str | None = None  # 이 파일에서 뽑은 글자 (raw_texts)
+
+    def as_event_file(self) -> dict[str, Any]:
+        return {"name": self.name, "download_url": self.download_url, "file_hash": self.file_hash}
+
+
+@dataclass
+class NewVersion:
+    post: PostRow
+    version: int
+    content_hash: str
+    body_text: str
+    meta: dict[str, Any]
+    full_text: str
+    run_id: UUID | None
+    files: list[SavedFile] = field(default_factory=list)
+    units: list[dict[str, Any]] = field(default_factory=list)
+    event: dict[str, Any] | None = None
+
+
+class Store(Protocol):
+    # 수집 회차
+    def start_run(self, source_code: str) -> UUID: ...
+    def finish_run(self, run_id: UUID, status: str, new_count: int, warnings: list[str]) -> None: ...
+    # 게시판 상태
+    def board_state(self, source_code: str, board_key: str) -> BoardState: ...
+    def save_board_state(self, source_code: str, board_key: str, state: BoardState) -> None: ...
+    # 글
+    def find_post(self, source_code: str, post_key: str) -> PostRow | None: ...
+    def insert_post(self, post: PostRow) -> None: ...
+    def update_list_fields(self, post_id: UUID, list_status: str | None, deadline_on: date | None) -> None: ...
+    def queued_posts(self, source_code: str, board_key: str, limit: int) -> list[PostRow]: ...
+    def notices_posted_on(self, source_code: str, posted_on: date) -> list[PostRow]: ...
+    def recent_notices(self, source_code: str, limit: int = 300) -> list[PostRow]: ...
+    def requeue_open_posts(self, source_code: str, today: date, since_days: int) -> int: ...
+    def latest_hash(self, post_id: UUID) -> tuple[int, str] | None: ...
+    def mark_done(self, post_id: UUID) -> None: ...
+    def mark_failed(self, post_id: UUID, error: str) -> None: ...
+    def save_version(self, new: NewVersion) -> None: ...
+    # 보관 기한 정리
+    def expired_files(self, today: date, limit: int = 500) -> list[tuple[UUID, str]]: ...
+    def mark_file_deleted(self, file_id: UUID) -> None: ...
+
+
+POST_COLUMNS = (
+    "id, source_code, board_key, post_key, kind, title, posted_on, detail_url, list_item, status, attempts, "
+    "last_error, list_status, deadline_on, parent_post_id, latest_version"
+)
+
+
+def _row_to_post(row) -> PostRow:
+    values = list(row)
+    if isinstance(values[8], str):
+        values[8] = json.loads(values[8])
+    return PostRow(*values)
+
+
+class PostgresStore:
+    """collector 데이터베이스 테이블에 저장해요. 연결은 autocommit이고, 여러 문장은 transaction()으로 묶어요."""
+
+    def __init__(self, db_url: str):
+        from mujuthaek_platform import db
+
+        self.conn = db.connect(db_url)
+        self.conn.autocommit = True
+
+    def close(self) -> None:
+        self.conn.close()
+
+    @staticmethod
+    def _json(value: Any):
+        from psycopg.types.json import Jsonb
+
+        return Jsonb(value)
+
+    # ── 수집 회차 ──────────────────────────────────────────────
+    def start_run(self, source_code: str) -> UUID:
+        run_id = uuid7()
+        self.conn.execute("insert into crawl_runs (id, source_code) values (%s, %s)", (run_id, source_code))
+        return run_id
+
+    def finish_run(self, run_id: UUID, status: str, new_count: int, warnings: list[str]) -> None:
+        self.conn.execute(
+            "update crawl_runs set finished_at = now(), status = %s, new_count = %s, error = %s where id = %s",
+            (status, new_count, "\n".join(warnings)[:10000] or None, run_id),
+        )
+
+    # ── 게시판 상태 ────────────────────────────────────────────
+    def board_state(self, source_code: str, board_key: str) -> BoardState:
+        row = self.conn.execute(
+            "select last_list_hash, empty_runs from source_boards where source_code = %s and board_key = %s", (source_code, board_key)
+        ).fetchone()
+        return BoardState(*row) if row else BoardState()
+
+    def save_board_state(self, source_code: str, board_key: str, state: BoardState) -> None:
+        self.conn.execute(
+            "insert into source_boards (source_code, board_key, last_list_hash, empty_runs, last_run_at) values (%s, %s, %s, %s, now()) "
+            "on conflict (source_code, board_key) do update set last_list_hash = excluded.last_list_hash, "
+            "empty_runs = excluded.empty_runs, last_run_at = now()",
+            (source_code, board_key, state.last_list_hash, state.empty_runs),
+        )
+
+    # ── 글 ─────────────────────────────────────────────────────
+    def find_post(self, source_code: str, post_key: str) -> PostRow | None:
+        row = self.conn.execute(f"select {POST_COLUMNS} from raw_posts where source_code = %s and post_key = %s", (source_code, post_key)).fetchone()
+        return _row_to_post(row) if row else None
+
+    def insert_post(self, post: PostRow) -> None:
+        self.conn.execute(
+            "insert into raw_posts (id, source_code, board_key, post_key, kind, title, posted_on, detail_url, list_item, status, "
+            "last_error, list_status, deadline_on, parent_post_id) values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) "
+            "on conflict (source_code, post_key) do nothing",
+            (
+                post.id,
+                post.source_code,
+                post.board_key,
+                post.post_key,
+                post.kind,
+                post.title,
+                post.posted_on,
+                post.detail_url,
+                self._json(post.list_item),
+                post.status,
+                post.last_error,
+                post.list_status,
+                post.deadline_on,
+                post.parent_post_id,
+            ),
+        )
+
+    def update_list_fields(self, post_id: UUID, list_status: str | None, deadline_on: date | None) -> None:
+        self.conn.execute(
+            "update raw_posts set list_status = coalesce(%s, list_status), deadline_on = coalesce(%s, deadline_on), updated_at = now() "
+            "where id = %s and (list_status is distinct from %s or deadline_on is distinct from %s)",
+            (list_status, deadline_on, post_id, list_status, deadline_on),
+        )
+
+    def queued_posts(self, source_code: str, board_key: str, limit: int) -> list[PostRow]:
+        rows = self.conn.execute(
+            f"select {POST_COLUMNS} from raw_posts where source_code = %s and board_key = %s "
+            "and (status = 'PENDING' or (status = 'FAILED' and attempts < %s)) "
+            "order by (status = 'PENDING') desc, posted_on desc nulls last, created_at limit %s",
+            (source_code, board_key, MAX_ATTEMPTS, limit),
+        ).fetchall()
+        return [_row_to_post(r) for r in rows]
+
+    def notices_posted_on(self, source_code: str, posted_on: date) -> list[PostRow]:
+        rows = self.conn.execute(
+            f"select {POST_COLUMNS} from raw_posts where source_code = %s and kind = 'NOTICE' and posted_on = %s", (source_code, posted_on)
+        ).fetchall()
+        return [_row_to_post(r) for r in rows]
+
+    def recent_notices(self, source_code: str, limit: int = 300) -> list[PostRow]:
+        rows = self.conn.execute(
+            f"select {POST_COLUMNS} from raw_posts where source_code = %s and kind = 'NOTICE' order by posted_on desc nulls last limit %s",
+            (source_code, limit),
+        ).fetchall()
+        return [_row_to_post(r) for r in rows]
+
+    def requeue_open_posts(self, source_code: str, today: date, since_days: int) -> int:
+        """새벽 정정 확인: 아직 마감 전이거나 마감일을 모르는 최근 공고를 PENDING으로 돌려 다시 열어봐요."""
+        cursor = self.conn.execute(
+            "update raw_posts set status = 'PENDING', updated_at = now() where source_code = %s and status = 'DONE' "
+            "and kind in ('NOTICE', 'CORRECTION') and (deadline_on is null or deadline_on >= %s) "
+            "and (posted_on is null or posted_on >= %s)",
+            (source_code, today, today - timedelta(days=min(since_days, 90))),
+        )
+        return cursor.rowcount
+
+    def latest_hash(self, post_id: UUID) -> tuple[int, str] | None:
+        row = self.conn.execute(
+            "select version, content_hash from raw_post_versions where raw_post_id = %s order by version desc limit 1", (post_id,)
+        ).fetchone()
+        return (row[0], row[1]) if row else None
+
+    def mark_done(self, post_id: UUID) -> None:
+        self.conn.execute("update raw_posts set status = 'DONE', last_error = null, updated_at = now() where id = %s", (post_id,))
+
+    def mark_failed(self, post_id: UUID, error: str) -> None:
+        self.conn.execute(
+            "update raw_posts set status = 'FAILED', attempts = attempts + 1, last_error = %s, updated_at = now() where id = %s",
+            (error[:2000], post_id),
+        )
+
+    def save_version(self, new: NewVersion) -> None:
+        version_id = uuid7()
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            cur.execute(
+                "insert into raw_post_versions (id, raw_post_id, version, content_hash, body_text, meta, full_text, crawl_run_id) "
+                "values (%s, %s, %s, %s, %s, %s, %s, %s)",
+                (version_id, new.post.id, new.version, new.content_hash, new.body_text, self._json(new.meta), new.full_text, new.run_id),
+            )
+            for f in new.files:
+                file_id = uuid7()
+                cur.execute(
+                    "insert into raw_files (id, version_id, idx, name, role, download_url, file_hash, size_bytes, s3_key, stored_until, text_status) "
+                    "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (file_id, version_id, f.idx, f.name, f.role, f.download_url, f.file_hash, f.size_bytes, f.s3_key, f.stored_until, f.text_status),
+                )
+                if f.text:
+                    cur.execute("insert into raw_texts (id, file_id, text) values (%s, %s, %s)", (uuid7(), file_id, f.text))
+            for u in new.units:
+                cur.execute(
+                    "insert into raw_units (id, version_id, source_file, page, complex, district, address, unit, floor, house_type, "
+                    "target_group, rooms, area_m2, deposit_won, rent_won, supply_count, elevator, parking, raw, checks) "
+                    "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        uuid7(),
+                        version_id,
+                        u.get("source_file"),
+                        u.get("page"),
+                        u.get("complex"),
+                        u.get("district"),
+                        u.get("address"),
+                        u.get("unit"),
+                        u.get("floor"),
+                        u.get("type"),
+                        u.get("target"),
+                        u.get("rooms"),
+                        u.get("area_m2"),
+                        u.get("deposit_won"),
+                        u.get("rent_won"),
+                        u.get("count"),
+                        u.get("elevator"),
+                        u.get("parking"),
+                        self._json(u.get("raw", {})),
+                        self._json(u.get("check", [])),
+                    ),
+                )
+            cur.execute(
+                "update raw_posts set status = 'DONE', latest_version = %s, attempts = 0, last_error = null, updated_at = now() where id = %s",
+                (new.version, new.post.id),
+            )
+            if new.event is not None:
+                outbox.add(cur, new.event)
+
+    # ── 보관 기한 정리 ─────────────────────────────────────────
+    def expired_files(self, today: date, limit: int = 500) -> list[tuple[UUID, str]]:
+        rows = self.conn.execute(
+            "select id, s3_key from raw_files where stored_until < %s and s3_key is not null and deleted_at is null limit %s", (today, limit)
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+
+    def mark_file_deleted(self, file_id: UUID) -> None:
+        self.conn.execute("update raw_files set s3_key = null, deleted_at = now() where id = %s", (file_id,))
