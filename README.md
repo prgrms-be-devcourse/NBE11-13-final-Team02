@@ -12,14 +12,17 @@
 EC2 1대에 Docker 컨테이너 3개, DB는 RDS(PostgreSQL + PostGIS) 1대에 데이터베이스 3개(collector, extraction, api)예요.
 
 ## 처음 실행
-준비물: JDK 25, Python 3.12, [uv](https://docs.astral.sh/uv/), Docker Desktop
+준비물: JDK 25, Python 3.12, [uv](https://docs.astral.sh/uv/), Docker Desktop, [pre-commit](https://pre-commit.com/)
 
 ```bash
+pre-commit install                         # 한 번만. 커밋할 때 gitleaks가 키·비밀번호를 찾으면 커밋을 막아요
 cp infra/.env.example infra/.env           # 값 채우기 (ANTHROPIC_API_KEY를 비우면 가짜 추출기로 동작)
 make infra                                 # PostgreSQL·RabbitMQ·MinIO (make help로 명령 보기)
 cd services/api && ./gradlew bootRun       # api
 ```
 파이썬 워커는 `services/collector`, `services/extraction`에서 `uv sync` 후 `uv run python -m mujuthaek_collector run`처럼 실행해요.
+
+AWS 키는 AWS CLI 프로필(`~/.aws/credentials`)에만 두고, 저장소 안의 `.env`·코드·문서에는 넣지 않아요. 내려받은 키 `.csv`, `.pem`, `.env`는 `.gitignore`로 막혀 있어요.
 
 ## 주소 (로컬)
 | 이름 | 주소 |
