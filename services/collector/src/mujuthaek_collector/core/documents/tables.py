@@ -193,6 +193,11 @@ def read_tables(data: bytes, ext: str) -> list[Table]:
 
             book = openpyxl.load_workbook(path, read_only=True, data_only=True)
             return [(i, sheet.title, [list(r) for r in sheet.iter_rows(values_only=True)]) for i, sheet in enumerate(book.worksheets, 1)]
+        if ext == "xls":  # 옛 엑셀 형식. 빈 칸은 None, 정수는 int로 바꿔 xlsx와 같은 모양으로 넘겨요
+            import xlrd
+
+            book = xlrd.open_workbook(path)
+            return [(i, sheet.name, [[xls_cell(c) for c in sheet.row(r)] for r in range(sheet.nrows)]) for i, sheet in enumerate(book.sheets(), 1)]
         if ext == "hwpx":
             with zipfile.ZipFile(path) as archive:
                 xml = "".join(archive.read(n).decode("utf-8", errors="replace") for n in sorted(archive.namelist()) if re.match(r"Contents/section\d+\.xml", n))
@@ -217,6 +222,16 @@ def read_tables(data: bytes, ext: str) -> list[Table]:
                 out.append((1, context, table_grid(table)))
             return out
     return []
+
+
+def xls_cell(cell):
+    import xlrd
+
+    if cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+        return None
+    if cell.ctype == xlrd.XL_CELL_NUMBER and float(cell.value).is_integer():
+        return int(cell.value)  # xls는 숫자를 모두 실수로 줘요 (12000.0 → 12000)
+    return cell.value
 
 
 def summarize(units: list[dict]) -> str:
