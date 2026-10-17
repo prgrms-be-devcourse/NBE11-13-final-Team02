@@ -35,10 +35,12 @@ UNIT_FIELDS = [  # (표준 항목, 머리글 패턴) — 위에 있는 항목부
     ("parking", r"주차"),
 ]
 NOT_AREA = re.compile(r"공용|공급\s*면적|계약|합계|대지|공유")
-FILL_DOWN = {"area", "type", "complex", "district", "address"}  # 세로로 합쳐진 칸은 위 행 값을 이어받음
+FILL_DOWN = {"area", "type", "complex", "district", "address", "target"}  # 세로로 합쳐진 칸은 위 행 값을 이어받음
 KEY_FIELDS = {"area", "deposit", "rent", "unit", "address", "complex", "type", "count"}
 IDENTITY_FIELDS = {"unit", "address", "complex", "type", "area"}
 SANE = {"deposit_won": (500_000, 3_000_000_000), "rent_won": (10_000, 5_000_000), "area_m2": (5, 300)}
+MONEY_WORD = re.compile(r"(?:임대\s*)?보증금|월\s*임대료|월\s*세|임대료")
+GROUP_MARK = re.compile(r"^[『\[(（]?\s*[가-힣A-Za-z0-9]\s*[』\])）]?\s*군\s*:?\s*")  # '『가』군:' 같은 머리말
 
 
 def cell_text(value) -> str:
@@ -96,17 +98,25 @@ def to_float(value: str) -> float | None:
 
 
 def units_from_tables(tables: list[Table]) -> list[dict]:
-    """머리글을 찾아 표준 항목으로 바꾼 호별 목록. 머리글 없이 다음 쪽으로 이어지는 표는 앞 머리글을 그대로 써요."""
+    """머리글을 찾아 표준 항목으로 바꾼 호별 목록. 머리글 없이 다음 쪽으로 이어지는 표는 앞 머리글을 그대로 써요.
+
+    이어지는 표로 보는 건 바로 다음 쪽까지이고, 금액·면적 칸이 말이 되는 행이 절반은 넘어야 해요.
+    (그렇지 않으면 칸 수만 같은 다른 표 — 예: 뒤쪽의 소득 종류 표 — 라서 거기서 멈춰요)
+    """
     units: list[dict] = []
     header: list[str] | None = None
     mapping: dict[int, str] = {}
+    extra_targets: list[int] = []
+    groups: list[tuple[str, int, int]] = []
     multipliers: dict[int, int] = {}
     page_unit = 1
+    last_page = 0
     for page, page_text, raw_rows in tables:
         unit_note = re.search(r"단위[^\n]{0,15}", page_text or "")
         page_unit = money_multiplier(unit_note.group(0)) if unit_note else page_unit
         rows = [[cell_text(c) for c in row] for row in raw_rows if row and any(cell_text(c) for c in row)]
         start = 0
+        continued = header is not None
         for i, row in enumerate(rows):
             if not is_header(row):
                 continue
@@ -120,16 +130,21 @@ def units_from_tables(tables: list[Table]) -> list[dict]:
             if two_rows:
                 labels = [f"{a} {b}".strip() if b and b != a else a for a, b in zip(filled, below)]
                 start = i + 2
-            header, mapping = labels, map_header(labels)
-            multipliers = {
-                idx: money_multiplier(labels[idx]) if money_multiplier(labels[idx]) > 1 else page_unit
-                for idx, field in mapping.items()
-                if field in ("deposit", "rent")
-            }
+            header, mapping, continued = labels, map_header(labels), False
+            target = next((idx for idx, field in mapping.items() if field == "target"), None)
+            # '공급 대상' 머리글이 가로로 합쳐져 옆 칸(예: 소득있음·소득없음)까지 덮으면 그 칸도 대상에 붙여요
+            extra_targets = [idx for idx, label in enumerate(labels) if target is not None and idx != target and idx not in mapping and label == labels[target]]
+            groups = money_groups(labels)
+            money_columns = {idx for idx, field in mapping.items() if field in ("deposit", "rent")} | {i for _, d, r in groups for i in (d, r)}
+            multipliers = {idx: money_multiplier(labels[idx]) if money_multiplier(labels[idx]) > 1 else page_unit for idx in money_columns}
             break
         if header is None:
             continue
+        if continued and page > last_page + 1:
+            header = None
+            continue
         above: dict[int, str] = {}
+        table_units: list[dict] = []
         for row in rows[start:]:
             if len(row) != len(header) or is_header(row):
                 continue
@@ -148,6 +163,8 @@ def units_from_tables(tables: list[Table]) -> list[dict]:
                     unit["area_m2"] = to_float(value)
                 elif field == "count":
                     unit["count"] = to_int(value, 1)
+                elif field == "target":
+                    unit["target"] = " ".join(v for v in [value, *(row[j] for j in extra_targets)] if v)
                 else:
                     unit[field] = value
             raw: dict[str, str] = {}
@@ -157,12 +174,29 @@ def units_from_tables(tables: list[Table]) -> list[dict]:
                     key += "+"
                 raw[key] = value
             unit["raw"] = raw
-            for key, (low, high) in SANE.items():
-                if unit.get(key) is not None and not low <= unit[key] <= high:
-                    unit.setdefault("check", []).append(f"{key}={unit[key]}")
-                    unit[key] = None
-            if any(unit.get(k) for k in ("area_m2", "deposit_won", "rent_won", "unit", "address")):
-                units.append(unit)
+            row_units = [unit]
+            if groups:  # 신청자 군마다 금액이 다르면 군마다 한 줄씩 (공급 호수는 군끼리 함께 쓰는 수라 줄마다 그대로)
+                row_units = [
+                    {
+                        **unit,
+                        "target": " ".join(v for v in (unit.get("target"), name) if v),
+                        "deposit_won": to_int(row[deposit], multipliers[deposit]),
+                        "rent_won": to_int(row[rent], multipliers[rent]),
+                    }
+                    for name, deposit, rent in groups
+                ]
+            for unit in row_units:
+                for key, (low, high) in SANE.items():
+                    if unit.get(key) is not None and not low <= unit[key] <= high:
+                        unit["check"] = [*unit.get("check", []), f"{key}={unit[key]}"]
+                        unit[key] = None
+                if any(unit.get(k) for k in ("area_m2", "deposit_won", "rent_won", "unit", "address")):
+                    table_units.append(unit)
+        if continued and not looks_like_units(table_units, mapping):
+            header = None
+            continue
+        units.extend(table_units)
+        last_page = page
     unit_values = [u.get("unit", "") for u in units if u.get("unit")]
     if unit_values and all(re.fullmatch(r"[\d,]+", v) for v in unit_values):
         for u in units:  # '호수' 칸이 숫자뿐이면 호실이 아니라 공급 호수
@@ -171,6 +205,30 @@ def units_from_tables(tables: list[Table]) -> list[dict]:
     if units and sum(bool(u.get("check")) for u in units) > len(units) / 2:
         return []  # 절반 넘게 이상한 값이면 호별 표가 아니라고 보고 버림
     return units
+
+
+def money_groups(labels: list[str]) -> list[tuple[str, int, int]]:
+    """'『가』군: 수급자 등 임대보증금 / 월임대료', '『나』군: 일반 등 …'처럼 신청자 군마다 보증금·월임대료 칸이 따로 있으면
+    [(군 이름, 보증금 칸, 월임대료 칸)]. 보증금·월임대료가 둘 다 있는 군이 2개 이상일 때만 나눠요.
+    (보증금 없이 월임대료만 여러 칸인 감면표 같은 건 나누지 않아요)"""
+    found: dict[str, dict[str, int]] = {}
+    for idx, label in enumerate(labels):
+        word = MONEY_WORD.search(label)
+        if not word:
+            continue
+        name = GROUP_MARK.sub("", label[: word.start()]).strip(" :·-")
+        kind = "deposit" if "보증금" in word.group(0) else "rent"
+        found.setdefault(name, {}).setdefault(kind, idx)
+    groups = [(name, cols["deposit"], cols["rent"]) for name, cols in found.items() if name and len(cols) == 2]
+    return groups if len(groups) >= 2 else []
+
+
+def looks_like_units(units: list[dict], mapping: dict[int, str]) -> bool:
+    """머리글 없이 이어지는 표가 정말 호별 표인지: 금액·면적 칸이 있으면 그 값이 말이 되는 행이 절반 이상."""
+    if not units or not {"area", "deposit", "rent"} & set(mapping.values()):
+        return bool(units)
+    sane = sum(any(u.get(k) is not None for k in ("area_m2", "deposit_won", "rent_won")) for u in units)
+    return sane * 2 >= len(units)
 
 
 def read_tables(data: bytes, ext: str) -> list[Table]:
@@ -193,6 +251,11 @@ def read_tables(data: bytes, ext: str) -> list[Table]:
 
             book = openpyxl.load_workbook(path, read_only=True, data_only=True)
             return [(i, sheet.title, [list(r) for r in sheet.iter_rows(values_only=True)]) for i, sheet in enumerate(book.worksheets, 1)]
+        if ext == "xls":  # 옛 엑셀 형식. 빈 칸은 None, 정수는 int로 바꿔 xlsx와 같은 모양으로 넘겨요
+            import xlrd
+
+            book = xlrd.open_workbook(path)
+            return [(i, sheet.name, [[xls_cell(c) for c in sheet.row(r)] for r in range(sheet.nrows)]) for i, sheet in enumerate(book.sheets(), 1)]
         if ext == "hwpx":
             with zipfile.ZipFile(path) as archive:
                 xml = "".join(archive.read(n).decode("utf-8", errors="replace") for n in sorted(archive.namelist()) if re.match(r"Contents/section\d+\.xml", n))
@@ -217,6 +280,16 @@ def read_tables(data: bytes, ext: str) -> list[Table]:
                 out.append((1, context, table_grid(table)))
             return out
     return []
+
+
+def xls_cell(cell):
+    import xlrd
+
+    if cell.ctype in (xlrd.XL_CELL_EMPTY, xlrd.XL_CELL_BLANK):
+        return None
+    if cell.ctype == xlrd.XL_CELL_NUMBER and float(cell.value).is_integer():
+        return int(cell.value)  # xls는 숫자를 모두 실수로 줘요 (12000.0 → 12000)
+    return cell.value
 
 
 def summarize(units: list[dict]) -> str:

@@ -15,6 +15,7 @@ CONTENT_TYPES = {
     "hwpx": "application/hwp+zip",
     "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
+    "xls": "application/vnd.ms-excel",
     "txt": "text/plain; charset=utf-8",
 }
 

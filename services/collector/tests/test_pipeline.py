@@ -122,3 +122,16 @@ def test_empty_list_counts_towards_structure_alert(client, store, file_store, se
     for _ in range(3):
         result = run(FakeSource([]), client, store, file_store, settings, monkeypatch)
     assert store.boards[("dcco", "43")].empty_runs == 3 and "구조 변경 의심" in result.warnings[-1]
+
+
+def test_unclear_notice_file_leaves_warning(client, store, file_store, settings, monkeypatch):
+    class UnnamedFiles(FakeSource):
+        def parse_detail(self, item, body):
+            files = [FileRef("붙임1 신청자격.pdf", "https://a.kr/f/a.pdf", 1), FileRef("2026 행복주택.pdf", "https://a.kr/f/b.pdf", 2)]
+            return Detail(item.title, body, files)
+
+    rows = ROWS[:1]
+    pages(client, rows)
+    client.files["https://a.kr/f/a.pdf"] = client.files["https://a.kr/f/b.pdf"] = b"%PDF-1.4 fake"
+    result = run(UnnamedFiles(rows), client, store, file_store, settings, monkeypatch)
+    assert result.new_count == 1 and any("첨부 순서로 골랐어요 (붙임1 신청자격.pdf)" in w for w in result.warnings)
