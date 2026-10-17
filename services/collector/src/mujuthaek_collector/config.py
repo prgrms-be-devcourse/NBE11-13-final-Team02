@@ -37,7 +37,8 @@ class Settings:
         access_key, secret_key = LOCAL_S3_KEYS if endpoint else (None, None)
         return cls(
             db_url=os.getenv("DB_URL", "postgresql://collector_app:collector-pass@localhost:5432/collector"),
-            rabbitmq_url=os.getenv("RABBITMQ_URL", "amqp://mujuthaek:mq-pass@localhost:5672/"),
+            # localhost면 pika가 IPv6(::1)부터 시도해 거절 오류 로그를 남겨요. RabbitMQ는 127.0.0.1에만 열려 있어요
+            rabbitmq_url=os.getenv("RABBITMQ_URL", "amqp://mujuthaek:mq-pass@127.0.0.1:5672/"),
             s3_endpoint=endpoint,
             s3_bucket=os.getenv("S3_BUCKET", "mujuthaek-raw"),
             s3_access_key=os.getenv("AWS_ACCESS_KEY_ID") or access_key,
