@@ -144,3 +144,35 @@ def test_unclear_notice_file_leaves_warning(client, store, file_store, settings,
     client.files["https://a.kr/f/a.pdf"] = client.files["https://a.kr/f/b.pdf"] = b"%PDF-1.4 fake"
     result = run(UnnamedFiles(rows), client, store, file_store, settings, monkeypatch)
     assert result.new_count == 1 and any("첨부 순서로 골랐어요 (붙임1 신청자격.pdf)" in w for w in result.warnings)
+
+
+class RegionSource(FakeSource):
+    def parse_detail(self, item, body):
+        detail = super().parse_detail(item, body)
+        detail.meta = {"유형": "국민임대", "_raw": {"응답": "원본 그대로"}}
+        detail.region_code = "11110"
+        return detail
+
+
+def test_region_code_goes_to_event_and_underscore_meta_stays_out_of_ai_text(client, store, file_store, settings, monkeypatch):
+    rows = ROWS[:1]
+    pages(client, rows)
+    run(RegionSource(rows), client, store, file_store, settings, monkeypatch)
+    [version] = store.versions
+    assert store.events[0]["payload"]["regionCode"] == "11110"
+    assert "유형: 국민임대" in version.full_text and "원본 그대로" not in version.full_text
+    assert version.meta["_raw"] == {"응답": "원본 그대로"}  # 원본은 DB(raw_post_versions.meta)에는 남아요
+
+
+def test_source_can_bring_its_own_client(settings):
+    from mujuthaek_collector.__main__ import make_client
+    from mujuthaek_collector.core.http_client import PoliteClient
+
+    class OwnClientSource(FakeSource):
+        def make_client(self, settings):
+            return "출처 전용 클라이언트"
+
+    assert make_client(OwnClientSource([]), settings) == "출처 전용 클라이언트"
+    default = make_client(FakeSource([]), settings)
+    assert isinstance(default, PoliteClient)
+    default.close()

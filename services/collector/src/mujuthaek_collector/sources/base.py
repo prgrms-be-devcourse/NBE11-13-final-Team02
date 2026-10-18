@@ -73,6 +73,7 @@ class Detail:
     files: list[FileRef]
     meta: dict[str, Any] = field(default_factory=dict)  # 상세 화면의 항목 (공고상태, 유형, 접수기간 …)
     posted_on: date | None = None
+    region_code: str | None = None  # 시군구 코드 5자리. 수집 단계에서 알 때만 (LH: 마이홈 필지번호 앞 5자리)
 
 
 class Source(ABC):
@@ -96,6 +97,10 @@ class Source(ABC):
         """상세 화면 → 본문·항목·첨부. 본문 영역을 못 찾으면 ParseError."""
 
     # ── 필요할 때만 바꿈 ───────────────────────────────────────
+    def make_client(self, settings: Any) -> Fetcher | None:
+        """이 출처만의 요청 클라이언트가 필요할 때 돌려줘요 (LH: robots 예외 경로·API 간격). None이면 공통 PoliteClient."""
+        return None
+
     def detail_request(self, item: ListItem) -> Request:
         return Request(item.fetch_url or item.detail_url or "", item.form, item.referer)
 
