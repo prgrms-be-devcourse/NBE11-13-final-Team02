@@ -69,9 +69,16 @@
     "file": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "downloadUrl", "sha256"],
+      "required": ["name", "fileType", "role", "s3Key", "downloadUrl", "sha256"],
       "properties": {
-        "name": { "type": "string" },
+        "name": { "type": "string", "description": "원래 파일 이름 (화면 표시용)" },
+        "fileType": { "enum": ["pdf", "hwp", "hwpx", "xlsx", "xlsm", "xls"], "description": "파일 형식 (확장자)" },
+        "role": { "enum": ["NOTICE_DOC", "UNIT_LIST"], "description": "NOTICE_DOC 공고문, UNIT_LIST 주택목록" },
+        "s3Key": {
+          "type": ["string", "null"],
+          "pattern": "^raw/[a-z]+/",
+          "description": "S3 버킷 안 경로 (주소 아님). 받는 서비스는 이 경로로 우리 S3에서 파일을 가져가요. 보관 기한이 지나 파일을 지운 뒤 재처리하면 null"
+        },
         "downloadUrl": { "type": "string", "description": "기관 다운로드 주소 (사람에게 보여줄 링크용. extraction은 이 주소로 요청하지 않아요)" },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
       }

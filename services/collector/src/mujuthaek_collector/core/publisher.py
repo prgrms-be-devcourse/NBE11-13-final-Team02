@@ -73,7 +73,17 @@ def build_collected_event(
         "text": full_text[:MAX_TEXT_CHARS],
         "textKey": text_key,
         "units": [unit_payload(u) for u in units],
-        "files": [{"name": f["name"], "downloadUrl": f["download_url"], "sha256": f["file_hash"]} for f in files],
+        "files": [
+            {
+                "name": f["name"],
+                "fileType": f["file_type"],
+                "role": f["role"],
+                "s3Key": f["s3_key"],
+                "downloadUrl": f["download_url"],
+                "sha256": f["file_hash"],
+            }
+            for f in files
+        ],
         "reprocess": reprocess,
     }
     return new_event(EVENT_TYPE, PRODUCER, payload)

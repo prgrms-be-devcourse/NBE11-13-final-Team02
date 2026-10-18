@@ -67,6 +67,16 @@ def test_new_posts_are_saved_with_event(client, store, file_store, settings, mon
     assert any(key.startswith("raw/dcco/1/v1/") for key in file_store.objects)
 
 
+def test_event_files_point_to_uploaded_s3_objects(client, store, file_store, settings, monkeypatch):
+    """이벤트의 s3Key는 실제로 올린 S3 경로와 같고, 받는 쪽은 role로 공고문을 찾아요."""
+    rows = ROWS[:1]
+    pages(client, rows)
+    run(FakeSource(rows), client, store, file_store, settings, monkeypatch)
+    (file,) = store.events[0]["payload"]["files"]
+    assert file["s3Key"] == "raw/dcco/1/v1/01-모집공고문.pdf" and file["s3Key"] in file_store.objects
+    assert (file["role"], file["fileType"], file["name"]) == ("NOTICE_DOC", "pdf", "모집공고문.pdf")
+
+
 def test_same_list_next_time_stops_after_first_page(client, store, file_store, settings, monkeypatch):
     pages(client, ROWS)
     run(FakeSource(ROWS), client, store, file_store, settings, monkeypatch)

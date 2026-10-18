@@ -114,7 +114,16 @@ def sample_event(**payload):
         "text": "제목: …",
         "textKey": None,
         "units": [{"houseType": "26A", "areaM2": 26.37, "depositWon": 12_000_000, "rentWon": 150_000}],
-        "files": [{"name": "모집공고문.pdf", "downloadUrl": "https://a.kr/f/1", "sha256": "ab" * 32}],
+        "files": [
+            {
+                "name": "모집공고문.pdf",
+                "fileType": "pdf",
+                "role": "NOTICE_DOC",
+                "s3Key": "raw/dcco/43-1/v1/00-모집공고문.pdf",
+                "downloadUrl": "https://a.kr/f/1",
+                "sha256": "ab" * 32,
+            }
+        ],
         "reprocess": False,
     }
     data.update(payload)
@@ -130,7 +139,8 @@ def test_contract_accepts_valid_event():
     [
         {"kind": "SOMETHING"},
         {"units": [{"depositWon": "12,000"}]},  # 금액은 원 단위 정수
-        {"files": [{"name": "a.pdf", "downloadUrl": "x", "sha256": "short"}]},
+        {"files": [dict(name="a.pdf", fileType="pdf", role="NOTICE_DOC", s3Key=None, downloadUrl="x", sha256="short")]},
+        {"files": [{"name": "a.pdf", "downloadUrl": "x", "sha256": "ab" * 32}]},  # 파일 형식·역할·S3 위치는 필수
         {"regionCode": "123"},  # 시군구 코드는 5자리
         {"extraField": 1},
     ],
