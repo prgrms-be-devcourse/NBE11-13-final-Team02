@@ -8,6 +8,10 @@
 
 보내기는 "최소 한 번"이에요. 보낸 직후 DB 갱신 전에 죽으면 다음 차례에 같은 이벤트를 다시 보내요.
 받는 쪽은 processed_events 테이블로 eventId를 한 번만 처리해요.
+
+발행 채널은 open_channel로 열어요. 확인(confirm) 모드라서 브로커가 받았다고 답해야 보낸 것으로 쳐요.
+브로커가 거부하거나(NackError) 받을 큐가 없으면(UnroutableError) 예외가 나고, 트랜잭션이 되돌려져
+이벤트는 아웃박스에 남아 다음 차례에 다시 보내요. 큐는 받는 쪽이 만들어요.
 """
 
 import json
@@ -39,13 +43,24 @@ def _properties(event_id: str, event_type: str):
     )
 
 
+def open_channel(connection):
+    """발행용 채널을 열어요. 확인 모드를 켜고 exchange mujuthaek.events(topic, durable)를 만들어 둬요.
+
+    확인 모드는 채널마다 한 번만 켤 수 있어서, 채널을 새로 열 때만 불러요.
+    """
+    channel = connection.channel()
+    channel.confirm_delivery()
+    channel.exchange_declare(exchange=EXCHANGE, exchange_type="topic", durable=True)
+    return channel
+
+
 def relay_once(conn, channel, limit: int = BATCH_SIZE) -> int:
     """안 보낸 이벤트를 오래된 것부터 최대 limit개 보내고, 보낸 수를 돌려줘요.
 
-    exchange는 mujuthaek.events(topic, durable)이고 라우팅 키는 eventType이에요.
+    channel은 open_channel로 연 채널이에요. 라우팅 키는 eventType이에요.
     여러 발행기가 동시에 돌아도 같은 행을 두 번 잡지 않게 `for update skip locked`로 가져와요.
+    conn은 autocommit 연결이어야 해요. 이미 열린 트랜잭션 안이면 transaction()이 세이브포인트가 돼서 커밋되지 않아요.
     """
-    channel.exchange_declare(exchange=EXCHANGE, exchange_type="topic", durable=True)
     sent = 0
     with conn.transaction():
         rows = conn.execute(
@@ -60,6 +75,7 @@ def relay_once(conn, channel, limit: int = BATCH_SIZE) -> int:
                 routing_key=event_type,
                 body=json.dumps(event, ensure_ascii=False).encode("utf-8"),
                 properties=_properties(str(event_id), event_type),
+                mandatory=True,  # 받을 큐가 없으면 버리지 말고 UnroutableError로 알려줘요
             )
             conn.execute(
                 "update outbox set published_at = now(), attempts = attempts + 1 where event_id = %s",

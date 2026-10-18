@@ -1,7 +1,6 @@
 # collector (지방 공사 공고 수집 워커)
 
 지방 공사 9곳의 주거 공고 게시판에서 새 모집공고를 모아요. 공고문 글자와 호별 임대조건을 뽑아 저장하고, `raw.notice.collected` 이벤트를 RabbitMQ로 보내요.
-설계와 전체 코드: `.docs/collector/`
 
 ## 처음 실행
 ```bash

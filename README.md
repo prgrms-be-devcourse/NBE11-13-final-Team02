@@ -37,12 +37,3 @@ cd services/api && ./gradlew bootRun       # api
 | 담당자4 | api `eligibility`·`area`, `collector/.../sources/lh` |
 | 모두 | `contracts/`, api `common/event/` |
   
-
-## 문서
-문서는 `.docs/`에 있어요.
-
-| 문서 | 내용 |
-| --- | --- |
-| [개발 환경](.docs/개발%20환경.md) | 로컬 실행, Docker가 필요한 명령, 브랜치·PR·CI 규칙 |
-| [결정 기록](.docs/adr/) | 브랜치 흐름과 CI 기준, 수집 방식 등 |
-| [collector 설계](.docs/collector/무주택자들%20지방%20공사%20공고%20수집기%20설계.md) · [전체 코드](.docs/collector/무주택자들%20지방%20공사%20공고%20수집기%20전체%20코드.md) · [진행 현황](.docs/collector/진행%20현황.md) | 지방 공사 공고 수집기 |
