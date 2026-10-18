@@ -27,7 +27,7 @@ uv run python -m mujuthaek_collector run-once dcco   # 대전 한 번 수집 (�
 | `save-fixtures <출처> [--details 3]` | 실제 목록·상세 화면을 `tests/fixtures/<출처>/`에 저장 (실제 사이트에 요청해요) |
 | `status` | 최근 수집 회차 20개 |
 
-출처: `sh`, `gh`, `bmc`, `ih`, `dcco`, `dudc`, `umca`, `gbdc`, `gndc`
+출처: `sh`, `gh`, `bmc`, `ih`, `dcco`, `dudc`, `umca`, `gbdc`, `gndc`, `lh` (LH는 API로 받고 `LH_API_KEY`가 필요해요 — `sources/lh/README.md`)
 
 대구(`dudc`)는 robots.txt가 사이트 전체 수집을 막아서 꺼 두었어요(`sources.enabled = false`). 기관 허락을 받으면 다시 켜요.
 

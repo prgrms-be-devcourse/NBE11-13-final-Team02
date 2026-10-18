@@ -1,0 +1,42 @@
+[
+  {
+    "dsSch": [
+      {
+        "PAN_ED_DT": "20260917",
+        "PG_SZ": "1",
+        "PAN_ST_DT": "20260917",
+        "PAGE": "1",
+        "PAN_NM": "태백소도"
+      }
+    ]
+  },
+  {
+    "dsList": [
+      {
+        "PAN_NT_ST_DT": "2026.09.17",
+        "PAN_ID": "2015122300020793",
+        "AIS_TP_CD_NM": "국민임대",
+        "CNP_CD_NM": "강원특별자치도",
+        "ALL_CNT": "1",
+        "SPL_INF_TP_CD": "062",
+        "AIS_TP_CD": "07",
+        "PAN_DT": "20260917",
+        "RNUM": "1",
+        "CCR_CNNT_SYS_DS_CD": "03",
+        "DTL_URL": "https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancInfo.do?panId=2015122300020793&ccrCnntSysDsCd=03&uppAisTpCd=06&aisTpCd=07&mi=1026",
+        "CLSG_DT": "2026.10.30",
+        "UPP_AIS_TP_CD": "06",
+        "PAN_NM": "태백소도 국민임대주택 예비입주자 상시모집(26.9.17 공고)",
+        "UPP_AIS_TP_NM": "임대주택",
+        "PAN_SS": "공고중",
+        "DTL_URL_MOB": "https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancInfo.do?panId=2015122300020793&ccrCnntSysDsCd=03&uppAisTpCd=06&aisTpCd=07&mi=1026"
+      }
+    ],
+    "resHeader": [
+      {
+        "RS_DTTM": "20261014123423",
+        "SS_CODE": "Y"
+      }
+    ]
+  }
+]
