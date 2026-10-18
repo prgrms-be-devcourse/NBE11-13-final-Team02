@@ -14,6 +14,11 @@ def test_notice_doc_prefers_named_pdf_and_skips_personal_files():
     assert [f.name for f in picked] == ["입주자 모집공고문.pdf", "입주자 모집공고문.hwp"]
 
 
+def test_notice_doc_format_order_pdf_then_hwpx_then_hwp():
+    assert pick_notice_files(refs("모집공고문.hwp", "모집공고문.hwpx", "모집공고문.pdf"))[0].name == "모집공고문.pdf"
+    assert [f.name for f in pick_notice_files(refs("모집공고문.hwp", "모집공고문.hwpx"))] == ["모집공고문.hwpx", "모집공고문.hwp"]
+
+
 def test_hwp_first_when_preferred():
     assert pick_notice_files(refs("모집공고문.pdf", "모집공고문.hwp"), prefer="hwp")[0].name == "모집공고문.hwp"
 

@@ -44,10 +44,10 @@ class FileRef:
 
 
 def pick_notice_files(files: list[FileRef], prefer: str = "pdf") -> list[FileRef]:
-    """공고문 후보를 순서대로 최대 2개: 이름에 '공고문·모집공고·입주자모집' 등이 든 파일 → 선호 형식(PDF) → 다른 형식(HWP·HWPX).
+    """공고문 후보를 순서대로 최대 2개: 이름에 '공고문·모집공고·입주자모집' 등이 든 파일 → 형식(PDF → HWPX → HWP).
     첫 번째가 받기·읽기에 실패하면 두 번째를 시도해요."""
     usable = notice_candidates(files)
-    order = {"pdf": 0, "hwp": 1, "hwpx": 1} if prefer == "pdf" else {"hwp": 0, "hwpx": 0, "pdf": 1}
+    order = {"pdf": 0, "hwpx": 1, "hwp": 2} if prefer == "pdf" else {"hwp": 0, "hwpx": 1, "pdf": 2}
     usable.sort(key=lambda f: (not NOTICE_FILE_NAME.search(f.name), order[f.ext], f.index))
     return usable[:2]
 
