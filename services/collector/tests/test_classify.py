@@ -23,6 +23,10 @@ from mujuthaek_collector.core.classify import CORRECTION, EXCLUDED, FOLLOW_UP, N
         ("2026년 기존주택(청년) 추가 매입 공고", EXCLUDED),
         ("갑천2 트리풀시티 엘리프 단지 내 상가 수의계약 공고", EXCLUDED),
         ("대전평촌일반산업단지 산업ㆍ복합시설용지 일반공급 3차 공고", EXCLUDED),
+        # 인천·서울 실제 제목 (2026-10-19): 특화시설 운영자 모집은 제외, '(운영기관 : ○○)'은 입주자 모집
+        ("2026년 우리집 특화시설 운영자 모집공고(수시)", EXCLUDED),
+        ("2026년 공모형 매입임대주택 특화시설 운영자 모집공고(정기)", EXCLUDED),
+        ("[청년형] 특화형 매입임대주택(금천구) 입주자 모집 공고(운영기관 : 한지붕협동조합)", NOTICE),
     ],
 )
 def test_classify(title, kind):
