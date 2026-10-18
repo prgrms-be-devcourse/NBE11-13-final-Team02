@@ -1,0 +1,541 @@
+"""정책 수집 전체 흐름: 실제 출처 파서 + 가짜 클라이언트 + 메모리 저장소. 기관 사이트·API에는 요청하지 않아요."""
+
+import json
+from dataclasses import replace
+from datetime import date
+
+import httpx
+import pytest
+
+from mujuthaek_collector.errors import BlockedError
+from mujuthaek_collector.sources.policy import gov24, pipeline
+from mujuthaek_collector.sources.policy.base import PolicyItem, build_url
+from mujuthaek_collector.sources.policy.bizinfo import BizinfoSource
+from mujuthaek_collector.sources.policy.bokjiro import BOKJIRO_VIEW, BokjiroCentralSource, BokjiroLocalSource
+from mujuthaek_collector.sources.policy.config import PolicySettings
+from mujuthaek_collector.sources.policy.event import build_policy_event
+from mujuthaek_collector.sources.policy.gov24 import Gov24Source
+from mujuthaek_collector.sources.policy.kstartup import KStartupSource
+from mujuthaek_collector.sources.policy.youth import YouthSource
+from mujuthaek_platform.contracts import validate_event
+from tests import policy_samples as s
+from tests.fakes import FakeClient
+from tests.policy_fakes import PolicyMemoryStore, detail_urls, list_url
+
+TODAY = date(2026, 10, 15)
+KEY = "SeCrEt+Key/=="
+PDF = b"%PDF-1.4 fake"
+HWP = b"\xd0\xcf\x11\xe0" + b"HWP Document File" + b"\x00" * 64
+
+
+@pytest.fixture
+def policy_store():
+    return PolicyMemoryStore()
+
+
+@pytest.fixture
+def api():
+    return FakeClient()
+
+
+@pytest.fixture
+def web():
+    return FakeClient()
+
+
+@pytest.fixture
+def policy_settings():
+    return PolicySettings(data_go_kr_key=KEY, youth_key=KEY, detail_limit=20, api_delay_seconds=0)
+
+
+@pytest.fixture(autouse=True)
+def fake_text(monkeypatch):
+    """첨부 글자 뽑기는 문서 모듈 테스트가 따로 해요. 여기서는 형식별로 정해진 글자를 돌려줘요."""
+    monkeypatch.setattr(pipeline, "extract_text", lambda data, ext: (f"{ext} 문서 글자 " * 30, f"{ext.upper()} 텍스트"))
+
+
+def run(source, api, web, store, file_store, settings, **kwargs):
+    return pipeline.run_policy_source(source, api, web, store, file_store, settings, today=TODAY, **kwargs)
+
+
+def central(api, web, detail=s.BOKJIRO_CENTRAL_DETAIL):
+    source = BokjiroCentralSource(KEY)
+    api.pages[list_url(source, 1)] = s.BOKJIRO_CENTRAL_LIST
+    api.pages[detail_urls(source, source.parse_list(s.BOKJIRO_CENTRAL_LIST).items[0])[0]] = detail
+    web.files["https://www.bokjiro.go.kr/files/form/청년전세임대_안내문.pdf"] = PDF
+    web.files["https://www.bokjiro.go.kr/files/form/download.do?id=77"] = HWP
+    return source
+
+
+def youth(api, web, policy=s.YOUTH_POLICY, page=s.ORIGIN_PAGE):
+    source = YouthSource(KEY, ["주거"])
+    api.pages[list_url(source, 1, "주거")] = s.youth_list([policy])
+    web.pages["https://www.incheon.go.kr/board/view.do?id=3301"] = page
+    web.files["https://www.incheon.go.kr/cmm/fms/FileDown.do?atchFileId=F1&fileSn=0"] = HWP
+    web.files["https://www.incheon.go.kr/cmm/fms/FileDown.do?atchFileId=F1&fileSn=1"] = HWP + b"form"
+    return source
+
+
+def test_api_files_are_saved_with_event(api, web, policy_store, file_store, policy_settings):
+    result = run(central(api, web), api, web, policy_store, file_store, policy_settings)
+    assert result.status == "SUCCESS" and result.new_count == 1
+    post = policy_store.by_key("WLF00001188")
+    assert post.status == "DONE" and post.source_code == "bokjiro_central"
+    version = policy_store.versions[0]
+    assert version.api_raw["tgtrDtlCn"] == "무주택 청년(만 19~39세)" and version.origin_checked == []
+    assert [(f.name, f.role) for f in version.files] == [("청년전세임대 안내문.pdf", "POLICY_DOC")]
+    assert "https://www.bokjiro.go.kr/files/form/download.do?id=77" not in web.requested  # 신청서는 받지 않아요
+    assert "[API 첨부: 청년전세임대 안내문.pdf]" in version.full_text and "pdf 문서 글자" in version.full_text
+    assert not web.pages  # API가 첨부를 줘서 원문 화면은 열지 않았어요
+    event = policy_store.events[0]
+    validate_event(event)
+    assert event["eventType"] == "raw.policy.collected" and event["payload"]["files"][0]["foundOn"] == "API"
+    assert event["payload"]["record"]["servId"] == "WLF00001188" and event["payload"]["categories"] == ["주거", "생활지원"]
+    assert event["payload"]["hasDocument"] is True and event["payload"]["hasOriginText"] is False
+    assert any(k.startswith("raw/bokjiro_central/WLF00001188/v1/00-") for k in file_store.objects)
+
+
+def test_bizinfo_print_file_is_main_document(api, web, policy_store, file_store, policy_settings):
+    source = BizinfoSource(KEY)
+    api.pages[list_url(source)] = s.bizinfo_list([s.BIZINFO_STARTUP, s.BIZINFO_SME])
+    detail = source.parse_detail(source.parse_list(api.pages[list_url(source)]).items[0], [])
+    web.files[detail.files[0].url] = PDF
+    web.files[detail.files[1].url] = HWP
+    web.files[detail.files[2].url] = HWP + b"hwpx"
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.status == "SUCCESS" and result.new_count == 1
+    assert policy_store.by_key("PBLN_000000000127291").status == "SKIPPED"  # 창업 공고가 아님
+    version = policy_store.versions[0]
+    assert [(f.name, f.role) for f in version.files] == [
+        ("2026년 청년농업인 기술창업 지원사업 공고문.pdf", "POLICY_DOC"),
+        ("공고문 원본.hwpx", "POLICY_DOC"),
+    ]
+    assert detail.files[1].url not in web.requested  # 참가 신청서는 받지 않아요
+    assert version.fields.field == "STARTUP_SUPPORT" and version.document_status == "OK" and version.origin_status == "NOT_OPENED"
+    assert "[API 첨부: 2026년 청년농업인 기술창업 지원사업 공고문.pdf]" in version.full_text and "<p>" not in version.full_text
+    event = policy_store.events[0]
+    validate_event(event)
+    assert (event["payload"]["sourceCode"], event["payload"]["provider"], event["payload"]["field"]) == ("bizinfo", "BIZINFO", "STARTUP_SUPPORT")
+    assert not any(KEY in w for w in result.warnings)
+
+
+def test_nul_in_document_text_is_removed(api, web, policy_store, file_store, policy_settings, monkeypatch):
+    monkeypatch.setattr(pipeline, "extract_text", lambda data, ext: ("공고\x00 본문 " * 30, "HWP 텍스트"))
+    run(central(api, web), api, web, policy_store, file_store, policy_settings)
+    version = policy_store.versions[0]
+    assert "\x00" not in version.full_text and all("\x00" not in (f.text or "") for f in version.files)
+
+
+def test_kstartup_uses_list_only(api, web, policy_store, file_store, policy_settings):
+    source = KStartupSource(KEY)
+    api.pages[list_url(source)] = s.kstartup_list([s.KSTARTUP_POLICY])
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.status == "SUCCESS" and result.new_count == 1
+    assert api.requested == [list_url(source)] and web.requested == []  # 상세 API도 상세 화면도 열지 않아요
+    version = policy_store.versions[0]
+    assert version.document_status == "NO_SOURCE" and version.origin_status == "NO_SOURCE"
+    assert "지원사업 공고명: [ 모 집 ] GVC AI Platform & Startup Enabling Program" in version.full_text
+    event = policy_store.events[0]
+    validate_event(event)
+    assert (event["payload"]["provider"], event["payload"]["field"], event["payload"]["policyId"]) == ("KSTARTUP", "STARTUP_SUPPORT", "179540")
+
+    again = run(source, api, web, policy_store, file_store, policy_settings)  # 같은 목록이면 다시 열지 않아요
+    assert again.new_count == 0 and len(policy_store.versions) == 1
+
+
+def test_origin_page_is_opened_when_api_has_only_forms(api, web, policy_store, file_store, policy_settings):
+    source = central(api, web)
+    item = source.parse_list(s.BOKJIRO_CENTRAL_LIST).items[0]
+    forms_only = s.BOKJIRO_CENTRAL_DETAIL.replace("<servSeDetailNm>청년전세임대 안내문<", "<servSeDetailNm>청년전세임대 신청서<")
+    api.pages[detail_urls(source, item)[0]] = forms_only
+    origin = source.parse_detail(item, [forms_only]).origin_urls[-1]  # 복지로 상세 화면
+    web.pages[origin] = s.ORIGIN_PAGE.replace("/cmm/fms/", "https://www.bokjiro.go.kr/cmm/fms/")
+    web.files["https://www.bokjiro.go.kr/cmm/fms/FileDown.do?atchFileId=F1&fileSn=0"] = HWP
+    run(source, api, web, policy_store, file_store, policy_settings)
+    version = policy_store.versions[0]
+    assert origin in version.origin_checked  # API 첨부가 서식뿐이라 원문에서 공고문을 찾았어요
+    assert [(f.name, f.found_on) for f in version.files] == [("2026년 청년월세지원 모집공고문.hwp", "ORIGIN_PAGE")]
+    assert not any("/files/form/" in u for u in web.requested)  # API 서식은 받지 않아요
+
+
+def test_origin_page_is_opened_when_api_has_no_files(api, web, policy_store, file_store, policy_settings):
+    result = run(youth(api, web), api, web, policy_store, file_store, policy_settings)
+    assert result.new_count == 1
+    version = policy_store.versions[0]
+    assert [(f.name, f.role) for f in version.files] == [("2026년 청년월세지원 모집공고문.hwp", "POLICY_DOC")]
+    assert "https://www.incheon.go.kr/cmm/fms/FileDown.do?atchFileId=F1&fileSn=2" not in web.requested  # 명단 파일
+    assert version.origin_checked == ["https://www.incheon.go.kr/board/view.do?id=3301"]
+    event = policy_store.events[0]
+    validate_event(event)
+    assert {f["foundOn"] for f in event["payload"]["files"]} == {"ORIGIN_PAGE"}
+    assert event["payload"]["regionCodes"] == ["28177", "28185"]
+
+
+def test_origin_page_text_is_added_when_relevant(api, web, policy_store, file_store, policy_settings):
+    policy = {**s.YOUTH_POLICY, "plcyNm": "청년 농촌보금자리 조성사업"}
+    source = youth(api, web, policy=policy, page=s.BOARD_PAGE)
+    web.files["https://www.incheon.go.kr/cnportal/cmmn/file/fileDown.do?atchFileId=abc&fileSn=1"] = b"%PDF-1.4 scan"
+    monkeypatch_text = pipeline.extract_text
+    pipeline.extract_text = lambda data, ext: (None, "PDF에 글자가 거의 없음 (스캔본 가능성)")  # 카드뉴스 같은 그림 PDF
+    try:
+        run(source, api, web, policy_store, file_store, policy_settings)
+    finally:
+        pipeline.extract_text = monkeypatch_text
+    version = policy_store.versions[0]
+    assert "[원문 화면: https://www.incheon.go.kr/board/view.do?id=3301]" in version.full_text and "영농정착지원금" in version.full_text
+    assert version.origin_text_url == "https://www.incheon.go.kr/board/view.do?id=3301"
+    payload = policy_store.events[0]["payload"]
+    assert payload["hasOriginText"] is True and payload["hasDocument"] is False  # 첨부는 받았지만 글자를 못 뽑았어요
+    validate_event(policy_store.events[0])
+
+
+def test_irrelevant_origin_page_text_is_not_added(api, web, policy_store, file_store, policy_settings):
+    source = youth(api, web, page=s.HOME_PAGE)
+    run(source, api, web, policy_store, file_store, policy_settings)
+    version = policy_store.versions[0]
+    assert "[원문 화면" not in version.full_text and version.origin_text_url is None
+    assert policy_store.events[0]["payload"]["hasOriginText"] is False
+
+
+def test_origin_page_text_does_not_change_the_version(api, web, policy_store, file_store, policy_settings):
+    policy = {**s.YOUTH_POLICY, "plcyNm": "청년 농촌보금자리 조성사업"}
+    source = youth(api, web, policy=policy, page=s.BOARD_PAGE.replace("</form>", "<p>오늘 방문자 1,024명</p></form>"))
+    web.files["https://www.incheon.go.kr/cnportal/cmmn/file/fileDown.do?atchFileId=abc&fileSn=1"] = b"%PDF-1.4"
+    run(source, api, web, policy_store, file_store, policy_settings)
+    web.pages["https://www.incheon.go.kr/board/view.do?id=3301"] = s.BOARD_PAGE.replace("</form>", "<p>오늘 방문자 2,048명</p></form>")
+    assert run(source, api, web, policy_store, file_store, policy_settings, recheck=True).new_count == 0
+
+
+def test_unchanged_list_does_not_open_details_again(api, web, policy_store, file_store, policy_settings):
+    source = central(api, web)
+    run(source, api, web, policy_store, file_store, policy_settings)
+    api.requested.clear()
+    web.requested.clear()
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.new_count == 0 and api.requested == [list_url(source, 1)] and web.requested == []
+
+
+def test_changed_marker_reopens_but_saves_only_real_changes(api, web, policy_store, file_store, policy_settings):
+    source = BokjiroLocalSource(KEY)
+    item = source.parse_list(s.BOKJIRO_LOCAL_LIST).items[0]
+    api.pages[list_url(source, 1)] = s.BOKJIRO_LOCAL_LIST
+    api.pages[detail_urls(source, item)[0]] = s.BOKJIRO_LOCAL_DETAIL
+    web.pages["https://www.yeonsu.go.kr/notice/view.do?id=901"] = "<p>공고 본문만 있고 첨부는 없어요</p>"
+    web.pages[f"{BOKJIRO_VIEW}?wlfareInfoId=WLF00005123&wlfareInfoReldBztpCd=02"] = "<p>복지로 화면</p>"
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 1
+
+    api.pages[list_url(source, 1)] = s.BOKJIRO_LOCAL_LIST.replace("20260903", "20260910")  # 수정일만 바뀜
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 0
+    assert policy_store.by_key("WLF00005123").status == "DONE"
+
+    api.pages[list_url(source, 1)] = s.BOKJIRO_LOCAL_LIST.replace("20260903", "20260920")
+    api.pages[detail_urls(source, item)[0]] = s.BOKJIRO_LOCAL_DETAIL.replace("월 20만원", "월 25만원")
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 1
+    assert policy_store.by_key("WLF00005123").latest_version == 2
+
+
+# 출산장려금은 이주 혜택 단어가 없어서 1차 거름에서 빠져요 (실제로는 '주거' 태그가 붙어 있어요)
+BIRTH = """  <servList>
+    <servId>WLF00009001</servId>
+    <servNm>출산장려금</servNm>
+    <servDgst>출산 가정에 장려금을 지급해요</servDgst>
+    <ctpvNm>인천광역시</ctpvNm><sggNm>연수구</sggNm>
+    <lastModYmd>20260903</lastModYmd>
+    <intrsThemaNmArray>임신·출산, 주거</intrsThemaNmArray>
+  </servList>
+</wantedList>"""
+
+
+def local_with_birth(api, web):
+    source = BokjiroLocalSource(KEY)
+    item = source.parse_list(s.BOKJIRO_LOCAL_LIST).items[0]
+    api.pages[list_url(source, 1)] = s.BOKJIRO_LOCAL_LIST.replace("<totalCount>1<", "<totalCount>2<").replace("</wantedList>", BIRTH)
+    api.pages[detail_urls(source, item)[0]] = s.BOKJIRO_LOCAL_DETAIL
+    web.pages["https://www.yeonsu.go.kr/notice/view.do?id=901"] = "<p>공고 본문만 있고 첨부는 없어요</p>"
+    web.pages[f"{BOKJIRO_VIEW}?wlfareInfoId=WLF00005123&wlfareInfoReldBztpCd=02"] = "<p>복지로 화면</p>"
+    return source
+
+
+def test_local_policy_without_settle_words_is_skipped(api, web, policy_store, file_store, policy_settings):
+    source = local_with_birth(api, web)
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 1
+    assert policy_store.by_key("WLF00005123").status == "DONE"
+    skipped = policy_store.by_key("WLF00009001")
+    assert skipped.status == "SKIPPED" and skipped.list_raw["servNm"] == "출산장려금"
+    assert not any("WLF00009001" in url for url in api.requested)  # 상세를 열지 않아요
+
+
+def test_waiting_policy_becomes_skipped_and_returns_when_words_widen(api, web, policy_store, file_store, policy_settings, monkeypatch):
+    source = local_with_birth(api, web)
+    monkeypatch.setattr(BokjiroLocalSource, "wanted", lambda self, item: True)
+    run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=0))  # 거름 전에 쌓인 PENDING
+    assert policy_store.by_key("WLF00009001").status == "PENDING"
+
+    monkeypatch.undo()
+    run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=0))
+    assert policy_store.by_key("WLF00009001").status == "SKIPPED"
+
+    monkeypatch.setattr(BokjiroLocalSource, "wanted", lambda self, item: True)  # 단어를 넓힌 경우
+    run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=0))
+    assert policy_store.by_key("WLF00009001").status == "PENDING"
+
+
+def test_central_policy_without_settle_words_is_skipped(api, web, policy_store, file_store, policy_settings):
+    source = central(api, web)
+    care = BIRTH.replace("WLF00009001", "WLF00000024").replace("출산장려금", "아이돌봄서비스")
+    care = care.replace("출산 가정에 장려금을 지급해요", "육아 도우미가 방문하여 양육을 도와줍니다")
+    api.pages[list_url(source, 1)] = s.BOKJIRO_CENTRAL_LIST.replace("</wantedList>", care)
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 1
+    assert policy_store.by_key("WLF00000024").status == "SKIPPED"
+    assert not any("WLF00000024" in url for url in api.requested)
+
+
+@pytest.mark.parametrize(
+    "name, digest, expected",
+    [
+        ("2026년 충청남도 청년 주택임차보증금 이자 지원사업", "충청남도 청년들의 주거비용 부담 완화", True),
+        ("관악구 청년 주거환경개선비 지원 사업", "", True),
+        ("귀농인 정착지원금", "", True),
+        ("전입 대학생 생활지원금", "", True),
+        ("농촌빈집정비지원(일반)", "", True),
+        ("의료급여수급자 암검진 바우처", "저소득층의 위, 대장, 유방암 검진시 발생되는 비급여 비용지원", False),
+        ("첫째아 출산지원금", "출산지원금을 지급하여 양육부담을 경감", False),
+        ("효도수당 지원", "경로효친의 건전한 가족제도 정착과 지역사회의 효 문화 확산", False),
+        ("탈시설 장애인 자립정착금 지원", "", True),
+        ("영주귀국 사할린한인 정착비 및 시설운영 지원", "", True),
+        ("의성군 출산장려금 지원", "인구감소 대응을 위해 출산 가정에 장려금 지급", False),
+    ],
+)
+def test_settle_words(name, digest, expected):
+    item = PolicyItem("WLF1", name, "", {"servNm": name, "servDgst": digest})
+    assert BokjiroLocalSource(KEY).wanted(item) is expected
+
+
+def test_recheck_reopens_unchanged_policies(api, web, policy_store, file_store, policy_settings):
+    source = central(api, web)
+    run(source, api, web, policy_store, file_store, policy_settings)
+    detail_url = detail_urls(source, source.parse_list(s.BOKJIRO_CENTRAL_LIST).items[0])[0]
+    api.pages[detail_url] = s.BOKJIRO_CENTRAL_DETAIL.replace("1억 2천만원", "1억 3천만원")
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 0  # 목록이 같아서 열지 않아요
+    assert run(source, api, web, policy_store, file_store, policy_settings, recheck=True).new_count == 1
+
+
+def test_robots_blocked_origin_is_skipped_once_per_run(api, web, policy_store, file_store, policy_settings):
+    source = Gov24Source(KEY)
+    api.pages[list_url(source, 1)] = s.GOV24_LIST
+    for item in source.parse_list(s.GOV24_LIST).items:
+        detail_url, conditions_url = detail_urls(source, item)
+        api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
+    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.status == "SUCCESS" and result.new_count == 2
+    assert len([w for w in result.warnings if "www.gov.kr" in w]) == 1
+    assert web.requested == ["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"]  # 두 번째 정책은 같은 도메인이라 묻지 않아요
+    assert all(v.files == [] for v in policy_store.versions)
+    assert "구비서류: 신분증, 임대차계약서" in policy_store.versions[0].full_text
+
+
+def test_missing_key_fails_without_requests(api, web, policy_store, file_store, policy_settings):
+    result = run(Gov24Source(None), api, web, policy_store, file_store, policy_settings)
+    assert result.status == "FAILED" and "DATA_GO_KR_SERVICE_KEY" in result.warnings[0] and api.requested == []
+
+
+def test_key_error_blocks_and_hides_key(api, web, policy_store, file_store, policy_settings):
+    source = Gov24Source(KEY)
+    url = list_url(source, 1)
+    request = httpx.Request("GET", url)
+    api.pages[url] = httpx.HTTPStatusError(f"HTTP 500: {url}", request=request, response=httpx.Response(500, request=request))
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.status == "SUCCESS" and result.warnings  # 목록 실패는 경고만 (다음 회차에 다시)
+    assert not any(KEY in w or "SeCrEt%2BKey" in w for w in result.warnings)
+
+    api.pages[url] = s.GOV24_KEY_ERROR
+    blocked = run(source, api, web, policy_store, file_store, policy_settings)
+    assert blocked.status == "BLOCKED"
+
+
+def test_broken_detail_marks_only_that_policy_failed(api, web, policy_store, file_store, policy_settings):
+    source = central(api, web, detail="<wantedDtl><resultCode>0</resultCode></wantedDtl>")
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    post = policy_store.by_key("WLF00001188")
+    assert result.status == "SUCCESS" and post.status == "FAILED" and post.attempts == 1
+    assert any("상세를 읽지 못했어요" in w for w in result.warnings)
+
+
+def test_detail_limit_leaves_rest_pending(api, web, policy_store, file_store, policy_settings):
+    source = Gov24Source(KEY)
+    api.pages[list_url(source, 1)] = s.GOV24_LIST
+    for item in source.parse_list(s.GOV24_LIST).items:
+        detail_url, conditions_url = detail_urls(source, item)
+        api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
+    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt")
+    run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=1))
+    assert sorted(p.status for p in policy_store.policies.values()) == ["DONE", "PENDING"]
+
+
+def test_event_matches_contract_with_empty_values():
+    from uuid import UUID
+
+    event = build_policy_event(
+        raw_policy_id=UUID("01929a3e-0000-7000-8000-000000000001"),
+        version=1,
+        source_code="gov24",
+        provider="GOV24",
+        field="BENEFIT",
+        policy_id="000000465790",
+        title="청년 월세 한시 특별지원",
+        agency=None,
+        region_scope="UNKNOWN",
+        region_names=[],
+        region_codes=[],
+        categories=[],
+        detail_url=None,
+        apply_url=None,
+        source_modified_at=None,
+        full_text="가" * 200_010,
+        text_key="text/gov24/000000465790/v1.txt",
+        record={"서비스ID": "000000465790"},
+        files=[],
+    )
+    validate_event(event)
+    assert len(event["payload"]["text"]) == 200_000
+
+
+# ── 보조금24: 이주 단어 거름 + 상세 한꺼번에 받기 ─────────────────────
+def gov24_with_unrelated():
+    data = json.loads(s.GOV24_LIST)
+    data["data"].append(
+        {
+            "서비스ID": "105100000001",
+            "서비스명": "근로·자녀장려금",
+            "서비스목적요약": "소득이 적은 근로자에게 장려금 지급",
+            "서비스분야": "주거·자립",
+            "수정일시": "20260430093900",
+        }
+    )
+    data["totalCount"] = data["currentCount"] = 3
+    return json.dumps(data, ensure_ascii=False)
+
+
+def bulk_url(source, endpoint):
+    return build_url(f"{gov24.BASE}/{endpoint}", {"page": 1, "perPage": gov24.BULK_PAGE, "serviceKey": source.api_key})
+
+
+def bulk_body(rows):
+    return json.dumps({"page": 1, "perPage": gov24.BULK_PAGE, "totalCount": len(rows), "currentCount": len(rows), "data": rows}, ensure_ascii=False)
+
+
+def test_gov24_skips_policies_without_settle_words(api, web, policy_store, file_store, policy_settings):
+    source = Gov24Source(KEY)
+    api.pages[list_url(source, 1)] = gov24_with_unrelated()
+    for item in source.parse_list(s.GOV24_LIST).items:
+        detail_url, conditions_url = detail_urls(source, item)
+        api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
+    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 2  # 정책이 적어서 정책마다 받아요
+    assert policy_store.by_key("105100000001").status == "SKIPPED"  # 서비스분야는 주거·자립이지만 이주 단어가 없어요
+    assert not any("105100000001" in url for url in api.requested)
+
+
+def test_gov24_prefetches_details_in_bulk(api, web, policy_store, file_store, policy_settings, monkeypatch):
+    monkeypatch.setattr(gov24, "BULK_MIN", 1)
+    source = Gov24Source(KEY)
+    api.pages[list_url(source, 1)] = gov24_with_unrelated()
+    ids = ["000000465790", "641000000123", "105100000001"]
+    api.pages[bulk_url(source, "serviceDetail")] = bulk_body([json.loads(s.gov24_detail(i))["data"][0] for i in ids])
+    api.pages[bulk_url(source, "supportConditions")] = bulk_body([json.loads(s.gov24_conditions(i))["data"][0] for i in ids])
+    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 2
+    assert api.requested == [list_url(source, 1), bulk_url(source, "serviceDetail"), bulk_url(source, "supportConditions")]
+    record = policy_store.versions[0].api_raw
+    assert record["구비서류"] == "신분증, 임대차계약서" and record["지원조건"]["대상연령"] == "19~34"
+    assert set(source.details) == {"000000465790", "641000000123"}  # 거름을 통과한 정책만 남겨요
+
+
+def test_gov24_falls_back_to_each_policy_when_bulk_fails(api, web, policy_store, file_store, policy_settings, monkeypatch):
+    monkeypatch.setattr(gov24, "BULK_MIN", 1)
+    source = Gov24Source(KEY)
+    api.pages[list_url(source, 1)] = s.GOV24_LIST
+    api.pages[bulk_url(source, "serviceDetail")] = "<html>점검 중</html>"
+    for item in source.parse_list(s.GOV24_LIST).items:
+        detail_url, conditions_url = detail_urls(source, item)
+        api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
+    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.new_count == 2 and any("한꺼번에 받지 못해" in w for w in result.warnings)
+
+
+# ── 온통청년: 전체를 받고 주거·창업만 ─────────────────────────────────
+def test_youth_takes_housing_and_startup_from_full_list(api, web, policy_store, file_store, policy_settings):
+    source = YouthSource(KEY)
+    startup = {
+        **s.YOUTH_POLICY,
+        "plcyNo": "2026STARTUP",
+        "plcyNm": "청년 창업 공간 입주 지원",
+        "lclsfNm": "일자리",
+        "mclsfNm": "취업,창업",
+        "refUrlAddr1": None,
+    }
+    move_in = {
+        **s.YOUTH_POLICY,
+        "plcyNo": "2026MOVEIN",
+        "plcyNm": "전입세대 전입장려금 지원",
+        "lclsfNm": "금융･복지･문화",
+        "mclsfNm": "문화활동 및 생활지원",
+        "refUrlAddr1": None,
+    }
+    other = {
+        **s.YOUTH_POLICY,
+        "plcyNo": "2026OTHER",
+        "plcyNm": "청년 자격증 응시료 지원",
+        "plcyExplnCn": "자격증 시험 응시료 지원",
+        "lclsfNm": "교육",
+        "mclsfNm": "교육비지원",
+    }
+    api.pages[list_url(source, 1)] = s.youth_list([s.YOUTH_POLICY, startup, move_in, other])
+    assert "lclsfNm" not in list_url(source, 1) and "pageSize=500" in list_url(source, 1)
+    web.pages["https://www.incheon.go.kr/board/view.do?id=3301"] = s.ORIGIN_PAGE
+    web.files["https://www.incheon.go.kr/cmm/fms/FileDown.do?atchFileId=F1&fileSn=0"] = HWP
+    web.files["https://www.incheon.go.kr/cmm/fms/FileDown.do?atchFileId=F1&fileSn=1"] = HWP + b"form"
+    assert run(source, api, web, policy_store, file_store, policy_settings).new_count == 3
+    assert policy_store.by_key("2026OTHER").status == "SKIPPED"
+    fields = {e["payload"]["policyId"]: e["payload"]["field"] for e in policy_store.events}
+    assert fields == {"20260815005400211234": "BENEFIT", "2026STARTUP": "STARTUP_SUPPORT", "2026MOVEIN": "BENEFIT"}
+
+
+# ── 정책 전용 테이블: 통일한 칸과 첨부·원문 상태 ───────────────────────
+def test_unified_fields_and_statuses_with_api_files(api, web, policy_store, file_store, policy_settings):
+    run(central(api, web), api, web, policy_store, file_store, policy_settings)
+    version = policy_store.versions[0]
+    assert (version.document_status, version.origin_status) == ("OK", "NOT_OPENED")  # API 첨부가 있어서 원문은 열지 않아요
+    assert version.fields.title == "청년 전세임대주택" and version.fields.target == "무주택 청년(만 19~39세)"
+    assert version.fields.field == "BENEFIT" and version.fields.region_scope == "NATIONWIDE"
+    assert all(f.found_on == "API" for f in version.files)
+    payload = policy_store.events[0]["payload"]
+    assert (payload["documentStatus"], payload["originStatus"]) == ("OK", "NOT_OPENED")
+
+
+def test_blocked_origin_is_recorded_as_blocked(api, web, policy_store, file_store, policy_settings):
+    source = Gov24Source(KEY)
+    api.pages[list_url(source, 1)] = s.GOV24_LIST
+    for item in source.parse_list(s.GOV24_LIST).items:
+        detail_url, conditions_url = detail_urls(source, item)
+        api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
+    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
+    run(source, api, web, policy_store, file_store, policy_settings)
+    assert {(v.document_status, v.origin_status) for v in policy_store.versions} == {("BLOCKED", "BLOCKED")}  # 두 번째는 같은 도메인이라 묻지 않아도 BLOCKED
+    first = policy_store.versions[0].fields
+    assert (first.age_min, first.age_max, first.documents) == (19, 34, "신분증, 임대차계약서")
+    assert first.target == "만 19~34세 부모와 별도 거주하는 무주택 청년" and first.apply_period == "2026. 12. 31.까지"
+
+
+def test_no_origin_address_and_irrelevant_page(api, web, policy_store, file_store, policy_settings):
+    source = YouthSource(KEY)
+    no_ref = {**s.YOUTH_POLICY, "plcyNo": "2026NOREF", "refUrlAddr1": None, "refUrlAddr2": None}
+    home = {**s.YOUTH_POLICY, "plcyNo": "2026HOME", "refUrlAddr1": "https://www.example.go.kr/main.do", "refUrlAddr2": None}
+    api.pages[list_url(source, 1)] = s.youth_list([no_ref, home])
+    web.pages["https://www.example.go.kr/main.do"] = "<div>" + "시청 소식과 행사 안내 " * 40 + "</div>"
+    run(source, api, web, policy_store, file_store, policy_settings)
+    states = {v.policy.policy_id: (v.document_status, v.origin_status) for v in policy_store.versions}
+    assert states == {"2026NOREF": ("NO_SOURCE", "NO_SOURCE"), "2026HOME": ("NONE", "NONE")}
+    assert policy_store.versions[0].fields.age_min == 19
