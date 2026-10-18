@@ -96,3 +96,11 @@ def test_reduced_rent_columns_are_not_groups():
     ]
     units = units_from_tables([(7, "", rows)])
     assert [(u["type"], u["deposit_won"], u["rent_won"], u.get("target")) for u in units] == [("36", 35_200_000, 161_330, None)]
+
+
+def test_extracted_text_drops_nul(monkeypatch):
+    """서울·경기·울산 공고문 PDF 글자에 NUL이 섞여 DB 저장이 실패했어요 (2026-10-19)."""
+    from mujuthaek_collector.core.documents import text
+
+    monkeypatch.setattr(text, "pdf_text", lambda path: ("공고\x00문 글자", "PDF 텍스트·표"))
+    assert text.extract_text(b"%PDF", "pdf") == ("공고문 글자", "PDF 텍스트·표")
