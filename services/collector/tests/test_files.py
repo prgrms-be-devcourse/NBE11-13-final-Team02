@@ -56,3 +56,27 @@ def test_read_old_excel_unit_list():
         ("26A", 26.37, 12_000_000, 150_000),
         ("26A", 26.37, 13_000_000, 140_000),
     ]
+
+
+def test_notice_with_forms_in_name_beats_floor_plan():
+    """부산 실제 첨부 (2026-10-19, rent-87): 공고문이 신청서류와 한 파일이고, 평면도는 '세대 내 구조'."""
+    files = refs(
+        "[첨부1]2026 남부민풀리페 국민임대 입주자(예비입주자) 모집 공고문 및 신청서류.hwp",
+        "[첨부1]2026 남부민풀리페 국민임대 입주자(예비입주자) 모집 공고문 및 신청서류.pdf",
+        "[첨부2]남부민풀리페 국민임대 세대 내 구조.hwp",
+    )
+    assert [f.name for f in pick_notice_files(files)] == [
+        "[첨부1]2026 남부민풀리페 국민임대 입주자(예비입주자) 모집 공고문 및 신청서류.pdf",
+        "[첨부1]2026 남부민풀리페 국민임대 입주자(예비입주자) 모집 공고문 및 신청서류.hwp",
+    ]
+    assert not refs("입주 신청서.hwp")[0].notice_doc  # 공고문이 아닌 서식은 그대로 제외
+
+
+def test_strong_notice_name_beats_preferred_format():
+    """경남 실제 첨부 (2026-10-19): '…공고문.hwpx'가 '…입주자모집 관련.pdf'보다 먼저."""
+    files = refs(
+        "(붙임3) 2026년 전세임대주택 입주자모집 관련.pdf",
+        "(붙임2) 2026년 전세임대주택 제출서류.hwp",
+        "(붙임1) 2026년 전세임대주택 입주자모집(제2차) 공고문.hwpx",
+    )
+    assert pick_notice_files(files)[0].name == "(붙임1) 2026년 전세임대주택 입주자모집(제2차) 공고문.hwpx"
