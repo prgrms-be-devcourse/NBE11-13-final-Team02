@@ -1,0 +1,475 @@
+"""로컬 AI 연결·모델 선택·검수 API 동작. 네트워크·DB 없이 가짜 연결과 가짜 저장소를 씁니다."""
+
+import io
+import json
+import urllib.error
+from contextlib import contextmanager
+from pathlib import Path
+
+import pytest
+from test_pipeline import answers, new_event, raw_event, run
+
+from mujuthaek_extraction.config import Settings
+from mujuthaek_extraction.contracts import tools
+from mujuthaek_extraction.model import ModelError, ModelRequest, RecordedModel
+from mujuthaek_extraction.model.factory import ModelFactory, NoticeModels
+from mujuthaek_extraction.model.local_ai import LocalChatModel
+from mujuthaek_extraction.model.pricing import Budget, BudgetedModel
+from mujuthaek_extraction.pipeline import Outcome
+from mujuthaek_extraction.review_api import ReviewService
+
+REQUEST = ModelRequest("v", "structure", "지시", "원문", "할 일", {"type": "object", "properties": {"a": {"type": "string"}}, "required": ["a"]}, 100)
+
+
+def settings(**overrides):
+    base = dict(db_url="", rabbitmq_url="", s3_endpoint=None, s3_bucket="b", s3_access_key=None, s3_secret_key=None, env_file=Path("없는.env"))
+    return Settings(**(base | overrides))
+
+
+# ---------- 로컬 AI ----------
+
+
+def test_local_ai_without_address_fails_fast():
+    with pytest.raises(ModelError, match="LOCAL_AI_URL"):
+        LocalChatModel(None).complete(REQUEST)
+
+
+def test_local_ai_parses_openai_compatible_answer():
+    sent = {}
+
+    def opener(request, timeout):
+        sent.update(url=request.full_url, body=json.loads(request.data))
+        choice = {"finish_reason": "stop", "message": {"content": '{"a": "값"}'}}
+        answer = {"model": "qwen", "choices": [choice], "usage": {"prompt_tokens": 10, "completion_tokens": 3}}
+        return io.BytesIO(json.dumps(answer).encode())
+
+    response = LocalChatModel("http://localhost:11434/v1/", "qwen", opener=opener).complete(REQUEST)
+    assert sent["url"] == "http://localhost:11434/v1/chat/completions"
+    assert sent["body"]["response_format"]["type"] == "json_schema" and sent["body"]["messages"][0]["content"] == "지시"
+    assert json.loads(response.raw_text) == {"a": "값"} and response.input_tokens == 10 and response.model_id == "qwen"
+
+
+def test_local_ai_connection_failure_is_skipped_for_a_while():
+    calls, now = [], [100.0]
+
+    def opener(request, timeout):
+        calls.append(1)
+        raise urllib.error.URLError("refused")
+
+    model = LocalChatModel("http://localhost:1/v1", opener=opener, clock=lambda: now[0], down_seconds=60)
+    for _ in range(3):
+        with pytest.raises(ModelError):
+            model.complete(REQUEST)
+    assert len(calls) == 1  # 연결 실패 뒤 60초 동안은 다시 연결하지 않음
+    now[0] += 61
+    with pytest.raises(ModelError):
+        model.complete(REQUEST)
+    assert len(calls) == 2
+
+
+# ---------- 모델 선택 ----------
+
+
+def test_default_mode_is_local_then_paid(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
+    models = ModelFactory(settings(local_ai_url="http://localhost:11434/v1")).for_notice()
+    assert isinstance(models.primary, LocalChatModel) and isinstance(models.fallback, BudgetedModel)
+    assert models.names == {"primary": "local", "fallback": "gpt-6-luna"} and models.budget.limit_usd == 0.5
+
+
+def test_without_local_address_paid_model_is_used_directly(monkeypatch):
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-not-real")
+    models = ModelFactory(settings()).for_notice()
+    assert isinstance(models.primary, BudgetedModel) and models.fallback is None and models.names == {"primary": "gpt-6-luna"}
+
+
+def test_without_paid_key_only_local_is_used(monkeypatch):
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    models = ModelFactory(settings()).for_notice()
+    assert isinstance(models.primary, LocalChatModel) and models.fallback is None
+
+
+def test_recorded_mode_replays_saved_answers(tmp_path):
+    for name, items in answers().items():
+        (tmp_path / f"{name}.json").write_text(json.dumps(items, ensure_ascii=False), encoding="utf-8")
+    models = ModelFactory(settings(model_mode="recorded", recorded_dir=tmp_path)).for_notice()
+    assert run(raw_event(), models).status == "COMPLETED"
+    assert run(raw_event(), models).status == "COMPLETED"  # 공고마다 같은 응답을 다시 씁니다
+
+
+def test_paid_call_over_budget_is_refused():
+    paid = RecordedModel({"structure": ['{"a": "x"}']})
+    guarded = BudgetedModel(paid, Budget("gpt-6-luna", 0.000001))
+    with pytest.raises(ModelError, match="비용 상한"):
+        guarded.complete(REQUEST)
+    assert paid.requests == []
+
+
+# ---------- 검수 API ----------
+
+
+class FakeStore:
+    def __init__(self, item):
+        self.item, self.approved, self.rejected = item, None, None
+
+    def reviews(self, status):
+        return [self.item] if self.item and self.item["reviewStatus"] == status else []
+
+    def review(self, job_id):
+        return self.item
+
+    def approve(self, job_id, candidate, event, note):
+        self.approved = (candidate, event, note)
+        self.item["reviewStatus"] = "APPROVED"
+
+    def reject(self, job_id, note):
+        if self.item["reviewStatus"] != "PENDING":
+            raise LookupError("대기 중인 검수가 아닙니다.")
+        self.rejected = note
+
+
+def service_with(item):
+    store = FakeStore(item)
+
+    @contextmanager
+    def session():
+        yield store
+
+    return ReviewService(session, new_event), store
+
+
+def pending_item():
+    outcome = run(raw_event(), NoticeModels(RecordedModel(answers()), None))
+    candidate = outcome.candidate
+    candidate["quality"]["reviewIssues"].append({"code": "EXCEPTION_SUSPECTED", "target": "/eligibility/2", "description": "가산 기준 확인"})
+    candidate["quality"]["verification"]["status"] = "REVIEW_REQUIRED"  # 검수 대기열의 후보는 검증을 통과하지 못한 것
+    return {"jobId": "01929a3e-0000-7000-8000-00000000j0b1", "reviewStatus": "PENDING", "candidate": candidate, "rawEvent": raw_event(), "reasons": []}
+
+
+def test_approve_republishes_approved_event_that_matches_contract():
+    service, store = service_with(pending_item())
+    status, body = service.approve("job", {"note": "원문 7쪽 확인"})
+    assert status == 200 and body["reviewStatus"] == "APPROVED"
+    candidate, event, note = store.approved
+    assert note == "원문 7쪽 확인" and event["payload"]["reviewStatus"] == "APPROVED"
+    assert all(not c["inReview"] for c in event["payload"]["conditions"])
+    assert tools().validate(event, "events/extraction.completed.v1.json") == []
+
+
+def test_approve_with_broken_candidate_is_refused():
+    service, store = service_with(pending_item())
+    status, body = service.approve("job", {"candidate": {"schemaVersion": "1.0.0"}})
+    assert status == 422 and store.approved is None
+
+
+def test_cannot_approve_twice_or_without_result():
+    service, _ = service_with(pending_item())
+    assert service.approve("job", {})[0] == 200
+    assert service.approve("job", {})[0] == 409
+    no_result = pending_item() | {"candidate": None}
+    assert service_with(no_result)[0].approve("job", {})[0] == 409
+
+
+def test_list_rejects_unknown_status():
+    service, _ = service_with(pending_item())
+    assert service.list("DONE")[0] == 400
+    assert len(service.list("PENDING")[1]["items"]) == 1
+
+
+def test_approve_refuses_candidate_of_another_notice():
+    # 검토 지적: 승인할 후보가 다른 공고(rawPostId)를 가리켜도 그대로 발행되던 것
+    import copy
+
+    item = pending_item()
+    other = copy.deepcopy(item["candidate"])
+    other["input"]["rawPostId"] = "01929a3e-0000-7000-8000-0000000000ff"
+    for reference in other["sourceReferences"]:
+        reference["rawPostId"] = "01929a3e-0000-7000-8000-0000000000ff"
+    service, store = service_with(item)
+    status, body = service.approve("job", {"candidate": other})
+    assert status == 422 and "원본" in body["error"] and store.approved is None
+
+
+def http_server(token=None):
+    import threading
+
+    from mujuthaek_extraction.review_api import serve
+
+    service, store = service_with(pending_item())
+    server = serve(service, "127.0.0.1", 0, token)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, store
+
+
+def call(server, method, path, body=None, headers=None):
+    import json as _json
+    import urllib.error
+    import urllib.request
+
+    data = None if body is None else (body if isinstance(body, bytes) else _json.dumps(body).encode())
+    request = urllib.request.Request(f"http://127.0.0.1:{server.server_port}{path}", data=data, method=method, headers=headers or {})
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
+JOB = "/reviews/01929a3e-0000-7000-8000-000000000001"
+
+
+def test_review_api_requires_token_when_configured():
+    server, store = http_server(token="s3cret")
+    try:
+        assert call(server, "GET", "/health") == 200  # 상태 확인은 열어 둠
+        assert call(server, "GET", "/reviews") == 401
+        assert call(server, "POST", JOB + "/approve", {}) == 401 and store.approved is None
+        assert call(server, "GET", "/reviews", headers={"Authorization": "Bearer wrong"}) == 401
+        assert call(server, "GET", "/reviews", headers={"Authorization": "Bearer s3cret"}) == 200
+    finally:
+        server.shutdown()
+
+
+def test_review_api_without_token_accepts_only_this_computer():
+    from types import SimpleNamespace
+
+    from mujuthaek_extraction.review_api import handler_for
+
+    handler = handler_for(service_with(pending_item())[0])
+    assert handler._allowed(SimpleNamespace(headers={}, client_address=("127.0.0.1", 5000)))
+    assert not handler._allowed(SimpleNamespace(headers={}, client_address=("10.0.0.7", 5000)))
+
+
+def test_review_api_rejects_bad_requests_with_400_not_dropped_connection():
+    server, store = http_server()
+    try:
+        assert call(server, "GET", "/reviews/------------------------------------") == 400
+        assert call(server, "POST", JOB + "/reject", {"note": {"not": "text"}}) == 400
+        assert call(server, "POST", JOB + "/reject", b"{}", headers={"Content-Length": "abc"}) == 400
+        assert store.rejected is None
+    finally:
+        server.shutdown()
+
+
+def bare_processor(run):
+    import threading
+
+    from mujuthaek_extraction.worker import Processor
+
+    processor = Processor.__new__(Processor)
+    processor._running, processor._running_lock = {}, threading.Lock()
+    processor.run = run
+    return processor
+
+
+class MemoryStore:
+    def __init__(self):
+        self.done, self.saved = set(), 0
+
+    def already_processed(self, event_id):
+        return event_id in self.done
+
+    def save(self, raw_event, outcome):
+        self.saved += 1
+        self.done.add(raw_event["eventId"])
+        return "job"
+
+
+def test_redelivered_event_waits_for_running_one_instead_of_paying_again():
+    # 검토 지적: 큐 연결이 끊겨 같은 메시지가 다시 오면 두 스레드가 같은 공고를 동시에 처리(AI 비용 두 번·발행 두 번)
+    import threading
+    import time
+
+    calls = []
+
+    def slow_run(raw_event):
+        calls.append(raw_event["eventId"])
+        time.sleep(0.2)
+        return Outcome("COMPLETED")
+
+    processor, store = bare_processor(slow_run), MemoryStore()
+    event = {"eventId": "01929a3e-0000-7000-8000-0000000000aa"}
+    threads = [threading.Thread(target=processor.handle, args=(store, event)) for _ in range(2)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(5)
+    assert calls == [event["eventId"]] and store.saved == 1
+
+
+def test_duplicate_found_at_save_is_skipped_quietly():
+    from mujuthaek_extraction.store import DuplicateEvent
+
+    class RacingStore(MemoryStore):
+        def save(self, raw_event, outcome):
+            raise DuplicateEvent(raw_event["eventId"])
+
+    processor = bare_processor(lambda raw_event: Outcome("COMPLETED"))
+    assert processor.handle(RacingStore(), {"eventId": "01929a3e-0000-7000-8000-0000000000bb"}) is None
+
+
+def test_database_errors_are_requeued_not_sent_to_dlq():
+    import psycopg
+
+    from mujuthaek_extraction.worker import _db_errors
+
+    assert issubclass(psycopg.OperationalError, _db_errors()) and not issubclass(ValueError, _db_errors())
+
+
+def test_timed_out_call_counts_toward_budget_so_retries_cannot_triple_spend():
+    # 검토 지적: 성공한 호출만 비용으로 세어, 시간 초과로 세 번 재시도된 큰 호출이 상한의 세 배까지 쓸 수 있었음
+    from mujuthaek_extraction.model.base import ModelError, ModelRequest
+    from mujuthaek_extraction.model.pricing import Budget, BudgetedModel
+
+    class TimesOut:
+        def complete(self, request):
+            raise ModelError("연결 실패: TimeoutError", transient=True, maybe_billed=True)
+
+    request = ModelRequest(
+        call_name="structure", prompt_version="v", system="s" * 1000, user="u" * 1000, instructions="i", output_schema={}, max_output_tokens=64_000
+    )
+    budget = Budget("gpt-6-luna", limit_usd=budget_limit_for_two(request))
+    model = BudgetedModel(TimesOut(), budget)
+    for _ in range(2):
+        with pytest.raises(ModelError):
+            model.complete(request)
+    with pytest.raises(ModelError, match="상한"):
+        model.complete(request)  # 앞의 두 번을 셌으므로 세 번째는 보내지 않음
+
+
+def budget_limit_for_two(request):
+    from mujuthaek_extraction.model.pricing import Budget
+
+    return Budget("gpt-6-luna", 1.0).worst_case(request) * 2.5
+
+
+def test_cut_off_or_non_json_response_is_a_model_error_not_a_crash():
+    import http.client
+
+    from mujuthaek_extraction.model.base import ModelError, ModelRequest
+    from mujuthaek_extraction.model.openai_responses import OpenAIResponsesModel
+
+    request = ModelRequest(
+        call_name="structure", prompt_version="v", system="s", user="u", instructions="i", output_schema={"type": "object"}, max_output_tokens=10
+    )
+
+    class Broken(io.BytesIO):
+        def __init__(self, failure):
+            super().__init__()
+            self.failure = failure
+
+        def read(self, *args):
+            if self.failure is not None:
+                raise self.failure
+            return b"<html>not json</html>"
+
+    for failure in (http.client.IncompleteRead(b"{"), None):
+        model = OpenAIResponsesModel(api_key="test-key", opener=lambda req, timeout, failure=failure: Broken(failure))
+        with pytest.raises(ModelError) as error:
+            model.complete(request)
+        assert error.value.transient and error.value.maybe_billed
+
+
+def test_s3_missing_key_waits_but_access_problems_fail_loudly():
+    # 검토 지적: 권한·인증 오류도 "아직 없음"으로 숨겨, 운영 설정이 잘못돼도 모든 공고가 조용히 자료 대기에 머물렀음
+    from mujuthaek_extraction.s3_reader import S3SourceReader
+
+    class ClientError(Exception):
+        def __init__(self, code):
+            self.response = {"Error": {"Code": code}}
+
+    class Client:
+        def __init__(self, error):
+            self.error = error
+
+        def get_object(self, Bucket, Key):  # noqa: N803 - boto3 이름 그대로
+            raise self.error
+
+    assert S3SourceReader("b", None, None, None, client=Client(ClientError("NoSuchKey"))).read_file("k") is None
+    with pytest.raises(ClientError):
+        S3SourceReader("b", None, None, None, client=Client(ClientError("AccessDenied"))).read_file("k")
+
+    class Body:
+        def read(self, amount=-1):  # boto3 StreamingBody처럼 읽을 길이를 받음
+            return "﻿공고".encode()
+
+    class Ok:
+        def get_object(self, Bucket, Key):  # noqa: N803
+            return {"Body": Body()}
+
+    assert S3SourceReader("b", None, None, None, client=Ok()).read_text("k") == "공고"  # BOM은 떼어 냄
+
+
+def test_production_refuses_to_start_on_development_defaults(monkeypatch):
+    for name in ("DB_URL", "RABBITMQ_URL", "S3_BUCKET", "S3_ENDPOINT", "EXTRACTION_REVIEW_TOKEN"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("EXTRACTION_ENV", "production")
+    with pytest.raises(ValueError, match="DB_URL"):
+        Settings.from_env()
+    for name, value in (("DB_URL", "postgresql://x"), ("RABBITMQ_URL", "amqp://x"), ("S3_BUCKET", "b"), ("S3_ENDPOINT", ""), ("EXTRACTION_REVIEW_TOKEN", "t")):
+        monkeypatch.setenv(name, value)
+    assert Settings.from_env().review_token == "t"
+
+
+def test_health_reports_stopped_worker_parts():
+    # 검토 지적: /health가 검수 API 스레드만 봐서 큐 소비가 멈춰도 정상으로 보였음
+    from mujuthaek_extraction.health import Health
+
+    now = [0.0]
+    health = Health({"consumer": 120, "relay": 120}, clock=lambda: now[0])
+    assert health.report()[0]  # 시작 직후는 기다려 줌
+    now[0] = 130
+    ok, parts = health.report()
+    assert not ok and parts == {"consumer": "no signal", "relay": "no signal"}
+    health.beat("consumer")
+    health.beat("relay")
+    assert health.report() == (True, {"consumer": "ok", "relay": "ok"})
+    now[0] = 260
+    health.beat("relay")
+    ok, parts = health.report()
+    assert not ok and parts["consumer"].startswith("stale") and parts["relay"] == "ok"
+
+
+def test_health_endpoint_returns_503_when_a_part_is_down():
+    import threading
+
+    from mujuthaek_extraction.health import Health
+    from mujuthaek_extraction.review_api import serve
+
+    now = [500.0]
+    health = Health({"consumer": 120}, clock=lambda: now[0])
+    health.started = 0
+    server = serve(service_with(pending_item())[0], "127.0.0.1", 0, None, health)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        assert call(server, "GET", "/health") == 503
+        health.beat("consumer")
+        assert call(server, "GET", "/health") == 200
+    finally:
+        server.shutdown()
+
+
+def test_s3_objects_over_the_size_limit_are_refused():
+    from mujuthaek_extraction import s3_reader
+    from mujuthaek_extraction.s3_reader import S3SourceReader, SourceTooLarge
+
+    class Body:
+        def __init__(self, size):
+            self.size = size
+
+        def read(self, amount=-1):
+            return b"x" * (self.size if amount < 0 else min(self.size, amount))
+
+    class Client:
+        def __init__(self, length, size):
+            self.length, self.size = length, size
+
+        def get_object(self, Bucket, Key):  # noqa: N803
+            return {"ContentLength": self.length, "Body": Body(self.size)}
+
+    limit = s3_reader.MAX_OBJECT_BYTES
+    with pytest.raises(SourceTooLarge):
+        S3SourceReader("b", None, None, None, client=Client(limit + 1, 10)).read_file("k")  # 길이만 보고 거절
+    with pytest.raises(SourceTooLarge):
+        S3SourceReader("b", None, None, None, client=Client(None, limit + 5)).read_file("k")  # 길이를 몰라도 한도까지만 읽고 거절
+    assert S3SourceReader("b", None, None, None, client=Client(10, 10)).read_file("k") == b"x" * 10
