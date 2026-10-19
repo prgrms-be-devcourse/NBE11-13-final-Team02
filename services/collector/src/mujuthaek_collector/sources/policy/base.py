@@ -16,6 +16,7 @@ import json
 import re
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
+from datetime import date
 from typing import Any
 from urllib.parse import urlencode
 
@@ -122,6 +123,10 @@ class PolicyDetail:
     age_max: int | None = None
 
 
+THIN_CHARS = 700  # WHEN_THIN: AI 입력 항목 글자(ai_text)가 이보다 짧으면 첨부를 봐요. 복지로 지자체 중앙값 약 570자 (2026-10-19)
+SEE_NOTICE = re.compile(r"공고문?\s*(?:참조|참고|확인)|붙임\s*참조|첨부\s*(?:파일)?\s*(?:참조|참고)|별도\s*(?:공고|안내)|세부\s*내용은")
+
+
 class PolicySource(ABC):
     code: str  # sources.code와 같아야 해요 (gov24, bokjiro_central, bokjiro_local, youth, kstartup, bizinfo)
     name: str
@@ -133,6 +138,12 @@ class PolicySource(ABC):
     labels: dict[str, str] = {}  # 영문 항목 이름 → AI에 넘길 한글 이름
     # 내용 비교에서 빼는 항목: 매번 바뀌는 조회수, 그리고 수정일(다시 열어볼지 정하는 데만 써요. 수정일만 바뀌고 내용이 같으면 새 버전이 아니에요)
     volatile_keys: frozenset[str] = frozenset()
+    # AI 입력(full_text)에 넣는 항목. 대상·선정기준·지원내용·신청방법·기간·요약 같은 설명 칸만 (비면 전체).
+    # 주소·파일 경로·연락처·내부 코드·규칙으로 옮기는 코드 칸(온통청년 zipCd, 보조금24 지원조건 …)은 빼요.
+    # 버전 비교(content_hash)는 body_text(전체 항목)로 해서, 빠진 칸이 바뀌어도 새 버전이 돼요
+    ai_keys: tuple[str, ...] = ()
+    # 첨부·원문 화면: ALWAYS 항상 찾아요, WHEN_THIN API 설명 칸이 짧거나 '공고문 참조'일 때만, NEVER 보지 않아요 (AI 비용·수집 시간)
+    attachments = "ALWAYS"
 
     def __init__(self, api_key: str | None):
         self.api_key = normalize_key(api_key)
@@ -162,6 +173,11 @@ class PolicySource(ABC):
         """목록 단계의 1차 거름. False면 상세를 열지 않고 SKIPPED로 남겨요.
         목록 항목은 그대로 저장해서, 기준을 넓히면 다음 회차에 목록을 다시 읽을 때 PENDING으로 돌아와요."""
         return True
+
+    def closed(self, item: PolicyItem, today: date) -> bool:
+        """신청이 끝난 정책인지. True면 wanted여도 SKIPPED로 남겨요 (AI 추출 비용을 아끼려고).
+        SKIPPED도 회차마다 다시 판단해서, 기관이 새 신청 기간으로 고치면 PENDING으로 돌아와요."""
+        return False
 
     def field_of(self, record: dict[str, Any]) -> str:
         """이벤트의 field. 한 출처에 혜택과 창업지원이 섞여 있으면 정책마다 정해요 (온통청년)."""
@@ -196,6 +212,21 @@ class PolicySource(ABC):
                 value = json.dumps(value, ensure_ascii=False, sort_keys=True)
             lines.append(f"{label}: {value}")
         return "\n".join(lines)
+
+    def ai_text(self, record: dict[str, Any]) -> str:
+        """AI 입력에 넣는 항목 글자: ai_keys 칸만, 그 순서로. 줄바꿈·공백을 정리해요 (복지로는 '\\r'로 줄을 나눠요)."""
+        picked = {k: record[k] for k in self.ai_keys if k in record} if self.ai_keys else record
+        text = self.body_text(picked).replace("\r\n", "\n").replace("\r", "\n")
+        return re.sub(r"\n[ \t]*\n+", "\n", re.sub(r"[ \t]{2,}", " ", text)).strip()
+
+    def needs_documents(self, record: dict[str, Any]) -> bool:
+        """첨부·원문 화면을 볼지 (attachments)."""
+        if self.attachments == "NEVER":
+            return False
+        if self.attachments == "WHEN_THIN":
+            text = self.ai_text(record)
+            return len(text) < THIN_CHARS or bool(SEE_NOTICE.search(text))
+        return True
 
     def record_marker(self, record: dict[str, Any]) -> str:
         """수정일이 없는 출처는 목록 항목 해시로 바뀌었는지 봐요."""

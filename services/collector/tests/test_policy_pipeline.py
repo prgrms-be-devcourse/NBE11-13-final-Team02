@@ -58,8 +58,9 @@ def run(source, api, web, store, file_store, settings, **kwargs):
     return pipeline.run_policy_source(source, api, web, store, file_store, settings, today=TODAY, **kwargs)
 
 
-def central(api, web, detail=s.BOKJIRO_CENTRAL_DETAIL):
+def central(api, web, detail=s.BOKJIRO_CENTRAL_DETAIL, attachments="ALWAYS"):
     source = BokjiroCentralSource(KEY)
+    source.attachments = attachments  # 첨부 흐름 테스트용. 실제 복지로 중앙은 NEVER (test_bokjiro_central_skips_documents)
     api.pages[list_url(source, 1)] = s.BOKJIRO_CENTRAL_LIST
     api.pages[detail_urls(source, source.parse_list(s.BOKJIRO_CENTRAL_LIST).items[0])[0]] = detail
     web.files["https://www.bokjiro.go.kr/files/form/청년전세임대_안내문.pdf"] = PDF
@@ -106,11 +107,9 @@ def test_bizinfo_print_file_is_main_document(api, web, policy_store, file_store,
     assert result.status == "SUCCESS" and result.new_count == 1
     assert policy_store.by_key("PBLN_000000000127291").status == "SKIPPED"  # 창업 공고가 아님
     version = policy_store.versions[0]
-    assert [(f.name, f.role) for f in version.files] == [
-        ("2026년 청년농업인 기술창업 지원사업 공고문.pdf", "POLICY_DOC"),
-        ("공고문 원본.hwpx", "POLICY_DOC"),
-    ]
+    assert [(f.name, f.role) for f in version.files] == [("2026년 청년농업인 기술창업 지원사업 공고문.pdf", "POLICY_DOC")]
     assert detail.files[1].url not in web.requested  # 참가 신청서는 받지 않아요
+    assert detail.files[2].url not in web.requested  # 공고문 글자를 하나 뽑으면 더 받지 않아요 (MAX_TEXT_DOCS)
     assert version.fields.field == "STARTUP_SUPPORT" and version.document_status == "OK" and version.origin_status == "NOT_OPENED"
     assert "[API 첨부: 2026년 청년농업인 기술창업 지원사업 공고문.pdf]" in version.full_text and "<p>" not in version.full_text
     event = policy_store.events[0]
@@ -149,12 +148,13 @@ def test_origin_page_is_opened_when_api_has_only_forms(api, web, policy_store, f
     forms_only = s.BOKJIRO_CENTRAL_DETAIL.replace("<servSeDetailNm>청년전세임대 안내문<", "<servSeDetailNm>청년전세임대 신청서<")
     api.pages[detail_urls(source, item)[0]] = forms_only
     origin = source.parse_detail(item, [forms_only]).origin_urls[-1]  # 복지로 상세 화면
-    web.pages[origin] = s.ORIGIN_PAGE.replace("/cmm/fms/", "https://www.bokjiro.go.kr/cmm/fms/")
+    page = s.ORIGIN_PAGE.replace("/cmm/fms/", "https://www.bokjiro.go.kr/cmm/fms/").replace("청년월세지원", "청년전세임대주택")
+    web.pages[origin] = page
     web.files["https://www.bokjiro.go.kr/cmm/fms/FileDown.do?atchFileId=F1&fileSn=0"] = HWP
     run(source, api, web, policy_store, file_store, policy_settings)
     version = policy_store.versions[0]
     assert origin in version.origin_checked  # API 첨부가 서식뿐이라 원문에서 공고문을 찾았어요
-    assert [(f.name, f.found_on) for f in version.files] == [("2026년 청년월세지원 모집공고문.hwp", "ORIGIN_PAGE")]
+    assert [(f.name, f.found_on) for f in version.files] == [("2026년 청년전세임대주택 모집공고문.hwp", "ORIGIN_PAGE")]
     assert not any("/files/form/" in u for u in web.requested)  # API 서식은 받지 않아요
 
 
@@ -332,7 +332,9 @@ def test_robots_blocked_origin_is_skipped_once_per_run(api, web, policy_store, f
     assert len([w for w in result.warnings if "www.gov.kr" in w]) == 1
     assert web.requested == ["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"]  # 두 번째 정책은 같은 도메인이라 묻지 않아요
     assert all(v.files == [] for v in policy_store.versions)
-    assert "구비서류: 신분증, 임대차계약서" in policy_store.versions[0].full_text
+    first = policy_store.versions[0]
+    assert "구비서류: 신분증, 임대차계약서" in first.body_text  # 버전 비교에는 전체 항목
+    assert "구비서류" not in first.full_text and "선정기준: 청년가구 기준중위소득 60% 이하" in first.full_text  # AI 입력에는 설명 칸만
 
 
 def test_missing_key_fails_without_requests(api, web, policy_store, file_store, policy_settings):
@@ -504,6 +506,32 @@ def test_youth_takes_housing_and_startup_from_full_list(api, web, policy_store, 
 
 
 # ── 정책 전용 테이블: 통일한 칸과 첨부·원문 상태 ───────────────────────
+def test_bokjiro_central_skips_documents(api, web, policy_store, file_store, policy_settings):
+    run(central(api, web, attachments=BokjiroCentralSource.attachments), api, web, policy_store, file_store, policy_settings)
+    version = policy_store.versions[0]
+    assert BokjiroCentralSource.attachments == "NEVER"
+    assert (version.document_status, version.origin_status, version.files) == ("NOT_NEEDED", "NOT_OPENED", [])
+    assert web.requested == []  # 첨부도 원문 화면도 열지 않아요
+    validate_event(policy_store.events[0])
+
+
+def test_bokjiro_local_reads_documents_only_when_api_is_thin():
+    source = BokjiroLocalSource(KEY)
+    long_text = "지원대상: 관내 거주 무주택 청년 " * 100
+    assert source.attachments == "WHEN_THIN"
+    assert source.needs_documents({"servNm": "청년 월세", "sprtTrgtCn": "관내 청년"})  # 짧아요
+    assert not source.needs_documents({"servNm": "청년 월세", "sprtTrgtCn": long_text})
+    assert source.needs_documents({"servNm": "청년 월세", "sprtTrgtCn": long_text, "alwServCn": "세부 내용은 공고문 참조"})
+
+
+def test_ai_text_keeps_description_fields_only():
+    source = BokjiroLocalSource(KEY)
+    record = {"servNm": "청년 월세", "slctCritCn": "·자격\r - 만19세\r - 무주택", "servDtlLink": "https://x", "basfrmList": [{"a": 1}]}
+    text = source.ai_text(record)
+    assert "https://x" not in text and "basfrmList" not in text and "\r" not in text
+    assert "만19세" in text and source.body_text(record).count("https://x") == 1
+
+
 def test_unified_fields_and_statuses_with_api_files(api, web, policy_store, file_store, policy_settings):
     run(central(api, web), api, web, policy_store, file_store, policy_settings)
     version = policy_store.versions[0]
@@ -527,6 +555,19 @@ def test_blocked_origin_is_recorded_as_blocked(api, web, policy_store, file_stor
     first = policy_store.versions[0].fields
     assert (first.age_min, first.age_max, first.documents) == (19, 34, "신분증, 임대차계약서")
     assert first.target == "만 19~34세 부모와 별도 거주하는 무주택 청년" and first.apply_period == "2026. 12. 31.까지"
+
+
+def test_youth_closed_policy_is_skipped_until_reopened(api, web, policy_store, file_store, policy_settings):
+    source = YouthSource(KEY)
+    closed = {**s.YOUTH_POLICY, "aplyPrdSeCd": "0057001", "aplyYmd": "20260123 ~ 20260202", "refUrlAddr1": None}
+    api.pages[list_url(source, 1)] = s.youth_list([closed])
+    run(source, api, web, policy_store, file_store, policy_settings)
+    assert [p.status for p in policy_store.policies.values()] == ["SKIPPED"] and not policy_store.versions
+
+    reopened = {**closed, "aplyYmd": "20261012 ~ 20261130", "lastMdfcnDt": "2026-10-12 09:00:00"}
+    api.pages[list_url(source, 1)] = s.youth_list([reopened])
+    run(source, api, web, policy_store, file_store, policy_settings)
+    assert [p.status for p in policy_store.policies.values()] == ["DONE"] and len(policy_store.versions) == 1
 
 
 def test_no_origin_address_and_irrelevant_page(api, web, policy_store, file_store, policy_settings):

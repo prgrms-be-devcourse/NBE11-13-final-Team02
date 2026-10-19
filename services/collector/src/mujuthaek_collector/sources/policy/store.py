@@ -27,7 +27,8 @@ NONE = "NONE"  # 확인했는데 없어요 (원문 화면에 첨부 링크가 �
 NO_SOURCE = "NO_SOURCE"  # 볼 곳이 없어요 (API 첨부도 원문 주소도 없음)
 BLOCKED = "BLOCKED"  # robots.txt 금지·403·429라 열지 않았어요
 FAILED = "FAILED"  # 열거나 받거나 글자를 뽑다가 실패했어요 (연결 오류, 스캔 PDF …)
-NOT_OPENED = "NOT_OPENED"  # 원문을 열지 않았어요 (API가 첨부를 줘서)
+NOT_OPENED = "NOT_OPENED"  # 원문을 열지 않았어요 (API가 첨부를 줘서, 또는 첨부를 보지 않는 정책이라서)
+NOT_NEEDED = "NOT_NEEDED"  # 첨부를 보지 않았어요: API 설명 칸으로 충분한 출처·정책 (PolicySource.attachments, AI 비용을 아끼려고)
 
 
 @dataclass

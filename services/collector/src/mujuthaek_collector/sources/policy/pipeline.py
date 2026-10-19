@@ -2,7 +2,7 @@
 
 run_policy_source
   ├─ 목록 전체 읽기 (sync_list, 구간이 있으면 구간마다) → source.fetch_list
-  │    처음 본 정책 → 1차 거름(source.wanted)에 걸리면 PENDING, 아니면 SKIPPED
+  │    처음 본 정책 → 1차 거름(source.wanted)에 걸리고 신청이 끝나지 않았으면(source.closed) PENDING, 아니면 SKIPPED
   │    이미 본 정책 → 수정일(또는 목록 항목 해시)이 바뀌면 다시 PENDING. 거름은 회차마다 다시 판단해요
   └─ 밀린 정책(PENDING·FAILED)을 한 번에 detail_limit건까지 처리 (process_policy)
        상세를 한꺼번에 받을 수 있는 출처(보조금24)는 먼저 받아 둠 (source.prefetch)
@@ -35,7 +35,17 @@ from mujuthaek_collector.errors import BlockedError, FileRejected, ParseError
 from mujuthaek_collector.pipeline import RunResult
 from mujuthaek_collector.sources.base import Fetcher
 from mujuthaek_collector.sources.policy import store as st
-from mujuthaek_collector.sources.policy.attachments import MAIN_DOC, explains, file_links, main_text, relevant, text_order, with_ext
+from mujuthaek_collector.sources.policy.attachments import (
+    MAIN_DOC,
+    explains,
+    file_links,
+    focus,
+    garbled,
+    main_text,
+    origin_file_ok,
+    relevant,
+    with_ext,
+)
 from mujuthaek_collector.sources.policy.base import SCOPE_LABELS, PolicyDetail, PolicyItem, PolicySource
 from mujuthaek_collector.sources.policy.client import ApiError, MaskedFetcher, mask
 from mujuthaek_collector.sources.policy.config import PolicySettings
@@ -44,7 +54,7 @@ from mujuthaek_collector.sources.policy.store import NewPolicyVersion, PolicyFie
 from mujuthaek_platform.ids import uuid7
 
 log = logging.getLogger(__name__)
-MAX_TEXT_DOCS = 2  # 글자를 뽑는 첨부 문서 수
+MAX_TEXT_DOCS = 1  # 글자를 뽑는 첨부 문서 수. 하나를 뽑으면 더 받지 않아요 (AI 비용·수집 시간)
 
 
 @dataclass
@@ -136,7 +146,7 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
                     continue
                 seen.add(item.policy_id)
                 entry = known.get(item.policy_id)
-                wanted = source.wanted(item)
+                wanted = source.wanted(item) and not source.closed(item, ctx.today)
                 if entry is None:
                     register(ctx, item, PENDING if wanted else SKIPPED)
                     added += wanted
@@ -190,9 +200,10 @@ def process_policy(ctx: PolicyContext, policy: PolicyRow) -> bool:
     item = PolicyItem(policy.policy_id, policy.title, policy.marker, policy.list_raw)
     detail = source.fetch_detail(ctx.api, item)
 
-    candidates = [Candidate(f, "API", detail.detail_url) for f in detail.files]
+    wants_documents = source.needs_documents(detail.record)
+    candidates = [Candidate(f, "API", detail.detail_url) for f in detail.files] if wants_documents else []
     origin = OriginResult()
-    if not any(explains(c.file) for c in candidates):  # API 첨부가 없거나 서식·포스터뿐이면 원문 화면에서 공고문을 찾아요
+    if wants_documents and not any(explains(c.file) for c in candidates):  # API 첨부가 없거나 서식·포스터뿐이면 원문 화면에서 공고문을 찾아요
         origin = from_origin(ctx, detail, item.title)
         candidates += origin.candidates
     saved = collect_files(ctx, candidates)
@@ -211,8 +222,8 @@ def process_policy(ctx: PolicyContext, policy: PolicyRow) -> bool:
 
     fields = policy_fields(source, item, detail)
     origin_state = origin_status(detail, origin)
-    document_state = document_status(candidates, saved, origin_state)
-    full_text = compose_full_text(source, policy, detail, body, saved, origin.text)
+    document_state = document_status(candidates, saved, origin_state) if wants_documents else st.NOT_NEEDED
+    full_text = compose_full_text(source, policy, detail, source.ai_text(detail.record), saved, origin.text)
     long_text_key = None
     if len(full_text) > MAX_TEXT_CHARS:
         long_text_key = ctx.files.put(text_key(source.code, policy.policy_id, version), full_text.encode("utf-8"), content_type("txt"))
@@ -331,7 +342,9 @@ class OriginResult:
 
 def from_origin(ctx: PolicyContext, detail: PolicyDetail, title: str) -> OriginResult:
     """API에 첨부가 없을 때: 원문 화면을 차례로 열어 첨부 링크와 본문 글자를 찾아요.
-    첨부는 링크가 있는 첫 화면의 것을, 본문은 정책 이름과 관련 있는 첫 화면의 것을 써요."""
+    첨부는 링크가 있는 첫 화면의 것을, 본문은 정책 이름과 관련 있는 첫 화면의 것을 써요.
+    첨부 링크는 attachments.origin_file_ok로 걸러요: 사이트 공통 정적 파일(접근성 인증서·전화번호부 …)과,
+    정책과 관련 없는 화면(사이트 첫 화면)에서 이름이 정책과 무관한 파일은 빼요."""
     result = OriginResult(opened=True)
     for url in list(dict.fromkeys(detail.origin_urls))[: ctx.settings.max_origin_pages]:
         host = urllib.parse.urlsplit(url).netloc
@@ -352,11 +365,11 @@ def from_origin(ctx: PolicyContext, detail: PolicyDetail, title: str) -> OriginR
             result.failed += 1
             continue
         result.checked.append(url)
-        if result.text is None:
-            text = without_nul(main_text(html))
-            if text and relevant(title, text):
-                result.text = OriginText(url, text)
-        links = file_links(html, url)
+        text = without_nul(main_text(html))
+        page_relevant = bool(text and relevant(title, text))
+        if result.text is None and page_relevant:
+            result.text = OriginText(url, text)
+        links = [f for f in file_links(html, url) if origin_file_ok(f, title, page_relevant)]  # 첫 화면·하단 공통 링크는 빼요
         result.candidates += [Candidate(f, "ORIGIN_PAGE", url) for f in links]
         if any(explains(f) for f in links):
             return result  # 공고문이 있는 첫 화면까지만 열어요
@@ -375,15 +388,17 @@ def rank(candidates: list[Candidate]) -> list[Candidate]:
     """받을 첨부와 순서: 설명 문서(attachments.explains)만, 공고·안내·지침 이름이 먼저. 같은 주소는 한 번만.
     신청서·서식·포스터·명단은 AI 추출에 쓸모가 없어서 받지 않아요."""
     unique = list({c.file.url: c for c in candidates if explains(c.file)}.values())
-    return sorted(unique, key=lambda c: (not MAIN_DOC.search(c.file.name), c.file.index))
+    return sorted(unique, key=lambda c: (not MAIN_DOC.search(c.file.name), c.file.ext not in ("pdf", ""), c.file.index))
 
 
 def collect_files(ctx: PolicyContext, candidates: list[Candidate]) -> list[tuple[PolicyFile, bytes]]:
-    """설명 문서를 max_files개까지 받고, 그중 MAX_TEXT_DOCS개까지 글자를 뽑아요. (저장 정보, 원본)"""
+    """설명 문서를 순서대로(rank) 받아 글자를 뽑고, MAX_TEXT_DOCS개를 뽑으면 멈춰요. 글자를 못 뽑은 문서(스캔본 등)는
+    ATTACHMENT로 남기고 다음 문서를 봐요 (최대 max_files개). (저장 정보, 원본)"""
     keep_until = add_months(ctx.today, ctx.settings.keep_months)
-    got: list[tuple[FileRef, bytes, str]] = []
+    saved: list[tuple[PolicyFile, bytes]] = []
+    texts = 0
     for candidate in rank(candidates):
-        if len(got) >= ctx.settings.max_files:
+        if len(saved) >= ctx.settings.max_files or texts >= MAX_TEXT_DOCS:
             break
         data = download(ctx, candidate)
         if data is None:
@@ -391,23 +406,15 @@ def collect_files(ctx: PolicyContext, candidates: list[Candidate]) -> list[tuple
         file = with_ext(candidate.file, data)
         if file.ext not in DOC_EXTS:  # 확장자 없이 온 파일이 그림·압축·엑셀이었어요
             continue
-        got.append((file, data, candidate.found_on))
-
-    texts: dict[str, tuple[str | None, str]] = {}
-    for file in text_order([f for f, _, _ in got]):
-        if sum(1 for text, _ in texts.values() if text) >= MAX_TEXT_DOCS:
-            break
-        data = next(d for f, d, _ in got if f.url == file.url)
         text, status = extract_text(data, file.ext)
-        texts[file.url] = (without_nul(text), status)
-        if not texts[file.url][0]:
-            ctx.warn(f"첨부 글자를 읽지 못했어요 ({file.name}): {texts[file.url][1]}")
-
-    saved = []
-    for idx, (file, data, found_on) in enumerate(got):
-        text, status = texts.get(file.url, (None, None))
-        role = "POLICY_DOC" if text else "ATTACHMENT"  # 글자를 못 뽑았거나(스캔본) 뽑을 수를 넘은 설명 문서
-        saved.append((make_saved(idx, file, role, found_on, data, keep_until, status, text), data))
+        if garbled(text):
+            text, status = None, "PDF 글자가 깨짐 (글꼴에 글자 정보 없음)"
+        text = without_nul(text)
+        if not text:
+            ctx.warn(f"첨부 글자를 읽지 못했어요 ({file.name}): {status}")
+        texts += bool(text)
+        role = "POLICY_DOC" if text else "ATTACHMENT"  # 글자를 못 뽑은 설명 문서 (스캔본 등)
+        saved.append((make_saved(len(saved), file, role, candidate.found_on, data, keep_until, status, text), data))
     return saved
 
 
@@ -453,17 +460,14 @@ def make_saved(idx: int, file: FileRef, role: str, found_on: str, data: bytes, k
 def compose_full_text(
     source: PolicySource, policy: PolicyRow, detail: PolicyDetail, body: str, saved: list[tuple[PolicyFile, bytes]], origin: OriginText | None = None
 ) -> str:
-    """AI 추출(extraction)에 넘기는 전체 글자: 정책 정보 → API 항목 → 원문 화면 본문 → 첨부 문서 글자."""
+    """AI 추출(extraction)에 넘기는 전체 글자: 정책 정보 → API 설명 항목(source.ai_text) → 원문 화면 본문 → 첨부 문서 글자.
+    정책 ID·주소·수정일은 이벤트의 다른 칸에 있어서 넣지 않아요."""
+    region = f"{SCOPE_LABELS[detail.region_scope]} {', '.join(detail.region_names) if len(detail.region_names) <= 5 else ''}".rstrip()
     lines = [
         f"제목: {policy.title}",
-        f"출처: {source.name}",
-        f"정책 ID: {policy.policy_id}",
         f"기관: {detail.agency or ''}",
-        f"지역: {SCOPE_LABELS[detail.region_scope]} {', '.join(detail.region_names or detail.region_codes)}".rstrip(),
+        f"지역: {region}",
         f"분야: {', '.join(detail.categories)}",
-        f"출처 수정일: {detail.modified_at or ''}",
-        f"원문 주소: {detail.detail_url or ''}",
-        f"신청 주소: {detail.apply_url or ''}",
         "[항목]",
         body or "(항목 없음)",
     ]
@@ -473,5 +477,11 @@ def compose_full_text(
         place = "API 첨부" if f.found_on == "API" else "원문 첨부"
         lines.append(f"[{place}: {f.name}]")
         if f.text:
-            lines.append(f.text)
+            part = focus(f.text, policy.title)  # 긴 지침서는 이 정책 부분만 (전체 글자는 raw_policy_texts에 그대로 둬요)
+            if part is None:
+                lines.append(f"(문서가 길고({len(f.text):,}자) 정책 이름이 나오지 않아 글자를 넣지 않았어요)")
+            elif part is not f.text:
+                lines += [f"(긴 문서라 정책 관련 부분만 넣었어요: {len(f.text):,}자 중 {len(part):,}자)", part]
+            else:
+                lines.append(part)
     return "\n".join(lines)

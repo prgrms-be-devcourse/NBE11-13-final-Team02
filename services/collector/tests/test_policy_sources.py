@@ -1,17 +1,19 @@
 """정책 API 파서 테스트. 응답 모양(필드 이름)을 작은 예시로 고정해요."""
 
+from datetime import date
+
 import pytest
 
 from mujuthaek_collector.core.files import FileRef
 from mujuthaek_collector.errors import BlockedError, ParseError
-from mujuthaek_collector.sources.policy.attachments import explains, file_links, sniff_ext, text_order, with_ext
+from mujuthaek_collector.sources.policy.attachments import OMITTED, explains, file_links, focus, garbled, origin_file_ok, sniff_ext, text_order, with_ext
 from mujuthaek_collector.sources.policy.base import normalize_key, xml_to_dict
 from mujuthaek_collector.sources.policy.bizinfo import BizinfoSource
 from mujuthaek_collector.sources.policy.bizinfo import region_of as bizinfo_region
 from mujuthaek_collector.sources.policy.bokjiro import BokjiroCentralSource, BokjiroLocalSource
 from mujuthaek_collector.sources.policy.gov24 import Gov24Source
 from mujuthaek_collector.sources.policy.kstartup import KStartupSource
-from mujuthaek_collector.sources.policy.youth import YouthSource, region_codes
+from mujuthaek_collector.sources.policy.youth import YouthSource, apply_ended, region_codes
 from tests import policy_samples as s
 from tests.policy_fakes import detail_urls, list_url
 
@@ -203,6 +205,22 @@ def test_youth_startup_scope_reads_support_text():
     assert not source.wanted(item("청년 창업통계 공개", "청년 창업 통계 발굴·공개"))
 
 
+@pytest.mark.parametrize(
+    ("code", "period", "expected"),
+    [
+        ("0057001", "20260123 ~ 20260202", True),  # 마감
+        ("0057001", "20261012 ~ 20261026", False),  # 신청 중
+        ("0057001", "20261019 ~ 20261019", False),  # 오늘 마감이면 아직 신청할 수 있어요
+        ("0057001", "20260301 ~ 20260331\n20261101 ~ 20261130", False),  # 여러 구간이면 가장 늦은 마감
+        ("0057002", "20260101 ~ 20260131", False),  # 상시
+        ("0057003", "", False),  # 기간 칸 없음 (계속·별도 안내)
+        ("0057001", "예산 소진 시까지", False),  # 날짜를 못 읽으면 빼지 않아요
+    ],
+)
+def test_youth_apply_ended(code, period, expected):
+    assert apply_ended({"aplyPrdSeCd": code, "aplyYmd": period}, date(2026, 10, 19)) is expected
+
+
 def test_kstartup_key_error_blocks():
     with pytest.raises(BlockedError):
         KStartupSource("KEY").parse_list('{"code": -401, "msg": "인증키는 필수 항목 입니다."}')
@@ -344,3 +362,67 @@ def test_sniff_and_text_order():
         FileRef("[별지 1] 사회보장급여 신청(변경)서.hwp", "u4", 3),
     ]
     assert [f.name for f in text_order(files)] == ["사업 안내.hwp", "참고자료.pdf"]
+
+
+@pytest.mark.parametrize(
+    ("name", "expected"),
+    [
+        ("주택도시기금법(법률)(제17453호)(20200609).hwp", False),
+        ("노숙인 등의 복지 및 자립지원에 관한 법률 시행령(28074).hwp", False),
+        ("2020년 장사등에관한법령집.pdf", False),
+        ("공동주택관리법.hwp", False),
+        ("공공주택 업무처리지침(국토교통부훈령)(제1586호)(20230116).pdf", False),
+        ("2015년_국민주택기금_업무_편람.pdf", False),
+        ("개인보증규정.pdf", False),
+        ("첨부파일없음.hwp", False),
+        ("귀향여비 수령증(출력).hwp", False),
+        ("별첨1 팁스운영사 현황.hwp", False),
+        ("당진시 신혼부부 주택 전세자금 대출이자 지원 조례.hwp", True),  # 지자체 조례는 정책 내용
+        ("김제시 청년 및 신혼부부 임대주택 임대보증금 지원 조례 시행규칙.hwp", True),
+        ("2026년 노숙인 등의 복지사업 안내 및 봉화군 공영장례 지원에 관한 조례.pdf", True),
+        ("신청방법 안내.hwp", True),  # '방법'의 '법'은 법령이 아니에요
+        ("2026년 청년 월세 지원 공고시 유의사항.hwp", True),  # '공고시'는 고시가 아니에요
+    ],
+)
+def test_statutes_and_empty_files_are_not_explanatory(name, expected):
+    assert explains(FileRef(name, "https://example.go.kr/f", 0)) is expected
+
+
+@pytest.mark.parametrize(
+    ("name", "url", "page_relevant", "expected"),
+    [
+        ("2026년 청년월세 모집공고문.hwp", "https://a.go.kr/board/download.do?id=1", True, True),
+        ("WA2026.pdf", "https://uni.agrix.go.kr/webportal/images/main/mark/WA2026.pdf", True, False),  # 접근성 인증서
+        ("telephone202608.pdf", "https://www.cs.go.kr/upload/data/pdf/telephone202608.pdf", True, False),  # 전화번호부
+        ("공고문1.pdf", "https://www.changwon.go.kr/youth/Download.do?name=공고문1.pdf", True, True),
+        ("2025년도 행복기숙사 지원사업 신청안내서.pdf", "https://www.kasfo.or.kr/sites/kasfo/download/a.pdf", False, False),  # 첫 화면, 다른 사업
+        ("2026년 청년월세 지원 공고.hwp", "https://a.go.kr/main/file.hwp", False, True),  # 첫 화면이어도 이름이 정책과 같으면
+    ],
+)
+def test_origin_file_ok(name, url, page_relevant, expected):
+    assert origin_file_ok(FileRef(name, url, 0), "청년월세 지원", page_relevant) is expected
+
+
+def test_focus_keeps_policy_part_of_long_document():
+    filler = ["다른 사업의 지원 대상과 지원 내용 안내 문장입니다." * 3] * 2000
+    body = filler[:1000] + ["Ⅴ. 폭력피해자 주거지원 사업", "지원대상: 가정폭력 피해자", "지원내용: 임대주택 제공"] + filler[1000:]
+    text = "2026년 운영지침\n" + "\n".join(body)
+    part = focus(text, "폭력피해자 주거지원 사업", limit=10_000)
+    assert len(text) > 100_000 and len(part) <= 10_000 + 100
+    assert part.startswith("2026년 운영지침") and "지원대상: 가정폭력 피해자" in part and OMITTED in part
+
+
+def test_focus_short_or_unrelated_document():
+    assert focus("짧은 공고문", "청년월세 지원") == "짧은 공고문"
+    assert focus("장사 등에 관한 법률 조문\n" * 5000, "행려자 보호 및 지원") is None
+
+
+def test_focus_finds_parts_of_joined_title_words():
+    text = "공공주택 업무처리지침\n" + "\n".join(["국민임대주택 입주자 선정 기준 문장입니다." * 3] * 1500) + "\n제3장 영구임대주택 입주자 선정\n소득 50% 이하"
+    part = focus(text, "영구임대주택공급", limit=5_000)
+    assert part is not None and "제3장 영구임대주택 입주자 선정" in part
+
+
+def test_garbled_pdf_text():
+    assert garbled("--- 1쪽 ---\n" + "(cid:0)(cid:1)(cid:2)" * 100)
+    assert not garbled("정상적인 공고문 글자 (cid:1)" + "가" * 500)

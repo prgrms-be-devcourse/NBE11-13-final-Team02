@@ -116,6 +116,11 @@ class BizinfoSource(PolicySource):
     key_env = "BIZINFO_API_KEY"
     labels = LABELS
     volatile_keys = frozenset({"inqireCo", "updtPnttm", "totCnt"})
+    # 해시태그·파일 이름과 경로·주소·문의처는 AI 입력에서 빼요. 개요의 절반이 '공고문 참조'라 본문 출력 파일(공고문)은 꼭 봐요
+    ai_keys = (
+        "pblancNm", "pldirSportRealmLclasCodeNm", "pldirSportRealmMlsfcCodeNm", "jrsdInsttNm", "excInsttNm",
+        "trgetNm", "reqstBeginEndDe", "reqstMthPapersCn", "bsnsSumryCn",
+    )  # fmt: skip
 
     def list_request(self, page: int, segment: str | None = None) -> Request:
         return Request(build_url(API, {"crtfcKey": self.api_key, "dataType": "json", "searchCnt": 0}))

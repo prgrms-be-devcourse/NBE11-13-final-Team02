@@ -6,6 +6,11 @@
   - 주소에 download·fileDown·atchFile 같은 다운로드 표시가 있고 글자에 파일 이름이 있는 링크
   - 링크 글자가 '내려받기'뿐이면 바로 바깥 칸(li·dd·td …)의 글자에서 파일 이름을 찾아요 (충남도청 게시판)
   - 미리보기·뷰어 링크와 명단 파일(당첨자·명부 …)은 빼요
+  - 사이트 공통 정적 파일·정책과 무관한 화면의 파일은 origin_file_ok로 빼요
+첨부 고르기 (explains)
+  - 공고·안내·지침·사업 계획과 지자체 조례만. 신청서·서식·포스터·명단·국가 법령·훈령·고시·업무 편람·빈 파일은 빼요
+긴 문서 (focus)
+  - 1만 자를 넘는 첨부는 정책 이름의 핵심 단어가 나오는 부분만 AI 입력에 넣어요
 본문 (main_text)
   - 링크가 적은 글 덩어리 중 링크 아닌 글자가 가장 많은 곳을 본문으로 봐요
   - 메뉴·하단(gnb, lnb, footer …)은 링크가 대부분일 때만 지워요. 본문을 감싼 틀에 'lnb' 같은 이름이 붙기도 해서요
@@ -24,7 +29,14 @@ FILE_NAME = re.compile(r"[^\\/:*?\"<>|\r\n]+?\.(pdf|hwpx?|docx?|xlsx?|xlsm|zip)\
 DOWNLOAD_HREF = re.compile(r"download|filedown|file_down|atchfile|attach|fileid|getfile|fn_?down", re.I)
 VIEWER = re.compile(r"미리\s*보기|바로\s*보기|뷰어|viewer|preview", re.I)
 SIZE_SUFFIX = re.compile(r"\s*[\[(]\s*[\d.,]+\s*(?:[KMG]?B|bytes?|byte)\s*[\])]\s*$", re.I)
-FORM_FILE = re.compile(r"신청\s*(?:\([^)]*\))?\s*서|별지|서식|양식|동의서|위임장|서약서|확인서|계획서|신고서|명세서|증명")  # 신청(변경)서, [별지 1] …
+# 신청(변경)서, [별지 1], 수령증, 입주기업 현황 …
+FORM_FILE = re.compile(r"신청\s*(?:\([^)]*\))?\s*서|별지|서식|양식|동의서|위임장|서약서|확인서|계획서|신고서|명세서|증명|수\s*령\s*증|현\s*황")
+EMPTY_FILE = re.compile(r"^\s*(?:첨부\s*파일\s*)?없음\s*\.")  # 복지로가 '첨부 없음'을 빈 한글 파일로 올려 둔 경우 (2026-10-19 27개)
+STATUTE_FILE = re.compile(  # 국가 법령·행정규칙·업무 편람: 근거일 뿐 신청 대상·금액이 거의 없어요. 지자체 조례·시행규칙은 정책 내용이라 받아요
+    r"법률|시행령|법령|기본법|(?<!방)법\s*[(.]|훈령|예규|(?<!공)고시|규정|업무[\s_]*편람|업무[\s_]*처리[\s_]*기준"
+)
+ORDINANCE = re.compile(r"조례|조레")
+HANGUL = re.compile(r"[가-힣]")
 MAIN_DOC = re.compile(r"공고|안내|지침|시행\s*계획|사업\s*계획|요강|모집|가이드|매뉴얼")
 POSTER_FILE = re.compile(r"포스터|홍보물|홍보\s*자료|리플[렛릿]|전단|카드\s*뉴스|배너|썸네일")  # 그림으로 만든 홍보물이라 설명 글자가 거의 없어요
 MAX_LINKS = 20
@@ -164,10 +176,27 @@ def is_form(file: FileRef) -> bool:
     return bool(FORM_FILE.search(file.name)) and not MAIN_DOC.search(file.name)
 
 
+def is_statute(file: FileRef) -> bool:
+    """국가 법령·훈령·고시·예규·업무 편람 ('주택도시기금법(법률)(제17453호).hwp', '2015년_국민주택기금_업무_편람.pdf').
+    이름에 조례가 있으면 지자체 정책 내용이라 받아요 ('… 안내 및 봉화군 공영장례 지원에 관한 조례.pdf')."""
+    return bool(STATUTE_FILE.search(file.name)) and not ORDINANCE.search(file.name)
+
+
+def origin_file_ok(file: FileRef, title: str, page_relevant: bool) -> bool:
+    """원문 화면에서 찾은 첨부 중 공고 첨부로 볼 것.
+    - 게시판 다운로드 주소이거나 한글 이름인 파일만. 사이트 공통 정적 파일('/images/…/WA2026.pdf' 접근성 인증서,
+      'telephone202608.pdf' 전화번호부, 'UserGuideForeigners_ko.pdf')은 영문·숫자 이름이에요
+    - 화면 본문이 정책과 관련 없으면(사이트 첫 화면 등) 파일 이름에 정책 핵심 단어가 있을 때만"""
+    if not (DOWNLOAD_HREF.search(file.url) or HANGUL.search(file.name)):
+        return False
+    return page_relevant or relevant(title, file.name)
+
+
 def explains(file: FileRef) -> bool:
     """AI 추출에 넘길 만한 첨부인지: 공고문·안내문·지침 같은 설명 문서(pdf·hwp·hwpx).
-    신청서·서식·동의서, 포스터·홍보물, 명단, 그림·압축·엑셀 파일은 받지 않아요. 확장자가 없으면 받아서 내용으로 형식을 확인해요."""
-    if file.personal or is_form(file) or POSTER_FILE.search(file.name):
+    신청서·서식·동의서·수령증, 포스터·홍보물, 명단·현황, 국가 법령·훈령·고시·업무 편람, '첨부파일없음' 빈 파일,
+    그림·압축·엑셀 파일은 받지 않아요. 지자체 조례·시행규칙은 받아요. 확장자가 없으면 받아서 내용으로 형식을 확인해요."""
+    if file.personal or is_form(file) or is_statute(file) or POSTER_FILE.search(file.name) or EMPTY_FILE.search(file.name):
         return False
     return file.ext in DOC_EXTS or not file.ext
 
@@ -176,3 +205,88 @@ def text_order(files: list[FileRef]) -> list[FileRef]:
     """글자를 뽑을 문서 순서: 공고·안내·지침 → 그 밖의 문서."""
     docs = [f for f in files if f.ext in DOC_EXTS and explains(f)]
     return sorted(docs, key=lambda f: (not MAIN_DOC.search(f.name), f.ext != "pdf", f.index))
+
+
+DOC_FOCUS_CHARS = 10_000  # 첨부 문서 하나에서 AI 입력에 넣는 최대 글자. 넘으면 정책 관련 부분만 골라요 (공고문 중앙값 약 6천 자)
+FOCUS_CHUNK_CHARS = 2_000
+OMITTED = "[… 생략 …]"
+
+
+def focus(text: str, title: str, limit: int = DOC_FOCUS_CHARS) -> str | None:
+    """긴 첨부(사업 안내 지침서 한 권 등)에서 이 정책과 관련 있는 부분만 골라요. 짧으면 그대로.
+    1. 2,000자쯤의 조각(줄 단위)으로 나눠요
+    2. 정책 이름의 핵심 단어(keywords, 띄어쓰기 무시)가 나오는 횟수로 조각 점수를 매겨요. 문서 전체에 흔한 단어일수록 낮게 쳐요
+       ('국가유공자등대부지원'의 '대부'처럼 수백 번 나오는 단어보다 '사할린'처럼 드문 단어가 관련 부분을 잘 짚어요)
+    3. 첫 조각(표지·목차·개요)과, 점수 높은 조각을 앞뒤 조각과 함께 limit까지 골라 문서 순서대로 이어요. 빠진 곳은 '[… 생략 …]'
+    핵심 단어가 한 번도 안 나오면 정책과 관계없는 문서로 보고 None (예: '행려자 보호 및 지원'에 붙은 '장사등에관한법령집')."""
+    if len(text) <= limit:
+        return text
+    chunks = _chunks(text)
+    compact = [re.sub(r"\s", "", c) for c in chunks]
+    words = search_words(keywords(title), compact)
+    if not words:
+        return None
+    spread = {w: sum(1 for c in compact if w in c) for w in words}
+    scores = [sum(c.count(w) / spread[w] for w in words) for c in compact]
+    chosen: set[int] = set()
+    used = 0
+
+    def take(i: int) -> bool:
+        nonlocal used
+        if i in chosen or not 0 <= i < len(chunks):
+            return True
+        if used + len(chunks[i]) > limit:
+            return False
+        chosen.add(i)
+        used += len(chunks[i])
+        return True
+
+    take(0)
+    for i in sorted((i for i, score in enumerate(scores) if score > 0), key=lambda i: -scores[i]):
+        if not all(take(j) for j in (i, i - 1, i + 1)):
+            break
+    parts, last = [], -1
+    for i in sorted(chosen):
+        if i != last + 1:
+            parts.append(OMITTED)
+        parts.append(chunks[i])
+        last = i
+    if last != len(chunks) - 1:
+        parts.append(OMITTED)
+    return "\n".join(parts)
+
+
+def search_words(words: list[str], compact: list[str]) -> list[str]:
+    """문서에 나오는 핵심 단어. 붙여 쓴 긴 단어('영구임대주택공급', '국가유공자등대부지원')가 그대로 안 나오면
+    4글자 조각('영구임대', '임대주택' …)으로 찾아요."""
+    found: list[str] = []
+    for word in words:
+        if any(word in c for c in compact):
+            found.append(word)
+        elif len(word) >= 5:
+            found += [g for g in (word[i : i + 4] for i in range(len(word) - 3)) if g not in GENERIC_WORDS and any(g in c for c in compact)]
+    return list(dict.fromkeys(found))
+
+
+def garbled(text: str | None) -> bool:
+    """PDF 글꼴에 글자 정보가 없어 '(cid:12)(cid:13)…'만 나온 경우 (2026-10-19 영암군 희망디딤돌 통장사업 계획.pdf)."""
+    return bool(text) and text.count("(cid:") * 5 > len(text) / 10
+
+
+def _chunks(text: str) -> list[str]:
+    chunks, current, size = [], [], 0
+    for line in text.splitlines():
+        while len(line) > FOCUS_CHUNK_CHARS:  # 줄바꿈 없이 아주 긴 줄
+            if current:
+                chunks.append("\n".join(current))
+                current, size = [], 0
+            chunks.append(line[:FOCUS_CHUNK_CHARS])
+            line = line[FOCUS_CHUNK_CHARS:]
+        if size + len(line) > FOCUS_CHUNK_CHARS and current:
+            chunks.append("\n".join(current))
+            current, size = [], 0
+        current.append(line)
+        size += len(line) + 1
+    if current:
+        chunks.append("\n".join(current))
+    return chunks

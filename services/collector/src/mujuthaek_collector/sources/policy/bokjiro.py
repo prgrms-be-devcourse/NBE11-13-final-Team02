@@ -203,6 +203,12 @@ class BokjiroCentralSource(BokjiroSource):
     list_params = {"callTp": "L", "srchKeyCode": "003"}  # 003: 서비스명+내용 검색 (검색어를 비우면 전체)
     detail_params = {"callTp": "D"}
     weekly_recheck = True  # 중앙부처 목록에는 수정일이 없어요
+    # 대상·선정기준·지원내용 칸이 길어서(중앙값 약 3,400자) API만으로 추출해요. 첨부는 수백 쪽짜리 사업 안내 지침서예요
+    attachments = "NEVER"
+    ai_keys = (
+        "servNm", "servDgst", "lifeArray", "trgterIndvdlArray", "intrsThemaArray", "srvPvsnNm", "sprtCycNm",
+        "tgtrDtlCn", "slctCritCn", "alwServCn", "applmetList",
+    )  # fmt: skip
 
 
 class BokjiroLocalSource(BokjiroSource):
@@ -211,6 +217,12 @@ class BokjiroLocalSource(BokjiroSource):
     list_path = "LocalGovernmentWelfareInformations/LcgvWelfarelist"
     detail_path = "LocalGovernmentWelfareInformations/LcgvWelfaredetailed"
     reld_code = "02"
+    # 설명 칸이 짧거나 '공고문 참조'인 정책만 첨부·원문을 봐요 (2026-10-19 첨부가 있던 266건 중 약 190건)
+    attachments = "WHEN_THIN"
+    ai_keys = (
+        "servNm", "servDgst", "ctpvNm", "sggNm", "lifeNmArray", "trgterIndvdlNmArray", "intrsThemaNmArray", "srvPvsnNm", "sprtCycNm",
+        "sprtTrgtCn", "slctCritCn", "alwServCn", "aplyMtdNm", "aplyMtdCn", "enfcBgngYmd", "enfcEndYmd",
+    )  # fmt: skip
 
     def marker(self, record: dict[str, Any]) -> str:
         return str(record.get("lastModYmd") or "") or self.record_marker(record)

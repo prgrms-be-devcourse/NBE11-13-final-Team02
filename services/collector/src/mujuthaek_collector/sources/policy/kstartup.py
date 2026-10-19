@@ -139,6 +139,11 @@ class KStartupSource(PolicySource):
     page_size = 1000
     key_env = "DATA_GO_KR_SERVICE_KEY"
     labels = LABELS
+    ai_keys = (
+        "biz_pbanc_nm", "intg_pbanc_biz_nm", "supt_biz_clsfc", "supt_regin", "aply_trgt", "aply_trgt_ctnt", "aply_excl_trgt_ctnt",
+        "biz_enyy", "biz_trgt_age", "prfn_matr", "pbanc_ctnt", "pbanc_rcpt_bgng_dt", "pbanc_rcpt_end_dt",
+        "aply_mthd_onli_rcpt_istc", "aply_mthd_vst_rcpt_istc", "aply_mthd_pssr_rcpt_istc", "aply_mthd_eml_rcpt_istc", "aply_mthd_etc_istc",
+    )  # fmt: skip
 
     def list_request(self, page: int, segment: str | None = None) -> Request:
         params = {"serviceKey": self.api_key, "page": page, "perPage": self.page_size, "returnType": "json", "cond[rcrt_prgs_yn::EQ]": "Y"}

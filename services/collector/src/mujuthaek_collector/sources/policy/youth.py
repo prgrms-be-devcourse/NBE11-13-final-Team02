@@ -11,12 +11,15 @@
 거름  주거: 대분류 '주거' 또는 이름·설명에 이주 혜택 단어 (base.SETTLE_WORDS) → field BENEFIT
       창업: 중분류 '창업' 중 창업 공간·지원금·정책자금 정책 → field STARTUP_SUPPORT (base.startup_in_scope, 이름 + 지원 내용).
             교육·컨설팅·경진대회·세제 정책은 빼요. 이름에만 창업이 들어간 다른 중분류도 빼요. 388건 중 276건
+      마감: 신청 기간(aplyYmd)이 오늘 전에 끝난 정책은 SKIPPED (상시·기간 칸 없음은 넣어요). 2026-10-19 거름 통과 827건 중 349건.
+            SKIPPED도 회차마다 다시 판단해서, 기관이 새 신청 기간으로 고치면 PENDING으로 돌아와요.
 첨부  API에 첨부가 없어요. 참고 주소(refUrlAddr1·2, 대부분 기관 원문 공고)를 열어 첨부 링크를 찾아요.
 """
 
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Any
 
 from mujuthaek_collector.errors import ParseError
@@ -41,6 +44,8 @@ from mujuthaek_collector.sources.policy.base import (
 
 API = "https://www.youthcenter.go.kr/go/ythip/getPlcy"
 VIEW = "https://www.youthcenter.go.kr/youthPolicy/ythPlcyTotalSearch/ythPlcyDetail"
+ALWAYS_OPEN = "0057002"  # 신청 기간 구분: 0057001 특정 기간, 0057002 상시, 0057003 기간 칸 없음(계속·별도 안내 등)
+APPLY_END = re.compile(r"~\s*(\d{8})")
 
 LABELS = {
     "plcyNo": "정책번호",
@@ -101,6 +106,15 @@ def age_range(record: dict[str, Any]) -> tuple[int | None, int | None]:
     return (low or None, high or None)
 
 
+def apply_ended(record: dict[str, Any], today: date) -> bool:
+    """신청 기간(aplyYmd '20260123 ~ 20260202', 여러 구간이면 가장 늦은 마감)이 오늘 전에 끝났는지.
+    상시(0057002)나 기간 칸이 없는 정책(0057003, '계속'·'별도 안내' 등)은 끝났다고 보지 않아요."""
+    if record.get("aplyPrdSeCd") == ALWAYS_OPEN:
+        return False
+    ends = APPLY_END.findall(str(record.get("aplyYmd") or ""))
+    return bool(ends) and max(ends) < today.strftime("%Y%m%d")
+
+
 def region_scope(codes: list[str]) -> str:
     if len(codes) >= NATIONWIDE_CODES:
         return NATIONWIDE
@@ -120,6 +134,12 @@ class YouthSource(PolicySource):
     key_env = "YOUTHCENTER_API_KEY"
     labels = LABELS
     volatile_keys = frozenset({"inqCnt", "lastMdfcnDt"})
+    # 결혼·취업·학력·특화·지역 코드(zipCd는 시군구 코드 수백 개)는 규칙으로 옮겨서 AI 입력에서 빼요. 나이·소득 숫자는 짧아서 둬요
+    ai_keys = (
+        "plcyNm", "lclsfNm", "mclsfNm", "plcyKywdNm", "plcyExplnCn", "plcySprtCn", "sprtTrgtMinAge", "sprtTrgtMaxAge",
+        "earnMinAmt", "earnMaxAmt", "earnEtcCn", "addAplyQlfcCndCn", "ptcpPrpTrgtCn", "srngMthdCn", "plcyAplyMthdCn",
+        "aplyYmd", "bizPrdBgngYmd", "bizPrdEndYmd", "bizPrdEtcCn", "sprtSclCnt", "etcMttrCn",
+    )  # fmt: skip
     page_size = 500
 
     def __init__(self, api_key: str | None, categories: list[str] | None = None):
@@ -159,6 +179,9 @@ class YouthSource(PolicySource):
     def wanted(self, item: PolicyItem) -> bool:
         record = item.record
         return has_class(record.get("lclsfNm"), "주거") or self.startup(record) or settle_related(record.get("plcyNm"), record.get("plcyExplnCn"))
+
+    def closed(self, item: PolicyItem, today: date) -> bool:
+        return apply_ended(item.record, today)
 
     def startup(self, record: dict[str, Any]) -> bool:
         return has_class(record.get("mclsfNm"), "창업") and startup_in_scope(record.get("plcyNm"), record.get("plcySprtCn"))
