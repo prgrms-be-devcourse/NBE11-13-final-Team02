@@ -23,7 +23,6 @@ def make(**overrides):
         parent_post_id=None,
         full_text="제목: …",
         text_key=None,
-        units=[{"type": "26A", "area_m2": 26.37, "deposit_won": 12_000_000, "rent_won": 150_000, "raw": {"주택형": "26A"}}],
         files=[
             {
                 "name": "모집공고문.pdf",
@@ -42,7 +41,7 @@ def make(**overrides):
 def test_event_matches_contract():
     event = make()
     validate_event(event)
-    assert event["payload"]["units"][0] == {"houseType": "26A", "areaM2": 26.37, "depositWon": 12_000_000, "rentWon": 150_000}
+    assert event["payload"]["units"] == []  # 호별 임대조건은 extraction이 원본에서 읽어요
 
 
 def test_follow_up_with_parent_and_long_text():

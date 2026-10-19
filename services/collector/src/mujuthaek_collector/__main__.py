@@ -137,7 +137,7 @@ def relay(settings: Settings) -> int:
 
 
 def cleanup(settings: Settings, today: date | None = None) -> int:
-    """보관 기한(stored_until)이 지난 원본 파일만 S3에서 지워요. 다운로드 주소·해시·추출한 글자·호별 표는 남아요."""
+    """보관 기한(stored_until)이 지난 원본 파일만 S3에서 지워요. 다운로드 주소·해시·추출한 글자는 남아요."""
     store = PostgresStore(settings.db_url)
     files = make_file_store(settings)
     removed = 0

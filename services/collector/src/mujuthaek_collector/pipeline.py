@@ -20,10 +20,9 @@ import httpx
 
 from mujuthaek_collector.config import Settings
 from mujuthaek_collector.core import classify as cls
-from mujuthaek_collector.core.documents.tables import read_tables, summarize, units_from_tables
 from mujuthaek_collector.core.documents.text import extract_text
 from mujuthaek_collector.core.file_store import FileStore, content_type, object_key, stored_until, text_key
-from mujuthaek_collector.core.files import TABLE_EXTS, FileRef, pick_notice_files, pick_unit_lists, unclear_notice
+from mujuthaek_collector.core.files import FileRef, pick_notice_files, pick_unit_lists, unclear_notice
 from mujuthaek_collector.core.publisher import MAX_TEXT_CHARS, build_collected_event
 from mujuthaek_collector.core.storage import PENDING, SKIPPED, BoardState, NewVersion, PostRow, SavedFile, Store
 from mujuthaek_collector.core.versioning import content_hash, list_hash, sha256_hex
@@ -218,7 +217,6 @@ def process_post(ctx: Context, post: PostRow) -> bool:
 
     saved: list[tuple[SavedFile, bytes]] = []  # (DB에 저장할 정보, S3에 올릴 원본)
     notice_name, notice_text = None, None
-    units: list[dict] = [dict(u, source_file="상세 화면") for u in detail.units]
     keep_until = stored_until(post.title, post.deadline_on, post.posted_on, ctx.today)
 
     notice_files = pick_notice_files(candidates, source.prefer_doc)
@@ -230,23 +228,16 @@ def process_post(ctx: Context, post: PostRow) -> bool:
             continue
         text, status = extract_text(data, file.ext)
         saved.append((make_saved(file, "NOTICE_DOC", data, keep_until, status, text), data))
-        if file.ext in TABLE_EXTS:
-            units += [dict(u, source_file=file.name) for u in units_from_tables(read_tables(data, file.ext))]
         if text:
             notice_name, notice_text = file.name, text
             break
         ctx.warn(f"[{post.post_key}] 공고문을 읽지 못했어요 ({file.name}): {status}")
 
-    for file in pick_unit_lists(candidates):  # 주택목록: 엑셀 우선 최대 2개
+    for file in pick_unit_lists(candidates):  # 주택목록: 엑셀 우선 최대 2개. 원본만 S3에 두고, 표 해석은 extraction이 해요
         data = download(ctx, file, referer)
         if data is None:
             continue
-        found = units_from_tables(read_tables(data, file.ext))
-        saved.append((make_saved(file, "UNIT_LIST", data, keep_until, f"호별 {len(found)}행", None), data))
-        units += [dict(u, source_file=file.name) for u in found]
-
-    if units:
-        log.info("호별 표", extra={"source": source.code, "post": post.post_key, "summary": summarize(units)})
+        saved.append((make_saved(file, "UNIT_LIST", data, keep_until, "원본만 저장", None), data))
 
     body = detail.body_text
     new_hash = content_hash(body, [f.file_hash for f, _ in saved])
@@ -279,7 +270,6 @@ def process_post(ctx: Context, post: PostRow) -> bool:
         parent_post_id=post.parent_post_id,
         full_text=full_text,
         text_key=long_text_key,
-        units=units,
         files=[f.as_event_file() for f, _ in saved],
         reprocess=False,
     )
@@ -293,11 +283,10 @@ def process_post(ctx: Context, post: PostRow) -> bool:
             full_text=full_text,
             run_id=ctx.run_id,
             files=[f for f, _ in saved],
-            units=units,
             event=event,
         )
     )
-    log.info("새 버전 저장", extra={"source": source.code, "post": post.post_key, "version": version, "files": len(saved), "units": len(units)})
+    log.info("새 버전 저장", extra={"source": source.code, "post": post.post_key, "version": version, "files": len(saved)})
     return True
 
 

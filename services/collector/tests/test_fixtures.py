@@ -35,4 +35,4 @@ def test_saved_pages_parse(code):
             post_key = detail_path.stem.split("-detail-", 1)[1]
             item = next((i for i in items if i.post_key == post_key), None) or ListItem(board_key, post_key, "", None, None)
             detail = source.parse_detail(item, detail_path.read_text(encoding="utf-8"))
-            assert detail.body_text or detail.units, f"{detail_path.name}: 본문을 읽지 못했어요"
+            assert detail.body_text, f"{detail_path.name}: 본문을 읽지 못했어요"

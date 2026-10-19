@@ -37,7 +37,7 @@
         "supersedesPostId": { "type": ["string", "null"], "format": "uuid", "description": "정정공고·후속 안내가 가리키는 원래 모집공고의 rawPostId" },
         "text": { "type": "string", "maxLength": 200000, "description": "AI 추출에 넘기는 전체 글자 (제목·게시 정보·항목·본문·공고문). 20만 자를 넘으면 앞부분만" },
         "textKey": { "$ref": "#/$defs/nullableString", "description": "text가 잘렸을 때만 채워지는 S3 위치 (text/<출처>/<글 키>/v<버전>.txt)" },
-        "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } },
+        "units": { "type": "array", "items": { "$ref": "#/$defs/unit" }, "description": "호별 임대조건. 지방 공사 collector는 빈 배열을 보내요 — 표 해석은 extraction이 files의 원본(NOTICE_DOC·UNIT_LIST)에서 해요" },
         "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
         "reprocess": { "type": "boolean", "description": "과거 공고 재처리면 true. true면 사용자 알림을 보내지 않아요" }
       }

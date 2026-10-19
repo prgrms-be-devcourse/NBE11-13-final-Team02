@@ -13,32 +13,6 @@ EVENT_TYPE = "raw.notice.collected"
 PRODUCER = "collector"
 MAX_TEXT_CHARS = 200_000  # 이보다 길면 앞부분만 이벤트에 넣고 전체는 S3(textKey)에 둬요
 
-UNIT_KEYS = {  # raw_units 칸 이름 → 이벤트 칸 이름 (camelCase)
-    "page": "page",
-    "complex": "complex",
-    "district": "district",
-    "address": "address",
-    "unit": "unit",
-    "floor": "floor",
-    "type": "houseType",
-    "target": "targetGroup",
-    "rooms": "rooms",
-    "area_m2": "areaM2",
-    "deposit_won": "depositWon",
-    "rent_won": "rentWon",
-    "count": "supplyCount",
-    "elevator": "elevator",
-    "parking": "parking",
-    "source_file": "sourceFile",
-}
-
-
-def unit_payload(unit: dict[str, Any]) -> dict[str, Any]:
-    out = {UNIT_KEYS[k]: v for k, v in unit.items() if k in UNIT_KEYS and v not in (None, "")}
-    if unit.get("check"):
-        out["checks"] = unit["check"]
-    return out
-
 
 def build_collected_event(
     *,
@@ -53,7 +27,6 @@ def build_collected_event(
     parent_post_id: UUID | None,
     full_text: str,
     text_key: str | None,
-    units: list[dict[str, Any]],
     files: list[dict[str, Any]],
     region_code: str | None = None,
     reprocess: bool = False,
@@ -72,7 +45,7 @@ def build_collected_event(
         "supersedesPostId": str(parent_post_id) if parent_post_id else None,
         "text": full_text[:MAX_TEXT_CHARS],
         "textKey": text_key,
-        "units": [unit_payload(u) for u in units],
+        "units": [],  # 호별 임대조건은 extraction이 원본(files의 UNIT_LIST·NOTICE_DOC)에서 읽어요
         "files": [
             {
                 "name": f["name"],
