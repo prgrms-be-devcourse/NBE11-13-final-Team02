@@ -1,0 +1,175 @@
+[
+  {
+    "dsSch": [
+      {
+        "PAN_ID": "2015122300020793",
+        "CCR_CNNT_SYS_DS_CD": "03",
+        "SPL_INF_TP_CD": "062",
+        "UPP_AIS_TP_CD": "06",
+        "AIS_TP_CD": "07"
+      }
+    ]
+  },
+  {
+    "dsSplScdl": [
+      {
+        "PPR_SBM_OPE_ANC_DT": "",
+        "PPR_ACP_CLSG_DT": "",
+        "PZWR_ANC_DT": "",
+        "CTRT_ED_DT": "",
+        "SBD_LGO_NM": "",
+        "SBSC_ACP_ST_DT": "2026.09.28",
+        "ACP_DTTM": "~",
+        "SBSC_ACP_CLSG_DT": "2026.10.30",
+        "CTRT_ST_DT": "",
+        "PPR_ACP_ST_DT": ""
+      }
+    ],
+    "dsSbdAhflNm": [
+      {
+        "LCC_NT_NM": "단지명",
+        "AHFL_URL": "다운로드",
+        "LS_SPL_INF_UPL_FL_DS_CD_NM": "파일구분명",
+        "CMN_AHFL_NM": "첨부파일명"
+      }
+    ],
+    "dsSbdNm": [
+      {
+        "LGDN_ADR": "단지주소",
+        "LGDN_DTL_ADR": "단지상세주소",
+        "HSH_CNT": "총세대수",
+        "HTN_FMLA_DESC": "난방방식",
+        "LCC_NT_NM": "단지명",
+        "DDO_AR": "전용면적",
+        "SPL_INF_GUD_FCTS": "안내사항",
+        "MVIN_XPC_YM": "입주예정월"
+      }
+    ],
+    "dsEtcInfo": [
+      {
+        "ETC_CTS": "* 본공고는 상시모집으로 현장접수만 가능합니다. \n\n* 금회 예비입주자 모집은 향후 임대주택의 해약이 발생할 경우를 대비하여 모집하는 것으로 \n   예비 입주자로 선정되더라도 실제 입주 시까지 많은 기간이 소요될 수 있습니다.\n\n* 본 공고의 모집대상 단지에 대하여 1세대 1주택 신청이 원칙입니다.\n  중복 신청하는 경우 전부 무효처리 됩니다.\n\n* 자세한 사항은 공고문을 반드시 확인하시기 바랍니다.\n  (공고내용 미숙지로 인한 모든 책임은 신청자 본인에게 있음)\n\n* 모든 서류는 성명 및 주민등록번호(13자리) 전부공개하여 발급용(열람용으로 제출 불가) 으로 발급 받으셔야 합니다.",
+        "CRC_RSN": ""
+      }
+    ],
+    "dsAhflInfo": [
+      {
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhFile.do?fileid=68635053",
+        "SL_PAN_AHFL_DS_CD_NM": "공고문(hwp)",
+        "CMN_AHFL_NM": "260917태백시국민임대주택예비입주자상시모집공고문..hwpx"
+      },
+      {
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhFile.do?fileid=68635057",
+        "SL_PAN_AHFL_DS_CD_NM": "공고문(PDF)",
+        "CMN_AHFL_NM": "260917태백시국민임대주택예비입주자상시모집공고문..pdf"
+      },
+      {
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhFile.do?fileid=68635083",
+        "SL_PAN_AHFL_DS_CD_NM": "기타 첨부파일",
+        "CMN_AHFL_NM": "태백소도(36형).jpg"
+      }
+    ],
+    "dsSbd": [
+      {
+        "LGDN_ADR": "강원특별자치도 태백시 소도길 60(소도동,태백소도엘에이치천년나무)",
+        "LGDN_DTL_ADR": "",
+        "HSH_CNT": "326",
+        "HTN_FMLA_DESC": "개별가스난방",
+        "LCC_NT_NM": "태백소도 LH천년나무",
+        "DDO_AR": "36.79~51.5",
+        "SPL_INF_GUD_FCTS": "",
+        "MVIN_XPC_YM": "2016.06"
+      }
+    ],
+    "dsSbdAhfl": [
+      {
+        "LCC_NT_NM": "태백소도 LH천년나무",
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhImageView2.do?fileid=24547967",
+        "LS_SPL_INF_UPL_FL_DS_CD_NM": "단지조감도",
+        "CMN_AHFL_NM": "조감도.jpg"
+      },
+      {
+        "LCC_NT_NM": "태백소도 LH천년나무",
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhImageView2.do?fileid=24547968",
+        "LS_SPL_INF_UPL_FL_DS_CD_NM": "단지배치도",
+        "CMN_AHFL_NM": "단지배치도.jpg"
+      },
+      {
+        "LCC_NT_NM": "태백소도 LH천년나무",
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhImageView2.do?fileid=24547969",
+        "LS_SPL_INF_UPL_FL_DS_CD_NM": "동호배치도",
+        "CMN_AHFL_NM": "동호배치도.jpg"
+      },
+      {
+        "LCC_NT_NM": "태백소도 LH천년나무",
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhImageView2.do?fileid=24547953",
+        "LS_SPL_INF_UPL_FL_DS_CD_NM": "평면도",
+        "CMN_AHFL_NM": "46_아이소.jpg"
+      },
+      {
+        "LCC_NT_NM": "태백소도 LH천년나무",
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhImageView2.do?fileid=24548011",
+        "LS_SPL_INF_UPL_FL_DS_CD_NM": "평면도",
+        "CMN_AHFL_NM": "36_아이소.jpg"
+      },
+      {
+        "LCC_NT_NM": "태백소도 LH천년나무",
+        "AHFL_URL": "https://apply.lh.or.kr/lhapply/lhImageView2.do?fileid=24546825",
+        "LS_SPL_INF_UPL_FL_DS_CD_NM": "평면도",
+        "CMN_AHFL_NM": "51_아이소.jpg"
+      }
+    ],
+    "dsCtrtPlcNm": [
+      {
+        "CTRT_PLC_DTL_ADR": "접수처소재지상세주소",
+        "SIL_OFC_GUD_FCTS": "접수처안내사항",
+        "CTRT_PLC_ADR": "접수처소재지주소",
+        "TSK_ST_DTTM": "운영기간시작일시",
+        "TSK_ED_DTTM": "운영기간종료일시",
+        "SIL_OFC_TLNO": "전화번호"
+      }
+    ],
+    "dsEtcInfoNm": [
+      {
+        "ETC_CTS": "기타사항",
+        "CRC_RSN": "정정/취소사유"
+      }
+    ],
+    "dsAhflInfoNm": [
+      {
+        "AHFL_URL": "다운로드",
+        "SL_PAN_AHFL_DS_CD_NM": "파일구분명",
+        "CMN_AHFL_NM": "첨부파일명"
+      }
+    ],
+    "dsCtrtPlc": [
+      {
+        "CTRT_PLC_DTL_ADR": "모집공고문 참조",
+        "SIL_OFC_GUD_FCTS": "* 2026.09.28(월) 접수장소는 태백장성 LH 주거행복지원센터에서 접수를 받습니다.\r\n(접수시간 : 14시~15시)\r\n\r\n* 2026.09.29(화) ~ 2026.10.30(금)까지 접수는  태백소도 LH 주거행복지원센터에서 접수받으며,\r\n  접수시간은 10:00 ~ 15:00 입니다.",
+        "CTRT_PLC_ADR": "",
+        "TSK_ST_DTTM": "2026.09.28",
+        "TSK_ED_DTTM": "2026.10.30",
+        "SIL_OFC_TLNO": "1600-1004"
+      }
+    ],
+    "dsSplScdlNm": [
+      {
+        "PPR_SBM_OPE_ANC_DT": "서류제출대상자발표일",
+        "PPR_ACP_CLSG_DT": "서류접수기간종료일",
+        "PZWR_ANC_DT": "당첨자발표일",
+        "CTRT_ED_DT": "계약기간종료일",
+        "SBD_LGO_NM": "단지명",
+        "SBSC_ACP_ST_DT": "접수기간시작일",
+        "ACP_DTTM": "신청일시",
+        "SBSC_ACP_CLSG_DT": "접수기간종료일",
+        "CTRT_ST_DT": "계약기간시작일",
+        "PPR_ACP_ST_DT": "서류접수기간시작일"
+      }
+    ],
+    "resHeader": [
+      {
+        "RS_DTTM": "20261014123426",
+        "SS_CODE": "Y"
+      }
+    ]
+  }
+]

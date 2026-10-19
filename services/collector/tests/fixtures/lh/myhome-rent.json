@@ -1,0 +1,49 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "00",
+      "resultMsg": "NORMAL SERVICE"
+    },
+    "body": {
+      "totalCount": "286",
+      "numOfRows": "1",
+      "pageNo": "1",
+      "item": [
+        {
+          "pblancId": "21401",
+          "houseSn": 1,
+          "sttusNm": "정정공고",
+          "pblancNm": "창녕영산 1BL 행복주택 예비입주자 모집 공고 (‘26.10.07. 공고)",
+          "suplyInsttNm": "LH",
+          "houseTyNm": "아파트",
+          "suplyTyNm": "행복주택",
+          "beforePblancId": "21393",
+          "rcritPblancDe": "20261007",
+          "przwnerPresnatnDe": "20270114",
+          "suplyHoCo": "",
+          "refrnc": "LH 콜센터 : 1600-1004 (평일 : 09:00 ~ 18:00)",
+          "url": "https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancInfo.do?panId=2015122300020904&ccrCnntSysDsCd=03&uppAisTpCd=06&aisTpCd=10&mi=1026",
+          "pcUrl": "https://www.myhome.go.kr/hws/portal/sch/selectRsdtRcritNtcDetailView.do?pblancId=21401&houseSn=1",
+          "mobileUrl": "https://m.myhome.go.kr/hws/portal/sch/selectRsdtRcritNtcDetailView.do?pblancId=21401&houseSn=1",
+          "hsmpNm": "창녕영산 1BL",
+          "brtcNm": "경상남도",
+          "signguNm": "창녕군",
+          "fullAdres": "경상남도 창녕군 영산면 영산계성로 61 ",
+          "rnCodeNm": "영산계성로",
+          "refrnLegaldongNm": "",
+          "pnu": "4874038021101750000",
+          "heatMthdNm": "개별난방",
+          "totHshldCo": "",
+          "sumSuplyCo": 100,
+          "rentGtn": 12900000,
+          "enty": 645000,
+          "prtpay": 0,
+          "surlus": 12255000,
+          "mtRntchrg": 65460,
+          "beginDe": "20261019",
+          "endDe": "20261021"
+        }
+      ]
+    }
+  }
+}
