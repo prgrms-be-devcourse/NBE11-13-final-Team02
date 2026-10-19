@@ -23,7 +23,7 @@ from mujuthaek_collector.core import classify as cls
 from mujuthaek_collector.core.documents.tables import read_tables, summarize, units_from_tables
 from mujuthaek_collector.core.documents.text import extract_text
 from mujuthaek_collector.core.file_store import FileStore, content_type, object_key, stored_until, text_key
-from mujuthaek_collector.core.files import TABLE_EXTS, FileRef, pick_notice_files, pick_unit_lists
+from mujuthaek_collector.core.files import TABLE_EXTS, FileRef, pick_notice_files, pick_unit_lists, unclear_notice
 from mujuthaek_collector.core.publisher import MAX_TEXT_CHARS, build_collected_event
 from mujuthaek_collector.core.storage import PENDING, SKIPPED, BoardState, NewVersion, PostRow, SavedFile, Store
 from mujuthaek_collector.core.versioning import content_hash, list_hash, sha256_hex
@@ -221,7 +221,10 @@ def process_post(ctx: Context, post: PostRow) -> bool:
     units: list[dict] = [dict(u, source_file="상세 화면") for u in detail.units]
     keep_until = stored_until(post.title, post.deadline_on, post.posted_on, ctx.today)
 
-    for file in pick_notice_files(candidates, source.prefer_doc):  # 공고문: 첫 번째가 실패하면 두 번째
+    notice_files = pick_notice_files(candidates, source.prefer_doc)
+    if unclear_notice(candidates):
+        ctx.warn(f"[{post.post_key}] 이름으로 공고문을 알 수 없어 첨부 순서로 골랐어요 ({notice_files[0].name})")
+    for file in notice_files:  # 공고문: 첫 번째가 실패하면 두 번째
         data = download(ctx, file, referer)
         if data is None:
             continue
