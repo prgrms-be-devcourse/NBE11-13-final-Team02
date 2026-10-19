@@ -1,0 +1,37 @@
+{
+  "sourceCode": "*",
+  "status": "DRAFT",
+  "description": "공통 API 대조표(2026-10-16). API JSON 모양은 출처마다 달라 고정하지 않으므로, 경로 대신 키 이름(apiKeys)으로 처음 나오는 값을 찾습니다. LH 공고 묶음(목록·상세·공급·마이홈)과 마이홈 목록 형식을 함께 다룹니다. 의미가 다른 필드(전체 세대 수, 게시 종료일, 게시 상태)는 넣지 않습니다. 출처 전용 대조표(<sourceCode>.v<n>.json)가 있으면 그것을 씁니다.",
+  "mappings": [
+    {
+      "field": "공고일",
+      "apiKeys": ["PAN_NT_ST_DT", "rcritPblancDe"],
+      "normalization": "DATE",
+      "target": { "collection": "/notice", "where": {}, "contains": {}, "valuePath": "/announcedOn" }
+    },
+    {
+      "field": "이번 모집 수 (공고 전체)",
+      "apiSumKey": "LTR_SPL_RMNO",
+      "note": "LH 공급정보 API의 지역·주택군별 공급호수 행을 모두 더합니다. 마이홈 sumSuplyCo는 여러 시군구 공고에서도 레코드 하나(한 시군구 몫)만 주므로 쓰지 않습니다(실측 11건: 원문 155 vs 달서구 37 등, 지역별 합계는 10건 모두 원문과 같음). 행이 없으면 비교하지 않습니다.",
+      "normalization": "INTEGER",
+      "emptyValues": ["0"],
+      "target": {
+        "collection": "/notice/counts",
+        "where": { "/kind": "OFFERED", "/scope/level": "NOTICE", "/scope/supplyCategory": "ALL" },
+        "contains": {},
+        "valuePath": "/value"
+      }
+    },
+    {
+      "field": "신청 접수 시작일",
+      "apiKeys": ["beginDe"],
+      "normalization": "DATE",
+      "target": {
+        "collection": "/schedules",
+        "where": { "/scope/level": "NOTICE", "/scope/supplyCategory": "ALL" },
+        "contains": { "/kinds": "APPLICATION" },
+        "valuePath": "/startsAt/value"
+      }
+    }
+  ]
+}
