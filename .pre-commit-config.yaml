@@ -1,0 +1,7 @@
+# 커밋 직전에 키·비밀번호처럼 생긴 글자가 있으면 커밋을 막아요.
+# 처음 한 번: brew install pre-commit && pre-commit install
+repos:
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.30.1
+    hooks:
+      - id: gitleaks
