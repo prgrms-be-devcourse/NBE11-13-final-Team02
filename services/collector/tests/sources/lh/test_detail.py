@@ -1,11 +1,11 @@
-"""상세·공급정보·마이홈 응답 → 본문 글자·호별 표·시군구 코드.
+"""상세·공급정보·마이홈 응답 → 본문 글자·시군구 코드.
 
 본문 글자는 '바뀐 것만 새 버전' 해시에 들어가요. 부를 때마다 바뀌는 응답 시각이 들어가면 매번 새 버전이 돼요.
 """
 
 import copy
 
-from mujuthaek_collector.sources.lh.detail import body_text, lh_meta, region_code, units_from_supply
+from mujuthaek_collector.sources.lh.detail import body_text, lh_meta, region_code
 from tests.sources.lh.helpers import taebaek_myhome_row
 
 
@@ -52,40 +52,18 @@ def test_myhome_rows_are_in_a_fixed_order(detail_body, supply_body):
     assert body_text(detail_body, supply_body, [a, b]) == body_text(detail_body, supply_body, [b, a])
 
 
-def test_units_from_real_supply_response(supply_body):
-    [unit] = units_from_supply(supply_body)
-    assert {k: v for k, v in unit.items() if k != "raw"} == {
-        "complex": "태백소도 LH천년나무",
-        "type": "36",
-        "area_m2": 36.79,
-        "count": 60,  # '금회공급 세대수'. '세대수'(전체 212)는 raw에만
-    }
-    assert unit["raw"]["임대보증금(원)"] == "공고문 참조" and unit["raw"]["세대수"] == "212"
-
-
 def supply(rows, labels):
     return [{"dsSch": [{}]}, {"dsList01Nm": [labels], "dsList01": rows, "resHeader": [{}]}]
 
 
-def test_units_for_sale_and_purchase_rental_layouts():
-    # 분양: 분양가는 이벤트 계약에 칸이 없어서 raw에만 남아요
+def test_supply_columns_go_into_body_text_for_extraction(detail_body):
+    # 호별 표(units)는 만들지 않아요 (#19). 공급정보는 칸 이름과 함께 본문 글자에 넣고, 표 해석은 extraction이 해요
     sale = supply(
-        [{"BZDT_NM": "인천계양 A17", "HTY_NM": "55.9000A", "RSDN_DDO_AR": "55.9", "SIL_HSH_CNT": "137", "SIL_AMT": "504484000"}],
-        {"BZDT_NM": "단지명", "HTY_NM": "주택형", "RSDN_DDO_AR": "전용면적(㎡)", "SIL_HSH_CNT": "금회공급세대수", "SIL_AMT": "평균분양가격(원)"},
+        [{"BZDT_NM": "인천계양 A17", "HTY_NM": "55.9000A", "SIL_HSH_CNT": "137", "SIL_AMT": "504484000"}],
+        {"BZDT_NM": "단지명", "HTY_NM": "주택형", "SIL_HSH_CNT": "금회공급세대수", "SIL_AMT": "평균분양가격(원)"},
     )
-    [unit] = units_from_supply(sale)
-    assert unit["count"] == 137 and unit["area_m2"] == 55.9 and "deposit_won" not in unit
-    assert unit["raw"]["평균분양가격(원)"] == "504484000"
-    # 매입임대: 지자체별 공급호수 (모집인원은 사람 수라 공급 호수가 아니에요)
-    purchase = supply(
-        [{"DNG_HS_ADR": "대전 중구", "SGG_NM": "대전광역시 중구", "LTR_SPL_RMNO": "18", "QUP_CNT": "40"}],
-        {"DNG_HS_ADR": "주택정보", "SGG_NM": "지자체명", "LTR_SPL_RMNO": "공급호수", "QUP_CNT": "모집인원"},
-    )
-    [unit] = units_from_supply(purchase)
-    assert (unit["district"], unit["count"]) == ("대전 중구", 18)
-    # 금액이 숫자로 오는 공고
-    rent = supply([{"HTY_NNA": "26A", "LS_GMY": "12,000,000", "RFE": "150000"}], {"HTY_NNA": "주택형", "LS_GMY": "임대보증금(원)", "RFE": "월임대료(원)"})
-    assert units_from_supply(rent)[0] | {"raw": None} == {"type": "26A", "deposit_won": 12_000_000, "rent_won": 150_000, "raw": None}
+    text = body_text(detail_body, sale, [])
+    assert "[공급정보 dsList01]\n단지명: 인천계양 A17 | 주택형: 55.9000A | 금회공급세대수: 137 | 평균분양가격(원): 504484000" in text
 
 
 def test_region_code_comes_from_myhome_parcel_number():

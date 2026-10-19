@@ -1,4 +1,4 @@
-"""LH 상세정보·공급정보·마이홈 응답을 파이프라인이 쓰는 모양(본문 글자, 항목, 호별 표)으로 바꿔요.
+"""LH 상세정보·공급정보·마이홈 응답을 파이프라인이 쓰는 모양(본문 글자, 항목, 시군구 코드)으로 바꿔요.
 
 본문 글자(body_text)는 '바뀐 것만 새 버전'을 판단하는 해시와 AI 추출 글자에 들어가요. 그래서
 - 부를 때마다 바뀌는 값(응답 시각 resHeader, 요청 값 dsSch)은 넣지 않고
@@ -95,57 +95,6 @@ def body_text(detail_body: Any, supply_body: Any, myhome_entries: list[dict[str,
             parts = [f"{label}: {_text(item.get(key))}" for key, label in MYHOME_FIELDS if _text(item.get(key)) not in EMPTY | {"0"}]
             lines.append(" | ".join(parts))
     return "\n".join(lines)
-
-
-# ── 공급정보 → 호별(주택형별) 표 ────────────────────────────────
-# (표준 항목, 칸 이름 패턴) — 위에서부터 맞춰요. 칸 이름은 응답의 한글 설명이에요 (공고 유형마다 칸이 달라요)
-UNIT_LABELS = [
-    ("count", r"금회\s*공급"),
-    ("count", r"^공급\s*호수$"),
-    ("count", r"^총\s*공급\s*물량$"),
-    ("complex", r"^단지명$"),
-    ("district", r"지자체|지역명|^모집\s*지역$|^지역$|^지역\(|주택정보"),
-    ("address", r"^주소$"),
-    ("unit", r"^호$"),
-    ("floor", r"층수"),
-    ("type", r"주택형|주택\s*유형"),
-    ("area_m2", r"^전용면적"),
-    ("deposit_won", r"보증금"),
-    ("rent_won", r"월\s*임대료"),
-]
-INT_FIELDS = {"count", "deposit_won", "rent_won"}
-
-
-def _number(value: Any, as_int: bool) -> int | float | None:
-    text = _text(value).replace(",", "")
-    if not re.fullmatch(r"\d+(?:\.\d+)?", text):
-        return None  # '공고문 참조' 같은 글자
-    return int(float(text)) if as_int else float(text)
-
-
-def units_from_supply(supply_body: Any) -> list[dict[str, Any]]:
-    """공급정보 표를 팀 공통 호별 칸(raw_units)으로. 칸 이름이 맞지 않는 값과 원래 값은 raw에 남아요.
-    분양가(평균분양가격)는 이벤트 계약에 칸이 없어서 raw에만 있어요."""
-    data, labels = split_blocks(supply_body)
-    units = []
-    for name in sorted(data):
-        names = labels.get(name, {})
-        for row in data[name]:
-            unit: dict[str, Any] = {}
-            for code, value in row.items():
-                label = _text(names.get(code, code))
-                field = next((f for f, pattern in UNIT_LABELS if re.search(pattern, label)), None)
-                if field is None or field in unit:
-                    continue
-                if field in INT_FIELDS or field == "area_m2":
-                    number = _number(value, field in INT_FIELDS)
-                    if number is not None:
-                        unit[field] = number
-                elif _text(value):
-                    unit[field] = _text(value)
-            unit["raw"] = {_text(names.get(code, code)): value for code, value in row.items()}
-            units.append(unit)
-    return units
 
 
 def region_code(myhome_entries: list[dict[str, Any]]) -> str | None:

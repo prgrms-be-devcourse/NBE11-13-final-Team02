@@ -35,15 +35,12 @@ def source():
 
 @pytest.fixture
 def run(store, file_store, settings, monkeypatch):
-    tables: dict[str, list] = {}
     monkeypatch.setattr(pipeline, "extract_text", lambda data, ext: ("공고문 글자 " * 40, "PDF 텍스트·표") if ext == "pdf" else (None, "읽지 않음"))
-    monkeypatch.setattr(pipeline, "read_tables", lambda data, ext: tables.get(ext, []))
 
     def go(source, client, **kwargs):
         source._clock.now += 3600  # 다음 회차 (마이홈 목록 캐시가 지나요)
         return pipeline.run_source(source, client, store, file_store, settings, today=TODAY, **kwargs)
 
-    go.tables = tables
     return go
 
 
@@ -60,7 +57,7 @@ def only_land(list_body):
 
 
 # ── 기본 흐름 ──────────────────────────────────────
-def test_first_run_saves_raw_files_units_and_a_valid_event(source, lh, run, store, file_store, detail_body):
+def test_first_run_saves_raw_files_and_a_valid_event(source, lh, run, store, file_store, detail_body):
     result = run(source, lh)
     assert (result.status, result.new_count) == ("SUCCESS", 1) and result.warnings == []
 
@@ -74,18 +71,20 @@ def test_first_run_saves_raw_files_units_and_a_valid_event(source, lh, run, stor
     assert "serviceKey" not in raw["detail"]["params"] and raw["myhome"][0]["item"]["pnu"] == "5119010700100600000"
     assert "_raw" not in version.full_text and "RS_DTTM" not in version.full_text  # 원본은 AI 글자에 넣지 않아요
     assert "공고유형: 국민임대" in version.full_text and "[공급일정]" in version.full_text
+    assert "금회공급 세대수: 60" in version.full_text  # 공급정보 표는 글자로 넘기고 해석은 extraction이 해요
 
     [f] = version.files
     assert (f.role, f.download_url) == ("NOTICE_DOC", PDF_URL)
     assert any(key.startswith(f"raw/lh/{PAN}/v1/01-") for key in file_store.objects)  # 첨부 목록 순서 1번(PDF)
-    unit = {k: v for k, v in version.units[0].items() if k != "raw"}
-    assert unit == {"complex": "태백소도 LH천년나무", "type": "36", "area_m2": 36.79, "count": 60, "source_file": "상세 화면"}
 
     [event] = store.events
     validate_event(event)  # contracts/events/raw.notice.collected.v1.json
     payload = event["payload"]
     assert (payload["sourceCode"], payload["provider"], payload["kind"], payload["regionCode"]) == ("lh", "LH", "NOTICE", "51190")
-    assert payload["files"][0]["downloadUrl"] == PDF_URL and payload["units"][0]["supplyCount"] == 60
+    [event_file] = payload["files"]
+    assert (event_file["downloadUrl"], event_file["role"], event_file["fileType"]) == (PDF_URL, "NOTICE_DOC", "pdf")
+    assert event_file["s3Key"] in file_store.objects  # extraction은 이 위치에서 원본을 읽어요
+    assert payload["units"] == []  # 호별 임대조건은 extraction이 원본에서 읽어요 (#19)
 
 
 def test_second_run_reads_only_the_lists(source, lh, run, store):
@@ -171,16 +170,18 @@ def test_land_and_cancelled_notices_are_not_opened(source, lh, run, store, list_
     assert config.DETAIL_URL not in lh.calls
 
 
-def test_housing_list_spreadsheet_becomes_unit_rows(source, lh, run, store, detail_body):
+def test_housing_list_spreadsheet_is_saved_as_unit_list_original(source, lh, run, store, file_store, detail_body):
     lh.detail_body = attach(detail_body, ("기타 첨부파일", "붙임3.매입임대주택목록.xlsx", XLSX_URL))
     lh.files[XLSX_URL] = b"PK\x03\x04 fake housing list"
-    run.tables["xlsx"] = [(1, "", [["주소", "전용면적", "임대보증금", "월임대료"], ["대전광역시 서구 구봉로 451 801호", "59.73", "8,723,000", "181,360"]])]
     run(source, lh)
     [version] = store.versions
     assert [f.role for f in version.files] == ["NOTICE_DOC", "UNIT_LIST"]
-    house = next(u for u in version.units if u.get("source_file") == "붙임3.매입임대주택목록.xlsx")
-    assert (house["address"], house["deposit_won"], house["rent_won"]) == ("대전광역시 서구 구봉로 451 801호", 8_723_000, 181_360)
-    validate_event(store.events[0])
+    [event] = store.events
+    validate_event(event)
+    housing_list = next(f for f in event["payload"]["files"] if f["role"] == "UNIT_LIST")
+    assert (housing_list["name"], housing_list["fileType"]) == ("붙임3.매입임대주택목록.xlsx", "xlsx")
+    assert file_store.objects[housing_list["s3Key"]] == b"PK\x03\x04 fake housing list"  # 원본 그대로, 표 해석은 extraction이 해요
+    assert event["payload"]["units"] == []
 
 
 def test_appendix_typed_as_notice_is_recorded_not_downloaded(source, lh, run, store, detail_body):

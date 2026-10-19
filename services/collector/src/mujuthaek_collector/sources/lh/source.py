@@ -34,7 +34,7 @@ from mujuthaek_collector.sources.lh import config
 from mujuthaek_collector.sources.lh.api import LhApi
 from mujuthaek_collector.sources.lh.classify import classify, classify_title
 from mujuthaek_collector.sources.lh.client import LhClient
-from mujuthaek_collector.sources.lh.detail import body_text, lh_meta, region_code, units_from_supply
+from mujuthaek_collector.sources.lh.detail import body_text, lh_meta, region_code
 from mujuthaek_collector.sources.lh.documents import select_attachments
 from mujuthaek_collector.sources.lh.myhome import MyHomeApi, MyHomeApiError, lh_notice_id, row_key
 from mujuthaek_collector.sources.lh.myhome import items as myhome_items
@@ -209,7 +209,6 @@ class LhSource(Source):
             body_text=body_text(detail.body, supply.body, entries),
             files=files,
             meta={**lh_meta(row), "_raw": raw},
-            units=units_from_supply(supply.body),
             posted_on=parse_day(row.get("PAN_NT_ST_DT")),
             region_code=region_code(entries),
         )
