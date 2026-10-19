@@ -1,0 +1,488 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mujuthaek.kr/contracts/events/extraction.completed.v1.json",
+  "title": "extraction.completed v1",
+  "description": "AI 추출과 자동 검증이 끝났을 때 extraction이 보냅니다(팀 이벤트 흐름 문서 2026-10-15 확정 형식). 검수 중이어도 보내며 reviewStatus와 조건별 inReview로 표시합니다. 큐 mujuthaek.extraction.completed로 가고 api(notice)가 받습니다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "eventId",
+    "eventType",
+    "schemaVersion",
+    "occurredAt",
+    "producer",
+    "payload"
+  ],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "UUID v7. 받는 쪽은 processed_events로 한 번만 처리합니다"
+    },
+    "eventType": {
+      "const": "extraction.completed"
+    },
+    "schemaVersion": {
+      "const": 1
+    },
+    "occurredAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "producer": {
+      "const": "extraction"
+    },
+    "traceId": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "여러 서비스를 거치는 작업을 묶는 ID. 공통 봉투 규격이며 지금은 비어 있습니다."
+    },
+    "payload": {
+      "$ref": "https://mujuthaek.kr/contracts/events/extraction.completed.v1.json#/$defs/payload"
+    }
+  },
+  "$defs": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "rawPostId",
+        "rawVersion",
+        "field",
+        "title",
+        "conditions",
+        "reviewStatus"
+      ],
+      "properties": {
+        "rawPostId": {
+          "type": "string",
+          "format": "uuid",
+          "description": "collector의 raw_posts.id"
+        },
+        "rawVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "raw.notice.collected의 version"
+        },
+        "field": {
+          "enum": [
+            "HOUSING",
+            "BUSINESS_SPACE",
+            "POLICY",
+            "STARTUP_SUPPORT"
+          ],
+          "description": "api는 HOUSING·BUSINESS_SPACE만 notice로 처리합니다"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "conditions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/events/extraction.completed.v1.json#/$defs/condition"
+          },
+          "description": "대상별 자격 조건 목록"
+        },
+        "reviewStatus": {
+          "enum": [
+            "AUTO_PASSED",
+            "PARTIALLY_PASSED",
+            "IN_REVIEW",
+            "APPROVED"
+          ],
+          "description": "AUTO_PASSED: 자동 검증을 모두 통과. IN_REVIEW: 검수 대기(조건별 inReview). APPROVED: 검수자가 확인·승인해 다시 보냄(같은 rawPostId·rawVersion의 이전 결과를 대체) PARTIALLY_PASSED: 공고는 게시하되 heldItems의 항목·섹션(조건은 inReview)만 확인 전까지 쓰지 않음(검수 대기열에 넣지 않음)"
+        },
+        "provider": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "공급 기관 (SH, LH …)"
+        },
+        "regionCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{5}$"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "시군구 코드 5자리(법정동코드 앞 5자리). 위치가 여러 시군구면 null"
+        },
+        "schedule": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/events/extraction.completed.v1.json#/$defs/schedule"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "검증을 통과한 공고 전체 접수 일정만. 확실하지 않으면 null"
+        },
+        "applicationWindows": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/events/extraction.completed.v1.json#/$defs/applicationWindow"
+          },
+          "description": "알림용 접수 기간 전체(2026-10-16 추가). 순위·대상별로 접수 기간이 다르면 하나씩 따로 담습니다. 검수 이슈가 붙은 일정은 넣지 않습니다"
+        },
+        "summary": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reprocess": {
+          "type": "boolean",
+          "description": "과거 공고 재처리면 true. 사용자 알림을 보내지 않습니다"
+        },
+        "notice": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/extracted-notice.v1.json",
+          "description": "상세 화면용 표준 공고 전체(가격·공급·단지·근거·검증 결과)"
+        },
+        "heldItems": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/heldItem"
+          },
+          "description": "부분 완료로 보류한 항목·섹션(notice.quality.heldItems와 같음)"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "reviewStatus": {
+                "const": "AUTO_PASSED"
+              }
+            },
+            "required": [
+              "reviewStatus"
+            ]
+          },
+          "then": {
+            "properties": {
+              "conditions": {
+                "items": {
+                  "properties": {
+                    "inReview": {
+                      "const": false
+                    }
+                  }
+                }
+              },
+              "notice": {
+                "properties": {
+                  "quality": {
+                    "properties": {
+                      "verification": {
+                        "properties": {
+                          "status": {
+                            "const": "PASSED"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reviewStatus": {
+                "const": "APPROVED"
+              }
+            },
+            "required": [
+              "reviewStatus"
+            ]
+          },
+          "then": {
+            "properties": {
+              "conditions": {
+                "items": {
+                  "properties": {
+                    "inReview": {
+                      "const": false
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "reviewStatus": {
+                "const": "PARTIALLY_PASSED"
+              }
+            },
+            "required": [
+              "reviewStatus"
+            ]
+          },
+          "then": {
+            "required": [
+              "heldItems"
+            ],
+            "properties": {
+              "heldItems": {
+                "minItems": 1
+              },
+              "notice": {
+                "properties": {
+                  "quality": {
+                    "properties": {
+                      "verification": {
+                        "properties": {
+                          "status": {
+                            "const": "PARTIALLY_PASSED"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "applyStartOn",
+        "applyEndOn"
+      ],
+      "properties": {
+        "applyStartOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applyEndOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "applicationWindow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scheduleId",
+        "label",
+        "applyStartOn",
+        "applyEndOn",
+        "priorityRank",
+        "targetGroups",
+        "scopeDescription"
+      ],
+      "properties": {
+        "scheduleId": {
+          "type": "string",
+          "minLength": 1,
+          "description": "notice.schedules[].id"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "description": "원문 일정 이름(rawLabel). 예: 1순위 인터넷 접수"
+        },
+        "applyStartOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applyEndOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priorityRank": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "targetGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "scopeDescription": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "적용 대상 설명(예: 만 65세 이상·장애인 현장 접수)"
+        }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "target",
+        "targetGroups",
+        "category",
+        "description",
+        "originalText",
+        "referenceTime",
+        "rule",
+        "exceptions",
+        "inReview",
+        "reviewReasons"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "notice.eligibility[].id와 같음"
+        },
+        "target": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "적용 대상 (원문 표현)"
+        },
+        "targetGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "category": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/eligibility/properties/category"
+        },
+        "description": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "존댓말 설명"
+        },
+        "originalText": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S",
+          "description": "원문 그대로"
+        },
+        "referenceTime": {
+          "type": "string",
+          "minLength": 1
+        },
+        "rule": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/rule"
+        },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/exception"
+          }
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "검수 대기 중인 조건이면 true"
+        },
+        "reviewReasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "description": "검수 사유 코드"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "inReview": {
+                "const": false
+              }
+            },
+            "required": [
+              "inReview"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reviewReasons": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "inReview": {
+                "const": true
+              }
+            },
+            "required": [
+              "inReview"
+            ]
+          },
+          "then": {
+            "properties": {
+              "reviewReasons": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

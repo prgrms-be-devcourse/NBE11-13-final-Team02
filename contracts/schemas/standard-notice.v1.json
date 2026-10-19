@@ -1,0 +1,301 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mujuthaek.kr/contracts/schemas/standard-notice.v1.json",
+  "title": "서비스 표준 공고 v1",
+  "description": "notice 모듈의 저장/조회 논리 계약입니다. HTTP 응답 DTO와 DB 테이블을 그대로 강제하지 않습니다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sourceReferences",
+    "documents",
+    "quality",
+    "noticeId",
+    "noticeVersion",
+    "previousNoticeVersion",
+    "changedFields",
+    "publicationState",
+    "publisherCode",
+    "supplyTypeCode",
+    "regionScope",
+    "regionCodes",
+    "applicationSummary",
+    "notice",
+    "locations",
+    "schedules",
+    "supplyGroups",
+    "eligibility",
+    "selectionRules",
+    "requiredDocuments",
+    "guidance",
+    "evidence",
+    "areaSummaries"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "sourceReferences": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/sourceReference"
+      },
+      "minItems": 1
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/document"
+      },
+      "minItems": 1
+    },
+    "quality": {
+      "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/quality"
+    },
+    "noticeId": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "noticeVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "previousNoticeVersion": {
+      "anyOf": [
+        {
+          "type": "integer",
+          "minimum": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "changedFields": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "publicationState": {
+      "enum": [
+        "DRAFT",
+        "REVIEW_REQUIRED",
+        "APPROVED"
+      ]
+    },
+    "publisherCode": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "supplyTypeCode": {
+      "enum": [
+        "PUBLIC_SALE",
+        "GENERAL_SALE",
+        "NATIONAL_RENTAL",
+        "PUBLIC_RENTAL",
+        "PERMANENT_RENTAL",
+        "HAPPY_HOUSING",
+        "INTEGRATED_PUBLIC_RENTAL",
+        "PURCHASE_RENTAL",
+        "JEONSE_RENTAL",
+        "LONG_TERM_JEONSE",
+        "PRIVATE_RENTAL",
+        "BUSINESS_RENTAL",
+        "BUSINESS_SALE",
+        "OTHER",
+        "UNKNOWN"
+      ]
+    },
+    "regionScope": {
+      "enum": [
+        "REGIONAL",
+        "NATIONWIDE",
+        "UNKNOWN"
+      ]
+    },
+    "regionCodes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[0-9]{10}$"
+      },
+      "minItems": 0,
+      "uniqueItems": true
+    },
+    "applicationSummary": {
+      "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/applicationSummary"
+    },
+    "notice": {
+      "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/notice"
+    },
+    "locations": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/location"
+      },
+      "minItems": 0
+    },
+    "schedules": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/schedule"
+      },
+      "minItems": 0
+    },
+    "supplyGroups": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/supplyGroup"
+      },
+      "minItems": 0
+    },
+    "eligibility": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/eligibility"
+      },
+      "minItems": 0
+    },
+    "selectionRules": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/selectionRule"
+      },
+      "minItems": 0
+    },
+    "requiredDocuments": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/requiredDocument"
+      },
+      "minItems": 0
+    },
+    "guidance": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/guidanceItem"
+      },
+      "minItems": 0
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/evidence"
+      },
+      "minItems": 0
+    },
+    "areaSummaries": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/areaSummary"
+      },
+      "minItems": 0
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "regionScope": {
+            "const": "REGIONAL"
+          }
+        },
+        "required": [
+          "regionScope"
+        ]
+      },
+      "then": {
+        "properties": {
+          "regionCodes": {
+            "minItems": 1
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "regionScope": {
+            "const": "NATIONWIDE"
+          }
+        },
+        "required": [
+          "regionScope"
+        ]
+      },
+      "then": {
+        "properties": {
+          "regionCodes": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "publicationState": {
+            "const": "APPROVED"
+          }
+        },
+        "required": [
+          "publicationState"
+        ]
+      },
+      "then": {
+        "properties": {
+          "publisherCode": {
+            "type": "string"
+          },
+          "supplyTypeCode": {
+            "not": {
+              "const": "UNKNOWN"
+            }
+          },
+          "notice": {
+            "properties": {
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "publisher": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "field": {
+                "enum": [
+                  "HOUSING",
+                  "BUSINESS_SPACE"
+                ]
+              }
+            }
+          },
+          "quality": {
+            "properties": {
+              "verification": {
+                "properties": {
+                  "status": {
+                    "const": "PASSED"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
