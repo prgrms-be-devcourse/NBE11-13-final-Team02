@@ -41,7 +41,7 @@ uv run pytest tests/sources/lh                                         # LH 테�
 | 토지·상가·매입 신청·보상 등 | EXCLUDED | 안 열어요 |
 
 ## robots.txt 예외 (`client.py`)
-`apply.lh.or.kr/robots.txt`는 `User-agent: *`에 `Disallow: /lhapply/lhFile.do`예요. 팀 결정(2026-10-14)으로 **상세 API가 알려주는 첨부 주소에 한해** 받아요 (주택목록 엑셀은 2026-10-15 추가, 팀 승인 필요 — ADR-021 초안). 공통 요청 클라이언트(`PoliteClient`)를 그대로 쓰고, `config.ROBOTS_OVERRIDES`의 경로 하나만 예외로 두며 쓸 때마다 로그를 남겨요. 공공데이터포털 API는 0.5초 간격(공통 기본은 4초)으로 불러요.
+`apply.lh.or.kr/robots.txt`는 `User-agent: *`에 `Disallow: /lhapply/lhFile.do`예요. 팀 결정(2026-10-14)으로 **상세 API가 알려주는 첨부 주소에 한해** 받아요 (2026-10-15에 추가한 주택목록 엑셀도 같은 결정으로 받아요). 공통 요청 클라이언트(`PoliteClient`)를 그대로 쓰고, `config.ROBOTS_OVERRIDES`의 경로 하나만 예외로 두며 쓸 때마다 로그를 남겨요. 공공데이터포털 API는 0.5초 간격(공통 기본은 4초)으로 불러요.
 
 ## 아직 정하지 않은 것 (팀 합의)
 - 취소공고를 이벤트로 어떻게 보낼지 (지금은 EXCLUDED)

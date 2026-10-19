@@ -25,11 +25,11 @@ LOOKUP_MAX_PAGES = 3
 
 API_HOST = "apis.data.go.kr"
 
-# robots.txt가 금지하지만 팀 결정으로 요청하는 경로. 근거 없이 추가하지 않아요 (ADR-021 초안)
+# robots.txt가 금지하지만 팀 결정으로 요청하는 경로. 근거 없이 추가하지 않아요
 ROBOTS_OVERRIDES = {
     "https://apply.lh.or.kr/lhapply/lhFile.do": (
         "팀 결정(2026-10-14): LH 상세정보 API가 알려주는 첨부 주소(AHFL_URL)로 공고문을 수집해요. "
-        "2026-10-15 추가(담당자4, 팀 승인 필요 - ADR-021 초안): 매입임대 주택목록 엑셀도 같은 주소로 수집해요. "
+        "매입임대 주택목록 엑셀(2026-10-15 추가)도 팀 결정으로 같은 주소에서 수집해요. "
         "청약플러스 robots.txt는 'User-agent: *' / 'Disallow: /lhapply/lhFile.do'"
     ),
 }
