@@ -15,7 +15,6 @@
 import re
 
 from mujuthaek_collector.core import classify as cls
-from mujuthaek_collector.core.documents.tables import units_from_tables
 from mujuthaek_collector.core.files import FileRef
 from mujuthaek_collector.core.html import abs_url, parse_date, soup, table_grid, text_of
 from mujuthaek_collector.errors import ParseError
@@ -132,7 +131,6 @@ class ApplyCenterSource(Source):
             if not rows:
                 rows.append((["지구명"] if name else []) + grid[0])
             rows += [([name] if name else []) + row for row in grid[1:]]
-        units = units_from_tables([(1, "상세 화면", rows)]) if rows else []
 
         title = info.get("공고명") or text_of(doc.select_one("h3.tit")) or item.title
         lines = [f"{k}: {v}" for k, v in info.items()]
@@ -143,7 +141,7 @@ class ApplyCenterSource(Source):
         if office:
             lines.append("[접수처] " + ", ".join(f"{k}: {v}" for k, v in office.items()))
         meta = {**info, **{f"접수처 {k}": v for k, v in office.items()}}
-        return Detail(title=title, body_text="\n".join(lines), files=self.parse_files(doc), meta=meta, units=units, posted_on=parse_date(info.get("공고일")))
+        return Detail(title=title, body_text="\n".join(lines), files=self.parse_files(doc), meta=meta, posted_on=parse_date(info.get("공고일")))
 
     def parse_files(self, doc) -> list[FileRef]:
         files, seen = [], set()

@@ -15,7 +15,7 @@ UNIT_LIST_FILE = re.compile(
 FILE_EXT = re.compile(r"\.(hwpx?|pdf|zip|docx?|xlsx?|xlsm|jpe?g|png)\s*$", re.I)
 DOC_EXTS = ("pdf", "hwp", "hwpx")
 EXCEL_EXTS = ("xlsx", "xlsm", "xls")
-TABLE_EXTS = (*EXCEL_EXTS, "pdf", "hwpx", "hwp")
+UNIT_LIST_EXTS = (*EXCEL_EXTS, "pdf", "hwpx", "hwp")  # 주택목록으로 받을 형식
 
 
 @dataclass
@@ -74,7 +74,7 @@ def notice_candidates(files: list[FileRef]) -> list[FileRef]:
 
 def pick_unit_lists(files: list[FileRef]) -> list[FileRef]:
     """주택목록 최대 2개: '상세'가 든 목록 먼저, 같은 목록이 엑셀·PDF로 있으면 엑셀 하나만."""
-    lists = [f for f in files if f.unit_list and f.ext in TABLE_EXTS]
+    lists = [f for f in files if f.unit_list and f.ext in UNIT_LIST_EXTS]
     lists.sort(key=lambda f: ("상세" not in f.name, f.ext not in EXCEL_EXTS, f.name))
     picked, stems = [], set()
     for file in lists:

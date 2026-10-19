@@ -72,7 +72,6 @@ class Detail:
     body_text: str
     files: list[FileRef]
     meta: dict[str, Any] = field(default_factory=dict)  # 상세 화면의 항목 (공고상태, 유형, 접수기간 …)
-    units: list[dict[str, Any]] = field(default_factory=list)  # 상세 화면 표에서 읽은 호별 (GH·부산)
     posted_on: date | None = None
 
 

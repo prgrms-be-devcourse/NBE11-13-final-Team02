@@ -1,6 +1,3 @@
-from pathlib import Path
-
-from mujuthaek_collector.core.documents.tables import read_tables, units_from_tables
 from mujuthaek_collector.core.files import FileRef, pick_notice_files, pick_unit_lists, unclear_notice
 
 
@@ -47,15 +44,6 @@ def test_unclear_notice_when_no_name_matches():
 def test_old_excel_unit_list_is_picked_over_pdf():
     files = refs("모집공고문.pdf", "공급주택목록.pdf", "공급주택목록.xls")
     assert [f.name for f in pick_unit_lists(files)] == ["공급주택목록.xls"]
-
-
-def test_read_old_excel_unit_list():
-    data = (Path(__file__).parent / "fixtures" / "files" / "unit-list.xls").read_bytes()
-    units = units_from_tables(read_tables(data, "xls"))
-    assert [(u["type"], u["area_m2"], u["deposit_won"], u["rent_won"]) for u in units] == [
-        ("26A", 26.37, 12_000_000, 150_000),
-        ("26A", 26.37, 13_000_000, 140_000),
-    ]
 
 
 def test_notice_with_forms_in_name_beats_floor_plan():

@@ -42,7 +42,6 @@ def pages(client, rows, body="본문"):
 
 def run(source, client, store, file_store, settings, monkeypatch, **kwargs):
     monkeypatch.setattr(pipeline, "extract_text", lambda data, ext: ("공고문 글자 " * 30, "PDF 텍스트·표"))
-    monkeypatch.setattr(pipeline, "read_tables", lambda data, ext: [])
     return pipeline.run_source(source, client, store, file_store, settings, today=TODAY, **kwargs)
 
 
