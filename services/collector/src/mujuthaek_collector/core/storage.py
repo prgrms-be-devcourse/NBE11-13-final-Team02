@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from typing import Any, Protocol
 from uuid import UUID
 
+from mujuthaek_collector.core.files import FileRef
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
 
@@ -60,7 +61,14 @@ class SavedFile:
     text: str | None = None  # 이 파일에서 뽑은 글자 (raw_texts)
 
     def as_event_file(self) -> dict[str, Any]:
-        return {"name": self.name, "download_url": self.download_url, "file_hash": self.file_hash}
+        return {
+            "name": self.name,
+            "file_type": FileRef(self.name, "", 0).ext,
+            "role": self.role,
+            "s3_key": self.s3_key,
+            "download_url": self.download_url,
+            "file_hash": self.file_hash,
+        }
 
 
 @dataclass

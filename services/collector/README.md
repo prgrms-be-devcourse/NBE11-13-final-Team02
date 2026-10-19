@@ -29,6 +29,8 @@ uv run python -m mujuthaek_collector run-once dcco   # 대전 한 번 수집 (�
 
 출처: `sh`, `gh`, `bmc`, `ih`, `dcco`, `dudc`, `umca`, `gbdc`, `gndc`
 
+대구(`dudc`)는 robots.txt가 사이트 전체 수집을 막아서 꺼 두었어요(`sources.enabled = false`). 기관 허락을 받으면 다시 켜요.
+
 ## 확인
 | 무엇 | 어떻게 |
 | --- | --- |

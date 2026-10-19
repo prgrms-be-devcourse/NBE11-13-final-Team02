@@ -5,9 +5,9 @@ from dataclasses import dataclass
 
 PERSONAL_FILE = re.compile(r"명부|명단|당첨자|예비자|계약\s*대상자|합격자|추첨\s*결과")  # 사람 이름이 담긴 파일: 받지도 열지도 않음
 NOTICE_FILE_NAME = re.compile(r"공고문|모집\s*공고|입주자\s*모집|모집\s*안내|공급\s*공고")
-NOT_NOTICE_FILE = re.compile(
-    r"안내문|커트라인|결과|양식|서약서|위임장|동의서|신청서|위치도|평면도|배치도|도면|요약|FAQ|질의\s*응답|Q\s*&\s*A|자주\s*묻는", re.I
-)
+STRONG_NOTICE_NAME = re.compile(r"공고문|모집\s*공고")  # '입주자모집 관련'처럼 약하게 맞는 이름보다 먼저 골라요
+NOT_NOTICE_FILE = re.compile(r"안내문|커트라인|결과|위치도|평면도|배치도|도면|세대\s*내\s*구조|구조도|요약|FAQ|질의\s*응답|Q\s*&\s*A|자주\s*묻는", re.I)
+FORM_FILE = re.compile(r"양식|서약서|위임장|동의서|신청서")  # 서식 파일. 단 '모집 공고문 및 신청서류'처럼 공고문이 같이 든 파일은 공고문
 UNIT_LIST_FILE = re.compile(
     r"주택\s*목록|공급\s*(?:주택\s*)?목록|임대\s*조건|호별|대상\s*주택|주택\s*현황|단지\s*목록|모집\s*호수|공급\s*현황|주택\s*리스트"
     r"|공급\s*가능\s*주택|건물\s*목록"
@@ -40,16 +40,23 @@ class FileRef:
 
     @property
     def notice_doc(self) -> bool:
-        return not self.personal and not self.unit_list and not NOT_NOTICE_FILE.search(self.name)
+        if self.personal or self.unit_list or NOT_NOTICE_FILE.search(self.name):
+            return False
+        return not FORM_FILE.search(self.name) or bool(STRONG_NOTICE_NAME.search(self.name))
 
 
 def pick_notice_files(files: list[FileRef], prefer: str = "pdf") -> list[FileRef]:
-    """공고문 후보를 순서대로 최대 2개: 이름에 '공고문·모집공고·입주자모집' 등이 든 파일 → 선호 형식(PDF) → 다른 형식(HWP·HWPX).
+    """공고문 후보를 순서대로 최대 2개: 이름(공고문·모집공고 → 입주자모집 등 → 그 밖) → 형식(PDF → HWPX → HWP) → 첨부 순서.
     첫 번째가 받기·읽기에 실패하면 두 번째를 시도해요."""
     usable = notice_candidates(files)
-    order = {"pdf": 0, "hwp": 1, "hwpx": 1} if prefer == "pdf" else {"hwp": 0, "hwpx": 0, "pdf": 1}
-    usable.sort(key=lambda f: (not NOTICE_FILE_NAME.search(f.name), order[f.ext], f.index))
+    order = {"pdf": 0, "hwpx": 1, "hwp": 2} if prefer == "pdf" else {"hwp": 0, "hwpx": 1, "pdf": 2}
+    usable.sort(key=lambda f: (name_rank(f.name), order[f.ext], f.index))
     return usable[:2]
+
+
+def name_rank(name: str) -> int:
+    """0 '공고문·모집공고', 1 '입주자모집·모집안내·공급공고', 2 이름으로 알 수 없음."""
+    return 0 if STRONG_NOTICE_NAME.search(name) else 1 if NOTICE_FILE_NAME.search(name) else 2
 
 
 def unclear_notice(files: list[FileRef]) -> bool:
