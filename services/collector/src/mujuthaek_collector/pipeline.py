@@ -271,6 +271,7 @@ def process_post(ctx: Context, post: PostRow) -> bool:
         full_text=full_text,
         text_key=long_text_key,
         files=[f.as_event_file() for f, _ in saved],
+        region_code=detail.region_code,
         reprocess=False,
     )
     ctx.store.save_version(
@@ -322,7 +323,8 @@ def ext_of(name: str) -> str:
 
 
 def compose_full_text(source: Source, post: PostRow, item: ListItem, detail: Detail, meta: dict, notice_name: str | None, notice_text: str | None) -> str:
-    """AI 추출(extraction)에 넘기는 전체 글자: 제목·게시 정보·항목·본문·공고문 순서."""
+    """AI 추출(extraction)에 넘기는 전체 글자: 제목·게시 정보·항목·본문·공고문 순서.
+    '_'로 시작하는 항목(예: LH의 '_raw' 원본 응답)은 원본 보관용이라 넣지 않아요."""
     lines = [
         f"제목: {post.title}",
         f"출처: {source.name} ({post.board_key})",
@@ -331,7 +333,7 @@ def compose_full_text(source: Source, post: PostRow, item: ListItem, detail: Det
     ]
     if meta:
         lines.append("[항목]")
-        lines += [f"{key}: {value}" for key, value in meta.items() if value not in (None, "", [], {})]
+        lines += [f"{key}: {value}" for key, value in meta.items() if value not in (None, "", [], {}) and not key.startswith("_")]
     lines += ["[본문]", detail.body_text or "(본문 없음)"]
     if notice_text:
         lines += [f"[공고문: {notice_name}]", notice_text]

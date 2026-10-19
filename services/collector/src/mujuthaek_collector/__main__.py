@@ -45,6 +45,9 @@ _run_lock = threading.Lock()  # 수집 작업은 한 번에 하나만
 
 
 def make_client(source: Source, settings: Settings) -> Fetcher:
+    custom = source.make_client(settings)
+    if custom is not None:
+        return custom
     return PoliteClient(delay_seconds=settings.delay_seconds, legacy_tls=source.legacy_tls, max_file_bytes=settings.max_file_bytes)
 
 

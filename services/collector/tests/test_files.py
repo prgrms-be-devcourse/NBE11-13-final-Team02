@@ -68,3 +68,10 @@ def test_strong_notice_name_beats_preferred_format():
         "(붙임1) 2026년 전세임대주택 입주자모집(제2차) 공고문.hwpx",
     )
     assert pick_notice_files(files)[0].name == "(붙임1) 2026년 전세임대주택 입주자모집(제2차) 공고문.hwpx"
+
+
+def test_reserve_tenant_notice_is_not_a_name_list():
+    # '예비자 모집공고문'은 공고문이에요. 이름만 보고 명단으로 거르면 공고문을 못 받아요 (LH 실제 4건)
+    files = refs("행복주택 예비자 모집공고문.pdf", "영구임대 예비자입주자모집공고문.pdf", "예비자 명단.xlsx", "예비자 발표.pdf")
+    assert [f.personal for f in files] == [False, False, True, True]
+    assert [f.name for f in pick_notice_files(files)] == ["행복주택 예비자 모집공고문.pdf", "영구임대 예비자입주자모집공고문.pdf"]

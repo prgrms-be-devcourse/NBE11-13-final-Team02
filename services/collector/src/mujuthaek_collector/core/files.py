@@ -3,7 +3,8 @@
 import re
 from dataclasses import dataclass
 
-PERSONAL_FILE = re.compile(r"명부|명단|당첨자|예비자|계약\s*대상자|합격자|추첨\s*결과")  # 사람 이름이 담긴 파일: 받지도 열지도 않음
+# 사람 이름이 담긴 파일: 받지도 열지도 않음. '예비자(입주자) 모집공고문'은 공고문이라 빼요 (LH 실제 공고문 4건이 걸렸어요)
+PERSONAL_FILE = re.compile(r"명부|명단|당첨자|예비자(?!\s*(?:입주자\s*)?모집)|계약\s*대상자|합격자|추첨\s*결과")
 NOTICE_FILE_NAME = re.compile(r"공고문|모집\s*공고|입주자\s*모집|모집\s*안내|공급\s*공고")
 STRONG_NOTICE_NAME = re.compile(r"공고문|모집\s*공고")  # '입주자모집 관련'처럼 약하게 맞는 이름보다 먼저 골라요
 NOT_NOTICE_FILE = re.compile(r"안내문|커트라인|결과|위치도|평면도|배치도|도면|세대\s*내\s*구조|구조도|요약|FAQ|질의\s*응답|Q\s*&\s*A|자주\s*묻는", re.I)
