@@ -77,7 +77,7 @@ class Detail:
 
 
 class Source(ABC):
-    code: str  # sources.code와 같아야 해요 (sh, gh, bmc, ih, dcco, dudc, umca, gbdc, gndc)
+    code: str  # sources.code와 같아야 해요 (sh, gh, bmc, ih, dcco, dudc, umca, gbdc, gndc, soco, lh)
     name: str
     provider: str  # 이벤트의 provider (SH, GH, BMC …)
     boards: list[Board]
