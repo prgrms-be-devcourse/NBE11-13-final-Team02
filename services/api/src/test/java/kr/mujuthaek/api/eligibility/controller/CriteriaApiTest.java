@@ -30,7 +30,11 @@ class CriteriaApiTest {
           NoticeFixtures.JSON,
           Clock.fixed(LocalDate.of(2026, 10, 22).atStartOfDay(seoul).toInstant(), seoul));
   private final MockMvc mvc =
-      MockMvcBuilders.standaloneSetup(new EligibilityController(service))
+      MockMvcBuilders.standaloneSetup(
+              new EligibilityController(
+                  service,
+                  org.mockito.Mockito.mock(
+                      kr.mujuthaek.api.eligibility.service.SubscriptionScoreService.class)))
           .setControllerAdvice(GlobalExceptionHandlerAccess.handler())
           .build();
 
