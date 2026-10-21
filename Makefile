@@ -1,7 +1,7 @@
 # 로컬 개발 명령. 저장소 루트에서 실행해요.
 COMPOSE = docker compose -f infra/docker-compose.yml --env-file infra/.env
 
-.PHONY: help infra up down clean migrate-collector migrate-collector-test ps logs
+.PHONY: help infra up down clean migrate-collector migrate-collector-test migrate-extraction ps logs
 
 help: ## 명령 목록
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  make %-24s %s\n", $$1, $$2}'
@@ -27,6 +27,9 @@ migrate-collector: infra/.env ## collector 데이터베이스 테이블 만들�
 migrate-collector-test: infra/.env ## collector 테스트 DB(collector_test) 만들기·테이블 적용 (실제 DB 테스트용)
 	$(COMPOSE) exec -T postgres bash /docker-entrypoint-initdb.d/02-collector-test.sh
 	COLLECTOR_DB=collector_test $(COMPOSE) --profile apps run --rm migrate-collector
+
+migrate-extraction: infra/.env ## extraction 데이터베이스 테이블 만들기·갱신 (Flyway)
+	$(COMPOSE) --profile apps run --rm migrate-extraction
 
 ps: ## 컨테이너 상태
 	$(COMPOSE) --profile apps ps
