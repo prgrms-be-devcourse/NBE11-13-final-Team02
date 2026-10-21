@@ -210,6 +210,13 @@ def process_safely(ctx: Context, post: PostRow) -> None:
 def process_post(ctx: Context, post: PostRow) -> bool:
     """상세 → 첨부 → 추출 → 버전 비교 → 저장·이벤트. 새 버전을 저장했으면 True."""
     source, client = ctx.source, ctx.client
+    if post.kind == cls.CORRECTION and post.parent_post_id is None:
+        # 목록은 최신 글이 먼저라, 같은 회차에 처음 본 원래 공고는 정정공고보다 늦게 등록돼요 (ih 검암역 푸르지오, 2026-10-21).
+        # 상세는 목록 등록이 끝난 뒤에 열어서 이때는 원래 공고가 DB에 있어요
+        parent = find_correction_parent(ctx.store, source.code, post.title)
+        if parent is not None and parent.id != post.id:
+            ctx.store.set_parent(post.id, parent.id)
+            post.parent_post_id = parent.id
     item = ListItem.from_json(post.list_item)
     detail = source.fetch_detail(client, item)
     candidates = detail.files or item.files
