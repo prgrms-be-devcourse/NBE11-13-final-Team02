@@ -1,11 +1,14 @@
 package kr.mujuthaek.api.notice.controller;
 
 import java.util.List;
+import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,5 +41,11 @@ class NoticeController {
     var filter =
         new NoticeListFilter(field, regionCodes, tenure, noticeTypes, providers, statuses, sort);
     return notices.list(filter, cursor, size);
+  }
+
+  /** 상세 (요약, 일정, 주택형별 조건, 단지, 자격 조건과 근거, 첨부 링크). */
+  @GetMapping("/{id}")
+  NoticeDetailResponse detail(@PathVariable UUID id) {
+    return notices.detail(id);
   }
 }

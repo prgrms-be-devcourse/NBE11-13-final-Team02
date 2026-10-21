@@ -2,7 +2,9 @@ package kr.mujuthaek.api.notice.repository;
 
 import java.sql.Date;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.notice.domain.NoticeStatus;
@@ -113,6 +115,51 @@ public class NoticeQueries {
                 rs.getObject(7, LocalDate.class),
                 rs.getObject(8, LocalDate.class),
                 rs.getObject(9, LocalDate.class)));
+  }
+
+  /** 공개된 공고의 현재 버전 (목록 값 + 저장한 payload). 숨김·공개 전·없는 공고는 빈 값. */
+  public record CurrentRow(
+      ListRow row,
+      String supplyTypeText,
+      String detailUrl,
+      int version,
+      boolean reviewed,
+      OffsetDateTime updatedAt,
+      String payload) {}
+
+  public Optional<CurrentRow> current(UUID noticeId) {
+    return jdbc
+        .query(
+            """
+            select n.id, n.field, n.title, n.provider, n.notice_type, n.region_code, n.apply_start,
+                   n.apply_end, n.posted_on, n.supply_type_text, n.detail_url, n.current_version,
+                   n.reviewed, n.updated_at, s.payload::text
+            from notice.notices n
+            join notice.notice_sources s
+              on s.raw_post_id = n.current_raw_post_id and s.raw_version = n.current_raw_version
+            where n.id = :id and n.current_version > 0 and not n.hidden
+            """,
+            new MapSqlParameterSource("id", noticeId),
+            (rs, i) ->
+                new CurrentRow(
+                    new ListRow(
+                        rs.getObject(1, UUID.class),
+                        rs.getString(2),
+                        rs.getString(3),
+                        rs.getString(4),
+                        rs.getString(5),
+                        rs.getString(6),
+                        rs.getObject(7, LocalDate.class),
+                        rs.getObject(8, LocalDate.class),
+                        rs.getObject(9, LocalDate.class)),
+                    rs.getString(10),
+                    rs.getString(11),
+                    rs.getInt(12),
+                    rs.getBoolean(13),
+                    rs.getObject(14, OffsetDateTime.class),
+                    rs.getString(15)))
+        .stream()
+        .findFirst();
   }
 
   /** 커서에 넣을 정렬 값 (목록의 정렬 식과 같아야 해요). */

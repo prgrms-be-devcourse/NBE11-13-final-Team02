@@ -29,7 +29,8 @@ public class NoticeApiFixture {
           new NoticeQueries(jdbc),
           new RegionQueryService(jdbc),
           Clock.fixed(
-              TODAY.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant(), ZoneId.of("Asia/Seoul")));
+              TODAY.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant(), ZoneId.of("Asia/Seoul")),
+          NoticeFixtures.JSON);
 
   /** 테스트마다 다른 기관 이름이라, providers 필터로 이 테스트의 공고만 봐요. */
   public final String provider = "T" + UUID.randomUUID().toString().substring(0, 8);
