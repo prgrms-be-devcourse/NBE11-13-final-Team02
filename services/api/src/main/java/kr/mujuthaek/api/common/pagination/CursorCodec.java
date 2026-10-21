@@ -29,7 +29,7 @@ public final class CursorCodec {
       String[] parts = raw.split("\\|", 2);
       return new CursorKey(Instant.parse(parts[0]), UUID.fromString(parts[1]));
     } catch (RuntimeException e) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, "커서 값이 올바르지 않아요");
+      throw new CustomException(ErrorCode.INVALID_CURSOR, ErrorCode.INVALID_CURSOR.message());
     }
   }
 }
