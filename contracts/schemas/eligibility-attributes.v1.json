@@ -1,0 +1,328 @@
+{
+  "version": "1.0.0",
+  "description": "자격 판정기와 추출기가 공유하는 속성 사전입니다. 개인의 실제 값은 포함하지 않습니다. 값 제약(valueType·minimum·pattern·enum)과 benchmarkRequired는 contracts/tools/validate_contracts.py가 ATOMIC 조건에 적용합니다.",
+  "attributes": [
+    {
+      "code": "AGE_YEARS",
+      "unit": "YEAR",
+      "valueType": "integer",
+      "meaning": "만 나이",
+      "operators": [
+        "EQ",
+        "NE",
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "NATIONALITY_CODE",
+      "unit": "CODE",
+      "valueType": "string",
+      "meaning": "ISO 3166-1 alpha-2 국가 코드",
+      "operators": [
+        "EQ",
+        "NE",
+        "IN",
+        "NOT_IN"
+      ],
+      "pattern": "^[A-Z]{2}$",
+      "benchmarkRequired": false
+    },
+    {
+      "code": "HOMELESS",
+      "unit": "BOOLEAN",
+      "valueType": "boolean",
+      "meaning": "해당 가구 범위의 무주택 여부",
+      "operators": [
+        "EQ",
+        "NE"
+      ],
+      "benchmarkRequired": false
+    },
+    {
+      "code": "MONTHLY_INCOME_KRW",
+      "unit": "KRW",
+      "valueType": "integer",
+      "meaning": "가구 범위와 공고 기준의 월 소득",
+      "operators": [
+        "EQ",
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "INCOME_BENCHMARK_PERCENT",
+      "unit": "PERCENT",
+      "valueType": "number",
+      "meaning": "명시한 기준 소득에 대한 비율",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": true
+    },
+    {
+      "code": "TOTAL_ASSETS_KRW",
+      "unit": "KRW",
+      "valueType": "integer",
+      "meaning": "총자산",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "CAR_ASSETS_KRW",
+      "unit": "KRW",
+      "valueType": "integer",
+      "meaning": "자동차 가액",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "RESIDENCE_REGION_CODE",
+      "unit": "CODE",
+      "valueType": "string",
+      "meaning": "법정동코드 10자리(모르는 하위 단계는 0)",
+      "operators": [
+        "EQ",
+        "NE",
+        "IN",
+        "NOT_IN"
+      ],
+      "pattern": "^[0-9]{10}$",
+      "benchmarkRequired": false,
+      "regionCode": true
+    },
+    {
+      "code": "RESIDENCE_MONTHS",
+      "unit": "MONTH",
+      "valueType": "integer",
+      "meaning": "해당 지역 연속 거주 개월 수",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "MARITAL_STATUS",
+      "unit": "CODE",
+      "valueType": "string",
+      "meaning": "UNMARRIED/MARRIED/DIVORCED/WIDOWED",
+      "operators": [
+        "EQ",
+        "NE",
+        "IN",
+        "NOT_IN"
+      ],
+      "enum": [
+        "UNMARRIED",
+        "MARRIED",
+        "DIVORCED",
+        "WIDOWED"
+      ],
+      "benchmarkRequired": false
+    },
+    {
+      "code": "MARRIAGE_MONTHS",
+      "unit": "MONTH",
+      "valueType": "integer",
+      "meaning": "혼인 기간 개월 수",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "CHILD_COUNT",
+      "unit": "COUNT",
+      "valueType": "integer",
+      "meaning": "공고에서 정한 자녀 수",
+      "operators": [
+        "EQ",
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "HOUSEHOLD_MEMBER_COUNT",
+      "unit": "COUNT",
+      "valueType": "integer",
+      "meaning": "공고에서 정한 가구원 수",
+      "operators": [
+        "EQ",
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "SAVINGS_ACCOUNT_EXISTS",
+      "unit": "BOOLEAN",
+      "valueType": "boolean",
+      "meaning": "청약저축 계좌 보유 여부",
+      "operators": [
+        "EQ",
+        "NE"
+      ],
+      "benchmarkRequired": false
+    },
+    {
+      "code": "SAVINGS_MONTHS",
+      "unit": "MONTH",
+      "valueType": "integer",
+      "meaning": "청약저축 가입 기간",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "SAVINGS_PAYMENT_COUNT",
+      "unit": "COUNT",
+      "valueType": "integer",
+      "meaning": "청약저축 인정 납입 횟수",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "SAVINGS_BALANCE_KRW",
+      "unit": "KRW",
+      "valueType": "integer",
+      "meaning": "청약저축 예치 금액",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "BUSINESS_REGISTERED",
+      "unit": "BOOLEAN",
+      "valueType": "boolean",
+      "meaning": "사업자 등록 여부",
+      "operators": [
+        "EQ",
+        "NE"
+      ],
+      "benchmarkRequired": false
+    },
+    {
+      "code": "INDUSTRY_CODE",
+      "unit": "CODE",
+      "valueType": "string",
+      "meaning": "benchmark.standardName에 명시한 업종 코드 체계",
+      "operators": [
+        "EQ",
+        "NE",
+        "IN",
+        "NOT_IN"
+      ],
+      "benchmarkRequired": true
+    },
+    {
+      "code": "BUSINESS_REGION_CODE",
+      "unit": "CODE",
+      "valueType": "string",
+      "meaning": "사업장 법정동코드 10자리(모르는 하위 단계는 0)",
+      "operators": [
+        "EQ",
+        "NE",
+        "IN",
+        "NOT_IN"
+      ],
+      "pattern": "^[0-9]{10}$",
+      "benchmarkRequired": false,
+      "regionCode": true
+    },
+    {
+      "code": "BUSINESS_AGE_MONTHS",
+      "unit": "MONTH",
+      "valueType": "integer",
+      "meaning": "사업 영위 개월 수",
+      "operators": [
+        "LT",
+        "LTE",
+        "GT",
+        "GTE",
+        "BETWEEN"
+      ],
+      "minimum": 0,
+      "benchmarkRequired": false
+    },
+    {
+      "code": "TARGET_GROUP_CODE",
+      "unit": "CODE",
+      "valueType": "string",
+      "meaning": "공고 안에서만 사용하는 대상군 식별자",
+      "operators": [
+        "EQ",
+        "NE",
+        "IN",
+        "NOT_IN"
+      ],
+      "benchmarkRequired": false
+    }
+  ]
+}

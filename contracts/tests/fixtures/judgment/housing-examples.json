@@ -1,0 +1,223 @@
+[
+  {
+    "schema": "housing-judgment.v1",
+    "rawPostId": "(서리풀 공고의 rawPostId)",
+    "rawVersion": 1,
+    "referenceDate": "2026-10-16",
+    "common": [],
+    "groups": [
+      {
+        "id": "artist",
+        "name": "문화예술분야 청년예술인",
+        "criteria": [
+          {
+            "id": "arts-proof",
+            "kind": "ASK",
+            "quote": "「문화예술진흥법」에 따른 문화예술 분야에 종사하며, 한국예술인복지재단의예술활동증명서 또는관련협회에서발급한예술인증명서류를통해예술인증명이가능한자",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "question": "문화예술 분야에 종사하고, 예술활동증명서 등으로 예술인임을 증명할 수 있나요?",
+            "metWhen": "YES"
+          },
+          {
+            "id": "age",
+            "kind": "AGE",
+            "quote": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "minAge": 19,
+            "maxAge": 39
+          },
+          {
+            "id": "seoul",
+            "kind": "RESIDENCE",
+            "quote": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "regionCodes": [
+              "1100000000"
+            ],
+            "minMonths": null
+          },
+          {
+            "id": "homeless",
+            "kind": "HOMELESS",
+            "quote": "세대원(신청자 포함) 전원이 무주택 세대구성원",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "scope": "HOUSEHOLD",
+            "minYears": null
+          },
+          {
+            "id": "income-or-assets",
+            "kind": "ANY_OF",
+            "quote": "라. 소득 및 자산기준 : 아래요건 중 하나에 해당하는 자 1) 전년도 도시근로자 월평균 소득 50% 이하 및 총자산가액 2.45억원 이하, 자동차가액 4.542만원 이하인 자 2) 전년도 도시근로자 월평균 소득 70% 이하인 자(자산기준 없음)",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "options": [
+              {
+                "label": "소득 50%(1인 70%, 2인 60%) 이하 + 자산 기준",
+                "criteria": [
+                  {
+                    "id": "income-50",
+                    "kind": "INCOME",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "basis": "HOUSEHOLD",
+                    "standard": "URBAN_WORKER_INCOME",
+                    "year": 2025,
+                    "percent": 50,
+                    "bonuses": [
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 1,
+                          "max": 1,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 20
+                      },
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 2,
+                          "max": 2,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 10
+                      }
+                    ],
+                    "bonusCombine": "SUM",
+                    "printedTable": [
+                      {
+                        "householdSize": 1,
+                        "maxWon": 2669354
+                      },
+                      {
+                        "householdSize": 2,
+                        "maxWon": 3519762
+                      },
+                      {
+                        "householdSize": 3,
+                        "maxWon": 4084215
+                      },
+                      {
+                        "householdSize": 4,
+                        "maxWon": 4401101
+                      },
+                      {
+                        "householdSize": 5,
+                        "maxWon": 4663493
+                      }
+                    ]
+                  },
+                  {
+                    "id": "assets",
+                    "kind": "ASSET",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "basis": "HOUSEHOLD",
+                    "maxWon": 245000000,
+                    "overrides": []
+                  },
+                  {
+                    "id": "car",
+                    "kind": "CAR",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "maxWon": 45420000,
+                    "overrides": []
+                  }
+                ]
+              },
+              {
+                "label": "소득 70%(1인 90%, 2인 80%) 이하, 자산 기준 없음",
+                "criteria": [
+                  {
+                    "id": "income-70",
+                    "kind": "INCOME",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "basis": "HOUSEHOLD",
+                    "standard": "URBAN_WORKER_INCOME",
+                    "year": 2025,
+                    "percent": 70,
+                    "bonuses": [
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 1,
+                          "max": 1,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 20
+                      },
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 2,
+                          "max": 2,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 10
+                      }
+                    ],
+                    "bonusCombine": "SUM",
+                    "printedTable": [
+                      {
+                        "householdSize": 1,
+                        "maxWon": 3432027
+                      },
+                      {
+                        "householdSize": 2,
+                        "maxWon": 4693016
+                      },
+                      {
+                        "householdSize": 3,
+                        "maxWon": 5717900
+                      },
+                      {
+                        "householdSize": 4,
+                        "maxWon": 6161541
+                      },
+                      {
+                        "householdSize": 5,
+                        "maxWon": 6528890
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "1세대 1주택 신청이 원칙이고, 중복 신청하면 모두 무효예요.",
+        "quote": "금회 모집공고문의 모집대상 주택에 대하여 1세대 1주택 신청을 원칙으로 하며, 중복 신청하는 경우 전부 무효처리 합니다.",
+        "page": null
+      }
+    ]
+  }
+]

@@ -1,0 +1,40 @@
+{
+  "description": "모든 데이터·식별자·검증 상태는 계약 검사 전용 가상 예시입니다. 실제 LH/SH 추출·API 검증 결과가 아닙니다.",
+  "examples": [
+    {
+      "file": "housing.extracted.json",
+      "schema": "schemas/extracted-notice.v1.json",
+      "synthetic": true
+    },
+    {
+      "file": "housing.standard.json",
+      "schema": "schemas/standard-notice.v1.json",
+      "synthetic": true
+    },
+    {
+      "file": "extraction.completed.json",
+      "schema": "events/extraction.completed.v1.json",
+      "synthetic": true
+    },
+    {
+      "file": "eligibility.json",
+      "schema": "schemas/eligibility.v1.json",
+      "synthetic": true
+    },
+    {
+      "file": "correction.partial.json",
+      "schema": "schemas/extracted-notice.v1.json",
+      "synthetic": true
+    },
+    {
+      "file": "business.extracted.json",
+      "schema": "schemas/extracted-notice.v1.json",
+      "synthetic": true
+    },
+    {
+      "file": "business.standard.json",
+      "schema": "schemas/standard-notice.v1.json",
+      "synthetic": true
+    }
+  ]
+}
