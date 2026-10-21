@@ -7,6 +7,7 @@ import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeVersionResponse;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -58,5 +59,11 @@ class NoticeController {
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer size) {
     return notices.units(id, siteId, cursor, size);
+  }
+
+  /** 정정 이력 (버전, 바뀐 항목, 시각). */
+  @GetMapping("/{id}/versions")
+  List<NoticeVersionResponse> versions(@PathVariable UUID id) {
+    return notices.versions(id);
   }
 }

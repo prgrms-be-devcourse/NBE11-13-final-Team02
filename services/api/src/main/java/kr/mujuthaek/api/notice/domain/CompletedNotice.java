@@ -1,6 +1,9 @@
 package kr.mujuthaek.api.notice.domain;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 import tools.jackson.databind.JsonNode;
 
@@ -44,6 +47,25 @@ public record CompletedNotice(
 
   public boolean approved() {
     return "APPROVED".equals(reviewStatus);
+  }
+
+  /** 앞 버전과 비교해 바뀐 목록 값 (API 필드 이름). 정정 이력에 보여줘요. */
+  public List<String> changedFrom(CompletedNotice before) {
+    List<String> changed = new ArrayList<>();
+    addIf(changed, "title", before.title, title);
+    addIf(changed, "provider", before.provider, provider);
+    addIf(changed, "noticeType", before.noticeType, noticeType);
+    addIf(changed, "regionCode", before.regionCode, regionCode);
+    addIf(changed, "applyStart", before.applyStart, applyStart);
+    addIf(changed, "applyEnd", before.applyEnd, applyEnd);
+    addIf(changed, "summaryText", before.summary, summary);
+    return changed;
+  }
+
+  private static void addIf(List<String> changed, String name, Object before, Object after) {
+    if (!Objects.equals(before, after)) {
+      changed.add(name);
+    }
   }
 
   public static CompletedNotice from(JsonNode p) {

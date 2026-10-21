@@ -162,6 +162,29 @@ public class NoticeQueries {
         .findFirst();
   }
 
+  /** 공개된 원본 버전 하나 (정정 이력). */
+  public record VersionRow(
+      int version, String kind, String reviewStatus, OffsetDateTime receivedAt, String payload) {}
+
+  /** 공개된 버전들을 버전 순서로. 숨김·공개 전·없는 공고면 빈 목록. */
+  public List<VersionRow> versions(UUID noticeId) {
+    return jdbc.query(
+        """
+        select s.version, s.kind, s.review_status, s.received_at, s.payload::text
+        from notice.notice_sources s join notice.notices n on n.id = s.notice_id
+        where s.notice_id = :id and s.version is not null and n.current_version > 0 and not n.hidden
+        order by s.version
+        """,
+        new MapSqlParameterSource("id", noticeId),
+        (rs, i) ->
+            new VersionRow(
+                rs.getInt(1),
+                rs.getString(2),
+                rs.getString(3),
+                rs.getObject(4, OffsetDateTime.class),
+                rs.getString(5)));
+  }
+
   /** 커서에 넣을 정렬 값 (목록의 정렬 식과 같아야 해요). */
   public static String sortValue(ListRow row, String sort) {
     if ("LATEST".equals(sort)) {

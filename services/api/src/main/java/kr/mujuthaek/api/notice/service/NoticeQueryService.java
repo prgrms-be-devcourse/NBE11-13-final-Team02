@@ -10,11 +10,13 @@ import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
 import kr.mujuthaek.api.common.region.RegionQueryService;
+import kr.mujuthaek.api.notice.domain.CompletedNotice;
 import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeVersionResponse;
 import kr.mujuthaek.api.notice.mapper.NoticeDetailMapper;
 import kr.mujuthaek.api.notice.repository.NoticeQueries;
 import kr.mujuthaek.api.notice.repository.NoticeQueries.CurrentRow;
@@ -103,6 +105,28 @@ public class NoticeQueryService {
             .toList();
     return CursorPageResponse.from(
         positions, page.size(), all::get, i -> CursorKey.of(UNITS_SORT, i, noticeId));
+  }
+
+  /** 정정 이력 (버전, 글 종류, 검수 상태, 바뀐 항목, 받은 시각). 없거나 숨김·공개 전이면 404. */
+  public List<NoticeVersionResponse> versions(UUID noticeId) {
+    var rows = queries.versions(noticeId);
+    if (rows.isEmpty()) {
+      throw new CustomException(ErrorCode.NOTICE_NOT_FOUND);
+    }
+    List<NoticeVersionResponse> out = new java.util.ArrayList<>();
+    CompletedNotice before = null;
+    for (var row : rows) {
+      CompletedNotice now = CompletedNotice.from(json.readTree(row.payload()));
+      out.add(
+          new NoticeVersionResponse(
+              row.version(),
+              row.kind(),
+              row.reviewStatus(),
+              before == null ? List.of() : now.changedFrom(before),
+              row.receivedAt()));
+      before = now;
+    }
+    return out;
   }
 
   private static int position(String value) {
