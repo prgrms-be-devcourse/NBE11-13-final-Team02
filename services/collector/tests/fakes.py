@@ -54,6 +54,9 @@ class MemoryStore:
         post.list_status = list_status or post.list_status
         post.deadline_on = deadline_on or post.deadline_on
 
+    def set_parent(self, post_id, parent_post_id):
+        self.posts[post_id].parent_post_id = parent_post_id
+
     def queued_posts(self, source_code, board_key, limit):
         queued = [
             p
