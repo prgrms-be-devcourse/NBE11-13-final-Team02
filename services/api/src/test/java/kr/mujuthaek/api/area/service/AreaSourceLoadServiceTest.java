@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -18,10 +19,13 @@ import java.util.UUID;
 import kr.mujuthaek.api.area.domain.AreaLoadReport;
 import kr.mujuthaek.api.area.domain.AreaLoadRequest;
 import kr.mujuthaek.api.area.domain.AreaSource;
+import kr.mujuthaek.api.area.event.AreaBaseDataLoaded;
 import kr.mujuthaek.api.area.repository.PostgresAreaBaseDataLoader;
 import kr.mujuthaek.api.area.repository.S3AreaFileStore;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.transaction.PlatformTransactionManager;
 
 class AreaSourceLoadServiceTest {
 
@@ -29,7 +33,30 @@ class AreaSourceLoadServiceTest {
 
   final S3AreaFileStore files = mock(S3AreaFileStore.class);
   final PostgresAreaBaseDataLoader loader = mock(PostgresAreaBaseDataLoader.class);
-  final AreaSourceLoadService service = new AreaSourceLoadService(files, loader);
+  final ApplicationEventPublisher events = mock(ApplicationEventPublisher.class);
+  final AreaSourceLoadService service =
+      new AreaSourceLoadService(files, loader, events, mock(PlatformTransactionManager.class));
+
+  @Test
+  void announcesChangedDataOnly() {
+    when(files.open(KEY)).thenAnswer(i -> new ByteArrayInputStream(new byte[0]));
+    UUID runId = UUID.randomUUID();
+    when(loader.load(any(), any()))
+        .thenReturn(
+            new AreaLoadReport(
+                runId, AreaLoadReport.Status.SUCCEEDED, 9, 0, 0, 0, 0, 0, 7, 2, Map.of(), null))
+        .thenReturn(succeeded(0))
+        .thenReturn(AreaLoadReport.skipped(UUID.randomUUID()))
+        .thenReturn(AreaLoadReport.failed(UUID.randomUUID(), "칸 없음"));
+
+    service.load(command()); // 지운 줄만 있어도 바뀐 거예요
+    service.load(command()); // 바뀐 것 없음
+    service.load(command()); // 같은 파일이라 건너뜀
+    service.load(command()); // 실패
+
+    verify(events, times(1)).publishEvent(any(Object.class));
+    verify(events).publishEvent(new AreaBaseDataLoaded(AreaSource.STORES, "강원", runId));
+  }
 
   @Test
   void opensTheS3FileAndPassesTheRequestToTheLoader() {

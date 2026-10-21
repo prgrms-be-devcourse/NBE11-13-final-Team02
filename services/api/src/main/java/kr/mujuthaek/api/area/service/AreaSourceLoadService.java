@@ -7,16 +7,21 @@ import java.time.LocalDate;
 import kr.mujuthaek.api.area.domain.AreaLoadReport;
 import kr.mujuthaek.api.area.domain.AreaLoadRequest;
 import kr.mujuthaek.api.area.domain.AreaSource;
+import kr.mujuthaek.api.area.event.AreaBaseDataLoaded;
 import kr.mujuthaek.api.area.repository.PostgresAreaBaseDataLoader;
 import kr.mujuthaek.api.area.repository.S3AreaFileStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * S3에 올라온 원천 파일 하나를 area 기초 데이터로 적재해요.
  *
- * <p>{@code @Transactional}을 붙이지 않아요: 적재기가 커넥션을 직접 잡고 커밋·롤백해서, 실패해도 실행 기록(load_runs)이 남아야 해요.
+ * <p>{@code @Transactional}을 붙이지 않아요: 적재기가 커넥션을 직접 잡고 커밋·롤백해서, 실패해도 실행 기록(load_runs)이 남아야 해요. 데이터가
+ * 바뀌면 {@link AreaBaseDataLoaded}를 알려요.
  */
 @Service
 public class AreaSourceLoadService {
@@ -25,10 +30,18 @@ public class AreaSourceLoadService {
 
   private final S3AreaFileStore files;
   private final PostgresAreaBaseDataLoader loader;
+  private final ApplicationEventPublisher events;
+  private final TransactionTemplate transaction;
 
-  public AreaSourceLoadService(S3AreaFileStore files, PostgresAreaBaseDataLoader loader) {
+  public AreaSourceLoadService(
+      S3AreaFileStore files,
+      PostgresAreaBaseDataLoader loader,
+      ApplicationEventPublisher events,
+      PlatformTransactionManager transactionManager) {
     this.files = files;
     this.loader = loader;
+    this.events = events;
+    this.transaction = new TransactionTemplate(transactionManager);
   }
 
   /**
@@ -68,6 +81,11 @@ public class AreaSourceLoadService {
         report.rejectReasons());
     if (report.status() == AreaLoadReport.Status.FAILED) {
       log.warn("area 적재 실패 {} {}: {}", c.source(), request.scope(), report.error());
+    }
+    if (report.changedData()) {
+      // 적재는 트랜잭션 밖에서 끝났어요. 받는 쪽이 트랜잭션 리스너여도 불리게, 발행만 짧은 트랜잭션 안에서 해요.
+      var loaded = new AreaBaseDataLoaded(c.source(), request.scope(), report.runId());
+      transaction.executeWithoutResult(status -> events.publishEvent(loaded));
     }
     return report;
   }
