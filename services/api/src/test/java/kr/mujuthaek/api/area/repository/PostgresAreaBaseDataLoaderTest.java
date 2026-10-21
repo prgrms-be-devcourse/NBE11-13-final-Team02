@@ -104,6 +104,36 @@ class PostgresAreaBaseDataLoaderTest {
     assertThat(again.changedData()).isFalse();
   }
 
+  @Test
+  void stores_groupIndustries_andDeleteOnlyWithinScope() throws Exception {
+    assertThat(load(AreaSource.STORES, "강원", "stores_gangwon.csv", false).rowsInserted())
+        .isEqualTo(7);
+    assertThat(
+            one(
+                "select string_agg(industry_group||':'||name, ',' order by source_key) from area.stores"))
+        .isEqualTo(
+            "CONVENIENCE_STORE:GS25 춘천점,MART:동네슈퍼,CAFE:커피집,R1:스터디카페,FOOD:닭갈비집,BAR:호프,P1:수학학원");
+
+    AreaLoadReport gyeonggi = load(AreaSource.STORES, "경기", "stores_gyeonggi.csv", false);
+    assertThat(gyeonggi.rowsDeleted()).isZero();
+    assertThat(one("select count(*) from area.stores where load_scope='강원'")).isEqualTo("7");
+  }
+
+  @Test
+  void stores_realHeaderWithAllCellsQuoted() throws Exception {
+    // 실제 상가정보 파일(강원 2026-06)의 머리줄 39칸(모두 따옴표)과 실제 한 줄 그대로예요.
+    AreaLoadReport r = load(AreaSource.STORES, "강원", "stores_real_header.csv", false);
+
+    assertThat(r.status()).isEqualTo(AreaLoadReport.Status.SUCCEEDED);
+    assertThat(r.rowsInserted()).isEqualTo(1);
+    assertThat(
+            one(
+                "select name||'|'||small_code||'|'||industry_group||'|'||address||'|'"
+                    + "||round(st_y(geom::geometry)::numeric,4)||','||round(st_x(geom::geometry)::numeric,4)"
+                    + " from area.stores"))
+        .isEqualTo("파크랜드춘천 명동점|G21304|G2|강원특별자치도 춘천시 금강로 80|37.8783,127.7295");
+  }
+
   static AreaLoadReport load(
       PostgresAreaBaseDataLoader loader,
       AreaSource source,

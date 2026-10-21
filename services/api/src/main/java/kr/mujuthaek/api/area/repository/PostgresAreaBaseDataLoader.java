@@ -76,9 +76,6 @@ public final class PostgresAreaBaseDataLoader {
       Connection conn, AreaLoadRequest req, UUID runId, InputStream content)
       throws SQLException, IOException {
     AreaSource source = req.source();
-    if (source.target() != AreaSource.Target.FACILITIES) {
-      throw new AreaLoadException("아직 시설 원천만 적재해요: " + source);
-    }
     lock(conn, source, req.scope());
 
     BufferedInputStream in = new BufferedInputStream(content, 1 << 16);
@@ -107,11 +104,20 @@ public final class PostgresAreaBaseDataLoader {
 
     Counts c = count(conn);
     Date dataDate = Date.valueOf(req.dataDate());
-    int[] iu =
-        queryPair(
-            conn, sql("apply_facilities.sql"), source.facilityKind(), source.name(), dataDate);
-    int deleted = update(conn, sql("delete_facilities.sql"), source.name());
-    update(conn, sql("touch_facilities.sql"), dataDate, source.name(), dataDate);
+    int[] iu;
+    int deleted;
+    if (source.target() == AreaSource.Target.FACILITIES) {
+      iu =
+          queryPair(
+              conn, sql("apply_facilities.sql"), source.facilityKind(), source.name(), dataDate);
+      deleted = update(conn, sql("delete_facilities.sql"), source.name());
+      update(conn, sql("touch_facilities.sql"), dataDate, source.name(), dataDate);
+    } else {
+      // 상가는 시도 파일 하나가 적재 한 번이라, 지우기·기준일 맞추기를 그 시도(load_scope) 안에서만 해요.
+      iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
+      deleted = update(conn, sql("delete_stores.sql"), req.scope());
+      update(conn, sql("touch_stores.sql"), dataDate, req.scope(), dataDate);
+    }
     int inserted = iu[0];
     int updated = iu[1];
     int unchanged = c.accepted - inserted - updated;
