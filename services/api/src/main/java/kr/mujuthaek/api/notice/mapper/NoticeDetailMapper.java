@@ -14,6 +14,7 @@ import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Schedule;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Site;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Summary;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.UnitType;
+import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -169,6 +170,34 @@ public final class NoticeDetailMapper {
       if (url != null) {
         out.add(new FileLink(text(d.path("name")), url));
       }
+    }
+    return out;
+  }
+
+  /** 호 단위(HOUSING_UNIT) 공급 묶음. siteId가 있으면 그 단지·건물 것만. 주소는 단지·건물 주소예요. */
+  public static List<NoticeUnitResponse> units(JsonNode detail, String siteId) {
+    Map<String, String> addresses = new LinkedHashMap<>();
+    for (JsonNode l : detail.path("locations")) {
+      addresses.put(text(l.path("id")), text(l.path("address")));
+    }
+    List<NoticeUnitResponse> out = new ArrayList<>();
+    for (JsonNode g : detail.path("supplyGroups")) {
+      String location = text(g.path("locationId"));
+      if (!"HOUSING_UNIT".equals(text(g.path("itemKind")))
+          || (siteId != null && !siteId.equals(location))) {
+        continue;
+      }
+      out.add(
+          new NoticeUnitResponse(
+              text(g.path("id")),
+              location,
+              addresses.get(location),
+              text(g.path("unitLabel")),
+              text(g.path("floor")),
+              text(g.path("housingTypeCode")),
+              decimal(g.path("exclusiveAreaSqm")),
+              price(g, "DEPOSIT"),
+              price(g, "MONTHLY_RENT")));
     }
     return out;
   }

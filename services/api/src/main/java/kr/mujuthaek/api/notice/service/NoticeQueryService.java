@@ -2,6 +2,7 @@ package kr.mujuthaek.api.notice.service;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -13,6 +14,7 @@ import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import kr.mujuthaek.api.notice.mapper.NoticeDetailMapper;
 import kr.mujuthaek.api.notice.repository.NoticeQueries;
 import kr.mujuthaek.api.notice.repository.NoticeQueries.CurrentRow;
@@ -26,6 +28,8 @@ import tools.jackson.databind.json.JsonMapper;
 @Service
 @Transactional(readOnly = true)
 public class NoticeQueryService {
+
+  private static final String UNITS_SORT = "UNITS";
 
   private final NoticeQueries queries;
   private final RegionQueryService regions;
@@ -80,6 +84,33 @@ public class NoticeQueryService {
         current.reviewed(),
         current.updatedAt(),
         today);
+  }
+
+  /**
+   * 주택목록 (호별). 목록 안 위치를 커서로 써요. 주택목록이 없는 공고는 빈 목록이에요.
+   *
+   * @param siteId 단지·건물 하나만 볼 때
+   */
+  public CursorPageResponse<NoticeUnitResponse> units(
+      UUID noticeId, String siteId, String cursor, Integer size) {
+    CursorQuery page = CursorQuery.of(cursor, size, UNITS_SORT);
+    var all = NoticeDetailMapper.units(payload(current(noticeId)).path("notice"), siteId);
+    int from = page.after() == null ? 0 : position(page.after().value()) + 1;
+    List<Integer> positions =
+        java.util.stream.IntStream.range(Math.min(from, all.size()), all.size())
+            .limit(page.fetchSize())
+            .boxed()
+            .toList();
+    return CursorPageResponse.from(
+        positions, page.size(), all::get, i -> CursorKey.of(UNITS_SORT, i, noticeId));
+  }
+
+  private static int position(String value) {
+    try {
+      return Integer.parseInt(value);
+    } catch (NumberFormatException e) {
+      throw new CustomException(ErrorCode.INVALID_CURSOR, ErrorCode.INVALID_CURSOR.message());
+    }
   }
 
   CurrentRow current(UUID noticeId) {

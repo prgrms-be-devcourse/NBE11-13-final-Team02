@@ -6,6 +6,7 @@ import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -47,5 +48,15 @@ class NoticeController {
   @GetMapping("/{id}")
   NoticeDetailResponse detail(@PathVariable UUID id) {
     return notices.detail(id);
+  }
+
+  /** 주택목록 (호별 주소·면적·금액). 주택목록이 없으면 빈 목록. */
+  @GetMapping("/{id}/units")
+  CursorPageResponse<NoticeUnitResponse> units(
+      @PathVariable UUID id,
+      @RequestParam(required = false) String siteId,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer size) {
+    return notices.units(id, siteId, cursor, size);
   }
 }
