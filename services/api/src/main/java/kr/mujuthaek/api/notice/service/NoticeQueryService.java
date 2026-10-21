@@ -2,6 +2,7 @@ package kr.mujuthaek.api.notice.service;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
@@ -84,7 +85,7 @@ public class NoticeQueryService {
         payload(current),
         current.version(),
         current.reviewed(),
-        current.updatedAt(),
+        local(current.updatedAt()),
         today);
   }
 
@@ -123,10 +124,15 @@ public class NoticeQueryService {
               row.kind(),
               row.reviewStatus(),
               before == null ? List.of() : now.changedFrom(before),
-              row.receivedAt()));
+              local(row.receivedAt())));
       before = now;
     }
     return out;
+  }
+
+  /** API의 시각은 서울 시간(+09:00)이에요. DB에서는 UTC로 읽혀요. */
+  private OffsetDateTime local(OffsetDateTime time) {
+    return time == null ? null : time.atZoneSameInstant(clock.getZone()).toOffsetDateTime();
   }
 
   private static int position(String value) {

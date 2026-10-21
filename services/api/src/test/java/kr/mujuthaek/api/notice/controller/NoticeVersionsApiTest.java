@@ -41,7 +41,7 @@ class NoticeVersionsApiTest {
         .andExpect(jsonPath("$[1].kind").value("CORRECTION"))
         .andExpect(jsonPath("$[1].changedFields[0]").value("applyEnd"))
         .andExpect(jsonPath("$[1].changedFields[1]").value("summaryText"))
-        .andExpect(jsonPath("$[1].receivedAt").exists());
+        .andExpect(jsonPath("$[1].receivedAt").value(org.hamcrest.Matchers.endsWith("+09:00")));
   }
 
   @Test

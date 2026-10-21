@@ -49,7 +49,8 @@ class NoticeDetailApiTest {
             jsonPath("$.files[0].url").value("https://example.org/documents/housing.synthetic.txt"))
         .andExpect(jsonPath("$.hasUnits").value(true))
         .andExpect(jsonPath("$.version").value(1))
-        .andExpect(jsonPath("$.reviewed").value(false));
+        .andExpect(jsonPath("$.reviewed").value(false))
+        .andExpect(jsonPath("$.updatedAt").value(org.hamcrest.Matchers.endsWith("+09:00")));
   }
 
   @Test
