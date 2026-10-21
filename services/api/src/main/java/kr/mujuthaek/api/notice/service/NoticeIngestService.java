@@ -1,12 +1,18 @@
 package kr.mujuthaek.api.notice.service;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
+import kr.mujuthaek.api.common.event.NoticePublished;
+import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.common.id.UuidV7;
 import kr.mujuthaek.api.notice.domain.CompletedNotice;
 import kr.mujuthaek.api.notice.repository.NoticeStore;
 import kr.mujuthaek.api.notice.repository.NoticeStore.NoticeRow;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -21,6 +27,8 @@ import tools.jackson.databind.JsonNode;
  *   <li>더 새로운 원본이면 공고 버전을 하나 올려 공개해요. 같은 원본 버전을 다시 받으면(검수 승인 재발행) 내용만 바꾸고 버전은 그대로예요
  *   <li>같은 원본의 예전 버전이 늦게 오면 저장만 하고 공개 버전은 바꾸지 않아요
  * </ul>
+ *
+ * <p>처음 공개되면 NoticePublished, 정정으로 목록 값이 바뀌면 NoticeUpdated(바뀐 칸)를 트랜잭션 안에서 알려요 (common/event).
  */
 @Service
 public class NoticeIngestService {
@@ -37,9 +45,31 @@ public class NoticeIngestService {
   }
 
   private final NoticeStore store;
+  private final ApplicationEventPublisher events;
 
-  public NoticeIngestService(NoticeStore store) {
+  public NoticeIngestService(NoticeStore store, ApplicationEventPublisher events) {
     this.store = store;
+    this.events = events;
+  }
+
+  /** 정정으로 바뀐 목록 값 (API 필드 이름). */
+  static List<String> changedFields(NoticeRow before, CompletedNotice after) {
+    List<String> changed = new ArrayList<>();
+    String type = after.noticeType() == null ? null : after.noticeType().name();
+    addIf(changed, "title", before.title(), after.title());
+    addIf(changed, "provider", before.provider(), after.provider());
+    addIf(changed, "noticeType", before.noticeType(), type);
+    addIf(changed, "regionCode", before.regionCode(), after.regionCode());
+    addIf(changed, "applyStart", before.applyStart(), after.applyStart());
+    addIf(changed, "applyEnd", before.applyEnd(), after.applyEnd());
+    addIf(changed, "summaryText", before.summaryText(), after.summary());
+    return changed;
+  }
+
+  private static void addIf(List<String> changed, String name, Object before, Object after) {
+    if (!Objects.equals(before, after)) {
+      changed.add(name);
+    }
   }
 
   @Transactional
@@ -53,7 +83,19 @@ public class NoticeIngestService {
     NoticeRow current = store.find(noticeId).orElseThrow();
     Outcome outcome = decide(n, current);
     switch (outcome) {
-      case PUBLISHED, NEW_VERSION -> store.publish(noticeId, n, current.currentVersion() + 1);
+      case PUBLISHED -> {
+        store.publish(noticeId, n, 1);
+        events.publishEvent(
+            new NoticePublished(noticeId, n.field(), n.regionCode(), n.title(), n.reprocess()));
+      }
+      case NEW_VERSION -> {
+        store.publish(noticeId, n, current.currentVersion() + 1);
+        List<String> changed = changedFields(current, n);
+        if (!changed.isEmpty()) {
+          events.publishEvent(new NoticeUpdated(noticeId, changed, n.reprocess()));
+        }
+      }
+      // 검수 승인 재발행은 사람이 확인한 것뿐이라 정정 알림(NoticeUpdated)을 보내지 않아요
       case REFRESHED -> store.publish(noticeId, n, current.currentVersion());
       default -> {}
     }

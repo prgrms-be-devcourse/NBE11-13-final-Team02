@@ -5,9 +5,13 @@ import static kr.mujuthaek.api.notice.NoticeFixtures.followUp;
 import static kr.mujuthaek.api.notice.NoticeFixtures.payload;
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.api.TestDatabase;
+import kr.mujuthaek.api.common.event.NoticePublished;
+import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.notice.NoticeFixtures;
 import kr.mujuthaek.api.notice.repository.NoticeStore;
 import kr.mujuthaek.api.notice.service.NoticeIngestService.Outcome;
@@ -18,8 +22,27 @@ import tools.jackson.databind.node.ObjectNode;
 class NoticeIngestServiceTest {
 
   private final JdbcTemplate jdbc = new JdbcTemplate(TestDatabase.dataSource());
+  private final List<Object> events = new ArrayList<>();
   private final NoticeIngestService service =
-      new NoticeIngestService(new NoticeStore(jdbc, NoticeFixtures.JSON));
+      new NoticeIngestService(new NoticeStore(jdbc, NoticeFixtures.JSON), events::add);
+
+  @Test
+  void announcesFirstPublicationAndCorrectionsButNotApprovals() {
+    UUID original = UUID.randomUUID();
+    service.accept(UUID.randomUUID(), payload(original, 1));
+    UUID noticeId = (UUID) notice(original).get("id");
+    ObjectNode corrected = correction(UUID.randomUUID(), original);
+    ((ObjectNode) corrected.get("schedule")).put("applyEndOn", "2026-11-07");
+    service.accept(UUID.randomUUID(), corrected);
+    ObjectNode approved = corrected.deepCopy();
+    approved.put("reviewStatus", "APPROVED");
+    service.accept(UUID.randomUUID(), approved);
+
+    assertThat(events)
+        .containsExactly(
+            new NoticePublished(noticeId, "HOUSING", "11110", "가상주거 청년 매입임대 입주자 모집 공고", false),
+            new NoticeUpdated(noticeId, List.of("applyEnd"), false));
+  }
 
   @Test
   void firstResultCreatesAndPublishesTheNotice() {
