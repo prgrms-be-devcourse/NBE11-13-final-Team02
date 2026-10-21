@@ -11,6 +11,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotNull;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -37,6 +40,9 @@ class GlobalExceptionHandlerTest {
     String notice(@PathVariable String id) {
       if (id.equals("boom")) {
         throw new IllegalStateException("DB 연결 끊김");
+      }
+      if (id.equals("leak")) {
+        throw new IllegalStateException("판정 실패 Applicant[personalIncomeAnnualWon=32000000]");
       }
       throw new CustomException(ErrorCode.NOTICE_NOT_FOUND);
     }
@@ -89,6 +95,16 @@ class GlobalExceptionHandlerTest {
         .andExpect(jsonPath("$.code").value("NOTICE_NOT_FOUND"))
         .andExpect(jsonPath("$.type").value("https://mujuthaek.kr/problems/notice-not-found"))
         .andExpect(jsonPath("$.title").value("공고를 찾을 수 없어요"));
+  }
+
+  @Test
+  @ExtendWith(OutputCaptureExtension.class)
+  void serverErrorLogsHideApplicantValues(CapturedOutput output) throws Exception {
+    mvc.perform(get("/api/v1/notices/leak")).andExpect(status().isInternalServerError());
+
+    assertThat(output.getOut() + output.getErr())
+        .contains("personalIncomeAnnualWon=***")
+        .doesNotContain("32000000");
   }
 
   @Test

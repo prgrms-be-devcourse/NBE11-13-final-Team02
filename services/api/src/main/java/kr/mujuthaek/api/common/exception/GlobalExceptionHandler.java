@@ -6,6 +6,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
+import kr.mujuthaek.api.common.logging.SensitiveFields;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ProblemDetail;
@@ -102,7 +103,12 @@ class GlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   ProblemDetail handle(Exception e, HttpServletRequest request) {
-    log.error("처리하지 못한 오류: {} {}", request.getMethod(), request.getRequestURI(), e);
+    // 예외 메시지에 판정 입력 값이 섞여 있을 수 있어서 가린 뒤에 남겨요
+    log.error(
+        "처리하지 못한 오류: {} {}",
+        request.getMethod(),
+        request.getRequestURI(),
+        SensitiveFields.masked(e));
     ProblemDetail problem =
         problem(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.message(), request);
     problem.setProperty("timestamp", OffsetDateTime.now(SEOUL).withNano(0).toString());
