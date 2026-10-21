@@ -26,7 +26,8 @@ class SubscriptionScoreApiTest {
                   mock(CriteriaService.class),
                   new SubscriptionScoreService(
                       Clock.fixed(
-                          LocalDate.of(2026, 10, 22).atStartOfDay(seoul).toInstant(), seoul))))
+                          LocalDate.of(2026, 10, 22).atStartOfDay(seoul).toInstant(), seoul)),
+                  mock(kr.mujuthaek.api.eligibility.service.NoticeEvaluationService.class)))
           .setControllerAdvice(GlobalExceptionHandlerAccess.handler())
           .build();
 

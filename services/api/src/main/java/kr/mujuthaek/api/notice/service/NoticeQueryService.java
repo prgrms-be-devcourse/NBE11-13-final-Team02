@@ -130,6 +130,39 @@ public class NoticeQueryService {
     return out;
   }
 
+  /**
+   * 판정에 쓰는 공고 내용 (eligibility가 불러요).
+   *
+   * @param judgment 판정 틀 (contracts/schemas/housing-judgment.v1.json). 아직 없으면 null
+   * @param unitTypes 주택형별 보증금·월임대료 (준비할 돈 계산)
+   */
+  public record JudgingSource(
+      UUID noticeId,
+      String field,
+      String noticeType,
+      JsonNode judgment,
+      List<UnitPrice> unitTypes) {}
+
+  public record UnitPrice(
+      String houseType, java.math.BigDecimal exclusiveM2, Long depositWon, Long rentWon) {}
+
+  /** 없거나 숨김·공개 전이면 404 NOTICE_NOT_FOUND. */
+  public JudgingSource judgingSource(UUID noticeId) {
+    CurrentRow current = current(noticeId);
+    JsonNode payload = payload(current);
+    JsonNode judgment = payload.path("judgment");
+    var units =
+        NoticeDetailMapper.unitTypes(payload.path("notice")).stream()
+            .map(u -> new UnitPrice(u.houseType(), u.exclusiveM2(), u.depositWon(), u.rentWon()))
+            .toList();
+    return new JudgingSource(
+        noticeId,
+        current.row().field(),
+        current.row().noticeType(),
+        judgment.isObject() ? judgment : null,
+        units);
+  }
+
   /** API의 시각은 서울 시간(+09:00)이에요. DB에서는 UTC로 읽혀요. */
   private OffsetDateTime local(OffsetDateTime time) {
     return time == null ? null : time.atZoneSameInstant(clock.getZone()).toOffsetDateTime();
