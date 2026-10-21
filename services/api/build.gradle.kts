@@ -29,7 +29,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.flywaydb:flyway-database-postgresql")
     implementation("org.springframework.modulith:spring-modulith-starter-core:2.0.0")
-    runtimeOnly("org.postgresql:postgresql")
+    implementation("org.postgresql:postgresql") // area 적재기가 COPY(CopyManager)를 직접 써요
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-testcontainers")
