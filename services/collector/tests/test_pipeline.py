@@ -80,6 +80,18 @@ def test_correction_listed_before_its_original_is_linked(client, store, file_sto
     assert event["payload"]["supersedesPostId"] == str(original.id)
 
 
+def test_correction_links_to_the_round_before_it_not_a_later_one(client, store, file_store, settings, monkeypatch):
+    """매달 같은 이름으로 올라오는 공고: 정정공고는 자기보다 먼저 올라온 회차에 연결돼요 (LH 김제하동 국민임대 같은 경우)."""
+    rows = [
+        ("22", "김제하동 국민임대주택 모집공고", date(2026, 10, 7)),
+        ("21", "김제하동 국민임대주택 모집공고", date(2026, 9, 7)),
+        ("23", "[정정공고]김제하동 국민임대주택 모집공고", date(2026, 9, 8)),
+    ]
+    pages(client, rows)
+    run(FakeSource(rows), client, store, file_store, settings, monkeypatch)
+    assert store.by_key("23").parent_post_id == store.by_key("21").id
+
+
 def test_event_files_point_to_uploaded_s3_objects(client, store, file_store, settings, monkeypatch):
     """이벤트의 s3Key는 실제로 올린 S3 경로와 같고, 받는 쪽은 role로 공고문을 찾아요."""
     rows = ROWS[:1]

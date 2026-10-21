@@ -142,7 +142,7 @@ def register(ctx: Context, item: ListItem, cutoff: date) -> None:
     elif kind == cls.NOTICE:
         status = PENDING
     elif kind == cls.CORRECTION:
-        status, parent = PENDING, find_correction_parent(store, source.code, item.title)
+        status, parent = PENDING, find_correction_parent(store, source.code, item.title, item.posted_on)
     elif kind == cls.FOLLOW_UP:
         parent = find_followup_parent(store, source.code, item.title)
         if parent is not None:
@@ -179,12 +179,15 @@ def find_followup_parent(store: Store, source_code: str, title: str) -> PostRow 
     return next((p for p in store.notices_posted_on(source_code, ref.posted_on) if cls.same_notice(ref, p.title, p.posted_on)), None)
 
 
-def find_correction_parent(store: Store, source_code: str, title: str) -> PostRow | None:
-    """정정공고 이름(정정 표시를 뺀 것)과 같은 가장 최근 모집공고."""
+def find_correction_parent(store: Store, source_code: str, title: str, posted_on: date | None) -> PostRow | None:
+    """정정공고 이름(정정 표시를 뺀 것)과 같은 가장 최근 모집공고. 정정공고보다 늦게 올라온 공고는 원래 공고가 아니에요
+    (매달 같은 이름으로 올라오는 공고에서 다음 회차에 잘못 연결되지 않게. 같은 날은 허용, 게시일을 모르면 이름으로만)."""
     base = cls.correction_base(title)
     if not base:
         return None
     for post in store.recent_notices(source_code):
+        if posted_on and post.posted_on and post.posted_on > posted_on:
+            continue
         own = cls.norm_name(post.title)
         if own and (own == base or own in base or base in own):
             return post
@@ -213,7 +216,7 @@ def process_post(ctx: Context, post: PostRow) -> bool:
     if post.kind == cls.CORRECTION and post.parent_post_id is None:
         # 목록은 최신 글이 먼저라, 같은 회차에 처음 본 원래 공고는 정정공고보다 늦게 등록돼요 (ih 검암역 푸르지오, 2026-10-21).
         # 상세는 목록 등록이 끝난 뒤에 열어서 이때는 원래 공고가 DB에 있어요
-        parent = find_correction_parent(ctx.store, source.code, post.title)
+        parent = find_correction_parent(ctx.store, source.code, post.title, post.posted_on)
         if parent is not None and parent.id != post.id:
             ctx.store.set_parent(post.id, parent.id)
             post.parent_post_id = parent.id
