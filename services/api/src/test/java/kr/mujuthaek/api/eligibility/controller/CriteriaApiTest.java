@@ -36,7 +36,9 @@ class CriteriaApiTest {
                   org.mockito.Mockito.mock(
                       kr.mujuthaek.api.eligibility.service.SubscriptionScoreService.class),
                   org.mockito.Mockito.mock(
-                      kr.mujuthaek.api.eligibility.service.NoticeEvaluationService.class)))
+                      kr.mujuthaek.api.eligibility.service.NoticeEvaluationService.class),
+                  org.mockito.Mockito.mock(
+                      kr.mujuthaek.api.eligibility.service.PrepareCostService.class)))
           .setControllerAdvice(GlobalExceptionHandlerAccess.handler())
           .build();
 

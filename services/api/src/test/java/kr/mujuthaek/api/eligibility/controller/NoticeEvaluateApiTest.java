@@ -11,8 +11,10 @@ import java.time.Clock;
 import java.util.UUID;
 import kr.mujuthaek.api.eligibility.mapper.JudgmentReaderTest;
 import kr.mujuthaek.api.eligibility.repository.CriteriaStore;
+import kr.mujuthaek.api.eligibility.repository.LoanProductStore;
 import kr.mujuthaek.api.eligibility.service.CriteriaService;
 import kr.mujuthaek.api.eligibility.service.NoticeEvaluationService;
+import kr.mujuthaek.api.eligibility.service.PrepareCostService;
 import kr.mujuthaek.api.eligibility.service.SubscriptionScoreService;
 import kr.mujuthaek.api.notice.NoticeApiFixture;
 import kr.mujuthaek.api.notice.NoticeFixtures;
@@ -26,12 +28,59 @@ class NoticeEvaluateApiTest {
   private final NoticeApiFixture f = new NoticeApiFixture();
   private final CriteriaService criteria =
       new CriteriaService(new CriteriaStore(f.jdbc), NoticeFixtures.JSON, Clock.systemUTC());
+  private final PrepareCostService prepareCost =
+      new PrepareCostService(new LoanProductStore(f.jdbc), Clock.systemUTC());
   private final MockMvc mvc =
       f.mvc(
           new EligibilityController(
               criteria,
               mock(SubscriptionScoreService.class),
-              new NoticeEvaluationService(f.queries, criteria)));
+              new NoticeEvaluationService(f.queries, criteria, prepareCost),
+              prepareCost));
+
+  @org.junit.jupiter.api.BeforeEach
+  void loans() {
+    // 테스트용 상품 (실제 한도는 관리자가 넣어요): 보증금의 70%, 최대 1억 2천만 원, 조건 없음
+    f.jdbc.update("delete from eligibility.loan_products");
+    f.jdbc.update(
+        "insert into eligibility.loan_products (code, name, max_amount_won, deposit_ratio)"
+            + " values ('GENERAL', '일반 전세자금', 120000000, 0.7)");
+  }
+
+  @Test
+  void unitTypesShowWhatToPrepare() throws Exception {
+    UUID id = noticeWithJudgment();
+
+    mvc.perform(
+            post("/api/v1/eligibility/notices/{id}/evaluate", id)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"applicant\":{\"availableCashWon\":100000}}"))
+        .andExpect(jsonPath("$.unitTypes[0].houseType").value("20A"))
+        .andExpect(jsonPath("$.unitTypes[0].eligible").value(false))
+        .andExpect(jsonPath("$.unitTypes[0].prepareCost.depositWon").value(1000000))
+        .andExpect(jsonPath("$.unitTypes[0].prepareCost.loan.productCode").value("GENERAL"))
+        .andExpect(jsonPath("$.unitTypes[0].prepareCost.loan.amountWon").value(700000))
+        .andExpect(jsonPath("$.unitTypes[0].prepareCost.prepareWon").value(300000))
+        .andExpect(jsonPath("$.unitTypes[0].prepareCost.shortageWon").value(200000));
+  }
+
+  @Test
+  void prepareCostForADeposit() throws Exception {
+    mvc.perform(
+            post("/api/v1/eligibility/prepare-cost")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"applicant\":{},\"depositWon\":24000000}"))
+        .andExpect(status().isOk())
+        .andExpect(header().string("Cache-Control", "no-store"))
+        .andExpect(jsonPath("$.prepareWon").value(7200000))
+        .andExpect(jsonPath("$.shortageWon").doesNotExist());
+    mvc.perform(
+            post("/api/v1/eligibility/prepare-cost")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"applicant\":{}}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.errors[0].field").value("depositWon"));
+  }
 
   private UUID noticeWithJudgment() {
     return f.notice(

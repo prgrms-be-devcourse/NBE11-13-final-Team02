@@ -4,12 +4,15 @@ import jakarta.validation.Valid;
 import java.time.Duration;
 import java.util.UUID;
 import kr.mujuthaek.api.eligibility.dto.request.EvaluateRequest;
+import kr.mujuthaek.api.eligibility.dto.request.PrepareCostRequest;
 import kr.mujuthaek.api.eligibility.dto.request.SubscriptionScoreRequest;
 import kr.mujuthaek.api.eligibility.dto.response.CriteriaResponse;
 import kr.mujuthaek.api.eligibility.dto.response.NoticeEvaluationResponse;
+import kr.mujuthaek.api.eligibility.rule.PrepareCost;
 import kr.mujuthaek.api.eligibility.rule.SubscriptionScore;
 import kr.mujuthaek.api.eligibility.service.CriteriaService;
 import kr.mujuthaek.api.eligibility.service.NoticeEvaluationService;
+import kr.mujuthaek.api.eligibility.service.PrepareCostService;
 import kr.mujuthaek.api.eligibility.service.SubscriptionScoreService;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
@@ -32,14 +35,25 @@ class EligibilityController {
   private final CriteriaService criteria;
   private final SubscriptionScoreService scores;
   private final NoticeEvaluationService evaluations;
+  private final PrepareCostService prepareCost;
 
   EligibilityController(
       CriteriaService criteria,
       SubscriptionScoreService scores,
-      NoticeEvaluationService evaluations) {
+      NoticeEvaluationService evaluations,
+      PrepareCostService prepareCost) {
     this.criteria = criteria;
     this.scores = scores;
     this.evaluations = evaluations;
+    this.prepareCost = prepareCost;
+  }
+
+  /** 보증금으로 준비할 돈 (받을 수 있는 대출 고르기). 저장하지 않아요. */
+  @PostMapping("/prepare-cost")
+  ResponseEntity<PrepareCost.Result> prepareCost(@Valid @RequestBody PrepareCostRequest request) {
+    return ResponseEntity.ok()
+        .cacheControl(NO_STORE)
+        .body(prepareCost.prepare(request.depositWon(), request.applicant().toApplicant()));
   }
 
   /** 이 공고에 대한 내 판정 (공급 대상별 결과, 조건별 근거). 저장하지 않아요. */
