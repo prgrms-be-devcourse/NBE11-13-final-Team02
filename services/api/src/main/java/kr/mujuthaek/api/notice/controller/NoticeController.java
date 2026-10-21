@@ -1,0 +1,42 @@
+package kr.mujuthaek.api.notice.controller;
+
+import java.util.List;
+import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
+import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
+import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
+import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/** 누구나 보는 공고 API (로그인 없이). 판정이 섞인 맞춤 목록·판정은 POST로 따로 있어요. */
+@RestController
+@RequestMapping("/api/v1/notices")
+class NoticeController {
+
+  private final NoticeQueryService notices;
+
+  NoticeController(NoticeQueryService notices) {
+    this.notices = notices;
+  }
+
+  /**
+   * 공개 목록. 예: GET /api/v1/notices?regionCodes=11440,41&tenure=RENT&statuses=APPLYING&sort=DEADLINE
+   */
+  @GetMapping
+  CursorPageResponse<NoticeSummaryResponse> list(
+      @RequestParam(required = false) String field,
+      @RequestParam(required = false) List<String> regionCodes,
+      @RequestParam(required = false) String tenure,
+      @RequestParam(required = false) List<String> noticeTypes,
+      @RequestParam(required = false) List<String> providers,
+      @RequestParam(required = false) List<String> statuses,
+      @RequestParam(required = false) String sort,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(required = false) Integer size) {
+    var filter =
+        new NoticeListFilter(field, regionCodes, tenure, noticeTypes, providers, statuses, sort);
+    return notices.list(filter, cursor, size);
+  }
+}
