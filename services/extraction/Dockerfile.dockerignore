@@ -1,0 +1,19 @@
+# services/extraction/Dockerfile 전용 (BuildKit이 이 파일을 저장소 루트 .dockerignore 대신 씁니다)
+# API 키가 든 .env가 이미지에 들어가지 않게 합니다. 키는 실행할 때 환경 변수(OPENAI_API_KEY)로 넣습니다.
+**/.env
+**/.env.*
+!**/.env.example
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/build
+**/.gradle
+.git
+.idea
+.docs
+infra/.env
+# 이미지에 필요 없는 실험 자료
+services/extraction/scripts
+services/extraction/tests
+docs

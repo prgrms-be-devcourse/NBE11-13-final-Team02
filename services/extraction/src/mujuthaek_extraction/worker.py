@@ -1,0 +1,427 @@
+"""extraction 워커: 큐 소비 → 처리 → 저장·아웃박스, 아웃박스 발행기(2초), 검수 API(:8092).
+
+큐 (팀 이벤트 흐름 문서)
+  교환기 mujuthaek.events(topic) ── raw.notice.collected ──▶ 큐 mujuthaek.raw.collected (extraction이 선언)
+  처리 실패·형식 오류 메시지는 재시도 없이 mujuthaek.dlx → mujuthaek.raw.collected.dlq
+  prefetch 1: 한 번에 한 건만 처리합니다(AI 호출이 길어서). 처리는 별도 스레드에서 하고 ack는 연결 스레드로 넘깁니다(pika 하트비트 유지).
+  DB 연결은 메시지마다 새로 엽니다. 예전에는 하나를 계속 써서 DB가 한 번 끊기면 이후 메시지가 전부 .dlq로 갔습니다(검토 2026-10-16).
+  DB를 못 쓰면 .dlq가 아니라 잠시 뒤 큐로 되돌립니다(자료 문제가 아니라 일시 장애이므로).
+  큐 연결이 끊겨 같은 메시지가 다시 오면, 같은 이벤트를 처리 중인 스레드가 끝나기를 기다렸다가 이미 끝났는지 다시 봅니다(AI 비용 두 번 방지).
+  다시 처리할 때는 성공했던 모델 호출을 DB(extraction_call_cache)에서 다시 쓰고, 예산은 앞선 처리가 쓴 비용부터 셉니다(model/call_cache.py).
+  같은 원본 버전은 한 번에 한 처리만 합니다(DB 처리권 extraction_claims). 다른 처리가 잡고 있으면 잠시 뒤 큐로 되돌립니다.
+"""
+
+from __future__ import annotations
+
+import functools
+import json
+import logging
+import threading
+import time
+import uuid
+from contextlib import contextmanager
+from datetime import UTC, datetime
+from typing import Any
+
+from mujuthaek_extraction.assemble.regions import RegionCodeTable
+from mujuthaek_extraction.config import Settings
+from mujuthaek_extraction.health import Health
+from mujuthaek_extraction.intake import LocalDirSourceReader
+from mujuthaek_extraction.model.call_cache import PostgresCallCache
+from mujuthaek_extraction.model.factory import ModelFactory
+from mujuthaek_extraction.model.spend import SpendLedger
+from mujuthaek_extraction.pipeline import Outcome, process
+from mujuthaek_extraction.review_api import ReviewService, serve
+from mujuthaek_extraction.s3_reader import S3SourceReader
+from mujuthaek_extraction.store import DuplicateEvent, JobStore
+from mujuthaek_extraction.usage import log_fields
+from mujuthaek_platform import broker, db, outbox
+from mujuthaek_platform.events import new_event
+
+log = logging.getLogger(__name__)
+EXCHANGE = outbox.EXCHANGE
+DLX = "mujuthaek.dlx"
+QUEUE = "mujuthaek.raw.collected"
+DLQ = QUEUE + ".dlq"
+ROUTING_KEY = "raw.notice.collected"
+# 정책·창업지원 원본(raw.policy.collected)은 추출 규칙이 생길 때까지 꺼내 가지 않고 이 큐에 쌓아 둡니다.
+# 받을 큐가 없으면 collector 발행기(mandatory)가 거절당해 같은 묶음의 공고 이벤트까지 막히므로, 받을 곳만 먼저 만듭니다.
+POLICY_QUEUE = "mujuthaek.raw.policy"
+POLICY_ROUTING_KEY = "raw.policy.collected"
+CLAIM_LEASE_SECONDS = 300  # 처리권 기한. 워커가 죽으면 이 시간 뒤 다른 처리가 이어받습니다
+CLAIM_RENEW_SECONDS = 60  # 처리 중 기한을 늘리는 간격(공고 하나가 30분 넘게 걸린 실측이 있어 기한을 계속 늘림)
+CLAIM_BUSY_SECONDS = 30  # 다른 처리가 잡고 있을 때 큐로 되돌리기 전 기다림
+DB_RETRY_SECONDS = 30  # DB 장애 때 큐로 되돌리기 전 기다림(바로 되돌리면 같은 메시지가 쉬지 않고 돎)
+BUDGET_WAIT_SECONDS = 600  # 하루·월 전체 비용 상한에 닿았을 때 큐로 되돌리기 전 기다림
+MAX_INTERRUPTED_RUNS = 3  # 같은 이벤트가 저장 전에 이만큼 중단되면 더 처리하지 않습니다(같은 충돌이 끝없이 반복되지 않게)
+
+
+def _db_errors() -> tuple[type[BaseException], ...]:
+    import psycopg
+
+    return (psycopg.OperationalError, psycopg.InterfaceError)
+
+
+def declare(channel) -> None:
+    channel.exchange_declare(exchange=EXCHANGE, exchange_type="topic", durable=True)
+    channel.exchange_declare(exchange=DLX, exchange_type="topic", durable=True)
+    channel.queue_declare(queue=DLQ, durable=True)
+    channel.queue_bind(queue=DLQ, exchange=DLX, routing_key=ROUTING_KEY)
+    channel.queue_declare(queue=QUEUE, durable=True, arguments={"x-dead-letter-exchange": DLX})
+    channel.queue_bind(queue=QUEUE, exchange=EXCHANGE, routing_key=ROUTING_KEY)
+    channel.queue_declare(queue=POLICY_QUEUE, durable=True)
+    channel.queue_bind(queue=POLICY_QUEUE, exchange=EXCHANGE, routing_key=POLICY_ROUTING_KEY)
+
+
+class BudgetExhausted(Exception):
+    """하루·월 전체 비용 상한에 닿아 새 처리를 시작하지 않습니다. 메시지는 잠시 뒤 큐로 되돌리고, 다시 처리는 다음 차례로 미룹니다."""
+
+
+class ClaimBusy(Exception):
+    """같은 원본 버전을 다른 처리가 하고 있습니다. 메시지를 잠시 뒤 큐로 되돌립니다(검토 2026-10-20: 동시 처리로 예산을 몇 배 씀)."""
+
+
+def _uuid_or_none(value: Any) -> str | None:
+    try:
+        return str(uuid.UUID(str(value)))
+    except (ValueError, TypeError):
+        return None
+
+
+def _claim_key(raw_event: dict[str, Any]) -> tuple[str, int] | None:
+    payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+    raw_post_id, raw_version = payload.get("rawPostId"), payload.get("version")
+    try:
+        raw_post_id = str(uuid.UUID(str(raw_post_id)))
+    except ValueError:
+        return None
+    return (raw_post_id, raw_version) if isinstance(raw_version, int) and not isinstance(raw_version, bool) else None
+
+
+@contextmanager
+def claimed(store: JobStore, raw_event: dict[str, Any]):
+    """원본 버전 처리권을 잡고 처리 동안 기한을 늘립니다. 원본 ID·버전이 없으면(형식 오류) 잡지 않습니다."""
+    key = _claim_key(raw_event)
+    if key is None:
+        yield
+        return
+    owner = uuid.uuid4().hex
+    if not store.claim(*key, owner, CLAIM_LEASE_SECONDS):
+        raise ClaimBusy(f"{key[0]} v{key[1]}")
+    stop = threading.Event()
+
+    def renew() -> None:
+        while not stop.wait(CLAIM_RENEW_SECONDS):
+            try:
+                if not store.renew_claim(*key, owner, CLAIM_LEASE_SECONDS):
+                    log.warning("처리권을 잃었습니다(기한이 지나 다른 처리가 잡음)", extra={"rawPostId": key[0], "rawVersion": key[1]})
+                    return
+            except Exception:
+                log.exception("처리권 기한을 늘리지 못했습니다")
+
+    keeper = threading.Thread(target=renew, daemon=True)
+    keeper.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        keeper.join(timeout=5)
+        try:
+            store.release_claim(*key, owner)
+        except Exception:
+            log.exception("처리권을 풀지 못했습니다(기한이 지나면 풀림)")
+
+
+class Processor:
+    """메시지 본문 1건 처리. 큐 없이도(파일·다시 처리) 같은 경로를 씁니다."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+        self.models = ModelFactory(settings)
+        if settings.local_files_dir:  # S3 키가 정해지기 전 시험용 PDF 폴더
+            self.reader = LocalDirSourceReader(settings.local_files_dir)
+        else:
+            self.reader = S3SourceReader(settings.s3_bucket, settings.s3_endpoint, settings.s3_access_key, settings.s3_secret_key)
+        self.regions = RegionCodeTable.from_csv(settings.region_table, settings.region_table_date)
+        self._running: dict[str, threading.Event] = {}  # 처리 중인 eventId → 끝나면 켜짐
+        self._running_lock = threading.Lock()
+
+    def run(self, raw_event: dict[str, Any], store: JobStore | None = None, ledger: SpendLedger | None = None) -> Outcome:
+        """store가 있으면 그 연결로 호출 캐시를 쓰고, 같은 원본 버전의 앞선 처리 비용부터 예산을 셉니다(DB 오류는 위로 올려 큐로 되돌림).
+        ledger가 있으면 호출마다 DB 비용 장부에 적고 하루·월 전체 상한을 지킵니다. 처리 중 전체 상한에 걸리면 결과를 발행하지 않고
+        다시 처리 대상(FAILED)으로 남깁니다(빠진 섹션이 있는 결과를 내보내지 않게)."""
+        cache, spent = (PostgresCallCache(store.conn), store.spent_before(raw_event)) if store is not None else (None, 0.0)
+        models = self.models.for_notice(cache=cache, spent_before_usd=spent, ledger=ledger)
+        outcome = self._process(raw_event, models)
+        refusal = models.budget.refusal if models.budget else None
+        if refusal:
+            log.warning("전체 비용 상한에 걸려 결과를 발행하지 않고 다시 처리로 미룹니다", extra={"reason": refusal})
+            return Outcome("FAILED", cost_usd=outcome.cost_usd, error=f"전체 비용 상한: {refusal}", attempts=outcome.attempts, usage=outcome.usage)
+        return outcome
+
+    def _process(self, raw_event: dict[str, Any], models) -> Outcome:
+        try:
+            return process(
+                raw_event,
+                models=models,
+                reader=self.reader,
+                regions=self.regions,
+                clock=lambda: datetime.now(UTC),
+                new_event=new_event,
+                require_pdf=self.settings.require_pdf,
+                method=self.settings.extraction_method,
+                parallel_calls=self.settings.parallel_calls,
+                parallel_stagger=self.settings.parallel_stagger_seconds,
+            )
+        except Exception as error:  # 예상 못 한 결함도 작업 기록에 남기고 다시 처리할 수 있게 둡니다
+            log.exception("처리 중 오류")
+            # 이미 쓴 비용을 남겨야 다음 처리가 원본 버전 누적 예산(spent_before)에서 빼고 셉니다(검토 2026-10-20: 예외면 $0으로 기록됨)
+            spent = models.budget.charged_usd() if models.budget else 0.0
+            return Outcome("FAILED", cost_usd=spent, error=f"처리 중 오류: {type(error).__name__}: {str(error)[:300]}")
+
+    def handle(self, store: JobStore, raw_event: dict[str, Any]) -> str | None:
+        """처리하고 저장합니다. 이미 끝난 이벤트면 None."""
+        event_id = raw_event.get("eventId")
+        if not isinstance(event_id, str):
+            with claimed(store, raw_event):
+                return self._handle(store, raw_event, event_id)
+        while True:
+            with self._running_lock:
+                other = self._running.get(event_id)
+                if other is None:
+                    mine = self._running[event_id] = threading.Event()
+                    break
+            other.wait()  # 같은 이벤트를 다른 스레드가 처리 중: 끝난 뒤 다시 확인합니다
+        try:
+            with claimed(store, raw_event):
+                return self._handle(store, raw_event, event_id)
+        finally:
+            with self._running_lock:
+                self._running.pop(event_id, None)
+            mine.set()
+
+    def open_ledger(self, raw_event: dict[str, Any]) -> SpendLedger | None:
+        """DB 비용 장부(전용 연결). DB 설정이 없거나 유료 API를 쓰지 않으면 None."""
+        if not self.settings.db_url or self.settings.model_mode != "auto":
+            return None
+        key = _claim_key(raw_event)
+        scope = {"eventId": _uuid_or_none(raw_event.get("eventId")), "rawPostId": key[0] if key else None, "rawVersion": key[1] if key else None}
+        return SpendLedger(
+            db.connect(self.settings.db_url), daily_usd=self.settings.daily_budget_usd, monthly_usd=self.settings.monthly_budget_usd, scope=scope
+        )
+
+    def _handle(self, store: JobStore, raw_event: dict[str, Any], event_id: Any) -> str | None:
+        if isinstance(event_id, str) and store.already_processed(event_id):
+            log.info("이미 처리한 이벤트", extra={"eventId": event_id})
+            return None
+        valid_id = _uuid_or_none(event_id)
+        key = _claim_key(raw_event)
+        payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+        if valid_id and key and not payload.get("reprocess") and store.version_published(*key):
+            # 같은 원본 버전을 다른 eventId로 다시 받음(수집기 재발행): 이미 발행했으므로 AI를 다시 부르지 않습니다(2026-10-21)
+            store.mark_processed(valid_id, str(raw_event.get("eventType") or "unknown"))
+            log.info("이미 발행한 원본 버전이라 처리하지 않았습니다", extra={"eventId": event_id, "rawPostId": key[0], "rawVersion": key[1]})
+            return None
+        if valid_id:
+            interrupted = store.interrupted_runs(valid_id)
+            if interrupted >= MAX_INTERRUPTED_RUNS:
+                error = f"결과를 저장하기 전에 {interrupted}번 중단되어 더 처리하지 않습니다(메모리·PDF 처리 확인 필요)."
+                log.error("처리 중단이 반복되어 멈춥니다", extra={"eventId": event_id, "interrupted": interrupted})
+                return store.save(raw_event, Outcome("INTERRUPTED", error=error))
+        ledger = self.open_ledger(raw_event)
+        try:
+            if ledger is not None and (reason := ledger.room(self.settings.notice_budget_usd)):
+                raise BudgetExhausted(reason)
+            if valid_id:
+                store.record_start(valid_id)
+            outcome = self.run(raw_event, store, ledger)
+        finally:
+            if ledger is not None:
+                ledger.close()
+        try:
+            job_id = store.save(raw_event, outcome, ledger.run_id if ledger is not None else None)
+        except DuplicateEvent:
+            log.info("같은 이벤트를 다른 처리가 먼저 끝내 저장하지 않았습니다", extra={"eventId": event_id})
+            return None
+        # 작업마다 한 줄: 상태·비용과 측정 합계(시간·토큰·호출 수). 원문·오류 문구·키는 넣지 않습니다
+        log.info(
+            "작업 저장",
+            extra={
+                "jobId": job_id,
+                "eventId": event_id,
+                "status": outcome.status,
+                "model": outcome.model_used,
+                "costUsd": round(outcome.cost_usd, 4),
+                **log_fields(outcome.usage),
+            },
+        )
+        return job_id
+
+
+@contextmanager
+def store_session(settings: Settings):
+    conn = db.connect(settings.db_url)
+    try:
+        yield JobStore(conn)
+    finally:
+        conn.close()
+
+
+def relay_loop(settings: Settings, stop: threading.Event, health: Health | None = None) -> None:
+    """stop이 설정될 때까지 아웃박스 이벤트를 relay_seconds마다 발행합니다. 오류가 나면 5초 뒤 다시 연결합니다."""
+    while not stop.is_set():
+        try:
+            conn = db.connect(settings.db_url)
+            conn.autocommit = True
+            connection = broker.connect(settings.rabbitmq_url)
+            channel = outbox.open_channel(connection)  # 확인 모드: 브로커가 받았다고 확인한 것만 "보냄"으로 기록
+            while not stop.is_set():
+                sent = outbox.relay_once(conn, channel)
+                if health:
+                    health.beat("relay")
+                if sent:
+                    log.info("이벤트 발행", extra={"count": sent})
+                connection.process_data_events(time_limit=settings.relay_seconds)
+        except Exception:
+            log.exception("아웃박스 발행 오류. 5초 뒤 다시 연결합니다")
+            stop.wait(5)
+
+
+CONSUMER_BEAT_SECONDS = 30
+
+
+def consume(settings: Settings, processor: Processor, health: Health | None = None) -> None:
+    """큐를 선언하고 메시지를 한 번에 하나씩 받아 처리합니다. 처리는 별도 스레드에서 하고 확인 응답은 연결 스레드로 넘깁니다."""
+    connection = broker.connect(settings.rabbitmq_url)
+    channel = connection.channel()
+    declare(channel)
+    channel.basic_qos(prefetch_count=1)
+
+    def finish(delivery_tag: int, decision: str) -> None:
+        if decision == "ack":
+            channel.basic_ack(delivery_tag)
+        elif decision == "requeue":
+            channel.basic_nack(delivery_tag, requeue=True)  # DB 장애: 큐로 되돌려 나중에 다시
+        else:
+            channel.basic_nack(delivery_tag, requeue=False)  # 재시도 없이 .dlq로
+
+    def work(delivery_tag: int, body: bytes) -> None:
+        """메시지 하나를 처리하고 결과에 따라 ack, DB 장애면 requeue, JSON이 아니거나 저장 실패면 .dlq로 정합니다."""
+        decision = "ack"
+        try:
+            raw_event = json.loads(body)
+            if not isinstance(raw_event, dict):
+                raise ValueError("이벤트가 객체가 아닙니다.")
+            with store_session(settings) as store:
+                processor.handle(store, raw_event)
+        except BudgetExhausted as reason:
+            log.warning("전체 비용 상한에 닿아 처리를 미룹니다", extra={"reason": str(reason)})
+            time.sleep(BUDGET_WAIT_SECONDS)
+            decision = "requeue"
+        except ClaimBusy as busy:
+            log.info("같은 원본 버전을 다른 처리가 하고 있어 잠시 뒤 큐로 되돌립니다", extra={"claim": str(busy)})
+            time.sleep(CLAIM_BUSY_SECONDS)
+            decision = "requeue"
+        except _db_errors():
+            log.exception("DB를 쓸 수 없어 잠시 뒤 큐로 되돌립니다")
+            time.sleep(DB_RETRY_SECONDS)
+            decision = "requeue"
+        except ValueError:
+            log.warning("JSON 이벤트가 아니어서 .dlq로 보냅니다")
+            decision = "dlq"
+        except Exception:
+            log.exception("저장 실패. .dlq로 보냅니다")
+            decision = "dlq"
+        connection.add_callback_threadsafe(functools.partial(finish, delivery_tag, decision))
+
+    def on_message(_channel, method, _properties, body: bytes) -> None:
+        threading.Thread(target=work, args=(method.delivery_tag, body), daemon=True).start()
+
+    def tick() -> None:  # 연결 스레드가 살아 메시지를 받을 수 있는 동안 신호를 보냅니다(AI 처리는 다른 스레드라 막히지 않음)
+        if health:
+            health.beat("consumer")
+        connection.call_later(CONSUMER_BEAT_SECONDS, tick)
+
+    channel.basic_consume(queue=QUEUE, on_message_callback=on_message)
+    log.info("큐 소비 시작", extra={"queue": QUEUE, "model": processor.models.describe()})
+    tick()
+    channel.start_consuming()
+
+
+def purge_call_cache(settings: Settings, store: JobStore) -> int:
+    """보관 기간(EXTRACTION_CALL_CACHE_DAYS)이 지난 저장 응답을 지웁니다. 캐시를 끈 설정이면 아무것도 하지 않습니다."""
+    if not settings.call_cache:
+        return 0
+    removed = PostgresCallCache(store.conn).purge(settings.call_cache_days)
+    if removed:
+        log.info("오래된 호출 캐시 삭제", extra={"count": removed, "days": settings.call_cache_days})
+    return removed
+
+
+@contextmanager
+def beating(health: Health | None, name: str, every: float = CONSUMER_BEAT_SECONDS):
+    """긴 처리 동안 every초마다 health 신호를 보냅니다."""
+    if health is None:
+        yield
+        return
+    stop = threading.Event()
+
+    def beat() -> None:
+        while not stop.wait(every):
+            health.beat(name)
+
+    thread = threading.Thread(target=beat, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=5)
+
+
+def retry_loop(settings: Settings, processor: Processor, stop: threading.Event, health: Health | None = None) -> None:
+    """자료 대기(WAITING_SOURCE)·실패(FAILED)를 점점 길게 기다리며 다시 처리합니다(최대 settings.max_attempts번).
+    예전엔 사람이 retry 명령을 돌려야만 다시 처리돼, PDF가 1분 늦게 올라와도 공고가 계속 대기에 남았습니다(검토 2026-10-16)."""
+    while not stop.wait(settings.retry_seconds):
+        if health:
+            health.beat("retry")
+        try:
+            with store_session(settings) as store:
+                purge_call_cache(settings, store)
+                events = store.retryable_events(limit=10, max_attempts=settings.max_attempts, base_delay_seconds=settings.retry_seconds)
+                for raw_event in events:
+                    try:
+                        # 한 건이 30분 넘게 걸리기도 해서, 처리하는 동안에도 신호를 보냅니다(예전엔 /health가 503이 되어 재시작될 수 있었음)
+                        with beating(health, "retry"):
+                            processor.handle(store, raw_event)
+                    except ClaimBusy:
+                        log.info("다른 처리가 하고 있어 다음 차례에 다시 봅니다")
+                    except BudgetExhausted as reason:
+                        log.warning("전체 비용 상한에 닿아 다시 처리를 다음 차례로 미룹니다", extra={"reason": str(reason)})
+                        break
+        except Exception:
+            log.exception("다시 처리 중 오류. 다음 차례에 다시 봅니다")
+
+
+def run(settings: Settings) -> None:
+    """발행·다시 처리·검수 API를 백그라운드 스레드로 띄우고, 큐 소비를 연결이 끊길 때마다 다시 붙여 계속 돌립니다."""
+    processor = Processor(settings)
+    stop = threading.Event()
+    # 부분마다 이 초 안에 신호가 없으면 /health가 503 (발행기는 2초마다, 소비자는 30초마다, 다시 처리는 retry_seconds마다 신호)
+    health = Health({"consumer": 120, "relay": 120, "retry": settings.retry_seconds * 2 + 60})
+    threading.Thread(target=relay_loop, args=(settings, stop, health), daemon=True, name="relay").start()
+    threading.Thread(target=retry_loop, args=(settings, processor, stop, health), daemon=True, name="retry").start()
+    service = ReviewService(lambda: store_session(settings), new_event)
+    server = serve(service, settings.review_host, settings.review_port, settings.review_token, health)
+    threading.Thread(target=server.serve_forever, daemon=True, name="review-api").start()
+    log.info("검수 API 시작", extra={"host": settings.review_host, "port": settings.review_port})
+    while True:  # 큐 연결이 끊기면 다시 붙습니다
+        try:
+            consume(settings, processor, health)
+        except KeyboardInterrupt:
+            stop.set()
+            server.shutdown()
+            return
+        except Exception:
+            log.exception("큐 연결 오류. 5초 뒤 다시 연결합니다")
+            time.sleep(5)
