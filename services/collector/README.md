@@ -26,6 +26,8 @@ uv run python -m mujuthaek_collector run-once dcco   # 대전 한 번 수집 (�
 | `cleanup` | 보관 기한이 지난 원본 파일만 S3에서 지우기 |
 | `save-fixtures <출처> [--details 3]` | 실제 목록·상세 화면을 `tests/fixtures/<출처>/`에 저장 (실제 사이트에 요청해요) |
 | `status` | 최근 수집 회차 20개 |
+| `area-upload --source <원천> --data-date <기준일> --file <파일> [--scope <시도>]` | 생활권·상권 원천 파일을 S3 `area/{원천}/{기준일}/{영문 이름}.csv`로 올리고 `area.source.ready` 발행 (api가 받아 적재). 지하철 엑셀은 UTF-8 CSV로 바꿔 올려요. 같은 파일은 다시 올리거나 보내지 않아요 |
+| `area-upload --manifest area/area_manifest.csv --skip-upload` | 이미 S3에 올린 파일 목록으로 적재 요청만 보내기 (S3 sha256 메타데이터를 확인해요). 2026-10-22에 올린 21개가 `area/area_manifest.csv`예요 |
 
 출처: `sh`, `gh`, `bmc`, `ih`, `dcco`, `dudc`, `umca`, `gbdc`, `gndc`, `soco`, `lh` (LH는 API로 받고 `LH_API_KEY`가 필요해요 — `sources/lh/README.md`)
 
