@@ -20,6 +20,9 @@ public enum ErrorCode {
 
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
+
+  // eligibility
+  CRITERIA_NOT_FOUND(HttpStatus.NOT_FOUND, "그 연도의 판정 기준값이 아직 없어요"),
   ;
 
   private static final String TYPE_BASE = "https://mujuthaek.kr/problems/";
