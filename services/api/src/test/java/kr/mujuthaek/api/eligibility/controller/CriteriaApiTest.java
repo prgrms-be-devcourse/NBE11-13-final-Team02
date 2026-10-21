@@ -77,6 +77,18 @@ class CriteriaApiTest {
   }
 
   @Test
+  void benchmarksForTheJudgeComeFromTheCriteriaTable() {
+    var benchmarks = service.benchmarks();
+    org.assertj.core.api.Assertions.assertThat(benchmarks.monthlyWon("MEDIAN_INCOME", 2026, 2))
+        .isEqualTo(1600002L);
+    org.assertj.core.api.Assertions.assertThat(benchmarks.monthlyWon("MEDIAN_INCOME", 2026, 7))
+        .isNull();
+    org.assertj.core.api.Assertions.assertThat(
+            benchmarks.monthlyWon("URBAN_WORKER_INCOME", 2026, 1))
+        .isNull();
+  }
+
+  @Test
   void monthlyIncomeForJudging() {
     org.assertj.core.api.Assertions.assertThat(service.monthlyIncome("MEDIAN_INCOME", 2026))
         .containsEntry("2", 1600002L);

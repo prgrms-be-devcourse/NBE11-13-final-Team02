@@ -10,6 +10,7 @@ import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.eligibility.dto.response.CriteriaResponse;
 import kr.mujuthaek.api.eligibility.repository.CriteriaStore;
 import kr.mujuthaek.api.eligibility.repository.CriteriaStore.CriteriaRow;
+import kr.mujuthaek.api.eligibility.rule.IncomeBenchmarks;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -57,6 +58,19 @@ public class CriteriaService {
   /** 가구원 수별 월 금액 (판정의 소득 기준). 그해 값이 없으면 빈 값. */
   public Map<String, Long> monthlyIncome(String kind, int year) {
     return store.find(kind, year).map(r -> monthly(json.readTree(r.data()))).orElse(Map.of());
+  }
+
+  /**
+   * 판정 엔진에 넘길 기준 소득 월액. 기준 중위소득은 MEDIAN_INCOME, 도시근로자 소득(두 이름)은 URBAN_WORKER_INCOME 값을 써요. 한 번의 판정
+   * 안에서 같은 연도를 여러 번 읽지 않게 기억해 둬요.
+   */
+  public IncomeBenchmarks benchmarks() {
+    Map<String, Map<String, Long>> cache = new java.util.HashMap<>();
+    return (standard, year, householdSize) -> {
+      String kind = "MEDIAN_INCOME".equals(standard) ? "MEDIAN_INCOME" : "URBAN_WORKER_INCOME";
+      Map<String, Long> table = cache.computeIfAbsent(kind + year, k -> monthlyIncome(kind, year));
+      return table.get(String.valueOf(householdSize));
+    };
   }
 
   private static Map<String, Long> monthly(JsonNode data) {

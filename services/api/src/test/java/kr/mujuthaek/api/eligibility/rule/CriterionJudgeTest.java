@@ -102,6 +102,41 @@ class CriterionJudgeTest {
   }
 
   @Test
+  void incomeWithoutAPrintedTableUsesTheBenchmarkTimesThePercent() {
+    // 기준 중위소득 100% (1인 가구 가산 +20%p → 120%), 테스트용 기준 월액 2,000,000원 → 상한 2,400,000원
+    var c =
+        new Judgment.Income(
+            B,
+            "APPLICANT",
+            "MEDIAN_INCOME",
+            null,
+            100.0,
+            List.of(new Judgment.Bonus(new Factor("HOUSEHOLD_SIZE", 1, 1), 20)),
+            "SUM",
+            List.of());
+    IncomeBenchmarks benchmarks =
+        (standard, year, size) ->
+            "MEDIAN_INCOME".equals(standard) && year == 2026 && size == 1 ? 2_000_000L : null;
+    LocalDate ref = LocalDate.of(2026, 10, 22); // 판정 틀에 연도가 없으면 기준일의 연도
+
+    Item ok =
+        CriterionJudge.judge(
+            c, applicant().household(1).personalIncome(28_800_000L).build(), ref, benchmarks);
+    Item over =
+        CriterionJudge.judge(
+            c, applicant().household(1).personalIncome(28_800_001L).build(), ref, benchmarks);
+    Item noTable =
+        CriterionJudge.judge(
+            c, applicant().household(2).personalIncome(1L).build(), ref, benchmarks);
+
+    assertThat(ok.status()).isEqualTo(MET);
+    assertThat(ok.threshold())
+        .isEqualTo(new Item.Threshold("MEDIAN_INCOME", 2026, 120.0, 1, 2_400_000L));
+    assertThat(over.status()).isEqualTo(NOT_MET);
+    assertThat(noTable.status()).isEqualTo(UNKNOWN);
+  }
+
+  @Test
   void assetsAndCarsWithOverrides() {
     var assets =
         new Judgment.Asset(

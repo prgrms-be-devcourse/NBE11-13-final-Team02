@@ -54,12 +54,20 @@ public final class CriterionJudge {
   private CriterionJudge() {}
 
   public static Item judge(Criterion c, Applicant a, LocalDate referenceDate) {
+    return judge(c, a, referenceDate, IncomeBenchmarks.NONE);
+  }
+
+  /**
+   * @param benchmarks 인쇄된 소득표가 없을 때 쓰는 기준 소득 월액
+   */
+  public static Item judge(
+      Criterion c, Applicant a, LocalDate referenceDate, IncomeBenchmarks benchmarks) {
     Item item =
         switch (c) {
           case Age x -> age(x, a, referenceDate);
           case Residence x -> residence(x, a);
           case Homeless x -> homeless(x, a, referenceDate);
-          case Income x -> income(x, a);
+          case Income x -> income(x, a, referenceDate, benchmarks);
           case Asset x ->
               limit(
                   x,
@@ -84,7 +92,7 @@ public final class CriterionJudge {
           case Children x -> children(x, a);
           case Savings x -> savings(x, a, referenceDate);
           case WelfareStatus x -> welfare(x, a);
-          case AnyOf x -> anyOf(x, a, referenceDate);
+          case AnyOf x -> anyOf(x, a, referenceDate, benchmarks);
           case Ask x -> item(x, "ASK", x.question(), UNKNOWN, x.question(), List.of(), null, null);
         };
     if (c.basics().inReview()) {
@@ -172,6 +180,11 @@ public final class CriterionJudge {
   }
 
   static Item income(Income c, Applicant a) {
+    return income(c, a, null, IncomeBenchmarks.NONE);
+  }
+
+  /** 소득: 공고에 인쇄된 가구원 수별 상한표가 있으면 그걸, 없으면 기준 소득 월액 × 비율(가산 포함, 원 단위 버림)을 상한으로 써요. */
+  static Item income(Income c, Applicant a, LocalDate ref, IncomeBenchmarks benchmarks) {
     String standard = INCOME_STANDARDS.getOrDefault(c.standard(), "기준 소득");
     String label =
         "소득 · " + standard + (c.percent() == null ? "" : " " + number(c.percent()) + "%") + " 이하";
@@ -217,12 +230,22 @@ public final class CriterionJudge {
           null,
           null);
     }
+    Double percent = effectivePercent(c, a);
+    Integer year = c.year() != null ? c.year() : (ref == null ? null : ref.getYear());
     Long monthlyLimit = printedLimit(c.printedTable(), a.householdSize());
+    if (monthlyLimit == null
+        && c.printedTable().isEmpty()
+        && c.standard() != null
+        && percent != null
+        && year != null) {
+      Long base = benchmarks.monthlyWon(c.standard(), year, a.householdSize());
+      monthlyLimit = base == null ? null : (long) Math.floor(base * percent / 100);
+    }
     Item.Threshold threshold =
-        new Item.Threshold(
-            c.standard(), c.year(), effectivePercent(c, a), a.householdSize(), monthlyLimit);
+        new Item.Threshold(c.standard(), year, percent, a.householdSize(), monthlyLimit);
     if (monthlyLimit == null) {
-      String why = c.printedTable().isEmpty() ? "기준 금액을 아직 준비하지 못했어요" : "공고 표에 이 세대원 수의 기준 금액이 없어요";
+      String why =
+          c.printedTable().isEmpty() ? "그해 기준 금액을 아직 준비하지 못했어요" : "공고 표에 이 세대원 수의 기준 금액이 없어요";
       return item(c, "INCOME", label, UNKNOWN, why, List.of(), threshold, null);
     }
     if (annual == null) {
@@ -446,11 +469,11 @@ public final class CriterionJudge {
             null);
   }
 
-  static Item anyOf(AnyOf c, Applicant a, LocalDate ref) {
+  static Item anyOf(AnyOf c, Applicant a, LocalDate ref, IncomeBenchmarks benchmarks) {
     List<Item.OptionResult> options = new ArrayList<>();
     Set<String> needs = new LinkedHashSet<>();
     for (Judgment.Option o : c.options()) {
-      List<Item> items = o.criteria().stream().map(x -> judge(x, a, ref)).toList();
+      List<Item> items = o.criteria().stream().map(x -> judge(x, a, ref, benchmarks)).toList();
       Status status = Status.all(items.stream().map(Item::status).toList());
       options.add(new Item.OptionResult(o.label(), status, items));
       if (status != NOT_MET) {
