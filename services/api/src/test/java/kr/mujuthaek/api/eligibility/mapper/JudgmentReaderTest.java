@@ -14,9 +14,10 @@ import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 
 /** 계약의 판정 예시(contracts/tests/fixtures/judgment/housing-examples.json, 서리풀 청년주택)를 읽어요. */
-class JudgmentReaderTest {
+public class JudgmentReaderTest {
 
-  static JsonNode example() throws Exception {
+  /** 서리풀 청년주택 판정 틀 (다른 판정 테스트도 써요). */
+  public static JsonNode example() throws Exception {
     Path root = Path.of("").toAbsolutePath();
     while (!Files.isDirectory(root.resolve("contracts"))) {
       root = root.getParent();
