@@ -41,6 +41,7 @@ import org.springframework.stereotype.Component;
 public final class PostgresAreaBaseDataLoader {
 
   private static final String SQL_DIR = "area/load/";
+  private static final int SHRINK_GUARD_MIN_ROWS = 100;
 
   private final DataSource dataSource;
   private final Map<String, String> sqlCache = new ConcurrentHashMap<>();
@@ -106,6 +107,7 @@ public final class PostgresAreaBaseDataLoader {
     }
 
     Counts c = count(conn);
+    guardShrink(conn, req, c.accepted);
     Date dataDate = Date.valueOf(req.dataDate());
     int[] iu;
     int deleted;
@@ -296,6 +298,34 @@ public final class PostgresAreaBaseDataLoader {
       }
     }
     return new Counts(rowsIn, skipped, rejected, fixed, accepted, reasons);
+  }
+
+  /** 잘린 파일로 데이터가 크게 지워지지 않게, 쓸 줄이 지금 데이터의 절반 미만이면 멈춰요. 데이터가 적을 때는 보지 않아요. */
+  private static void guardShrink(Connection conn, AreaLoadRequest req, int accepted)
+      throws SQLException {
+    if (req.allowShrink()) {
+      return;
+    }
+    boolean stores = req.source().target() == AreaSource.Target.STORES;
+    String sql =
+        stores
+            ? "select count(*) from area.stores where load_scope = ?"
+            : "select count(*) from area.facilities where source = ?";
+    try (PreparedStatement ps = conn.prepareStatement(sql)) {
+      ps.setString(1, stores ? req.scope() : req.source().name());
+      try (ResultSet rs = ps.executeQuery()) {
+        rs.next();
+        int existing = rs.getInt(1);
+        if (existing >= SHRINK_GUARD_MIN_ROWS && accepted * 2 < existing) {
+          throw new AreaLoadException(
+              "쓸 수 있는 줄("
+                  + accepted
+                  + ")이 지금 데이터("
+                  + existing
+                  + ")의 절반보다 적어요. 파일이 잘렸는지 확인하고, 맞으면 allowShrink로 다시 적재하세요");
+        }
+      }
+    }
   }
 
   private static int[] queryPair(Connection conn, String sql, Object... params)

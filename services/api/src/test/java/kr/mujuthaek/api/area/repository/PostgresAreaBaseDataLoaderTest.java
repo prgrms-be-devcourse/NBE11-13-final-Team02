@@ -123,6 +123,20 @@ class PostgresAreaBaseDataLoaderTest {
   }
 
   @Test
+  void shrinkGuard_stopsTruncatedFiles() throws Exception {
+    load(AreaSource.BUS_STOP, "ALL", "bus_stop_150.csv", false);
+    AreaLoadReport blocked = load(AreaSource.BUS_STOP, "ALL", "bus_stop_small.csv", false);
+    assertThat(blocked.status()).isEqualTo(AreaLoadReport.Status.FAILED);
+    assertThat(blocked.error()).contains("절반");
+    assertThat(one("select count(*) from area.facilities where source='BUS_STOP'"))
+        .isEqualTo("150");
+
+    AreaLoadReport allowed = load(AreaSource.BUS_STOP, "ALL", "bus_stop_small.csv", true);
+    assertThat(allowed.rowsDeleted()).isEqualTo(140);
+    assertThat(allowed.rowsUnchanged()).isEqualTo(10);
+  }
+
+  @Test
   void stores_groupIndustries_andDeleteOnlyWithinScope() throws Exception {
     assertThat(load(AreaSource.STORES, "강원", "stores_gangwon.csv", false).rowsInserted())
         .isEqualTo(7);
