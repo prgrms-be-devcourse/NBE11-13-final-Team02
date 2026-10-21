@@ -1,0 +1,15 @@
+{
+  "description": "상세 eligibility에서 extraction.completed.conditions로 옮기는 의미 필드. scope는 이전 v1 이벤트에서 생략됐으면 상세에서 복원합니다. inReview·reviewReasons는 검수 상태에 따라 따로 계산합니다.",
+  "conditionFields": {
+    "id": "/id",
+    "target": "/appliesTo",
+    "targetGroups": "/scope/targetGroups",
+    "category": "/category",
+    "description": "/description",
+    "originalText": "/originalText",
+    "referenceTime": "/referenceTime",
+    "rule": "/rule",
+    "exceptions": "/exceptions",
+    "scope": "/scope"
+  }
+}

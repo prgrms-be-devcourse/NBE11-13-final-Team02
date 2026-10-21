@@ -1,0 +1,2 @@
+# 해시가 걸린 예시 원문은 운영체제와 관계없이 같은 바이트(LF)로 저장·체크아웃합니다.
+examples/sources/*.txt text eol=lf
