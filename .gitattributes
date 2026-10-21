@@ -1,3 +1,5 @@
 /gradlew text eol=lf
 *.bat text eol=crlf
 *.jar binary
+# 법정동코드 샘플은 원본 파일과 같은 CP949 (줄바꿈 변환·글자 diff 안 함)
+services/api/src/test/resources/common/region_codes_sample.txt -text -diff
