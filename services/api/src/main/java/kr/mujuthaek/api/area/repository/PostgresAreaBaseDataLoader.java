@@ -53,6 +53,9 @@ public final class PostgresAreaBaseDataLoader {
   public AreaLoadReport load(AreaLoadRequest request, InputStream content) {
     try (Connection conn = dataSource.getConnection()) {
       conn.setAutoCommit(true);
+      if (alreadySucceeded(conn, request)) {
+        return AreaLoadReport.skipped(insertRun(conn, request, "SKIPPED"));
+      }
       UUID runId = insertRun(conn, request, "RUNNING");
       try {
         conn.setAutoCommit(false);
@@ -137,6 +140,21 @@ public final class PostgresAreaBaseDataLoader {
   }
 
   // ── 실행 기록 ────────────────────────────────────────────────────────────
+
+  /** 같은 원천·범위·지문의 성공 기록이 있으면 다시 적재하지 않아요 (같은 이벤트를 두 번 받아도 안전). */
+  private static boolean alreadySucceeded(Connection conn, AreaLoadRequest r) throws SQLException {
+    try (PreparedStatement ps =
+        conn.prepareStatement(
+            "select 1 from area.load_runs"
+                + " where source = ? and load_scope = ? and file_sha256 = ? and status = 'SUCCEEDED'")) {
+      ps.setString(1, r.source().name());
+      ps.setString(2, r.scope());
+      ps.setString(3, r.sha256());
+      try (ResultSet rs = ps.executeQuery()) {
+        return rs.next();
+      }
+    }
+  }
 
   private static UUID insertRun(Connection conn, AreaLoadRequest r, String status)
       throws SQLException {

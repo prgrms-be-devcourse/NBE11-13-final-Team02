@@ -105,6 +105,24 @@ class PostgresAreaBaseDataLoaderTest {
   }
 
   @Test
+  void sameFileTwice_isSkipped() throws Exception {
+    load(AreaSource.BUS_STOP, "ALL", "bus_stop.csv", false);
+    AreaLoadReport again = load(AreaSource.BUS_STOP, "ALL", "bus_stop.csv", false);
+
+    assertThat(again.status()).isEqualTo(AreaLoadReport.Status.SKIPPED);
+    assertThat(one("select string_agg(status, ',' order by started_at) from area.load_runs"))
+        .isEqualTo("SUCCEEDED,SKIPPED");
+  }
+
+  @Test
+  void sameFileForAnotherScope_isLoaded() throws Exception {
+    load(AreaSource.STORES, "강원", "stores_gangwon.csv", false);
+    // 같은 지문이라도 범위(시도)가 다르면 다른 적재예요.
+    assertThat(load(AreaSource.STORES, "경기", "stores_gangwon.csv", false).status())
+        .isEqualTo(AreaLoadReport.Status.SUCCEEDED);
+  }
+
+  @Test
   void stores_groupIndustries_andDeleteOnlyWithinScope() throws Exception {
     assertThat(load(AreaSource.STORES, "강원", "stores_gangwon.csv", false).rowsInserted())
         .isEqualTo(7);
