@@ -26,7 +26,7 @@ class PostgresAreaBaseDataLoaderTest {
 
   @BeforeEach
   void clean() throws Exception {
-    exec("truncate area.facilities, area.stores, area.load_runs");
+    exec("truncate area.facilities, area.stores, area.address_points, area.load_runs");
   }
 
   @Test
@@ -195,6 +195,80 @@ class PostgresAreaBaseDataLoaderTest {
                     + "||round(st_y(geom::geometry)::numeric,4)||','||round(st_x(geom::geometry)::numeric,4)"
                     + " from area.stores"))
         .isEqualTo("파크랜드춘천 명동점|G21304|G2|강원특별자치도 춘천시 금강로 80|37.8783,127.7295");
+  }
+
+  @Test
+  void addressEntrance_headerlessPipeFileInUtmK() throws Exception {
+    // 부산 실제 3줄 + 좌표 글자·번호 오류·키 중복·범위 밖·값 안 따옴표+지하 줄, 끝 빈 줄, CRLF (CP949)
+    AreaLoadReport r = load(AreaSource.ADDRESS_ENTRANCE, "26", "address_entrance_26.txt", false);
+
+    assertThat(r.status()).isEqualTo(AreaLoadReport.Status.SUCCEEDED);
+    assertThat(r.rowsIn()).isEqualTo(8);
+    assertThat(r.rowsInserted()).isEqualTo(4);
+    assertThat(r.rejectReasons())
+        .isEqualTo(Map.of("NO_COORD", 1, "BAD_NUMBER", 1, "DUPLICATE_KEY", 1, "OUT_OF_RANGE", 1));
+    // UTM-K → 경위도: 초량상로 1-2
+    assertThat(
+            one(
+                "select round(st_y(geom::geometry)::numeric,5)||','||round(st_x(geom::geometry)::numeric,5)"
+                    + " from area.address_points where address_id = '26110101300600100000100002'"))
+        .isEqualTo("35.11243,129.03502");
+    // 공고 주소처럼 시군구 + 도로명 + 번호로 찾기
+    assertThat(
+            one(
+                "select address_id from area.address_points where sigungu_code = '26110'"
+                    + " and road_name = '초량상로' and underground = 0 and bldg_main = 5 and bldg_sub = 0"))
+        .isEqualTo("26110101300600100000500000");
+    // 값 안의 따옴표는 그대로, 지하 주소
+    assertThat(
+            one(
+                "select road_name||'|'||underground||'|'||bldg_main from area.address_points"
+                    + " where address_id = '26110101300600100001300000'"))
+        .isEqualTo("\"초량\"상로|1|13");
+  }
+
+  @Test
+  void addressEntrance_deletesOnlyWithinSidoCode() throws Exception {
+    load(AreaSource.ADDRESS_ENTRANCE, "26", "address_entrance_26.txt", false);
+    AreaLoadReport seoul =
+        load(AreaSource.ADDRESS_ENTRANCE, "11", "address_entrance_11.txt", false);
+
+    assertThat(seoul.rowsInserted()).isEqualTo(1);
+    assertThat(seoul.rowsDeleted()).isZero();
+    assertThat(one("select count(*) from area.address_points where load_scope = '26'"))
+        .isEqualTo("4");
+    // 서울시청
+    assertThat(
+            one(
+                "select round(st_y(geom::geometry)::numeric,4)||','||round(st_x(geom::geometry)::numeric,3)"
+                    + " from area.address_points where load_scope = '11'"))
+        .isEqualTo("37.5665,126.978");
+  }
+
+  @Test
+  void addressEntrance_updatesRowsWhoseEupMyeonDongNameChanged() throws Exception {
+    load(AreaSource.ADDRESS_ENTRANCE, "26", "address_entrance_26.txt", false);
+    exec(
+        "update area.address_points set emd = '옛이름'"
+            + " where address_id = '26110101300600100000100002'");
+
+    AreaLoadReport again =
+        load(
+            loader,
+            AreaSource.ADDRESS_ENTRANCE,
+            "26",
+            "address_entrance_26.txt",
+            "f".repeat(64),
+            LocalDate.of(2026, 10, 22),
+            false);
+
+    assertThat(again.rowsUpdated()).isEqualTo(1);
+    assertThat(again.rowsUnchanged()).isEqualTo(3);
+    assertThat(
+            one(
+                "select emd from area.address_points"
+                    + " where address_id = '26110101300600100000100002'"))
+        .isNotEqualTo("옛이름");
   }
 
   static AreaLoadReport load(

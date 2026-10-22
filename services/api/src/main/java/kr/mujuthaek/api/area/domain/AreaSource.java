@@ -57,12 +57,24 @@ public enum AreaSource {
           "도로명주소",
           "경도",
           "위도"),
-      "stores.sql");
+      "stores.sql"),
+  /** 도로명주소 출입구 정보: 머리줄 없는 | 구분 19칸이라 칸 이름은 c1~c19로 고정해요. 시도 코드 파일마다 적재해요. */
+  ADDRESS_ENTRANCE(
+      Target.ADDRESS_POINTS,
+      null,
+      Charsets.CP949,
+      List.of(
+          "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9", "c10", "c11", "c12", "c13", "c14",
+          "c15", "c16", "c17", "c18", "c19"),
+      "address_entrance.sql",
+      '|',
+      true);
 
   /** 적재되는 테이블. */
   public enum Target {
     FACILITIES,
-    STORES
+    STORES,
+    ADDRESS_POINTS
   }
 
   private final Target target;
@@ -133,7 +145,7 @@ public enum AreaSource {
 
   /** 시도 파일마다 따로 적재해서 scope(시도)가 꼭 필요한 원천. 지우기도 그 시도 안에서만 해요. */
   public boolean scoped() {
-    return target == Target.STORES;
+    return target == Target.STORES || target == Target.ADDRESS_POINTS;
   }
 
   /** 공공데이터 파일 대부분이 쓰는 한국어 윈도 인코딩. PostgreSQL COPY에서는 UHC라는 이름이에요. */
