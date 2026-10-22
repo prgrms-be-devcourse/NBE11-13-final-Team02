@@ -289,7 +289,7 @@ def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, 
             if error.code == "GLOBAL_BUDGET":
                 raise BudgetExhausted(str(error)) from error
             log.warning("정책 글을 AI로 읽지 못해 구간 칸 규칙으로 만듭니다", extra={"code": error.code, "rawPolicyId": payload.get("rawPolicyId")})
-    completed = policy_completed_payload(payload, policy_frame(payload, reading, regions), regions)
+    completed = policy_completed_payload(payload, policy_frame(payload, reading, regions), regions, reading)
     if completed is None:
         return None
     event = {**new_event(EVENT_TYPE, PRODUCER, completed), "traceId": raw_event.get("traceId")}

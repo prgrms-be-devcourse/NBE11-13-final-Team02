@@ -66,6 +66,7 @@ def answer(conditions, **fields):
         "announcedOn": {"date": "2026-10-07", "quote": "2026년 10월 07일"},
         "referenceRule": "ANNOUNCEMENT",
         "referenceDate": {"date": None, "quote": None},
+        "supportRegions": {"names": [], "quote": None},
         "groups": [],
         "conditions": conditions,
         "preferences": [],
@@ -267,3 +268,21 @@ def test_conditions_of_one_path_stay_together_inside_any_of():
     first, second = either["options"]
     assert [c["kind"] for c in first["criteria"]] == ["BUSINESS_AGE"]
     assert [c["kind"] for c in second["criteria"]] == ["BUSINESS_AGE", "ASK"] and second["label"].startswith("2번째 길: 업력 10년")
+
+
+def test_unknown_collector_region_uses_the_quoted_region_from_the_text_and_region_groups_expand():
+    # 실측 2026-10-22 기업마당: 수집기 지역 「모름」(강원 특구)·「충청권」이라 지원 지역을 정하지 못해 틀을 보내지 못했음
+    regions = RegionCodeTable(
+        [(c, n, True) for c, n in [("3000000000", "대전광역시"), ("3611000000", "세종특별자치시"), ("4300000000", "충청북도"), ("4400000000", "충청남도")]]
+        + [("5100000000", "강원특별자치도", True)],
+        "2026-10-01",
+    )
+    group = {"regionScope": "SIDO", "regionNames": ["충청권"], "regionCodes": []}
+    assert policy_region_codes(group, regions) == ["30000", "36110", "43000", "44000"]
+    unknown = {"regionScope": "UNKNOWN", "regionNames": [], "regionCodes": [], "text": "□ 지원대상 : 강원특별자치도 소재 창업기업"}
+    quoted = reading(answer([], supportRegions={"names": ["강원특별자치도"], "quote": "강원특별자치도 소재 창업기업"}))
+    assert policy_region_codes(unknown, regions, quoted) == ["51000"]
+    # 근거 문장이 원문에 없거나 문장에 그 지역이 없으면 쓰지 않음(빈 목록은 전국으로 읽혀 틀림)
+    assert policy_region_codes(unknown, regions, reading(answer([], supportRegions={"names": ["강원특별자치도"], "quote": "강원 전역"}))) is None
+    assert policy_region_codes(unknown, regions, reading(answer([], supportRegions={"names": ["충청북도"], "quote": "강원특별자치도 소재 창업기업"}))) is None
+    assert policy_region_codes(unknown, regions, reading(answer([]))) is None
