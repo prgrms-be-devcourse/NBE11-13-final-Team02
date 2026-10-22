@@ -13,7 +13,9 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.event.AreaScoresCalculated;
@@ -30,6 +32,7 @@ import kr.mujuthaek.api.notice.mapper.ExtractionEvent;
 import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.internal.NoticeAreaScoreService;
+import kr.mujuthaek.api.notice.service.internal.NoticeBackfillService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
 import kr.mujuthaek.api.notice.service.internal.NoticeMergeService;
 import kr.mujuthaek.api.notice.service.internal.NoticeStatusService;
@@ -106,6 +109,7 @@ class NoticeIngestionIntegrationTest {
   @Autowired NoticeStatusService status;
   @Autowired NoticeMergeService merges;
   @Autowired NoticeAreaScoreService areaScores;
+  @Autowired NoticeBackfillService backfill;
   @MockitoSpyBean ExtractionResultRepository results;
 
   @BeforeEach
@@ -1244,6 +1248,44 @@ class NoticeIngestionIntegrationTest {
         .locations()
         .getFirst()
         .locationId();
+  }
+
+  // ---------- 보충 발행 ----------
+
+  @Test
+  void 보충_발행은_공개_중인_공고만_reprocess로_다시_보낸다() {
+    ingestion.apply(body(fixture())); // 접수 예정
+    UUID kept = onlyNotice();
+    ingestion.apply(body(samePostElsewhere(fixture()))); // 같은 공고 → 자동으로 합쳐짐
+    clock.set("2026-11-15T10:00");
+    ingestion.apply(body(otherPost(fixture()))); // 처음부터 마감
+    events.clear();
+
+    Map<NoticeBackfillService.Kind, Integer> open =
+        backfill.republish(
+            EnumSet.of(NoticeBackfillService.Kind.PUBLISHED, NoticeBackfillService.Kind.LOCATIONS),
+            false,
+            1); // 한 건씩 묶어 여러 묶음을 도는지도 확인
+
+    assertThat(open)
+        .containsEntry(NoticeBackfillService.Kind.PUBLISHED, 1)
+        .containsEntry(NoticeBackfillService.Kind.LOCATIONS, 1);
+    assertThat(events.stream(NoticePublished.class))
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.noticeId()).isEqualTo(kept);
+              assertThat(e.reprocess()).isTrue(); // 사용자 알림을 보내지 않아요
+              assertThat(e.regionCode()).isEqualTo("11650");
+              assertThat(e.regionCodes()).containsExactly("11650");
+            });
+    assertThat(events.stream(NoticeLocationsChanged.class))
+        .singleElement()
+        .satisfies(e -> assertThat(e.noticeVersion()).isEqualTo(1));
+
+    Map<NoticeBackfillService.Kind, Integer> all =
+        backfill.republish(EnumSet.of(NoticeBackfillService.Kind.PUBLISHED), true, 1);
+    assertThat(all).containsEntry(NoticeBackfillService.Kind.PUBLISHED, 2); // 합친 공고는 빠져요
   }
 
   // ---------- 도우미 ----------

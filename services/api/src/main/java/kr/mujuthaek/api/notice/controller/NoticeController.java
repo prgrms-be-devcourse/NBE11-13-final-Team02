@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.notice.controller;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
@@ -9,6 +10,7 @@ import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeVersionResponse;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,6 +30,7 @@ class NoticeController {
 
   /**
    * 공개 목록. 예: GET /api/v1/notices?regionCodes=11440,41&tenure=RENT&statuses=APPLYING&sort=DEADLINE
+   * &applyEndFrom=2026-11-01&applyEndTo=2026-11-30
    */
   @GetMapping
   CursorPageResponse<NoticeSummaryResponse> list(
@@ -38,10 +41,23 @@ class NoticeController {
       @RequestParam(required = false) List<String> providers,
       @RequestParam(required = false) List<String> statuses,
       @RequestParam(required = false) String sort,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+          LocalDate applyEndFrom,
+      @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
+          LocalDate applyEndTo,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer size) {
     var filter =
-        new NoticeListFilter(field, regionCodes, tenure, noticeTypes, providers, statuses, sort);
+        new NoticeListFilter(
+            field,
+            regionCodes,
+            tenure,
+            noticeTypes,
+            providers,
+            statuses,
+            sort,
+            applyEndFrom,
+            applyEndTo);
     return notices.list(filter, cursor, size);
   }
 
