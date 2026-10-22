@@ -70,6 +70,8 @@ public enum AreaSource {
   private final Charset charset;
   private final List<String> requiredColumns;
   private final String mappingSql;
+  private final char delimiter;
+  private final boolean headerless;
 
   AreaSource(
       Target target,
@@ -77,11 +79,24 @@ public enum AreaSource {
       Charset charset,
       List<String> requiredColumns,
       String mappingSql) {
+    this(target, facilityKind, charset, requiredColumns, mappingSql, ',', false);
+  }
+
+  AreaSource(
+      Target target,
+      String facilityKind,
+      Charset charset,
+      List<String> requiredColumns,
+      String mappingSql,
+      char delimiter,
+      boolean headerless) {
     this.target = target;
     this.facilityKind = facilityKind;
     this.charset = charset;
     this.requiredColumns = requiredColumns;
     this.mappingSql = mappingSql;
+    this.delimiter = delimiter;
+    this.headerless = headerless;
   }
 
   public Target target() {
@@ -104,6 +119,21 @@ public enum AreaSource {
   /** classpath area/load/ 아래 변환 SQL 파일 이름. */
   public String mappingSql() {
     return mappingSql;
+  }
+
+  /** 칸 구분자. CSV는 쉼표. */
+  public char delimiter() {
+    return delimiter;
+  }
+
+  /** 머리줄이 없으면 true. 그때 칸 이름은 requiredColumns 순서 그대로예요. */
+  public boolean headerless() {
+    return headerless;
+  }
+
+  /** 시도 파일마다 따로 적재해서 scope(시도)가 꼭 필요한 원천. 지우기도 그 시도 안에서만 해요. */
+  public boolean scoped() {
+    return target == Target.STORES;
   }
 
   /** 공공데이터 파일 대부분이 쓰는 한국어 윈도 인코딩. PostgreSQL COPY에서는 UHC라는 이름이에요. */
