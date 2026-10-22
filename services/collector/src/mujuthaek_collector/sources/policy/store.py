@@ -1,4 +1,4 @@
-"""정책 전용 저장. 게시판 수집(raw_posts …)과 테이블을 나눠요 (V202610151600__collector_policy_tables.sql).
+"""정책 전용 저장. 게시판 수집(raw_posts …)과 테이블을 나눠요 (V202610220910__collector_policy_tables.sql).
 
 raw_policies         정책 한 건. 6개 API의 칸을 통일한 값(제목·기관·지역·분야·주소·수정일) + 목록 응답 원본(list_raw)
 raw_policy_versions  내용이 바뀔 때마다 한 줄. 통일한 내용 칸(지원대상·선정기준·지원내용·신청방법·신청기간·제출서류·나이)

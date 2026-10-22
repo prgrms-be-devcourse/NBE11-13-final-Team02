@@ -105,7 +105,7 @@ make up                                                                   # 스�
 2. PENDING 정책을 회차마다 `POLICY_DETAIL_LIMIT`건까지 처리해요. 상세 API → 첨부(API 첨부, 없으면 원문 화면의 첨부 링크) → 공고·안내 문서 글자 뽑기 → 버전 비교 → 저장 + 이벤트.
 3. 수정일만 바뀌고 내용·첨부가 같으면 새 버전을 만들지 않아요. 조회수도 비교에서 빼요.
 
-저장 위치: 정책 전용 테이블이에요 (`V202610151600__collector_policy_tables.sql`). 수집 회차(`crawl_runs`)와 `outbox`만 게시판 수집과 같이 써요.
+저장 위치: 정책 전용 테이블이에요 (`V202610220910__collector_policy_tables.sql`). 수집 회차(`crawl_runs`)와 `outbox`만 게시판 수집과 같이 써요.
 
 | 테이블 | 내용 |
 | --- | --- |
