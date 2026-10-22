@@ -57,8 +57,8 @@ class Spec:
     # 「입주 전에 세대 분리를 해야」(2026-10-22 방향 미정 959건 분류: 자격으로 물으면 아직 하지 않은 사람이 떨어짐)
     obligation: str = (
         r"입주\s*(?:전|시)\s*까지.*(?:증명|제출)|(?:자격|요건)\S*\s*(?:을|은|는)?\s*[^.]{0,30}계속\s*유지"
-        r"|(?:명도|상환|퇴거)\s*하?\s*여야|지위\S*\s*(?:는|은)?\s*(?:자동\s*)?(?:상실|탈락)|재계약\S*\s*거절|할증"
-        r"|유지\s*(?:하여|해)\s*야|입주\s*(?:전|시)\s*(?:에|까지)[^.]*(?:여|해)\s*야|입주\s*이후"
+        r"|(?:명도|상환|퇴거)\s*하?\s*여야|지위\S*\s*(?:는|은)?\s*(?:자동\s*)?(?:상실|탈락)|재계약\S*\s*거절|임대(?:료|보증금)\S*\s*할증"
+        r"|유지\s*(?:하여|해)\s*야|입주\s*(?:전|시)\s*(?:에|까지)[^.]*(?:여|해)\s*야|입주\s*이후[^.]{0,40}(?:명도|퇴거|해지|상환|전입|거주)\S*\s*(?:하여|해)\s*야"
     )
 
 
@@ -434,6 +434,8 @@ def _term_definition(spec: Spec, ctx: Context, item: dict[str, Any], text: str) 
     return not any(term in re.sub(r"\s+", "", name) and not spec.statuses_of(name) and not spec.status_codes(term) for name in names)
 
 
+# 신청 시점의 요건(공고일·신청일 현재·기준): 의무 문장과 함께 있으면 그 문장은 안내가 아니라 요건입니다
+CURRENT_REQUIREMENT = re.compile(r"(?:모집\s*)?공고일\S*\s*(?:현재|기준)|신청일\S*\s*(?:현재|기준)")
 GENERIC_RECIPIENT = re.compile(r"(?<!차상위)수급(?:권)?자")
 # 신분 정의 문장에 신분 말고 남으면 안 되는 말
 STATUS_REST_CONDITION = re.compile(r"소득|자산|이하|이상|미만|초과|\d+\s*(?:%|세)|등(?:\s|$|으로|의)|준하는|그\s*밖의|외에")
@@ -472,7 +474,8 @@ def _from_text(ctx: Context, spec: Spec, item: dict[str, Any], reasons: list[str
         return [], [note("OTHER", shown, text)]
     if any(re.search(word, text) for word in spec.rule_words):
         return [], [note("RULE", shown, text)]
-    if re.search(spec.obligation, text):
+    if re.search(spec.obligation, text) and not LIMIT_WORDS.search(text) and not CURRENT_REQUIREMENT.search(text):
+        # 제한 낱말이나 「공고일 현재 … 거주」 같은 지금 갖출 요건이 함께 있으면 안내로 보내지 않습니다(리뷰 2026-10-22: 거주 요건·신청 제한이 사라짐)
         return [], [note("OBLIGATION", shown, text)]
     if PERMIT_WORDS.search(text) and not LIMIT_WORDS.search(text):  # 「…도 신청할 수 있습니다」: 자격을 넓히는 안내(제한이 아님)
         return [], [note("OTHER", shown, text)]

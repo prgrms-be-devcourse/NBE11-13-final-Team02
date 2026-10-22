@@ -611,3 +611,43 @@ def test_code_reading_handles_common_written_forms():
     assert amounts("총자산 3억 4,500만원 이하, 자동차 3,708만원 이하") == {"ASSET": {345_000_000}, "CAR": {37_080_000}, "ANY": set()}
     assert amounts("총 자산기준 2억4천5백만원 이하")["ASSET"] == {245_000_000}
     assert amounts("4,542만원 이하 일 것")["ANY"] == {45_420_000}
+
+
+def test_household_bonus_must_match_its_own_size_in_the_exception_text():
+    # 리뷰 2026-10-22: 원문 「1인 20%p, 2인 10%p」인데 2인 예외를 90%(+20)로 잘못 뽑아도 확정으로 나갔음
+    income = item(
+        "income-70",
+        "INCOME",
+        "해당 세대의 월평균소득이 전년도 도시근로자 가구원수별 가구당 월평균소득의 70% 이하인 자",
+        atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN),
+        exceptions=[replace_income("ex-1", 1, 90), replace_income("ex-2", 2, 90)],
+    )
+    [made] = build_judgment(candidate([income]))["common"]
+    assert made["inReview"] and "같은 가구원 수·값으로 확인하지 못했습니다" in made["reviewReason"]
+
+
+def test_qualification_with_an_excluded_group_is_asked_yes_and_unavoidable_is_not_a_limit():
+    # 리뷰 2026-10-22: 「…를 제외하고는 무주택이어야」가 「신청 제한(아니오)」로, 「불가피한 사유」가 제한으로 나갔음
+    [excepted] = build_judgment(candidate([item("x", "OTHER", "만 65세 이상인 경우를 제외하고는 무주택이어야 합니다")]))["common"]
+    assert (excepted["metWhen"], excepted["inReview"]) == ("YES", True)
+    [unavoidable] = build_judgment(candidate([item("x", "OTHER", "질병 등 불가피한 사유로 해외에 체류 중인 사람은 거주한 것으로 봅니다")]))["common"]
+    assert unavoidable["metWhen"] == "YES"
+
+
+def test_duty_wording_does_not_hide_a_current_requirement_or_a_limit():
+    # 리뷰 2026-10-22: 「공고일 현재 … 거주하고 … 유지하여야」(거주 요건), 「입주 이후 … 신청 불가」(제한)가 안내로 빠졌음
+    for text in [
+        "공고일 현재 부산광역시에 거주하고 계약 시까지 거주를 유지하여야 합니다",
+        "공공임대주택에 입주 이후 계약을 해지한 지 1년이 지나지 않은 자는 신청 불가",
+    ]:
+        frame = build_judgment(candidate([item("x", "OTHER", text)]))
+        assert frame["notes"] == [] and len(frame["common"]) == 1, text
+    duty = build_judgment(candidate([item("x", "OTHER", "현재 임대주택에 거주하고 있는 자는 이 주택에 입주하기 전에 기존 임대주택을 명도하여야 합니다.")]))
+    assert [n["kind"] for n in duty["notes"]] == ["OBLIGATION"]
+
+
+def test_income_readback_cannot_agree_when_the_text_has_a_lower_bound():
+    from mujuthaek_extraction.judgment.readback import mismatch
+
+    income = {"kind": "INCOME", "percent": 70, "quote": "기준중위소득 50% 초과 70% 이하인 가구"}
+    assert mismatch(income) is not None  # 하한이 빠진 값을 「같다」고 확정하지 않음

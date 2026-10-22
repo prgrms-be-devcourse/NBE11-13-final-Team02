@@ -110,6 +110,8 @@ def mismatch(criterion: dict[str, Any], regions: Any = None) -> str | None:
             return unread
         return None if read == (criterion.get("minAge"), criterion.get("maxAge")) else f"원문에서 코드가 읽은 나이({read})가 AI 값과 다릅니다"
     if kind == "INCOME":
+        if re.search(r"\d+(?:\.\d+)?\s*(?:%|퍼센트)\s*(?:초과|이상)", _without_brackets(text)):
+            return unread  # 「50% 초과 70% 이하」: 틀의 소득 칸은 상한만이라 하한이 빠짐(리뷰 2026-10-22)
         read = percents(text)
         if len(read) != 1 or float(criterion["percent"]) in percents_anywhere(text) - read:
             return unread  # 괄호 안 「맞벌이 90%」 같은 다른 기준이 AI 값이면 어느 쪽인지 코드로 못 정함

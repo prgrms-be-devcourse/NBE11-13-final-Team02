@@ -163,6 +163,7 @@ def _income(ctx: Context, item: dict[str, Any], node: dict[str, Any], quote: str
 
 
 UNREAD_BONUS = "소득 가산 문구를 코드로 다 읽지 못했습니다(가산을 빼면 1·2인 가구 판정이 달라질 수 있음)"
+BONUS_UNCHECKED = "가구원 수별 소득 기준을 예외 원문에서 같은 가구원 수·값으로 확인하지 못했습니다"
 
 
 def _bonus_keys(text: str) -> set[tuple[str, int]]:
@@ -237,9 +238,14 @@ def _absorb(base: list[Criterion], exception: dict[str, Any]) -> bool:
         return False
     sizes = {"factor": "HOUSEHOLD_SIZE", "min": as_int(span[0]), "max": as_int(span[1]), "since": None, "countRule": None}
     add = as_number(value - income["percent"])
+    # 예외 원문에 그 가구원 수와 값(기준 비율 또는 가산 %p)이 함께 있어야 확정합니다(리뷰 2026-10-22: 2인 +20%p를 1인 값으로 잘못 뽑아도 통과)
+    seen = re.search(rf"{sizes['min']}\s*인[^%\d]{{0,25}}?(?:{value:g}|{add:g})\s*%", str(exception.get("originalText") or ""))
     if any(b["when"] == sizes for b in income["bonuses"]):
         return any(b["when"] == sizes and b["addPercent"] == add for b in income["bonuses"])
     income["bonuses"].append({"when": sizes, "addPercent": add})
+    if not seen:
+        _add_reason(income, BONUS_UNCHECKED)
+        return True
     # 「가산을 못 읽음」은 원문이 말한 가산 항목을 모두 받았을 때만 풉니다. 다른 사유는 그대로 둡니다
     expected = {tuple(k) for k in income.get("_bonusKeys") or []}
     covered = {("HH", b["when"]["min"]) for b in income["bonuses"] if b["when"]["factor"] == "HOUSEHOLD_SIZE" and b["when"]["min"] == b["when"]["max"]}
