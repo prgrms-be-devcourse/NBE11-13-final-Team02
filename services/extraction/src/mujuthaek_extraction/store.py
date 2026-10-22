@@ -15,6 +15,7 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from mujuthaek_extraction.cost_alert import monthly_costs
 from mujuthaek_extraction.pipeline import Outcome
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
@@ -239,6 +240,11 @@ class JobStore:
             )
             if cur.rowcount != 1:
                 raise LookupError("대기 중인 검수가 아닙니다.")
+
+    # ---- 비용 ----
+    def monthly_costs(self, month: str | None = None, budget_usd: float | None = None) -> dict[str, Any]:
+        """그 달의 분야별 유료 AI 호출 수·비용(cost_alert.monthly_costs)."""
+        return monthly_costs(self.conn, month, budget_usd)
 
     # ---- 다시 처리 ----
     def spent_before(self, raw_event: dict[str, Any]) -> float:

@@ -30,6 +30,7 @@ from typing import Any
 from mujuthaek_extraction.assemble.regions import RegionCodeTable
 from mujuthaek_extraction.config import Settings
 from mujuthaek_extraction.contracts import tools
+from mujuthaek_extraction.cost_alert import CostAlert
 from mujuthaek_extraction.health import Health
 from mujuthaek_extraction.intake import LocalDirSourceReader
 from mujuthaek_extraction.model import ModelError
@@ -206,6 +207,7 @@ class Processor:
             self.reader = S3SourceReader(settings.s3_bucket, settings.s3_endpoint, settings.s3_access_key, settings.s3_secret_key)
         self.regions = RegionCodeTable.from_csv(settings.region_table, settings.region_table_date)
         self._running: dict[str, threading.Event] = {}  # 처리 중인 eventId → 끝나면 켜짐
+        self.cost_alert = CostAlert.from_url(settings.monthly_budget_usd, settings.slack_webhook_url)  # 월 상한 80% 슬랙 경고
         self._running_lock = threading.Lock()
 
     def run(self, raw_event: dict[str, Any], store: JobStore | None = None, ledger: SpendLedger | None = None) -> Outcome:
@@ -267,13 +269,22 @@ class Processor:
         if not self.settings.db_url or self.settings.model_mode != "auto":
             return None
         key = _claim_key(raw_event)
+        payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
         if key is None:  # 정책 수집 이벤트는 rawPolicyId: 비용 장부의 원본 칸에 정책 ID를 적어 정책별 비용을 볼 수 있게(리뷰 2026-10-22)
-            payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
             policy, version = _uuid_or_none(payload.get("rawPolicyId")), payload.get("version")
             key = (policy, version) if policy and isinstance(version, int) else None
-        scope = {"eventId": _uuid_or_none(raw_event.get("eventId")), "rawPostId": key[0] if key else None, "rawVersion": key[1] if key else None}
+        scope = {
+            "eventId": _uuid_or_none(raw_event.get("eventId")),
+            "rawPostId": key[0] if key else None,
+            "rawVersion": key[1] if key else None,
+            "field": payload.get("field") if isinstance(payload.get("field"), str) else None,  # 분야별 비용 집계(cost_alert.py)
+        }
         return SpendLedger(
-            db.connect(self.settings.db_url), daily_usd=self.settings.daily_budget_usd, monthly_usd=self.settings.monthly_budget_usd, scope=scope
+            db.connect(self.settings.db_url),
+            daily_usd=self.settings.daily_budget_usd,
+            monthly_usd=self.settings.monthly_budget_usd,
+            scope=scope,
+            alert=self.cost_alert,
         )
 
     def _handle(self, store: JobStore, raw_event: dict[str, Any], event_id: Any) -> str | None:
@@ -580,7 +591,7 @@ def run(settings: Settings) -> None:
     health = Health({"consumer": 120, "relay": 120, "retry": settings.retry_seconds * 2 + 60})
     threading.Thread(target=relay_loop, args=(settings, stop, health), daemon=True, name="relay").start()
     threading.Thread(target=retry_loop, args=(settings, processor, stop, health), daemon=True, name="retry").start()
-    service = ReviewService(lambda: store_session(settings), new_event)
+    service = ReviewService(lambda: store_session(settings), new_event, settings.monthly_budget_usd)
     server = serve(service, settings.review_host, settings.review_port, settings.review_token, health)
     threading.Thread(target=server.serve_forever, daemon=True, name="review-api").start()
     log.info("검수 API 시작", extra={"host": settings.review_host, "port": settings.review_port})

@@ -73,7 +73,9 @@ def main() -> None:
     elif args.command == "review-api":
         from mujuthaek_extraction.review_api import ReviewService, serve
 
-        server = serve(ReviewService(lambda: worker.store_session(settings), new_event), settings.review_host, settings.review_port)
+        server = serve(
+            ReviewService(lambda: worker.store_session(settings), new_event, settings.monthly_budget_usd), settings.review_host, settings.review_port
+        )
         server.serve_forever()
     elif args.command == "declare":
         connection = broker.connect(settings.rabbitmq_url)
