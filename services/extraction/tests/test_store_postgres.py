@@ -207,3 +207,13 @@ def test_startup_judgment_is_saved_once_and_does_not_mark_the_collected_event_pr
     assert store.save_judgment(raw, event) and not store.save_judgment(raw, event)
     assert count(store, "select count(*) from outbox") == 1
     assert not store.already_processed(raw["eventId"])  # 정책 추출이 같은 수집 이벤트를 따로 처리할 수 있게
+
+
+def test_same_policy_version_is_judged_once_unless_reprocessed(store):
+    policy = str(uuid.uuid4())
+    first = {"eventId": str(uuid.uuid4()), "payload": {"rawPolicyId": policy, "version": 2}}
+    again = {"eventId": str(uuid.uuid4()), "payload": {"rawPolicyId": policy, "version": 2}}
+    redo = {"eventId": str(uuid.uuid4()), "payload": {"rawPolicyId": policy, "version": 2, "reprocess": True}}
+    assert not store.judged(first)
+    assert store.save_judgment(first, new_event("extraction.completed", "extraction", {"rawPostId": policy}))
+    assert store.judged(again) and not store.judged(redo)
