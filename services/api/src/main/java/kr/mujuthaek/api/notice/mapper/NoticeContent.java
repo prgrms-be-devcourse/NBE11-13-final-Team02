@@ -11,10 +11,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
+import java.util.TreeSet;
 import java.util.UUID;
 import kr.mujuthaek.api.notice.domain.ApplicationStatusCalculator.Window;
 import kr.mujuthaek.api.notice.domain.ReviewStatus;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.MissingNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /** 추출 결과의 내용에서 notice가 쓰는 값을 꺼내요: 내용 해시, 바뀐 섹션, 원본 글 종류. */
@@ -147,6 +149,92 @@ public final class NoticeContent {
     } else {
       out.append(node.toString());
     }
+  }
+
+  /**
+   * 공고가 걸친 지역 5자리 코드(지역 색인). 위치(locations)의 법정동코드 앞 5자리를 모아요. 시도까지만 아는 위치는 시도 단위 코드(xx000)로 넣어, 시도
+   * 검색(11 또는 11000 → 11로 시작하는 모든 코드)에는 나오고 다른 시군구 검색에는 나오지 않게 해요(2026-10-20 결정). 위치가 없으면 payload의
+   * 지역 코드를 써요. 보류한 위치나 지역 코드(heldItems의 /locations/{i}·/locations/{i}/regionCode)는 확정 값이 아니라 쓰지
+   * 않아요.
+   */
+  public static List<String> sigunguCodes(ExtractionEvent event) {
+    TreeSet<String> codes = new TreeSet<>();
+    if (event.notice() != null) {
+      JsonNode locations = event.notice().path("locations");
+      for (int i = 0; i < locations.size(); i++) {
+        JsonNode code = regionCode(event.heldItems(), locations, i);
+        if (code.isString() && code.asString().matches("\\d{10}")) {
+          String sigungu = code.asString().substring(0, 5);
+          if (!sigungu.startsWith("00")) {
+            codes.add(sigungu);
+          }
+        }
+      }
+    }
+    if (codes.isEmpty() && event.regionCode() != null && event.regionCode().matches("\\d{5}")) {
+      codes.add(event.regionCode());
+    }
+    return List.copyOf(codes);
+  }
+
+  /**
+   * 전국 대상 공고인지: 위치의 원문 지역 표현이 「전국」(「전국 단위」「전국(…)」 포함)인 위치가 있고, 지역 코드가 정해진 위치는 하나도 없을 때만 true. 원문의
+   * 「전국」은 모집 지역이 아닌 경우가 많아요(실측: 「전국 소재 주택」(무주택 판정), 「전국(국내)에 거주하는 … 에게 공급」(양산시 단지 매각의 신청 자격)). 특정
+   * 단지가 있는 공고는 신청 자격이 전국이어도 그 단지 지역 공고예요. 위치가 없는 공고도 전국으로 보지 않아요(주택 목록이 첨부에만 있는 「대구경북지역」 공고).
+   *
+   * <p>위치의 지역을 하나라도 보류했으면 그 위치가 어느 지역인지 몰라 전국으로 보지 않아요(모든 지역 검색에 잘못 나오지 않게).
+   */
+  public static boolean nationwide(ExtractionEvent event) {
+    if (event.notice() == null) {
+      return false;
+    }
+    boolean said = false;
+    JsonNode locations = event.notice().path("locations");
+    for (int i = 0; i < locations.size(); i++) {
+      if (held(event.heldItems(), "/locations/" + i + "/regionCode")
+          || held(event.heldItems(), "/locations/" + i + "/region")) {
+        return false;
+      }
+      JsonNode location = locations.get(i);
+      if (location.path("regionCode").isString()) {
+        return false;
+      }
+      String region = location.path("region").asString("").strip();
+      said |= region.matches("전국(\\s.*|\\(.*|단위.*)?");
+    }
+    return said;
+  }
+
+  /**
+   * 지역 색인: 지역 5자리 → 대상 지역 전체인지. 위치 종류 AREA(공고 대상 지역, 예: 「대구경북지역」 → 대구·경북)로 정한 코드는 true라 그 아래 시군구
+   * 검색에도 나와요. 특정 주택 위치의 코드는 false(시군구를 몰라 시도 단위가 됐으면 시도 검색에만 나옴).
+   */
+  public static Map<String, Boolean> regions(ExtractionEvent event) {
+    Map<String, Boolean> regions = new TreeMap<>();
+    for (String code : sigunguCodes(event)) {
+      regions.put(code, false);
+    }
+    if (event.notice() != null) {
+      JsonNode locations = event.notice().path("locations");
+      for (int i = 0; i < locations.size(); i++) {
+        JsonNode location = locations.get(i);
+        JsonNode code = regionCode(event.heldItems(), locations, i);
+        if ("AREA".equals(location.path("kind").asString(""))
+            && code.isString()
+            && code.asString().matches("\\d{10}")
+            && !code.asString().startsWith("00")) {
+          regions.put(code.asString().substring(0, 5), true);
+        }
+      }
+    }
+    return regions;
+  }
+
+  /** i번째 위치의 지역 코드. 위치나 지역 코드를 보류했으면 없는 값(MissingNode)이에요. */
+  private static JsonNode regionCode(JsonNode heldItems, JsonNode locations, int i) {
+    return held(heldItems, "/locations/" + i + "/regionCode")
+        ? MissingNode.getInstance()
+        : locations.get(i).path("regionCode");
   }
 
   /** 접수 상태 계산용 구간 (원문 일정의 시각·보류 구간까지 반영). */

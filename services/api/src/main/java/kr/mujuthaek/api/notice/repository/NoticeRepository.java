@@ -195,6 +195,26 @@ public class NoticeRepository {
     return updated > 0;
   }
 
+  /** 지역 색인을 바꿔요. regions는 지역 5자리 → 대상 지역 전체(AREA)인지. nationwide면 전국 대상이라 어느 지역 검색에도 나와요. */
+  public void replaceRegions(UUID noticeId, Map<String, Boolean> regions, boolean nationwide) {
+    jdbc.sql("update notice.notices set nationwide = :nationwide where id = :id")
+        .param("id", noticeId)
+        .param("nationwide", nationwide)
+        .update();
+    jdbc.sql("delete from notice.notice_regions where notice_id = :id")
+        .param("id", noticeId)
+        .update();
+    for (Map.Entry<String, Boolean> region : regions.entrySet()) {
+      jdbc.sql(
+              "insert into notice.notice_regions (notice_id, sigungu_code, whole)"
+                  + " values (:id, :code, :whole)")
+          .param("id", noticeId)
+          .param("code", region.getKey())
+          .param("whole", region.getValue())
+          .update();
+    }
+  }
+
   /** 다시 계산할 시각이 지난 공고를 잠그고 읽어요. 다른 서버가 이미 잡은 공고는 건너뛰어요(skip locked). 일정은 현재 버전의 원문 일정(상세)에서 읽어요. */
   public List<StatusCheckRow> lockDueForStatusCheck(Instant now, int limit) {
     return jdbc.sql(
