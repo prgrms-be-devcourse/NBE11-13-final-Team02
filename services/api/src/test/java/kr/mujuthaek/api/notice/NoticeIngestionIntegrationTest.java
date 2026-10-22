@@ -418,6 +418,20 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 판정_목록은_접수예정_접수중_상시만_준다() {
+    ingestion.apply(body(fixture()));
+
+    for (String status : List.of("UPCOMING", "APPLYING", "ALWAYS")) {
+      jdbc.sql("update notice.notices set status = :s").param("s", status).update();
+      assertThat(query.findOpenForJudgment(NoticeField.HOUSING)).as(status).hasSize(1);
+    }
+    for (String status : List.of("UNKNOWN", "CLOSED")) {
+      jdbc.sql("update notice.notices set status = :s").param("s", status).update();
+      assertThat(query.findOpenForJudgment(NoticeField.HOUSING)).as(status).isEmpty();
+    }
+  }
+
+  @Test
   void 공고_분야에_정책용_지원_지역이_실려_오면_계약_위반이다() {
     // Python 계약 검사기와 같은 규칙(리뷰 2026-10-22): regionCodes는 정책(STARTUP_SUPPORT·SPACE_RECRUITMENT)만
     ObjectNode housing = fixture();

@@ -228,7 +228,7 @@ public class NoticeQueries {
                 rs.getString(7)));
   }
 
-  /** 이 분야의 마감 안 된 공개 공고 전부 (합쳐진·숨긴 공고 제외, 마감일 순). */
+  /** 이 분야의 열린 공개 공고 전부: 접수예정·접수중·상시 (합쳐진·숨긴 공고 제외, 마감일 순). 상태를 단정할 수 없는 UNKNOWN은 빼요. */
   public List<JudgmentRow> openForJudgment(String field) {
     return jdbc.query(
         """
@@ -240,7 +240,7 @@ public class NoticeQueries {
         from notice.notices n
         join notice.notice_versions v on v.notice_id = n.id and v.version = n.current_version
         where n.field = :field and n.current_version > 0 and not n.hidden
-          and n.merged_into is null and n.status <> 'CLOSED'
+          and n.merged_into is null and n.status in ('UPCOMING', 'APPLYING', 'ALWAYS')
         order by n.apply_end nulls last, n.id
         """,
         new MapSqlParameterSource("field", field),

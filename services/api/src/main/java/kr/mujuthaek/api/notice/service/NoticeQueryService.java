@@ -168,8 +168,8 @@ public class NoticeQueryService {
   }
 
   /**
-   * 판정용 공고 목록: 이 분야의 열린 공고 전부를 한 번에 줘요(판정 담당 요청). 마감(CLOSED)만 빼고 접수예정·접수중·상시·확인 필요(UNKNOWN)는 넣어요.
-   * 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요.
+   * 판정용 공고 목록: 이 분야의 열린 공고 전부를 한 번에 줘요(판정 담당 요청). 접수예정·접수중·상시만 넣어요(판정 담당 「열린 공고」 기준). 일정을 단정할 수 없는
+   * 확인 필요(UNKNOWN)는 지원할 수 있다고 보여 주지 않게 빼요. 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요.
    */
   public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
     List<NoticeForJudgment> notices =
