@@ -327,7 +327,8 @@ public class NoticeRepository {
   /** 다시 계산할 시각이 지난 공고를 잠그고 읽어요. 다른 서버가 이미 잡은 공고는 건너뛰어요(skip locked). 일정은 현재 버전의 원문 일정(상세)에서 읽어요. */
   public List<StatusCheckRow> lockDueForStatusCheck(Instant now, int limit) {
     return jdbc.sql(
-            "select n.id, n.status, (v.payload -> 'notice')::text as detail, v.review_status"
+            "select n.id, n.field, n.status, (v.payload -> 'notice')::text as detail,"
+                + " v.review_status"
                 + " from notice.notices n join notice.notice_versions v"
                 + " on v.notice_id = n.id and v.version = n.current_version"
                 + " where n.next_status_check_at <= :now and n.merged_into is null"
@@ -339,6 +340,7 @@ public class NoticeRepository {
             (rs, i) ->
                 new StatusCheckRow(
                     rs.getObject("id", UUID.class),
+                    rs.getString("field"),
                     NoticeStatus.valueOf(rs.getString("status")),
                     rs.getString("detail"),
                     ReviewStatus.valueOf(rs.getString("review_status"))))
@@ -409,6 +411,14 @@ public class NoticeRepository {
     for (UUID rawPost : rawPosts) {
       lockRawPost(rawPost);
     }
+  }
+
+  /** 공고 분야 (공고 이벤트에 실어요). 없는 공고면 빈 값. */
+  public Optional<String> fieldOf(UUID noticeId) {
+    return jdbc.sql("select field from notice.notices where id = :id")
+        .param("id", noticeId)
+        .query(String.class)
+        .optional();
   }
 
   /** 합쳐진 공고면 합친 공고 ID(합침이 이어져도 마지막 공고), 아니면 그대로. */
@@ -766,7 +776,11 @@ public class NoticeRepository {
 
   /** 접수 상태를 다시 계산할 공고. detailJson은 현재 버전의 상세(원문 일정·보류 항목). */
   public record StatusCheckRow(
-      UUID noticeId, NoticeStatus status, String detailJson, ReviewStatus reviewStatus) {}
+      UUID noticeId,
+      String field,
+      NoticeStatus status,
+      String detailJson,
+      ReviewStatus reviewStatus) {}
 
   /** 공고의 현재 공개 버전 (새 결과와 비교할 때 써요). */
   public record CurrentVersion(

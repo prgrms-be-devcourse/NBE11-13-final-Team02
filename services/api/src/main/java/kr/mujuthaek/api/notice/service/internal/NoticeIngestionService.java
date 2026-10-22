@@ -301,7 +301,11 @@ public class NoticeIngestionService {
               notices.originalNoticeOf(source.supersedesPostId()).orElse(noticeId.orElseThrow())),
           now);
       events.publishEvent(
-          new NoticeUpdated(noticeId.orElseThrow(), List.of(FOLLOW_UPS), event.reprocess()));
+          new NoticeUpdated(
+              noticeId.orElseThrow(),
+              notices.fieldOf(noticeId.orElseThrow()).orElse(event.field()),
+              List.of(FOLLOW_UPS),
+              event.reprocess()));
     } else if (decision.outcome() == IngestionOutcome.APPROVAL_RECORDED) {
       followUps.markApproved(event.rawPostId(), now);
     }
@@ -601,8 +605,9 @@ public class NoticeIngestionService {
     notices.markNotSame(from, into, "UNMERGED", now); // 다시 훑기·자동 합치기가 이 쌍을 다시 합치지 않게
     rebase(from, true, now, null);
     rebase(into, true, now, null);
-    events.publishEvent(new NoticeUpdated(from, List.of(SOURCES), false));
-    events.publishEvent(new NoticeUpdated(into, List.of(SOURCES), false));
+    String field = notices.fieldOf(into).orElseThrow(); // 같은 분야끼리만 합쳐요
+    events.publishEvent(new NoticeUpdated(from, field, List.of(SOURCES), false));
+    events.publishEvent(new NoticeUpdated(into, field, List.of(SOURCES), false));
     log.info("공고 합치기 되돌림 from={} into={}", from, into);
   }
 
@@ -639,7 +644,8 @@ public class NoticeIngestionService {
         now);
     notices.replaceRegions(
         current.noticeId(), NoticeContent.regions(event), NoticeContent.nationwide(event));
-    events.publishEvent(new NoticeUpdated(current.noticeId(), changed, event.reprocess()));
+    events.publishEvent(
+        new NoticeUpdated(current.noticeId(), event.field(), changed, event.reprocess()));
     if (changed.contains("locations")) {
       publishLocations(current.noticeId(), version, event);
     }
@@ -650,6 +656,7 @@ public class NoticeIngestionService {
       events.publishEvent(
           new NoticeClosed(
               current.noticeId(),
+              event.field(),
               ApplicationStatusCalculator.closedOn(NoticeContent.statusWindows(event), today)));
     }
   }

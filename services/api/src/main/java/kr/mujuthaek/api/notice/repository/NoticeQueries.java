@@ -256,6 +256,59 @@ public class NoticeQueries {
                 rs.getString(8)));
   }
 
+  /** 요약 한 줄. requestedId는 물은 ID, id는 합친 공고면 합친(남은) 공고 ID. regionCodes는 지역 색인(시군구 5자리). */
+  public record SummaryRow(
+      UUID requestedId,
+      UUID id,
+      int version,
+      String field,
+      String title,
+      String provider,
+      String noticeType,
+      String status,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      boolean nationwide,
+      List<String> regionCodes,
+      String detailUrl) {}
+
+  /**
+   * 여러 공고의 요약을 한 번에 (상세와 같이 합쳐진 공고 ID는 합친 공고로 바꿔요). 숨김·공개 전·없는 공고는 빠져요. 합침은 늘 마지막 공고를 가리키게 저장해서
+   * (NoticeRepository.mergeInto) 한 번만 따라가면 돼요.
+   */
+  public List<SummaryRow> summaries(java.util.Collection<UUID> ids) {
+    if (ids.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.query(
+        """
+        select m.id, n.id, n.current_version, n.field, n.title, n.provider, n.notice_type, n.status,
+               n.apply_start, n.apply_end, n.nationwide,
+               array(select r.sigungu_code from notice.notice_regions r
+                     where r.notice_id = n.id order by r.sigungu_code) as regions,
+               n.detail_url
+        from notice.notices m
+        join notice.notices n on n.id = coalesce(m.merged_into, m.id)
+        where m.id in (:ids) and n.current_version > 0 and not n.hidden
+        """,
+        new MapSqlParameterSource("ids", ids),
+        (rs, i) ->
+            new SummaryRow(
+                rs.getObject(1, UUID.class),
+                rs.getObject(2, UUID.class),
+                rs.getInt(3),
+                rs.getString(4),
+                rs.getString(5),
+                rs.getString(6),
+                rs.getString(7),
+                rs.getString(8),
+                rs.getObject(9, LocalDate.class),
+                rs.getObject(10, LocalDate.class),
+                rs.getBoolean(11),
+                List.of((String[]) rs.getArray(12).getArray()),
+                rs.getString(13)));
+  }
+
   /** 공개 버전 하나 (정정 이력). 글 종류는 payload에서 읽어요. */
   public record VersionRow(
       int version, String reviewStatus, OffsetDateTime receivedAt, String payload) {}

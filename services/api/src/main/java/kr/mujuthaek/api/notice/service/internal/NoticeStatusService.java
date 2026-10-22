@@ -74,7 +74,8 @@ public class NoticeStatusService {
       notices.updateStatus(row.noticeId(), result.status(), result.nextCheckAt(), now);
       if (ApplicationStatusCalculator.justClosed(row.status(), result.status())) {
         events.publishEvent(
-            new NoticeClosed(row.noticeId(), ApplicationStatusCalculator.closedOn(windows, today)));
+            new NoticeClosed(
+                row.noticeId(), row.field(), ApplicationStatusCalculator.closedOn(windows, today)));
       }
       if (row.status() != result.status()) {
         log.info("접수 상태 변경 noticeId={} {} -> {}", row.noticeId(), row.status(), result.status());

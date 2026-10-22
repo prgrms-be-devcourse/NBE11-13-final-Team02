@@ -38,6 +38,12 @@ public class NoticeQueryService {
 
   private static final String UNITS_SORT = "UNITS";
 
+  /** 공고 상세 API 경로 (NoticeController). */
+  static final String DETAIL_PATH = "/api/v1/notices/";
+
+  /** 요약 한 번에 묻는 공고 수. */
+  private static final int SUMMARY_CHUNK = 1000;
+
   private final NoticeQueries queries;
   private final FollowUpRepository followUps;
   private final AreaScoreRepository areaScores;
@@ -182,9 +188,7 @@ public class NoticeQueryService {
                         row.title(),
                         row.applyStart(),
                         row.applyEnd(),
-                        row.nationwide()
-                            ? List.of()
-                            : row.regionCodes().isEmpty() ? null : legalDongs(row.regionCodes()),
+                        regionCodes(row.nationwide(), row.regionCodes()),
                         row.frameJson() == null ? null : json.readTree(row.frameJson())))
             .toList();
     if (field != NoticeField.BUSINESS_SPACE) {
@@ -224,6 +228,59 @@ public class NoticeQueryService {
                     legalDongs(row.regionCodes()),
                     json.readTree(row.frameJson())))
         .toList();
+  }
+
+  /**
+   * 공고 요약 여러 개를 한 번에 (알림 담당 요청: 공고 ID로 제목·마감일 등). 물은 ID → 요약이며 물은 순서를 지켜요. 다른 공고에 합쳐진 공고 ID는 상세
+   * API처럼 합친(남은) 공고의 요약을 줘요(값의 noticeId가 물은 ID와 달라요). 숨김·공개 전·없는 공고는 빠져요. 마감된 공고도 줘요.
+   */
+  public java.util.Map<UUID, NoticeSummary> findSummaries(java.util.Collection<UUID> ids) {
+    List<UUID> distinct = ids.stream().filter(java.util.Objects::nonNull).distinct().toList();
+    java.util.Map<UUID, NoticeSummary> found = new java.util.HashMap<>();
+    // IN 목록이 너무 길어지지 않게 나눠 물어요 (보통은 한 번)
+    for (int from = 0; from < distinct.size(); from += SUMMARY_CHUNK) {
+      List<UUID> chunk = distinct.subList(from, Math.min(from + SUMMARY_CHUNK, distinct.size()));
+      for (var row : queries.summaries(chunk)) {
+        found.put(row.requestedId(), summary(row));
+      }
+    }
+    java.util.Map<UUID, NoticeSummary> ordered = new java.util.LinkedHashMap<>();
+    for (UUID id : distinct) {
+      if (found.containsKey(id)) {
+        ordered.put(id, found.get(id));
+      }
+    }
+    return ordered;
+  }
+
+  /** 공고 요약 하나 (findSummaries와 같은 규칙). 숨김·공개 전·없는 공고면 빈 값. */
+  public java.util.Optional<NoticeSummary> findSummary(UUID noticeId) {
+    return java.util.Optional.ofNullable(findSummaries(List.of(noticeId)).get(noticeId));
+  }
+
+  private static NoticeSummary summary(NoticeQueries.SummaryRow row) {
+    return new NoticeSummary(
+        row.id(),
+        row.version(),
+        row.field(),
+        row.title(),
+        row.provider(),
+        row.noticeType(),
+        row.status(),
+        row.applyStart(),
+        row.applyEnd(),
+        regionCodes(row.nationwide(), row.regionCodes()),
+        row.nationwide(),
+        DETAIL_PATH + row.id(),
+        row.detailUrl());
+  }
+
+  /** 판정 목록과 같은 지역 뜻: 전국이면 빈 목록, 지역 색인이 비면(모름) null, 아니면 법정동 10자리. */
+  private static List<String> regionCodes(boolean nationwide, List<String> sigungu) {
+    if (nationwide) {
+      return List.of();
+    }
+    return sigungu.isEmpty() ? null : legalDongs(sigungu);
   }
 
   /** 시군구 5자리 → 법정동 10자리 (뒤를 0으로 채움). */

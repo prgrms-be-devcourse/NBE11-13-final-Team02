@@ -144,6 +144,7 @@ class NoticeIngestionIntegrationTest {
         .satisfies(
             e -> {
               assertThat(e.noticeId()).isEqualTo(id);
+              assertThat(e.field()).isEqualTo("HOUSING");
               assertThat(e.regionCode()).isEqualTo("11650");
               assertThat(e.reprocess()).isFalse();
             });
@@ -231,7 +232,11 @@ class NoticeIngestionIntegrationTest {
     assertThat(detail.version()).isEqualTo(2);
     assertThat(events.stream(NoticeUpdated.class))
         .singleElement()
-        .satisfies(e -> assertThat(e.changedFields()).containsExactly("notice"));
+        .satisfies(
+            e -> {
+              assertThat(e.field()).isEqualTo("HOUSING");
+              assertThat(e.changedFields()).containsExactly("notice");
+            });
   }
 
   @Test
@@ -529,7 +534,7 @@ class NoticeIngestionIntegrationTest {
     assertThat(status.refreshDue(10)).isEqualTo(1);
     assertThat(statusOf(id)).isEqualTo("CLOSED");
     assertThat(events.stream(NoticeClosed.class))
-        .containsExactly(new NoticeClosed(id, LocalDate.of(2026, 10, 30)));
+        .containsExactly(new NoticeClosed(id, "HOUSING", LocalDate.of(2026, 10, 30)));
 
     clock.set("2026-12-31T00:00");
     assertThat(status.refreshDue(10)).isZero(); // 마감 뒤에는 다시 계산하지 않음
@@ -574,7 +579,7 @@ class NoticeIngestionIntegrationTest {
     assertThat(ingestion.apply(body(corrected))).isEqualTo(IngestionOutcome.NEW_VERSION);
     assertThat(statusOf(id)).isEqualTo("CLOSED");
     assertThat(events.stream(NoticeClosed.class))
-        .containsExactly(new NoticeClosed(id, LocalDate.of(2026, 10, 26)));
+        .containsExactly(new NoticeClosed(id, "HOUSING", LocalDate.of(2026, 10, 26)));
   }
 
   @Test
@@ -904,7 +909,11 @@ class NoticeIngestionIntegrationTest {
             });
     assertThat(events.stream(NoticeUpdated.class))
         .singleElement()
-        .satisfies(e -> assertThat(e.changedFields()).containsExactly("followUps"));
+        .satisfies(
+            e -> {
+              assertThat(e.field()).isEqualTo("HOUSING");
+              assertThat(e.changedFields()).containsExactly("followUps");
+            });
   }
 
   @Test
@@ -982,7 +991,11 @@ class NoticeIngestionIntegrationTest {
     assertThat(events.stream(NoticePublished.class)).isEmpty(); // 새 공고 알림은 보내지 않음
     assertThat(events.stream(NoticeUpdated.class))
         .singleElement()
-        .satisfies(e -> assertThat(e.changedFields()).containsExactly("sources"));
+        .satisfies(
+            e -> {
+              assertThat(e.field()).isEqualTo("HOUSING");
+              assertThat(e.changedFields()).containsExactly("sources");
+            });
     assertThat(merges.pendingCandidates()).isEmpty(); // 합친 후보는 정리됨
 
     ingestion.apply(body(otherPost(fixture()))); // 모집 회차가 다른 공고
