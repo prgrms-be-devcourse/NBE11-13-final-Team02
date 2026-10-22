@@ -7,7 +7,7 @@ import kr.mujuthaek.api.eligibility.rule.Field;
 import kr.mujuthaek.api.eligibility.rule.Verdict;
 
 /**
- * 판정 틀 하나에 대한 판정 결과. 저장하지 않고 응답으로만 돌려줘요.
+ * 판정 틀 하나에 대한 판정 결과 (판정 엔진 안쪽). 저장하지 않고, 서비스가 JudgmentResult·MatchResult로 바꿔서 돌려줘요.
  *
  * @param referenceDate 판정에 쓴 기준일 (틀에 기준일이 없으면 판정한 날)
  * @param result 대상군 중 하나라도 충족이면 지원 가능, 충족은 없고 확인 필요가 있으면 확인 필요, 모두 불충족이면 지원 불가
