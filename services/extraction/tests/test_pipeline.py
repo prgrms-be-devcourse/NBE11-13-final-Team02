@@ -72,6 +72,50 @@ def test_field_without_rules_is_unsupported():
     assert outcome.status == "UNSUPPORTED" and model.requests == []
 
 
+def test_rule_folders_register_themselves_and_folders_without_rules_are_skipped():
+    # 요구 2-02: 규칙 폴더(FIELD·RULES)만 추가하면 그 분야를 처리합니다. 실제 rules/에는 아직 주거만 있습니다
+    from mujuthaek_extraction import pipeline
+    from mujuthaek_extraction.rules import discover
+
+    current, legacy = discover()
+    assert set(current) == {"HOUSING"} and set(legacy) == {"HOUSING"}  # business_space·startup_support(빈 폴더)·policy(판정 틀 읽기)는 건너뜀
+    assert current["HOUSING"] is RULES and legacy["HOUSING"].prompt_version == "v10"
+    assert pipeline.RULES_BY_METHOD == {"structured": current, "legacy": legacy}
+
+
+def test_new_rule_folder_is_picked_up_without_touching_the_pipeline(tmp_path, monkeypatch):
+    import importlib
+    import uuid
+
+    import pytest
+
+    from mujuthaek_extraction import pipeline
+    from mujuthaek_extraction.rules import discover
+
+    name = "rules_" + uuid.uuid4().hex[:8]  # 다른 시험과 모듈 이름이 겹치지 않게
+    root = tmp_path / name
+    (root / "space").mkdir(parents=True)
+    (root / "empty").mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "helper.py").write_text("FIELD = 'HELPER'\n", encoding="utf-8")  # 폴더가 아닌 파일은 분야가 아님
+    (root / "empty" / "__init__.py").write_text("FIELD = 'STARTUP_SUPPORT'\n", encoding="utf-8")  # RULES 없음
+    (root / "space" / "__init__.py").write_text("from mujuthaek_extraction.rules.housing_notice import RULES\nFIELD = 'BUSINESS_SPACE'\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    current, legacy = discover(importlib.import_module(name))
+    assert set(current) == {"BUSINESS_SPACE"} and legacy == {}
+
+    # 규칙이 생기면 같은 이벤트가 UNSUPPORTED가 아니라 AI 호출로 갑니다(pipeline.py는 그대로)
+    monkeypatch.setitem(pipeline.RULES_BY_METHOD, "structured", current)
+    model = RecordedModel({name: [ModelError("시험: 호출만 확인", transient=False)] for name in answers()})
+    outcome = run(raw_event(field="BUSINESS_SPACE"), NoticeModels(model, None))
+    assert outcome.status == "FAILED" and model.requests[0].call_name == "structure"
+
+    (root / "twin").mkdir()
+    (root / "twin" / "__init__.py").write_text((root / "space" / "__init__.py").read_text(encoding="utf-8"), encoding="utf-8")
+    with pytest.raises(ValueError, match="BUSINESS_SPACE"):  # 같은 분야 규칙이 두 폴더에 있으면 시작할 때 막음
+        discover(importlib.import_module(name))
+
+
 def test_missing_s3_text_waits_for_source():
     outcome = run(raw_event(textKey="text/virtual/1/v1.txt"), NoticeModels(RecordedModel({}), None))
     assert outcome.status == "WAITING_SOURCE" and outcome.retryable

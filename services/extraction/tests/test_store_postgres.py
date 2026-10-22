@@ -217,3 +217,64 @@ def test_same_policy_version_is_judged_once_unless_reprocessed(store):
     assert not store.judged(first)
     assert store.save_judgment(first, new_event("extraction.completed", "extraction", {"rawPostId": policy}))
     assert store.judged(again) and not store.judged(redo)
+
+
+def test_same_notice_event_delivered_ten_times_is_processed_once_and_reprocess_runs_again(store):
+    # 요구 2-01: 같은 raw.notice.collected 10번 → AI 처리 1번·완료 이벤트 1건. 재처리 표시(reprocess=true)는 새 eventId로 오면
+    # 같은 원본 버전이어도 다시 처리하고(worker._handle의 version_published 건너뜀), 그 재처리 이벤트도 10번에 1번만 처리합니다
+    import copy
+
+    from test_worker_parts import bare_processor
+
+    calls = []
+
+    def ai_run(event):
+        calls.append(event["eventId"])
+        outcome = run(event, NoticeModels(RecordedModel(answers()), None))
+        outcome.event = outcome.event | {"eventId": str(uuid.uuid4())}  # 시험용 new_event는 eventId가 고정이라 아웃박스에서 겹치지 않게
+        return outcome
+
+    processor = bare_processor(ai_run)
+    event = raw_event()
+    for _ in range(10):
+        processor.handle(store, copy.deepcopy(event))
+    assert calls == [event["eventId"]]
+    assert count(store, "select count(*) from outbox") == 1 and count(store, "select count(*) from extraction_jobs") == 1
+
+    resent = versioned(1)  # 수집기가 같은 버전을 새 eventId로 다시 보냄(재처리 표시 없음): AI를 부르지 않음
+    processor.handle(store, resent)
+    assert len(calls) == 1 and store.already_processed(resent["eventId"])
+
+    redo = versioned(1)
+    redo["payload"]["reprocess"] = True
+    for _ in range(10):
+        processor.handle(store, copy.deepcopy(redo))
+    assert calls == [event["eventId"], redo["eventId"]]
+    assert count(store, "select count(*) from outbox") == 2
+
+
+def test_same_policy_event_delivered_ten_times_makes_one_judgment_and_reprocess_runs_again(store):
+    # 요구 2-01: 같은 raw.policy.collected 10번 → AI 읽기 1번·판정 틀 이벤트 1건. 같은 정책·버전을 새 eventId로 다시 보내도 읽지 않고,
+    # 재처리 표시(reprocess=true)면 새 eventId 하나당 한 번 다시 만듭니다(store._judgment_keys)
+    import copy
+    import json
+
+    from test_policy_judgment import REGIONS, TOUR_ANSWER, tour
+
+    from mujuthaek_extraction.rules.policy.reading import CALL_NAME
+    from mujuthaek_extraction.worker import judge_policy
+
+    model = RecordedModel({CALL_NAME: [json.dumps(TOUR_ANSWER)] * 2})
+    payload = tour() | {"rawPolicyId": str(uuid.uuid4()), "version": 3}
+    collected = {"eventId": str(uuid.uuid4()), "eventType": "raw.policy.collected", "payload": payload}
+    made = [judge_policy(store, copy.deepcopy(collected), model, REGIONS) for _ in range(10)]
+    assert sum(1 for m in made if m) == 1 and len(model.requests) == 1
+    assert count(store, "select count(*) from outbox") == 1
+
+    resent = collected | {"eventId": str(uuid.uuid4())}
+    assert judge_policy(store, resent, model, REGIONS) is None and len(model.requests) == 1
+
+    redo = {"eventId": str(uuid.uuid4()), "eventType": "raw.policy.collected", "payload": payload | {"reprocess": True}}
+    made = [judge_policy(store, copy.deepcopy(redo), model, REGIONS) for _ in range(10)]
+    assert sum(1 for m in made if m) == 1 and len(model.requests) == 2
+    assert count(store, "select count(*) from outbox") == 2
