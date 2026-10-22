@@ -10,6 +10,7 @@ import com.jayway.jsonpath.JsonPath;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.notice.NoticeApiFixture;
+import kr.mujuthaek.api.notice.NoticeFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.node.ObjectNode;
@@ -63,8 +64,8 @@ class NoticeListApiTest {
 
   @Test
   void filtersByRegionTenureStatusAndType() throws Exception {
-    UUID mapo = f.notice(p -> p.put("regionCode", "11440"));
-    UUID suwon = f.notice(p -> p.put("regionCode", "41111"));
+    UUID mapo = f.notice(p -> NoticeFixtures.region(p, "11440"));
+    UUID suwon = f.notice(p -> NoticeFixtures.region(p, "41111"));
     UUID sale =
         f.notice(p -> ((ObjectNode) p.get("notice").get("notice")).put("supplyType", "공공분양"));
 

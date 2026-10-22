@@ -10,12 +10,14 @@ import java.util.Map;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Condition;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FileLink;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FollowUp;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Schedule;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Site;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Summary;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.UnitType;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.node.JsonNodeFactory;
 
 /**
  * 저장한 extraction.completed payload(상세 notice: contracts/schemas/extracted-notice.v1.json)에서 상세 응답
@@ -30,6 +32,7 @@ public final class NoticeDetailMapper {
   public static NoticeDetailResponse map(
       NoticeDetailResponse.Header header,
       JsonNode payload,
+      List<FollowUp> followUps,
       int version,
       boolean reviewed,
       OffsetDateTime updatedAt,
@@ -44,6 +47,7 @@ public final class NoticeDetailMapper {
         unitTypes,
         conditions(payload),
         files(detail),
+        followUps,
         hasUnits(detail),
         version,
         reviewed,
@@ -69,6 +73,16 @@ public final class NoticeDetailMapper {
         total,
         min,
         max);
+  }
+
+  /** 후속 안내 한 건. schedules는 후속 안내 글의 일정(상세의 schedules와 같은 모양)이에요. */
+  public static FollowUp followUp(
+      String title, String detailUrl, LocalDate postedOn, JsonNode schedules, LocalDate today) {
+    return new FollowUp(
+        title,
+        detailUrl,
+        postedOn,
+        schedules(JsonNodeFactory.instance.objectNode().set("schedules", schedules), today));
   }
 
   static List<Schedule> schedules(JsonNode detail, LocalDate today) {

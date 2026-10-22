@@ -22,23 +22,38 @@ class NoticeUnitsApiTest {
   private final NoticeApiFixture f = new NoticeApiFixture();
   private final MockMvc mvc = f.mvc(new NoticeController(f.queries));
 
-  /** 예시의 201호를 202호·203호로 늘린 공고 (203호는 다른 건물). */
+  /** 예시의 201호를 202호·203호로 늘린 공고 (203호는 다른 건물). ID·참조는 계약에 맞게 새로 써요. */
   private UUID threeUnits() {
     return f.notice(
         p -> {
           ObjectNode detail = (ObjectNode) p.get("notice");
+          ArrayNode locations = (ArrayNode) detail.get("locations");
+          ObjectNode buildingB = ((ObjectNode) locations.get(0)).deepCopy();
+          buildingB.put("id", "building-b").put("buildingName", "가상건물 B동");
+          buildingB.put("address", "서울특별시 종로구 가상로 2");
+          locations.add(buildingB);
           ArrayNode groups = (ArrayNode) detail.get("supplyGroups");
           ObjectNode first = (ObjectNode) groups.get(0);
           for (String unit : List.of("202", "203")) {
+            String id = "unit-" + unit;
+            String location = unit.equals("203") ? "building-b" : "building-a";
             ObjectNode copy = first.deepCopy();
-            copy.put("id", "unit-" + unit);
+            copy.put("id", id);
             copy.put("unitLabel", unit + "호");
-            if (unit.equals("203")) {
-              copy.put("locationId", "building-b");
+            copy.put("locationId", location);
+            scope((ObjectNode) copy.get("scope"), location, id);
+            for (var price : copy.get("prices")) {
+              ((ObjectNode) price).put("id", price.get("id").asString() + "-" + unit);
+              scope((ObjectNode) price.get("scope"), location, id);
             }
             groups.add(copy);
           }
         });
+  }
+
+  private static void scope(ObjectNode scope, String location, String group) {
+    scope.putArray("locationIds").add(location);
+    scope.putArray("supplyGroupIds").add(group);
   }
 
   @Test
@@ -94,7 +109,15 @@ class NoticeUnitsApiTest {
 
   @Test
   void noticesWithoutUnitsGiveAnEmptyList() throws Exception {
-    UUID id = f.notice(p -> ((ObjectNode) p.get("notice")).putArray("supplyGroups"));
+    UUID id =
+        f.notice(
+            p -> {
+              ObjectNode detail = (ObjectNode) p.get("notice");
+              detail.putArray("supplyGroups");
+              ((ObjectNode) detail.get("quality").get("coverage").get("supplyGroups"))
+                  .put("status", "NOT_IN_SOURCE")
+                  .put("reason", "원문에 공급 묶음이 없어요");
+            });
 
     mvc.perform(get("/api/v1/notices/{id}/units", id))
         .andExpect(status().isOk())

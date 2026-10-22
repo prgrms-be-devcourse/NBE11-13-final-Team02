@@ -133,10 +133,9 @@ public class NoticeQueries {
             """
             select n.id, n.field, n.title, n.provider, n.notice_type, n.region_code, n.apply_start,
                    n.apply_end, n.posted_on, n.supply_type_text, n.detail_url, n.current_version,
-                   n.reviewed, n.updated_at, s.payload::text
+                   n.reviewed, n.updated_at, v.payload::text
             from notice.notices n
-            join notice.notice_sources s
-              on s.raw_post_id = n.current_raw_post_id and s.raw_version = n.current_raw_version
+            join notice.notice_versions v on v.notice_id = n.id and v.version = n.current_version
             where n.id = :id and n.current_version > 0 and not n.hidden
             """,
             new MapSqlParameterSource("id", noticeId),
@@ -162,27 +161,26 @@ public class NoticeQueries {
         .findFirst();
   }
 
-  /** 공개된 원본 버전 하나 (정정 이력). */
+  /** 공개 버전 하나 (정정 이력). 글 종류는 payload에서 읽어요. */
   public record VersionRow(
-      int version, String kind, String reviewStatus, OffsetDateTime receivedAt, String payload) {}
+      int version, String reviewStatus, OffsetDateTime receivedAt, String payload) {}
 
   /** 공개된 버전들을 버전 순서로. 숨김·공개 전·없는 공고면 빈 목록. */
   public List<VersionRow> versions(UUID noticeId) {
     return jdbc.query(
         """
-        select s.version, s.kind, s.review_status, s.received_at, s.payload::text
-        from notice.notice_sources s join notice.notices n on n.id = s.notice_id
-        where s.notice_id = :id and s.version is not null and n.current_version > 0 and not n.hidden
-        order by s.version
+        select v.version, v.review_status, v.created_at, v.payload::text
+        from notice.notice_versions v join notice.notices n on n.id = v.notice_id
+        where v.notice_id = :id and n.current_version > 0 and not n.hidden
+        order by v.version
         """,
         new MapSqlParameterSource("id", noticeId),
         (rs, i) ->
             new VersionRow(
                 rs.getInt(1),
                 rs.getString(2),
-                rs.getString(3),
-                rs.getObject(4, OffsetDateTime.class),
-                rs.getString(5)));
+                rs.getObject(3, OffsetDateTime.class),
+                rs.getString(4)));
   }
 
   /** 커서에 넣을 정렬 값 (목록의 정렬 식과 같아야 해요). */
