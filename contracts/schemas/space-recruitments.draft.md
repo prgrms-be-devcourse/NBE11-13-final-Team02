@@ -74,7 +74,7 @@ space_recruitments (공고 1줄)
 | `relevance_reason` | text | ✅ | 판단 이유 한 문장 | `relevanceReason` |
 | `summary` | text | | 한 줄 요약 (80자 안) | `summary` |
 | `facility_name` | text | | 시설 이름 ('서울창업센터 동작') | `facility.name` |
-| `facility_kind` | text | ✅ | `INCUBATOR` 창업보육센터·창업센터, `SHARED_OFFICE` 공유오피스, `OFFICE` 사무실·업무시설, `STORE` 상가·점포·청년몰, `FACTORY` 공장·제조공간, `OTHER` | `facility.kind` |
+| `facility_kind` | text | ✅ | `INCUBATOR` 창업보육센터·창업센터, `SHARED_OFFICE` 공유오피스, `OFFICE` 사무실·업무시설, `FACTORY` 공장·제조공간, `OTHER` | `facility.kind` |
 | `facility_address` | text | | 시설 주소 원문 | `facility.address` |
 | `facility_evidence` | text | | 시설 이름·주소가 들어 있는 원문 문장 | `facility.evidence` |
 | `recruit_count` | int | | 모집 기업·팀 수 | `recruitCount` |
@@ -178,7 +178,7 @@ create table benefit.space_recruitments (
     relevance_reason   text        not null,
     summary            text,
     facility_name      text,
-    facility_kind      text        not null,             -- INCUBATOR, SHARED_OFFICE, OFFICE, STORE, FACTORY, OTHER
+    facility_kind      text        not null,             -- INCUBATOR, SHARED_OFFICE, OFFICE, FACTORY, OTHER
     facility_address   text,
     facility_evidence  text,
     recruit_count      int,

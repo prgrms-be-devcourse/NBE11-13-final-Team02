@@ -81,7 +81,7 @@ make up                                                                   # 스�
 | `bokjiro_central` | 복지로 중앙부처 복지서비스 목록·상세 (`B554287/NationalWelfareInformationsV001`) | 상세의 관련 서식(`basfrmList`) 중 안내문·지침만. 서식뿐이면 원문 화면에서 찾기 |
 | `bokjiro_local` | 복지로 지자체 복지서비스 목록·상세 (`B554287/LocalGovernmentWelfareInformations`) | 관련 서식 중 안내문·지침만. 서식뿐이거나 없으면 관련 홈페이지(원문)에서 찾기 |
 | `youth` | 온통청년 청년정책 (`youthcenter.go.kr/go/ythip/getPlcy`), 분류 조건 없이 전체 | API에 없음. 참고 주소(`refUrlAddr1·2`, 기관 원문 공고)에서 찾기 |
-| `kstartup` | K-Startup 창업지원사업 공고 (`B552735/kisedKstartupService01/getAnnouncementInformation01`), 모집 중인 공고만 | API에 없음. 상세 화면은 열지 않아요 (robots.txt가 막으려 한 화면이고 첨부 목록은 금지) |
+| `kstartup` | K-Startup 창업지원사업 공고 (`B552735/kisedKstartupService01/getAnnouncementInformation01`), 모집 중인 공고만 | API에 없음. **사업공간 모집만** 상세 화면(`detl_pg_url`) 본문을 읽어요 ('입주공간 및 이용료', 2026-10-22 결정). 첨부(`/afile/`)는 robots.txt 금지라 받지 않아요 (`origin_files = False`) |
 | `bizinfo` | 기업마당 지원사업 공고 (`bizinfo.go.kr/uss/rss/bizinfoApi.do`), 게시 중인 공고 전체 | 본문 출력 파일(`printFlpthNm`, 모든 공고에 있어요)과 첨부(`flpthNm`). API 항목만으로는 부족해서 본문 파일 글자를 꼭 뽑아요 |
 
 흐름
@@ -99,7 +99,8 @@ make up                                                                   # 스�
 
    창업지원 범위는 **창업 공간 + 지원금·정책자금**이에요 (`base.startup_in_scope`). 출처 분류가 공간·자금이거나 이름(온통청년은 지원 내용도)에 공간·자금 단어가 있으면 넣고, 이름에 교육·멘토링·컨설팅·행사·경진대회·홍보 단어가 있으면 빼요(공간 단어가 같이 있으면 넣어요).
    **분류(`raw_policies.field`, 이벤트 `field`)**: 지원 정책(`BENEFIT`·`STARTUP_SUPPORT`)과 사업공간 모집(`SPACE_RECRUITMENT`)으로 나눠요 (2026-10-22 결정, `source.classify`).
-   창업지원 중 이름이 입주·입점 모집, 임대 공급이면 `SPACE_RECRUITMENT`예요 (`base.SPACE_RECRUIT`, 창업보육센터·공유오피스 입주기업 모집, 청년몰 입점 모집, LH 업무시설 임대공급). 임대료를 대신 내주는 사업은 `STARTUP_SUPPORT`예요.
+   창업지원 중 이름이 입주·입점 모집, 임대 공급이면 `SPACE_RECRUITMENT`예요 (`base.SPACE_RECRUIT`, 창업보육센터·공유오피스 입주기업 모집, LH 업무시설 임대공급). 임대료를 대신 내주는 사업은 `STARTUP_SUPPORT`예요.
+   **상가 모집은 수집하지 않아요** (2026-10-22 결정, `base.SHOP_RECRUIT`): 전통시장 청년몰 입점, 상가 임대공급, 청년상인·점포운영자 모집은 거름을 통과해도 SKIPPED. 점포 임차료 지원·상가 임대료 감면은 그대로 수집해요.
    원본은 `raw_policies` 한 테이블에 두고 이 칸으로 나눠요. 목록 단계에서 정해 저장하고, 추출 결과는 지원 정책은 `benefits`, 사업공간 모집은 `space_recruitments`에 저장해요 (`contracts/schemas/*-extracted.draft.md`).
    보조금24는 열 정책이 20건 이상이면 상세·지원조건을 1000건씩 한꺼번에 받아요(정책마다 2번 대신 모두 합쳐 22번).
 2. PENDING 정책을 회차마다 `POLICY_DETAIL_LIMIT`건까지 처리해요. 상세 API → 첨부(API 첨부, 없으면 원문 화면의 첨부 링크) → 공고·안내 문서 글자 뽑기 → 버전 비교 → 저장 + 이벤트.

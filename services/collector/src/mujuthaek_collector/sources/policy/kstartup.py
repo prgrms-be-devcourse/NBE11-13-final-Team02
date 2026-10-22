@@ -11,9 +11,11 @@
 거름  창업 공간·지원금·정책자금만 (base.startup_in_scope). 지원 분야 '시설ㆍ공간ㆍ보육'·'사업화'·'융자ㆍ보증'·'정책자금'이면 넣되,
       이름에 교육·행사 단어가 있으면 빼요. 다른 분야(교육·멘토링·행사·판로·글로벌·R&D·인력)도 이름에 공간·자금 단어가 있으면 넣어요.
       2026-10-18 모집 중 228건 중 82건. 나머지는 SKIPPED로 남겨요.
-첨부  API에 첨부가 없어요. 상세 화면(detl_pg_url)은 열지 않아요: robots.txt에 'Disallow: /bizpbanc-ongoing.do'가 있어
-      규칙상으로는 '/web/contents/bizpbanc-ongoing.do'가 허용이지만 기관이 막으려 한 화면으로 보이고,
-      첨부 목록(/afile/fileList.do)은 금지예요.
+첨부  API에 첨부가 없어요. 첨부 파일(/afile/…)은 robots.txt 'Disallow: /afile*/'라 받지 않아요.
+원문  사업공간 모집(SPACE_RECRUITMENT)만 상세 화면(detl_pg_url)의 본문을 읽어요 (2026-10-22 결정). API 요약에는 없는
+      '입주공간 및 이용료'(호실별 면적, ㎡당 이용료, 입주 기간, 모집 규모)가 본문에 있어서예요. 지원금·정책자금 공고는 열지 않아요.
+      robots.txt의 'Disallow: /bizpbanc-ongoing.do'는 사이트 맨 앞 경로라 '/web/contents/bizpbanc-ongoing.do'는 허용이에요
+      (기관 의도와 어긋날 수 있어 팀에서 정했어요). 하루 최대 수십 건, 4초 간격, 내용이 바뀔 때만 다시 열어요.
 수정일 목록에 수정일이 없어서 목록 항목 해시로 바뀐 것을 봐요.
 """
 
@@ -26,6 +28,7 @@ from mujuthaek_collector.sources.base import Request
 from mujuthaek_collector.sources.policy.base import (
     NATIONWIDE,
     SIDO,
+    SPACE_RECRUITMENT,
     UNKNOWN,
     PolicyDetail,
     PolicyItem,
@@ -137,6 +140,7 @@ class KStartupSource(PolicySource):
     provider = "KSTARTUP"
     field = "STARTUP_SUPPORT"
     page_size = 1000
+    origin_files = False  # 상세 화면의 첨부(/afile/)는 robots.txt 금지라 본문 글자만 읽어요
     key_env = "DATA_GO_KR_SERVICE_KEY"
     labels = LABELS
     ai_keys = (
@@ -171,9 +175,12 @@ class KStartupSource(PolicySource):
     def parse_detail(self, item: PolicyItem, bodies: list[str]) -> PolicyDetail:
         record = dict(item.record)
         scope, names = region_of(record.get("supt_regin"))
+        detail_url = record.get("detl_pg_url")
+        space = self.classify(item.title, record) == SPACE_RECRUITMENT and str(detail_url or "").startswith("http")
         return PolicyDetail(
             record=record,
-            detail_url=record.get("detl_pg_url"),
+            origin_urls=[detail_url] if space else [],  # 사업공간 모집만 상세 화면 본문을 읽어요
+            detail_url=detail_url,
             apply_url=apply_url(record),
             agency=record.get("pbanc_ntrp_nm"),
             region_scope=scope,

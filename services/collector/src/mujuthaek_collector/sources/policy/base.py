@@ -74,8 +74,24 @@ BENEFIT, STARTUP_SUPPORT, SPACE_RECRUITMENT = "BENEFIT", "STARTUP_SUPPORT", "SPA
 SPACE_RECRUIT = re.compile(r"입주(?:기업|자|팀|스타트업|기관)?.{0,6}모집|입점.{0,6}모집|임대\s*공급|입주.{0,4}공고|멤버십.{0,4}모집|입주ㆍ")
 
 
+# 상가 모집은 수집하지 않아요 (2026-10-22 결정): 전통시장 청년몰·점포·상가·푸드존 부스에 들어올 상인을 뽑는 공고.
+# 거름을 통과해도 SKIPPED로 두고, 사업공간 모집으로도 나누지 않아요. 점포 임차료 지원·상가 임대료 감면처럼 돈을 주는 사업은 그대로 수집해요.
+#   예: 화성동탄2 … 스마트주차장 상가 임대공급, 김제전통시장 청년몰 입점 모집, 삼척중앙시장 청년몰 청년상인 수시모집,
+#       금산금빛시장 청년몰 입점상인 모집, 백운광장 스트리트 푸드존 점포운영자 모집, 길음청년희망스토어 청년창업팀 모집, 순천시 청춘창고
+SHOP_RECRUIT = re.compile(
+    r"청년몰|청춘창고|청년\s*상인.{0,6}모집|입점\s*상인|점포\s*운영자"
+    r"|(?:점포|상가|매장|스토어|청년식당).{0,15}(?:모집|입점|입주|임대\s*공급)"
+)
+SHOP_SUPPORT = re.compile(r"직매장|임차료|임대료|감면|안심벨|컨설팅|환경\s*개선")  # 상가 단어가 있어도 지원 사업
+
+
+def shop_recruitment(title: Any) -> bool:
+    name = str(title or "")
+    return bool(SHOP_RECRUIT.search(name)) and not SHOP_SUPPORT.search(name)
+
+
 def space_recruitment(title: Any) -> bool:
-    return bool(SPACE_RECRUIT.search(str(title or "")))
+    return bool(SPACE_RECRUIT.search(str(title or ""))) and not shop_recruitment(title)
 
 
 def startup_in_scope(title: Any, text: Any = None, *, category_ok: bool = False) -> bool:
@@ -166,6 +182,7 @@ class PolicySource(ABC):
     ai_keys: tuple[str, ...] = ()
     # 첨부·원문 화면: ALWAYS 항상 찾아요, WHEN_THIN API 설명 칸이 짧거나 '공고문 참조'일 때만, NEVER 보지 않아요 (AI 비용·수집 시간)
     attachments = "ALWAYS"
+    origin_files = True  # 원문 화면의 첨부 링크도 받을지. False면 본문 글자만 읽어요 (K-Startup: 첨부 경로가 robots.txt 금지)
 
     def __init__(self, api_key: str | None):
         self.api_key = normalize_key(api_key)

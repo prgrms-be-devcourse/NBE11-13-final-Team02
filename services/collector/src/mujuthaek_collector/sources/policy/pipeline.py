@@ -48,7 +48,7 @@ from mujuthaek_collector.sources.policy.attachments import (
     relevant,
     with_ext,
 )
-from mujuthaek_collector.sources.policy.base import SCOPE_LABELS, PolicyDetail, PolicyItem, PolicySource
+from mujuthaek_collector.sources.policy.base import SCOPE_LABELS, PolicyDetail, PolicyItem, PolicySource, shop_recruitment
 from mujuthaek_collector.sources.policy.client import ApiError, MaskedFetcher, mask
 from mujuthaek_collector.sources.policy.config import PolicySettings
 from mujuthaek_collector.sources.policy.event import build_policy_event
@@ -151,7 +151,8 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
                     continue
                 seen.add(item.policy_id)
                 entry = known.get(item.policy_id)
-                wanted = source.wanted(item) and not source.closed(item, ctx.today)
+                # 상가 모집은 수집하지 않아요 (base.SHOP_RECRUIT)
+                wanted = source.wanted(item) and not shop_recruitment(item.title) and not source.closed(item, ctx.today)
                 kind = source.classify(item.title, item.record)  # 지원 정책(BENEFIT·STARTUP_SUPPORT) / 사업공간 모집(SPACE_RECRUITMENT)
                 if entry is None:
                     register(ctx, item, PENDING if wanted else SKIPPED, kind)
@@ -222,7 +223,9 @@ def process_policy(ctx: PolicyContext, policy: PolicyRow) -> bool:
     # 원문 화면 글자는 비교에서 빼요. 조회수·방문자 수·오늘 날짜가 섞여 있어서, 넣으면 열 때마다 새 버전이 돼요
     new_hash = content_hash(body, [f.file_hash for f, _ in saved])
     latest = ctx.store.latest_hash(policy.id)
-    if latest and latest[1] == new_hash:
+    # 원문 본문을 처음 얻었으면 내용이 같아도 새 버전을 만들어요 (지난 버전엔 원문 본문이 없었음: 원문을 새로 읽게 된 출처 등)
+    gained_origin = origin.text is not None and latest is not None and latest[2] != st.OK
+    if latest and latest[1] == new_hash and not gained_origin:
         ctx.store.mark_done(policy.id)  # 목록 수정일만 바뀌고 내용은 같음
         return False
     version = (latest[0] if latest else 0) + 1
@@ -390,7 +393,9 @@ def from_origin(ctx: PolicyContext, detail: PolicyDetail, title: str) -> OriginR
         page_relevant = bool(text and relevant(title, text))
         if result.text is None and page_relevant:
             result.text = OriginText(url, text)
-        links = [f for f in file_links(html, url) if origin_file_ok(f, title, page_relevant)]  # 첫 화면·하단 공통 링크는 빼요
+        links = (
+            [f for f in file_links(html, url) if origin_file_ok(f, title, page_relevant)] if ctx.source.origin_files else []
+        )  # 첫 화면·하단 공통 링크는 빼요
         result.candidates += [Candidate(f, "ORIGIN_PAGE", url) for f in links]
         if any(explains(f) for f in links):
             return result  # 공고문이 있는 첫 화면까지만 열어요

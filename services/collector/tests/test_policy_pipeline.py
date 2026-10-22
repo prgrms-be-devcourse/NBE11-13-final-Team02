@@ -145,6 +145,20 @@ def test_kstartup_uses_list_only(api, web, policy_store, file_store, policy_sett
     assert again.new_count == 0 and len(policy_store.versions) == 1
 
 
+def kstartup_page(title: str) -> str:
+    """K-Startup 상세 화면 모양 (본문의 '입주공간 및 이용료'). 첨부 링크는 /afile/이라 받지 않아요."""
+    return (
+        f"<html><body><div id='contents'><h3>{title}</h3><div class='box'>"
+        "<p>우수한 기술력을 보유하고 성장성이 유망한 서울시 기술 창업기업을 지원하기 위해 신규 입주기업 모집을 아래와 같이 진행합니다.</p>"
+        "<p>입주공간 및 이용료 1. 소재지: 서울시 동작구 노량진로10, 서울창업센터 동작 (대방역 2번 출구) "
+        "2. 모집공간: 3인실(18㎡) 1개, 5인실(24㎡) 7개, 12인실(47㎡) 1개 3. 입주비용: ㎡당 이용료 3,660원 (VAT 미포함) "
+        "4. 모집대상: 모집공고일 기준 창업 7년 이내 스타트업 5. 모집규모: 총 10개사 내외 "
+        "6. 입주기간: 24개월 (연장평가 결과에 따라 1년 단위로 최대 2회 연장 가능)</p>"
+        "<p>선정절차 및 평가방법: 서류 평가 후 발표 평가로 선정하며, 세부 내용은 공고문을 참조하시기 바랍니다.</p>"
+        "</div><a href='/afile/fileDownload/iN1Ln' title='[첨부파일] 공고문.pdf'>공고문.pdf</a></div></body></html>"
+    )
+
+
 def test_space_recruitment_is_classified_at_list_and_sent_with_its_field(api, web, policy_store, file_store, policy_settings):
     source = KStartupSource(KEY)
     space = {**s.KSTARTUP_POLICY, "pbanc_sn": "179600", "biz_pbanc_nm": "2026년 서울창업센터 동작 입주기업 모집", "supt_biz_clsfc": "시설ㆍ공간ㆍ보육"}
@@ -153,12 +167,70 @@ def test_space_recruitment_is_classified_at_list_and_sent_with_its_field(api, we
     run(source, api, web, policy_store, file_store, policy_settings)
     assert policy_store.by_key("179600").field == "SPACE_RECRUITMENT" and policy_store.by_key("179540").field == "STARTUP_SUPPORT"
 
+    web.pages[space["detl_pg_url"]] = kstartup_page(space["biz_pbanc_nm"])  # 사업공간 모집은 상세 화면 본문을 읽어요
     run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=10))
     for event in policy_store.events:
         validate_event(event)
     fields = {e["payload"]["policyId"]: e["payload"]["field"] for e in policy_store.events}
     assert fields == {"179540": "STARTUP_SUPPORT", "179600": "SPACE_RECRUITMENT"}
     assert policy_store.by_key("179600").field == "SPACE_RECRUITMENT"
+
+
+def test_shop_recruitment_is_skipped(api, web, policy_store, file_store, policy_settings):
+    """상가 모집(청년몰·상가 임대공급)은 수집하지 않아요. 점포 임차료 지원처럼 돈을 주는 사업은 그대로 수집해요."""
+    source = KStartupSource(KEY)
+    rows = [
+        {**s.KSTARTUP_POLICY, "pbanc_sn": "1", "biz_pbanc_nm": "화성동탄2 인큐베이팅센터 및 스마트주차장 상가 임대공급", "supt_biz_clsfc": "시설ㆍ공간ㆍ보육"},
+        {**s.KSTARTUP_POLICY, "pbanc_sn": "2", "biz_pbanc_nm": "김제전통시장 청년몰 입점 모집", "supt_biz_clsfc": "시설ㆍ공간ㆍ보육"},
+        {**s.KSTARTUP_POLICY, "pbanc_sn": "3", "biz_pbanc_nm": "2026년 청년 소상공인 점포 임차료 지원사업", "supt_biz_clsfc": "사업화"},
+        {**s.KSTARTUP_POLICY, "pbanc_sn": "4", "biz_pbanc_nm": "2026년 서울창업센터 동작 입주기업 모집", "supt_biz_clsfc": "시설ㆍ공간ㆍ보육"},
+    ]
+    api.pages[list_url(source)] = s.kstartup_list(rows)
+    run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=0))
+    state = {p.policy_id: (p.status, p.field) for p in policy_store.policies.values()}
+    assert state == {
+        "1": ("SKIPPED", "STARTUP_SUPPORT"),
+        "2": ("SKIPPED", "STARTUP_SUPPORT"),
+        "3": ("PENDING", "STARTUP_SUPPORT"),
+        "4": ("PENDING", "SPACE_RECRUITMENT"),
+    }
+
+
+def test_kstartup_space_recruitment_reads_detail_page(api, web, policy_store, file_store, policy_settings):
+    """K-Startup 사업공간 모집만 상세 화면 본문(입주공간 및 이용료)을 읽어요. 지원금 공고는 열지 않아요."""
+    source = KStartupSource(KEY)
+    page_url = "https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do?schM=view&pbancSn=179600"
+    space = {
+        **s.KSTARTUP_POLICY,
+        "pbanc_sn": "179600",
+        "biz_pbanc_nm": "2026년 서울창업센터 동작 입주기업 모집",
+        "supt_biz_clsfc": "시설ㆍ공간ㆍ보육",
+        "detl_pg_url": page_url,
+    }
+    api.pages[list_url(source)] = s.kstartup_list([s.KSTARTUP_POLICY, space])
+    web.pages[page_url] = kstartup_page(space["biz_pbanc_nm"])
+    run(source, api, web, policy_store, file_store, policy_settings)
+    assert web.requested == [page_url]  # 지원금 공고(179540)는 열지 않고, 첨부(/afile/)도 받지 않아요
+    version = next(v for v in policy_store.versions if v.policy.policy_id == "179600")
+    assert version.origin_status == "OK" and version.origin_text_url == page_url and version.files == []
+    assert "모집공간: 3인실(18㎡) 1개" in version.full_text and "입주기간: 24개월" in version.full_text
+    other = next(v for v in policy_store.versions if v.policy.policy_id == "179540")
+    assert (other.document_status, other.origin_status) == ("NO_SOURCE", "NO_SOURCE")
+
+
+def test_new_version_when_origin_text_is_gained(api, web, policy_store, file_store, policy_settings):
+    """내용이 같아도 지난 버전에 원문 본문이 없었고 이번에 얻었으면 새 버전을 만들어요. 다시 열어 같은 본문이면 새 버전이 없어요."""
+    source = KStartupSource(KEY)
+    space = {**s.KSTARTUP_POLICY, "pbanc_sn": "179600", "biz_pbanc_nm": "2026년 서울창업센터 동작 입주기업 모집", "supt_biz_clsfc": "시설ㆍ공간ㆍ보육"}
+    api.pages[list_url(source)] = s.kstartup_list([space])
+    web.pages[space["detl_pg_url"]] = BlockedError("잠시 막힘")  # 첫 회차엔 본문을 못 읽음
+    run(source, api, web, policy_store, file_store, policy_settings)
+    assert [v.origin_status for v in policy_store.versions] == ["BLOCKED"]
+
+    web.pages[space["detl_pg_url"]] = kstartup_page(space["biz_pbanc_nm"])
+    assert run(source, api, web, policy_store, file_store, policy_settings, recheck=True).new_count == 1
+    assert [v.origin_status for v in policy_store.versions] == ["BLOCKED", "OK"]
+    assert run(source, api, web, policy_store, file_store, policy_settings, recheck=True).new_count == 0  # 본문이 있던 버전이면 그대로
 
 
 def test_origin_page_is_opened_when_api_has_only_forms(api, web, policy_store, file_store, policy_settings):

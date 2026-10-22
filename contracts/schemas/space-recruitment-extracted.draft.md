@@ -1,6 +1,6 @@
 # 사업공간 모집 추출 결과 계약 · space_recruitments 테이블 (초안 v0)
 
-창업지원 공고 중 **사업공간 모집**(창업보육센터·공유오피스 입주기업 모집, 청년몰 입점 모집, 업무시설 임대 공급)을
+창업지원 공고 중 **사업공간 모집**(창업보육센터·공유오피스 입주기업 모집, 업무시설 임대 공급)을
 수집(`raw.policy.collected`, `field = SPACE_RECRUITMENT`) → AI 추출(extraction) → benefit 모듈 저장까지 잇는 약속이에요.
 지원 정책(`BENEFIT`·`STARTUP_SUPPORT`)은 [policy-extracted.draft.md](policy-extracted.draft.md)의 `benefits`에, 사업공간 모집은 이 문서의 `space_recruitments`에 저장해요 (2026-10-22 결정).
 
@@ -15,9 +15,11 @@
 | --- | --- | --- |
 | `BENEFIT` | 청년 월세 지원, 귀농 정착금 | `benefits` |
 | `STARTUP_SUPPORT` | 창업 지원금·정책자금, **창업 임대료 지원**(공간을 빌려주지 않고 임대료를 대신 내줌) | `benefits` |
-| `SPACE_RECRUITMENT` | 창업센터 **입주기업 모집**, 청년몰 **입점 모집**, 업무시설 **임대 공급** (공간을 직접 빌려줌) | `space_recruitments` |
+| `SPACE_RECRUITMENT` | 창업센터 **입주기업 모집**, 업무시설 **임대 공급** (공간을 직접 빌려줌) | `space_recruitments` |
+| (수집 안 함) | **상가 모집**: 전통시장 청년몰 입점, 상가 임대공급, 청년상인·점포운영자 모집 (2026-10-22 결정) | — |
 
-- 수집기가 목록 단계에서 이름으로 나눠요 (`sources/policy/base.py` `SPACE_RECRUIT`). 2026-10-21 기준 창업지원 287건 중 약 36건 (K-Startup 31)
+- 수집기가 목록 단계에서 이름으로 나눠요 (`sources/policy/base.py` `SPACE_RECRUIT`). 2026-10-22 로컬 데이터 기준 수집 완료 33건 (K-Startup 29, 온통청년 4)
+- 상가 모집은 거름에서 SKIPPED로 두고 사업공간으로도 나누지 않아요 (`base.SHOP_RECRUIT`). 점포 임차료 지원·상가 임대료 감면은 지원 정책으로 수집해요
 - 원본은 수집 DB `raw_policies` 한 테이블에 두고 `field` 칸으로 나눠요
 - 이름으로 잘못 나눈 공고는 AI가 `relevant=false`로 돌려줘요 (예: '입주기업 대상 마케팅 지원 모집'). benefit은 숨겨요
 
@@ -59,7 +61,7 @@ extraction은 `field`로 추출 규칙을 골라요 (`RULES_BY_FIELD`). 이벤�
 | 칸 | 모양 | 뜻 |
 | --- | --- | --- |
 | `name` | string \| null | 시설 이름 ('서울창업센터 동작') |
-| `kind` | enum | `INCUBATOR` 창업보육센터·창업센터, `SHARED_OFFICE` 공유오피스, `OFFICE` 사무실·업무시설, `STORE` 상가·점포·청년몰, `FACTORY` 공장·제조공간, `OTHER` |
+| `kind` | enum | `INCUBATOR` 창업보육센터·창업센터, `SHARED_OFFICE` 공유오피스, `OFFICE` 사무실·업무시설, `FACTORY` 공장·제조공간, `OTHER` |
 | `address` | string \| null | 주소 원문 |
 | `evidence` | string | 원문 문장 |
 

@@ -67,7 +67,7 @@ class PolicyMemoryStore:
 
     def latest_hash(self, policy_id):
         mine = [v for v in self.versions if v.policy.id == policy_id]
-        return (mine[-1].version, mine[-1].content_hash) if mine else None
+        return (mine[-1].version, mine[-1].content_hash, mine[-1].origin_status) if mine else None
 
     def mark_done(self, policy_id):
         self.policies[policy_id].status = "DONE"

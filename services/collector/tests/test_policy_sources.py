@@ -199,7 +199,8 @@ def test_kstartup_scope_is_space_and_funds(title, field, expected):
         ("남서울대학교 창업보육센터 입주기업 모집 공고", "SPACE_RECRUITMENT"),
         ("영도 창업오피스 크립톤 1:1 멘토링 입주기업 모집", "SPACE_RECRUITMENT"),
         ("화성동탄2 인큐베이팅센터 업무시설 입점기업 임대공급", "SPACE_RECRUITMENT"),
-        ("김제전통시장 청년몰 입점 희망자 모집", "SPACE_RECRUITMENT"),
+        ("김제전통시장 청년몰 입점 희망자 모집", "STARTUP_SUPPORT"),  # 상가 모집은 사업공간이 아니에요 (수집도 안 해요)
+        ("화성동탄2 인큐베이팅센터 및 스마트주차장 상가 임대공급 선착순 수의계약 공고(일반형)", "STARTUP_SUPPORT"),
         ("2026 WEROUND 공유오피스 멤버십 모집", "SPACE_RECRUITMENT"),
         ("강진군 2026년 소상공인 창업 임대료 지원사업", "STARTUP_SUPPORT"),  # 임대료를 대신 내주는 사업은 지원 정책
         ("2026년 용산구 청년기업 융자지원사업", "STARTUP_SUPPORT"),
