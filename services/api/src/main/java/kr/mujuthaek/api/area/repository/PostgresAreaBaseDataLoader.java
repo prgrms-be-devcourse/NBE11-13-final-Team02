@@ -31,7 +31,7 @@ import org.springframework.stereotype.Component;
 /**
  * 원천 파일을 area.facilities / area.stores에 반영해요. JDBC만 써서 테스트에서는 {@code new}로 만들어요.
  *
- * <p>순서: 머리줄 확인 → 머리줄 이름 그대로 임시 테이블(stage_raw) → COPY → 변환 SQL(stage_norm) → 공통 검사 → 반영·삭제 → 실행 기록.
+ * <p>순서: 머리줄 확인 → 머리줄 이름 그대로 임시 테이블(stage_raw) → COPY → 변환 SQL(stage_norm) → 공통 검사 → 삭제·반영 → 실행 기록.
  * 데이터 변경은 트랜잭션 하나라 실패하면 이전 데이터가 그대로 남아요. 실행 기록은 실패해도 남아야 해서 커넥션을 직접 잡고 커밋·롤백해요 — 부르는 쪽에
  * {@code @Transactional}을 붙이지 마세요.
  *
@@ -114,15 +114,17 @@ public final class PostgresAreaBaseDataLoader {
     Date dataDate = Date.valueOf(req.dataDate());
     int[] iu;
     int deleted;
+    // 지우기를 반영보다 먼저 해요. 반영 뒤에 지우면 방금 넣은 줄이 통계에 없어서(첫 적재면 0줄로 봐요) 줄마다 임시 테이블을 통째로 읽어요
+    // (경기 상가 67만 줄 첫 적재에서 12분 넘게 걸림). 먼저 지우면 이미 커밋된 줄만 보고, 결과는 같아요.
     if (source.target() == AreaSource.Target.FACILITIES) {
+      deleted = update(conn, sql("delete_facilities.sql"), source.name());
       iu =
           queryPair(
               conn, sql("apply_facilities.sql"), source.facilityKind(), source.name(), dataDate);
-      deleted = update(conn, sql("delete_facilities.sql"), source.name());
     } else {
       // 상가는 시도 파일 하나가 적재 한 번이라, 지우기를 그 시도(load_scope) 안에서만 해요.
-      iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
       deleted = update(conn, sql("delete_stores.sql"), req.scope());
+      iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
     }
     int inserted = iu[0];
     int updated = iu[1];
