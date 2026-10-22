@@ -23,6 +23,9 @@ class AreaFixturesTest {
                   "address_entrance_11.txt",
                   "446a23e69e56fd0e761832caea54cc52b2aab4f6fbb898181fa7b67b90c201e7"),
               Map.entry(
+                  "address_entrance_48.txt",
+                  "077280760a75ed353b5e12d2c372a18aff119bccec30eb0cbc6b93c4c12477ae"),
+              Map.entry(
                   "address_entrance_26.txt",
                   "952110f28012d30d6ee95073fd494301efcc222bdfd6f6d59aaa75645b63fe97"),
               Map.entry(
