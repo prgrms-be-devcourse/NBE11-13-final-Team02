@@ -32,3 +32,6 @@ _backup_*/
 
 # 개인 문서 (저장소에 올리지 않음)
 .docs/
+
+# area 비교 도구 결과 (커밋하지 않음)
+tools/area-bench/results-*.txt
