@@ -29,6 +29,7 @@ from mujuthaek_extraction.extract import ExtractionRun, run_extraction
 from mujuthaek_extraction.image_reading import read_image_tables
 from mujuthaek_extraction.intake import ApiReferenceProvider, IntakeStatus, SourceReader, build_intake
 from mujuthaek_extraction.judgment import build_judgment
+from mujuthaek_extraction.judgment.pages import evidence_pages
 from mujuthaek_extraction.method import LEGACY, STRUCTURED, extraction_method
 from mujuthaek_extraction.model.factory import NoticeModels
 from mujuthaek_extraction.model.fallback import FallbackOnErrorModel, extract_with_fallback
@@ -84,7 +85,7 @@ UNVERIFIED_RULE = {"status": "UNSTRUCTURED", "expression": None, "reason": "조�
 ELIGIBILITY_ERROR = re.compile(r" /eligibility/(\d+)(?:/|$)")
 
 
-def degraded_payload(payload: dict[str, Any], errors: list[str], regions: Any = None) -> dict[str, Any]:
+def degraded_payload(payload: dict[str, Any], errors: list[str], regions: Any = None, pages: dict[str, int] | None = None) -> dict[str, Any]:
     """상세 notice가 계약을 통과하지 못할 때: notice를 빼고 IN_REVIEW로 보냅니다.
     문제가 난 자격 조건은 조건식을 내려(원문만) 자동 판정되지 않게 하고 검수 표시를 붙입니다. 전체 후보는 DB에 남아 검수자가 고칩니다.
     판정 틀도 같은 조건을 원문 질문(ASK)·확인 필요로 다시 만듭니다(2026-10-21: 깨진 조건식으로 만든 틀이 확정으로 나갔음)."""
@@ -96,10 +97,12 @@ def degraded_payload(payload: dict[str, Any], errors: list[str], regions: Any = 
             condition = {**condition, "rule": dict(UNVERIFIED_RULE), "exceptions": [], "inReview": True, "reviewReasons": reasons}
         conditions.append(condition)
     rest = {k: v for k, v in payload.items() if k != "notice"}
-    return {**rest, "conditions": conditions, "reviewStatus": "IN_REVIEW", "judgment": _degraded_judgment(payload, broken, errors, regions)}
+    return {**rest, "conditions": conditions, "reviewStatus": "IN_REVIEW", "judgment": _degraded_judgment(payload, broken, errors, regions, pages)}
 
 
-def _degraded_judgment(payload: dict[str, Any], broken: set[int], errors: list[str], regions: Any) -> dict[str, Any] | None:
+def _degraded_judgment(
+    payload: dict[str, Any], broken: set[int], errors: list[str], regions: Any, pages: dict[str, int] | None = None
+) -> dict[str, Any] | None:
     """문제가 난 자격 조건을 조건식 없이(원문만)·검수 이슈를 붙여 판정 틀을 다시 만듭니다. 틀 자체가 계약 오류면 None."""
     candidate = payload.get("notice")
     if not isinstance(candidate, dict) or any("/payload/judgment" in e for e in errors):
@@ -112,7 +115,7 @@ def _degraded_judgment(payload: dict[str, Any], broken: set[int], errors: list[s
             issue = {"code": "CONTRACT_RULE_INVALID", "target": f"/eligibility/{index}", "description": UNVERIFIED_RULE["reason"]}
             flagged["quality"]["reviewIssues"].append(issue)
     try:
-        return build_judgment(flagged, regions)
+        return build_judgment(flagged, regions, pages=pages)
     except Exception:  # noqa: BLE001 — 계약을 통과하지 못한 후보라 틀을 못 만들면 틀 없이 보냅니다
         log.warning("검수 전환 판정 틀을 만들지 못해 null로 보냅니다", exc_info=True)
         return None
@@ -226,14 +229,16 @@ def _process(
         repairs += actions
     raw = raw_event["payload"]
     with usage.stage("publish"):
-        payload = completed_payload(report.candidate, provider=raw.get("provider"), regions=regions)
+        # 판정 틀의 page: 근거 위치를 PDF 원문의 쪽 표시로 쪽 번호로 바꿉니다
+        pages = evidence_pages(report.candidate, SourceBundle.from_material(material).texts)
+        payload = completed_payload(report.candidate, provider=raw.get("provider"), regions=regions, pages=pages)
         event = {**new_event(EVENT_TYPE, PRODUCER, payload), "traceId": raw_event.get("traceId")}
         schema = f"events/{EVENT_TYPE}.v1.json"
         errors = tools().validate(event, schema)
     attempts, responses = _attempts(image_run, first_run, run, recheck.run), _responses(image_run, first_run, run, recheck.run)
     reasons = [f"{i['code']} {i['target']}" for i in report.candidate["quality"]["reviewIssues"]]
     if errors:
-        event = {**event, "payload": degraded_payload(payload, errors, regions)}
+        event = {**event, "payload": degraded_payload(payload, errors, regions, pages)}
         retry_errors = tools().validate(event, schema)
         if retry_errors:  # 우리 쪽 결함: 발행하지 않고 실패로 남깁니다
             failed = "; ".join(retry_errors[:5])

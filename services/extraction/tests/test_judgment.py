@@ -377,3 +377,22 @@ def test_approved_frame_drops_extraction_review_reasons_but_keeps_its_own():
     # 틀 자체의 사유(코드로 정하지 못함)는 승인해도 남습니다
     vague = candidate([item("e2", "OTHER", "그 밖에 공사가 정하는 요건")])
     assert build_judgment(vague, approved=True)["common"][0]["inReview"]
+
+
+def test_page_numbers_come_from_pdf_page_marks():
+    """판정 틀의 page: 근거 위치 앞의 가장 가까운 「--- N쪽 ---」 표시. 첨부 경계를 넘거나 쪽 표시가 없으면 비웁니다."""
+    from mujuthaek_extraction.judgment.pages import evidence_pages
+
+    text = "머리말\n--- 1쪽 ---\n공고 개요\n--- 2쪽 왼쪽 ---\n만 19세 이상인 자\n=== 첨부 b.pdf ===\n표지\n--- 1쪽 ---\n소득 기준"
+    at = {name: text.index(name) for name in ("머리말", "공고 개요", "만 19세", "표지", "소득 기준")}
+    located = {
+        "evidence": [{"id": f"ev-{k}", "sourceId": "pdf-text", "locator": {"kind": "TEXT_RANGE", "start": v, "end": v + 2}} for k, v in at.items()]
+        + [{"id": "ev-other", "sourceId": "text", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": 2}}]
+    }
+    pages = evidence_pages(located, {"pdf-text": text, "text": "수집 글자"})
+    assert pages == {"ev-공고 개요": 1, "ev-만 19세": 2, "ev-소득 기준": 1}
+
+    age = item("e1", "AGE", "만 19세 이상인 자", atom("AGE_YEARS", "GTE", 19, subject="APPLICANT", unit="YEARS"))
+    frame = build_judgment(candidate([age]), pages={"ev-1": 2})
+    assert frame["common"][0]["page"] == 2
+    assert build_judgment(candidate([age]))["common"][0]["page"] is None
