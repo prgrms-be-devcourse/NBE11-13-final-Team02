@@ -24,12 +24,12 @@ class NoticeVersionsApiTest {
             "select raw_post_id from notice.notices where id = ?", UUID.class, id);
     ObjectNode fix = NoticeFixtures.correction(UUID.randomUUID(), original);
     fix.put("provider", f.provider);
-    ((ObjectNode) fix.get("schedule")).put("applyEndOn", "2026-11-07");
+    NoticeFixtures.schedule(fix, "2026-10-01", "2026-11-07");
     fix.put("summary", "마감일을 늦췄어요");
-    f.ingest.accept(UUID.randomUUID(), fix);
+    f.receive(fix);
     ObjectNode inReview = NoticeFixtures.correction(UUID.randomUUID(), original);
     inReview.put("reviewStatus", "IN_REVIEW"); // 공개되지 않은 버전은 이력에 없어요
-    f.ingest.accept(UUID.randomUUID(), inReview);
+    f.receive(inReview);
 
     mvc.perform(get("/api/v1/notices/{id}/versions", id))
         .andExpect(status().isOk())
