@@ -164,9 +164,16 @@ public final class NoticeContract {
     }
   }
 
-  /** 분야별 판정 틀(판정 담당이 준 형식 그대로). 정책·창업지원은 아직 이 이벤트에 틀이 없어요. */
+  /** 분야별 판정 틀(판정 담당이 준 형식 그대로). 정책(POLICY)은 틀이 없어요. */
   private static final Map<String, String> JUDGMENT_SCHEMAS =
-      Map.of("HOUSING", "housing-judgment.v1", "BUSINESS_SPACE", "business-space-judgment.v1");
+      Map.of(
+          "HOUSING", "housing-judgment.v1",
+          "BUSINESS_SPACE", "business-space-judgment.v1",
+          "STARTUP_SUPPORT", "startup-support-judgment.v1");
+
+  /** 틀이 가리키는 원본 칸: 창업지원 틀은 수집 이벤트(raw.policy.collected)의 rawPolicyId예요. */
+  private static final Map<String, String> JUDGMENT_SOURCE_KEY =
+      Map.of("STARTUP_SUPPORT", "rawPolicyId");
 
   /** 판정 틀: 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(계약 검사기 judgment_errors와 같게). */
   private static void checkJudgment(JsonNode payload) {
@@ -177,7 +184,9 @@ public final class NoticeContract {
         .asString("")
         .equals(JUDGMENT_SCHEMAS.get(payload.path("field").asString())))
       fail("EVENT_JUDGMENT_FIELD_CONFLICT", "/payload/judgment/schema");
-    if (!sameValue(judgment.path("rawPostId"), payload.path("rawPostId"))
+    String sourceKey =
+        JUDGMENT_SOURCE_KEY.getOrDefault(payload.path("field").asString(), "rawPostId");
+    if (!sameValue(judgment.path(sourceKey), payload.path("rawPostId"))
         || !sameValue(judgment.path("rawVersion"), payload.path("rawVersion")))
       fail("EVENT_JUDGMENT_IDENTITY_CONFLICT", "/payload/judgment");
     java.util.List<String> ids = new java.util.ArrayList<>();

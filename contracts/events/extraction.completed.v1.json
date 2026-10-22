@@ -59,7 +59,7 @@
         "rawPostId": {
           "type": "string",
           "format": "uuid",
-          "description": "collector의 raw_posts.id"
+          "description": "collector의 raw_posts.id. 창업지원(STARTUP_SUPPORT)은 raw.policy.collected의 rawPolicyId(판정 요청안 2026-10-22: 창업지원 판정 틀도 이 이벤트의 judgment로 보냄)"
         },
         "rawVersion": {
           "type": "integer",
@@ -164,10 +164,13 @@
               "$ref": "https://mujuthaek.kr/contracts/schemas/business-space-judgment.v1.json"
             },
             {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/startup-support-judgment.v1.json"
+            },
+            {
               "type": "null"
             }
           ],
-          "description": "판정 틀(판정 담당이 정한 형식 그대로). HOUSING이면 housing-judgment.v1, BUSINESS_SPACE면 business-space-judgment.v1. 틀이 없는 분야이거나 틀 검사를 통과하지 못하면 null 또는 칸 없음. 추출 결과(notice·conditions)에서 코드로 만들며, 확신이 없는 조건은 틀의 inReview로 표시합니다."
+          "description": "판정 틀(판정 담당이 정한 형식 그대로). HOUSING이면 housing-judgment.v1, BUSINESS_SPACE면 business-space-judgment.v1, STARTUP_SUPPORT면 startup-support-judgment.v1(rawPolicyId·rawVersion이 이 이벤트의 rawPostId·rawVersion과 같음, 수집 이벤트 raw.policy.collected에서 만들어 notice 없음). 틀이 없는 분야이거나 틀 검사를 통과하지 못하면 null 또는 칸 없음. 추출 결과(notice·conditions)에서 코드로 만들며, 확신이 없는 조건은 틀의 inReview로 표시합니다."
         }
       },
       "allOf": [

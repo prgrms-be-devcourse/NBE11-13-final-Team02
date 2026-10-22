@@ -304,6 +304,29 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 창업지원_판정_틀이_실린_이벤트는_실패로_보내지_않고_기록만_남긴다() {
+    // 판정 요청안(2026-10-22): 창업지원 틀도 extraction.completed의 judgment로 와요(benefit이 받음). notice는 넘겨요
+    ObjectNode startup = fixture();
+    ObjectNode payload = (ObjectNode) startup.path("payload");
+    payload.put("field", "STARTUP_SUPPORT");
+    payload.remove("notice");
+    payload.putArray("conditions");
+    ObjectNode frame = payload.putObject("judgment");
+    frame.put("schema", "startup-support-judgment.v1");
+    frame.put("rawPolicyId", payload.path("rawPostId").asString());
+    frame.put("rawVersion", payload.path("rawVersion").asInt());
+    frame.putNull("referenceDate");
+    frame.putArray("common");
+    frame.putArray("groups").addObject().put("id", "all").put("name", "전체").putArray("criteria");
+    frame.putArray("preferences");
+    frame.putArray("notes");
+
+    assertThat(ingestion.apply(body(startup))).isEqualTo(IngestionOutcome.UNSUPPORTED_FIELD);
+    assertThat(count("notice.notices")).isZero();
+    assertThat(outcomes()).containsExactly("UNSUPPORTED_FIELD:STARTUP_SUPPORT");
+  }
+
+  @Test
   void 계약에_맞지_않으면_아무것도_저장하지_않는다() {
     ObjectNode broken = fixture();
     ((ObjectNode) broken.path("payload")).put("reviewStatus", "DONE");
