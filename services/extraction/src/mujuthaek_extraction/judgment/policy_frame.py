@@ -6,6 +6,7 @@ AI는 중간 형식으로 답하고 이 모듈이 틀의 칸으로 옮깁니다.
 - 근거 문장이 범위(「19~39세」)인데 최소·최대 중 하나만 뽑았으면 확인 필요
 - 업력 날짜 범위는 공고가 찍은 날짜가 있으면 그대로, 연수만 있으면 기준일에서 틀 문서 규칙대로 계산(기준일이 없으면 질문)
 - 틀에 칸이 없는 조건(사업공간 틀의 업력 상한·매출 등)은 근거 문장을 묻는 질문(ASK)
+- 최소가 최대보다 큰 나이·매출, 시작일이 끝일보다 뒤인 개업일·폐업일은 근거 문장을 묻는 질문(확인 필요). 틀 읽기가 틀 전체를 거절함
 """
 
 from __future__ import annotations
@@ -15,6 +16,8 @@ import unicodedata
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
+
+from mujuthaek_extraction.judgment.sanity import INVERTED, repair
 
 STARTUP_STATUS = {"SME", "WOMAN", "SMALL_BUSINESS", "VENTURE_COMPANY", "SOCIAL_VENTURE", "DISABLED", "ONE_PERSON_CREATIVE", "STUDENT"}
 STARTUP_EXCLUDED = {"CREDIT_DELINQUENT", "TAX_ARREARS", "CLAWBACK_UNPAID", "PROGRAM_SANCTION", "BUSINESS_SUSPENDED", "WAGE_ARREARS", "SUBSIDY_EXCLUDED"}
@@ -166,6 +169,11 @@ def _valid_day(value: Any) -> bool:
     return True
 
 
+def _after(start: Any, end: Any) -> bool:
+    """시작일이 끝일보다 뒤인지(둘 다 형식이 맞는 날짜일 때만)."""
+    return bool(start and end) and date.fromisoformat(str(start)) > date.fromisoformat(str(end))
+
+
 def _years_ago(day: date, years: int) -> date:
     try:
         return day.replace(year=day.year - years)
@@ -210,6 +218,7 @@ class _Builder:
         return criterion | {"inReview": bool(reasons), "reviewReason": "; ".join(reasons) or None}
 
     def ask(self, item: dict[str, Any], quote: str, reasons: list[str]) -> dict[str, Any]:
+        item = item | {"question": (item.get("question") or "").strip() or None}  # 공백뿐인 질문은 틀 읽기가 거절함
         if item.get("question") and not item.get("metWhen") and item["kind"] not in EXCLUDING_KINDS:
             reasons = [*reasons, NO_DIRECTION]  # AI가 쓴 질문의 답 방향을 모름(「신청 제외 대상에 해당하나요?」가 YES로 채워지면 뜻이 뒤집힘)
         met = item.get("metWhen") or ("NO" if item["kind"] in EXCLUDING_KINDS else "YES")
@@ -251,6 +260,8 @@ class _Builder:
         if item["group"] is not None and item["group"] not in self.keys:
             reasons.append("대상군을 정하지 못했습니다")  # 없는 대상군을 가리킨 조건은 공통으로 두되 확인 필요
         if kind == "AGE" and (item["minAge"] is not None or item["maxAge"] is not None):
+            if item["minAge"] is not None and item["maxAge"] is not None and item["minAge"] > item["maxAge"]:
+                return self.ask(item, quote, reasons + [INVERTED])
             seen = _has_number(quote, item["minAge"]) and (_has_number(quote, item["maxAge"]) or _has_number(quote, (item["maxAge"] or 0) + 1))
             seen = seen and (item["minAge"] is None or bool(LOWER.search(quote))) and (item["maxAge"] is None or bool(UPPER.search(quote)))
             seen = seen and not _age_half_range(quote, item["minAge"], item["maxAge"])
@@ -292,6 +303,8 @@ class _Builder:
         ):
             if any(isinstance(w, int) and w < 0 for w in (item["revenueMinWon"], item["revenueMaxWon"])):
                 return self.ask(item, quote, reasons + [VALUE_MISSING])
+            if item["revenueMinWon"] and item["revenueMaxWon"] and item["revenueMinWon"] > item["revenueMaxWon"]:
+                return self.ask(item, quote, reasons + [INVERTED])
             seen = _has_won(quote, item["revenueMinWon"]) and _has_won(quote, item["revenueMaxWon"])
             seen = seen and (not item["revenueMinWon"] or bool(LOWER.search(quote))) and (not item["revenueMaxWon"] or bool(UPPER.search(quote)))
             seen = seen and not _won_half_range(quote, item["revenueMinWon"] or None, item["revenueMaxWon"] or None)
@@ -316,6 +329,8 @@ class _Builder:
         if item["openedFrom"] or item["openedTo"]:
             if not (_valid_day(item["openedFrom"]) and _valid_day(item["openedTo"])):
                 return self.ask(item, quote, reasons + [VALUE_MISSING])  # 「2023.10.07」처럼 형식이 틀리면 틀 검사에 걸려 틀 전체가 버려짐
+            if _after(item["openedFrom"], item["openedTo"]):
+                return self.ask(item, quote, reasons + [INVERTED])
             seen = _has_date(quote, item["openedFrom"]) and _has_date(quote, item["openedTo"])
             made = self.base("BUSINESS_AGE", quote) | {"openedFrom": item["openedFrom"], "openedTo": item["openedTo"]}
             return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
@@ -334,6 +349,8 @@ class _Builder:
         if item["closedFrom"] or item["closedTo"]:
             if not (_valid_day(item["closedFrom"]) and _valid_day(item["closedTo"])):
                 return self.ask(item, quote, reasons + [VALUE_MISSING])
+            if _after(item["closedFrom"], item["closedTo"]):
+                return self.ask(item, quote, reasons + [INVERTED])
             seen = _has_date(quote, item["closedFrom"]) and _has_date(quote, item["closedTo"])
             made = self.base("CLOSURE", quote) | {"mode": mode, "closedFrom": item["closedFrom"], "closedTo": item["closedTo"]}
             return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
@@ -400,7 +417,8 @@ class _Builder:
                 continue  # 점수 없는 가점은 틀에 담을 수 없어 안내로
             if points is not None and not _has_number(quote, points):
                 reasons = [*reasons, VALUE_MISSING]  # 근거 문장은 「가점 3점」인데 점수가 다름
-            ask = self.flag(self.base("ASK", quote) | {"question": item["question"] or f"다음에 해당하나요? 「{quote}」", "metWhen": "YES"}, reasons)
+            question = (item["question"] or "").strip() or f"다음에 해당하나요? 「{quote}」"  # 공백뿐인 질문은 틀 읽기가 거절함
+            ask = self.flag(self.base("ASK", quote) | {"question": question, "metWhen": "YES"}, reasons)
             preferences.append(
                 {
                     "id": self.new_id("pref"),
@@ -456,16 +474,18 @@ def startup_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[s
     builder = _Builder(reading, str(payload.get("text") or ""), regions, startup=True)
     reference = builder.reference()
     common, groups, preferences, notes = builder.build(reference)
-    return {
-        "schema": "startup-support-judgment.v1",
-        "rawPolicyId": payload["rawPolicyId"],
-        "rawVersion": payload["version"],
-        "referenceDate": reference.isoformat() if reference else None,
-        "common": common,
-        "groups": groups,
-        "preferences": preferences,
-        "notes": notes,
-    }
+    return repair(
+        {
+            "schema": "startup-support-judgment.v1",
+            "rawPolicyId": payload["rawPolicyId"],
+            "rawVersion": payload["version"],
+            "referenceDate": reference.isoformat() if reference else None,
+            "common": common,
+            "groups": groups,
+            "preferences": preferences,
+            "notes": notes,
+        }
+    )
 
 
 def space_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
@@ -479,13 +499,15 @@ def space_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[str
     if reference is None:
         return None
     common, groups, preferences, notes = builder.build(reference)
-    return {
-        "schema": "business-space-judgment.v1",
-        "rawPostId": payload["rawPolicyId"],
-        "rawVersion": payload["version"],
-        "referenceDate": reference.isoformat(),
-        "common": common,
-        "groups": groups,
-        "preferences": preferences,
-        "notes": notes,
-    }
+    return repair(
+        {
+            "schema": "business-space-judgment.v1",
+            "rawPostId": payload["rawPolicyId"],
+            "rawVersion": payload["version"],
+            "referenceDate": reference.isoformat(),
+            "common": common,
+            "groups": groups,
+            "preferences": preferences,
+            "notes": notes,
+        }
+    )

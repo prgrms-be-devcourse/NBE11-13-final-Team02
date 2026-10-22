@@ -17,6 +17,7 @@ from typing import Any
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.judgment import build_judgment
 from mujuthaek_extraction.judgment.policy_frame import region_named, space_frame, startup_frame
+from mujuthaek_extraction.judgment.sanity import repair
 from mujuthaek_extraction.judgment.schema import frame_errors
 from mujuthaek_extraction.judgment.space import build_space
 from mujuthaek_extraction.judgment.startup import build_startup
@@ -201,7 +202,7 @@ def policy_frame(policy: dict[str, Any], reading: Any, regions: Any) -> dict[str
             return frame
         if errors:  # 틀 검사에 걸린 AI 틀: 위치만 남기고 구간 칸 규칙으로(값은 남기지 않음)
             log.warning("정책 AI 판정 틀이 틀 검사에 걸렸습니다", extra={"rawPolicyId": policy.get("rawPolicyId"), "errors": errors[:5]})
-    fallback = build_startup(policy) if startup else build_space(policy)
+    fallback = repair(build_startup(policy) if startup else build_space(policy))
     return fallback if fallback is not None and not frame_errors(fallback) else None
 
 
