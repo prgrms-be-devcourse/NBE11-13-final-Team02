@@ -6,6 +6,7 @@
       div.boardView 안의 h4(제목), dt/dd(항목), 본문 div#bbs_content
 첨부  https://www.dudc.or.kr/dudc/boardDownload/N.do (공급가능주택 목록 엑셀은 주택목록으로 받아요)
 주의  토지·상가 글은 주거가 아니라서 열지 않아요.
+꺼 둠  robots.txt가 사이트 전체를 막아요(Disallow: /, 2026-10-19). 마이그레이션으로 sources.enabled = false
 """
 
 import re

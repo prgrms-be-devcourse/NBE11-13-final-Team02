@@ -1,0 +1,144 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mujuthaek.kr/contracts/schemas/extracted-notice.v1.json",
+  "title": "독립 검증을 포함한 표준화 추출 결과 v1",
+  "description": "추출기가 생성하는 내부 결과입니다. AI 응답은 내용 필드만 작성하며 식별자·해시·검증 결과는 프로그램이 결합합니다.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "sourceReferences",
+    "documents",
+    "quality",
+    "target",
+    "input",
+    "notice",
+    "locations",
+    "schedules",
+    "supplyGroups",
+    "eligibility",
+    "selectionRules",
+    "requiredDocuments",
+    "guidance",
+    "evidence"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0.0"
+    },
+    "sourceReferences": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/sourceReference"
+      },
+      "minItems": 1
+    },
+    "documents": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/document"
+      },
+      "minItems": 1
+    },
+    "quality": {
+      "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/quality"
+    },
+    "target": {
+      "const": "NOTICE"
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "eventId",
+        "rawPostId",
+        "rawVersion",
+        "field",
+        "reprocess"
+      ],
+      "properties": {
+        "eventId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rawPostId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rawVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "field": {
+          "enum": [
+            "HOUSING",
+            "BUSINESS_SPACE"
+          ]
+        },
+        "reprocess": {
+          "type": "boolean"
+        }
+      }
+    },
+    "notice": {
+      "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/notice"
+    },
+    "locations": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/location"
+      },
+      "minItems": 0
+    },
+    "schedules": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/schedule"
+      },
+      "minItems": 0
+    },
+    "supplyGroups": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/supplyGroup"
+      },
+      "minItems": 0
+    },
+    "eligibility": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/eligibility"
+      },
+      "minItems": 0
+    },
+    "selectionRules": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/selectionRule"
+      },
+      "minItems": 0
+    },
+    "requiredDocuments": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/requiredDocument"
+      },
+      "minItems": 0
+    },
+    "guidance": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/guidanceItem"
+      },
+      "minItems": 0
+    },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/evidence"
+      },
+      "minItems": 0
+    }
+  }
+}

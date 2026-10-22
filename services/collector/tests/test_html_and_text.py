@@ -1,6 +1,5 @@
 from datetime import date
 
-from mujuthaek_collector.core.documents.tables import map_header, units_from_tables
 from mujuthaek_collector.core.html import body_text, js_args, parse_date, soup, table_grid
 
 
@@ -23,21 +22,9 @@ def test_js_args_and_dates():
     assert parse_date("2026년 10월 8일") == date(2026, 10, 8)
 
 
-def test_map_header_prefers_exclusive_area():
-    mapping = map_header(["주택형", "공급면적", "전용면적", "보증금", "월임대료"])
-    assert mapping[2] == "area" and 1 not in mapping
+def test_extracted_text_drops_nul(monkeypatch):
+    """서울·경기·울산 공고문 PDF 글자에 NUL이 섞여 DB 저장이 실패했어요 (2026-10-19)."""
+    from mujuthaek_collector.core.documents import text
 
-
-def test_units_from_two_row_header_with_thousand_won():
-    rows = [
-        ["주택형", "전용면적", "임대조건", ""],
-        ["", "", "보증금", "월임대료"],
-        ["26A", "26.37", "12,000", "150"],
-        ["", "", "13,000", "140"],
-        ["합계", "", "", ""],
-    ]
-    units = units_from_tables([(1, "단위: 천원", rows)])
-    assert [(u["type"], u["area_m2"], u["deposit_won"], u["rent_won"]) for u in units] == [
-        ("26A", 26.37, 12_000_000, 150_000),
-        ("26A", 26.37, 13_000_000, 140_000),  # 세로로 합쳐진 주택형·면적은 위 행 값을 이어받아요
-    ]
+    monkeypatch.setattr(text, "pdf_text", lambda path: ("공고\x00문 글자", "PDF 텍스트·표"))
+    assert text.extract_text(b"%PDF", "pdf") == ("공고문 글자", "PDF 텍스트·표")

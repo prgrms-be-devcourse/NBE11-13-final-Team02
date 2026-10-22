@@ -52,7 +52,7 @@ def test_apply_center_dedupes_rows_and_reads_unit_table():
         <tr><td>36A</td><td>36.9</td><td>15,000,000</td><td>120,000</td></tr></table>
       <a href="/smw/smw113010/selectFileDown.do?pbancNo=777&atchFileSn=1&atchFileDtlSn=1">모집공고문.pdf (1024 Byte)</a>""",
     )
-    assert detail.units[0]["deposit_won"] == 15_000_000 and detail.units[0]["area_m2"] == 36.9
+    assert "[주택형별 임대조건]" in detail.body_text and "36A | 36.9 | 15,000,000 | 120,000" in detail.body_text  # 해석은 extraction이 해요
     assert detail.files[0].name == "모집공고문.pdf" and detail.files[0].size == 1024
 
 

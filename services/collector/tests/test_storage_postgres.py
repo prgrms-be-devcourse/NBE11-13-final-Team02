@@ -28,9 +28,6 @@ def pg():
 
 def run(source, client, store, file_store, settings, monkeypatch, **kwargs):
     monkeypatch.setattr(pipeline, "extract_text", lambda data, ext: ("공고문 글자 " * 30, "PDF 텍스트·표"))
-    monkeypatch.setattr(
-        pipeline, "read_tables", lambda data, ext: [(1, "단위: 천원", [["주택형", "전용면적", "보증금", "월임대료"], ["26A", "26.37", "12,000", "150"]])]
-    )
     return pipeline.run_source(source, client, store, file_store, settings, today=TODAY, **kwargs)
 
 
@@ -45,8 +42,7 @@ def test_full_run_writes_all_tables(pg, client, file_store, settings, monkeypatc
     assert parent == ("1",)
     assert pg.conn.execute("select count(*) from raw_files where s3_key like 'raw/dcco/%'").fetchone() == (2,)
     assert pg.conn.execute("select count(*) from raw_texts").fetchone() == (2,)
-    unit = pg.conn.execute("select house_type, area_m2, deposit_won, rent_won, source_file from raw_units limit 1").fetchone()
-    assert unit[0] == "26A" and float(unit[1]) == 26.37 and unit[2:] == (12_000_000, 150_000, "모집공고문.pdf")
+    assert pg.conn.execute("select count(*) from raw_units").fetchone() == (0,)  # 호별 표는 extraction이 읽어요
     assert pg.conn.execute("select count(*) from outbox where published_at is null").fetchone() == (2,)
     assert pg.conn.execute("select status, new_count from crawl_runs").fetchone() == ("SUCCESS", 2)
 

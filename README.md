@@ -7,7 +7,7 @@
 | --- | --- | --- |
 | `services/api` | 자바 25 + 스프링 부트 | 프론트의 단일 입구. 모듈 6개(notice, benefit, eligibility, area, user, notification) + `common` |
 | `services/collector` | 파이썬 3.12 | 기관 게시판·공공 API 수집, 원본 저장 |
-| `services/extraction` | 파이썬 3.12 | Claude API로 자격 조건·일정·금액 추출, 검증 |
+| `services/extraction` | 파이썬 3.12 | OpenAI API로 자격 조건·일정·금액 추출, 검증 |
 
 EC2 1대에 Docker 컨테이너 3개, DB는 RDS(PostgreSQL + PostGIS) 1대에 데이터베이스 3개(collector, extraction, api)예요.
 
@@ -15,7 +15,7 @@ EC2 1대에 Docker 컨테이너 3개, DB는 RDS(PostgreSQL + PostGIS) 1대에 �
 준비물: JDK 25, Python 3.12, [uv](https://docs.astral.sh/uv/), Docker Desktop
 
 ```bash
-cp infra/.env.example infra/.env           # 값 채우기 (ANTHROPIC_API_KEY를 비우면 가짜 추출기로 동작)
+cp infra/.env.example infra/.env           # 값 채우기 (extraction은 OPENAI_API_KEY 또는 LOCAL_AI_URL 필요)
 make infra                                 # PostgreSQL·RabbitMQ·MinIO (make help로 명령 보기)
 cd services/api && ./gradlew bootRun       # api
 ```

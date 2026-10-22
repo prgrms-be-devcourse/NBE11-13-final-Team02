@@ -13,8 +13,14 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 
-# 환경 변수
+# 비밀 값 (키는 ~/.aws/credentials 에만 두고 저장소에는 넣지 않음)
 .env
+*.env
+.env.*
+!.env.example
+*.pem
+*.csv
+.aws/
 # 구조 변경 스크립트 백업
 _backup_*/
 

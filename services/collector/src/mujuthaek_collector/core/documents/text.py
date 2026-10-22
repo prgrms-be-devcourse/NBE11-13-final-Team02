@@ -70,6 +70,8 @@ def extract_text(data: bytes, ext: str) -> tuple[str | None, str]:
         path = Path(folder) / f"source.{ext}"
         path.write_bytes(data)
         try:
-            return readers[ext](path)
+            text, status = readers[ext](path)
         except Exception as error:  # noqa: BLE001 — 손상된 파일 등은 '읽지 못함'으로 기록하고 넘어감
             return None, f"{ext.upper()} 읽기 실패 ({type(error).__name__})"
+    # PDF에서 뽑은 글자에 NUL(\x00)이 섞이는 일이 있어요. PostgreSQL text 칸은 NUL을 받지 않아 지워요
+    return (text.replace("\x00", "") if text else text), status

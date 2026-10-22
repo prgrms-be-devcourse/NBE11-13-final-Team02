@@ -20,10 +20,9 @@ import httpx
 
 from mujuthaek_collector.config import Settings
 from mujuthaek_collector.core import classify as cls
-from mujuthaek_collector.core.documents.tables import read_tables, summarize, units_from_tables
 from mujuthaek_collector.core.documents.text import extract_text
 from mujuthaek_collector.core.file_store import FileStore, content_type, object_key, stored_until, text_key
-from mujuthaek_collector.core.files import TABLE_EXTS, FileRef, pick_notice_files, pick_unit_lists
+from mujuthaek_collector.core.files import FileRef, pick_notice_files, pick_unit_lists, unclear_notice
 from mujuthaek_collector.core.publisher import MAX_TEXT_CHARS, build_collected_event
 from mujuthaek_collector.core.storage import PENDING, SKIPPED, BoardState, NewVersion, PostRow, SavedFile, Store
 from mujuthaek_collector.core.versioning import content_hash, list_hash, sha256_hex
@@ -143,7 +142,7 @@ def register(ctx: Context, item: ListItem, cutoff: date) -> None:
     elif kind == cls.NOTICE:
         status = PENDING
     elif kind == cls.CORRECTION:
-        status, parent = PENDING, find_correction_parent(store, source.code, item.title)
+        status, parent = PENDING, find_correction_parent(store, source.code, item.title, item.posted_on)
     elif kind == cls.FOLLOW_UP:
         parent = find_followup_parent(store, source.code, item.title)
         if parent is not None:
@@ -180,12 +179,15 @@ def find_followup_parent(store: Store, source_code: str, title: str) -> PostRow 
     return next((p for p in store.notices_posted_on(source_code, ref.posted_on) if cls.same_notice(ref, p.title, p.posted_on)), None)
 
 
-def find_correction_parent(store: Store, source_code: str, title: str) -> PostRow | None:
-    """정정공고 이름(정정 표시를 뺀 것)과 같은 가장 최근 모집공고."""
+def find_correction_parent(store: Store, source_code: str, title: str, posted_on: date | None) -> PostRow | None:
+    """정정공고 이름(정정 표시를 뺀 것)과 같은 가장 최근 모집공고. 정정공고보다 늦게 올라온 공고는 원래 공고가 아니에요
+    (매달 같은 이름으로 올라오는 공고에서 다음 회차에 잘못 연결되지 않게. 같은 날은 허용, 게시일을 모르면 이름으로만)."""
     base = cls.correction_base(title)
     if not base:
         return None
     for post in store.recent_notices(source_code):
+        if posted_on and post.posted_on and post.posted_on > posted_on:
+            continue
         own = cls.norm_name(post.title)
         if own and (own == base or own in base or base in own):
             return post
@@ -211,6 +213,13 @@ def process_safely(ctx: Context, post: PostRow) -> None:
 def process_post(ctx: Context, post: PostRow) -> bool:
     """상세 → 첨부 → 추출 → 버전 비교 → 저장·이벤트. 새 버전을 저장했으면 True."""
     source, client = ctx.source, ctx.client
+    if post.kind == cls.CORRECTION and post.parent_post_id is None:
+        # 목록은 최신 글이 먼저라, 같은 회차에 처음 본 원래 공고는 정정공고보다 늦게 등록돼요 (ih 검암역 푸르지오, 2026-10-21).
+        # 상세는 목록 등록이 끝난 뒤에 열어서 이때는 원래 공고가 DB에 있어요
+        parent = find_correction_parent(ctx.store, source.code, post.title, post.posted_on)
+        if parent is not None and parent.id != post.id:
+            ctx.store.set_parent(post.id, parent.id)
+            post.parent_post_id = parent.id
     item = ListItem.from_json(post.list_item)
     detail = source.fetch_detail(client, item)
     candidates = detail.files or item.files
@@ -218,32 +227,27 @@ def process_post(ctx: Context, post: PostRow) -> bool:
 
     saved: list[tuple[SavedFile, bytes]] = []  # (DB에 저장할 정보, S3에 올릴 원본)
     notice_name, notice_text = None, None
-    units: list[dict] = [dict(u, source_file="상세 화면") for u in detail.units]
     keep_until = stored_until(post.title, post.deadline_on, post.posted_on, ctx.today)
 
-    for file in pick_notice_files(candidates, source.prefer_doc):  # 공고문: 첫 번째가 실패하면 두 번째
+    notice_files = pick_notice_files(candidates, source.prefer_doc)
+    if unclear_notice(candidates):
+        ctx.warn(f"[{post.post_key}] 이름으로 공고문을 알 수 없어 첨부 순서로 골랐어요 ({notice_files[0].name})")
+    for file in notice_files:  # 공고문: 첫 번째가 실패하면 두 번째
         data = download(ctx, file, referer)
         if data is None:
             continue
         text, status = extract_text(data, file.ext)
         saved.append((make_saved(file, "NOTICE_DOC", data, keep_until, status, text), data))
-        if file.ext in TABLE_EXTS:
-            units += [dict(u, source_file=file.name) for u in units_from_tables(read_tables(data, file.ext))]
         if text:
             notice_name, notice_text = file.name, text
             break
         ctx.warn(f"[{post.post_key}] 공고문을 읽지 못했어요 ({file.name}): {status}")
 
-    for file in pick_unit_lists(candidates):  # 주택목록: 엑셀 우선 최대 2개
+    for file in pick_unit_lists(candidates):  # 주택목록: 엑셀 우선 최대 2개. 원본만 S3에 두고, 표 해석은 extraction이 해요
         data = download(ctx, file, referer)
         if data is None:
             continue
-        found = units_from_tables(read_tables(data, file.ext))
-        saved.append((make_saved(file, "UNIT_LIST", data, keep_until, f"호별 {len(found)}행", None), data))
-        units += [dict(u, source_file=file.name) for u in found]
-
-    if units:
-        log.info("호별 표", extra={"source": source.code, "post": post.post_key, "summary": summarize(units)})
+        saved.append((make_saved(file, "UNIT_LIST", data, keep_until, "원본만 저장", None), data))
 
     body = detail.body_text
     new_hash = content_hash(body, [f.file_hash for f, _ in saved])
@@ -276,8 +280,8 @@ def process_post(ctx: Context, post: PostRow) -> bool:
         parent_post_id=post.parent_post_id,
         full_text=full_text,
         text_key=long_text_key,
-        units=units,
         files=[f.as_event_file() for f, _ in saved],
+        region_code=detail.region_code,
         reprocess=False,
     )
     ctx.store.save_version(
@@ -290,11 +294,10 @@ def process_post(ctx: Context, post: PostRow) -> bool:
             full_text=full_text,
             run_id=ctx.run_id,
             files=[f for f, _ in saved],
-            units=units,
             event=event,
         )
     )
-    log.info("새 버전 저장", extra={"source": source.code, "post": post.post_key, "version": version, "files": len(saved), "units": len(units)})
+    log.info("새 버전 저장", extra={"source": source.code, "post": post.post_key, "version": version, "files": len(saved)})
     return True
 
 
@@ -330,7 +333,8 @@ def ext_of(name: str) -> str:
 
 
 def compose_full_text(source: Source, post: PostRow, item: ListItem, detail: Detail, meta: dict, notice_name: str | None, notice_text: str | None) -> str:
-    """AI 추출(extraction)에 넘기는 전체 글자: 제목·게시 정보·항목·본문·공고문 순서."""
+    """AI 추출(extraction)에 넘기는 전체 글자: 제목·게시 정보·항목·본문·공고문 순서.
+    '_'로 시작하는 항목(예: LH의 '_raw' 원본 응답)은 원본 보관용이라 넣지 않아요."""
     lines = [
         f"제목: {post.title}",
         f"출처: {source.name} ({post.board_key})",
@@ -339,7 +343,7 @@ def compose_full_text(source: Source, post: PostRow, item: ListItem, detail: Det
     ]
     if meta:
         lines.append("[항목]")
-        lines += [f"{key}: {value}" for key, value in meta.items() if value not in (None, "", [], {})]
+        lines += [f"{key}: {value}" for key, value in meta.items() if value not in (None, "", [], {}) and not key.startswith("_")]
     lines += ["[본문]", detail.body_text or "(본문 없음)"]
     if notice_text:
         lines += [f"[공고문: {notice_name}]", notice_text]

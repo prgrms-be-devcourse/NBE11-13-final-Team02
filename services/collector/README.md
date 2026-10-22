@@ -1,6 +1,6 @@
 # collector (지방 공사 공고·정책 API 수집 워커)
 
-지방 공사 9곳의 주거 공고 게시판에서 새 모집공고를 모아요. 공고문 글자와 호별 임대조건을 뽑아 저장하고, `raw.notice.collected` 이벤트를 RabbitMQ로 보내요.
+지방 공사 9곳의 주거 공고 게시판에서 새 모집공고를 모아요. 공고문·주택목록 원본을 S3에 저장하고 공고문 글자를 뽑아, `raw.notice.collected` 이벤트를 RabbitMQ로 보내요.
 정책·혜택 공공 API 4곳(보조금24, 복지로 중앙·지자체, 온통청년)과 창업지원 공고 API 2곳(K-Startup, 기업마당)도 모아서 `raw.policy.collected` 이벤트로 보내요 ([정책 API 수집](#정책-api-수집)).
 
 ## 처음 실행
@@ -29,7 +29,9 @@ uv run python -m mujuthaek_collector run-once dcco   # 대전 한 번 수집 (�
 | `save-fixtures <출처> [--details 3]` | 실제 목록·상세 화면을 `tests/fixtures/<출처>/`에 저장 (실제 사이트에 요청해요) |
 | `status` | 최근 수집 회차 20개 |
 
-출처: `sh`, `gh`, `bmc`, `ih`, `dcco`, `dudc`, `umca`, `gbdc`, `gndc` / 정책: `gov24`, `bokjiro_central`, `bokjiro_local`, `youth`, `kstartup`, `bizinfo`
+출처: `sh`, `gh`, `bmc`, `ih`, `dcco`, `dudc`, `umca`, `gbdc`, `gndc`, `soco`, `lh` (LH는 API로 받고 `LH_API_KEY`가 필요해요 — `sources/lh/README.md`) / 정책: `gov24`, `bokjiro_central`, `bokjiro_local`, `youth`, `kstartup`, `bizinfo`
+
+대구(`dudc`)는 robots.txt가 사이트 전체 수집을 막아서 꺼 두었어요(`sources.enabled = false`). 기관 허락을 받으면 다시 켜요.
 
 ## 확인
 | 무엇 | 어떻게 |

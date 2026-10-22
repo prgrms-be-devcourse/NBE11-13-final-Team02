@@ -1,7 +1,7 @@
 """수집 DB 저장. 파이프라인은 Store 규격만 알고, 운영은 PostgresStore, 테스트는 MemoryStore(tests/fakes.py)를 써요.
 
 - 글(raw_posts)은 목록에서 본 순간 한 번 저장하고, 상태(SKIPPED·PENDING·DONE·FAILED)만 바꿔요
-- 새 버전은 save_version 한 번의 트랜잭션으로 저장해요: 버전 + 첨부 + 추출 글자 + 호별 표 + 글 상태 + 아웃박스 이벤트
+- 새 버전은 save_version 한 번의 트랜잭션으로 저장해요: 버전 + 첨부 + 추출 글자 + 글 상태 + 아웃박스 이벤트
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from datetime import date, timedelta
 from typing import Any, Protocol
 from uuid import UUID
 
+from mujuthaek_collector.core.files import FileRef
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
 
@@ -60,7 +61,14 @@ class SavedFile:
     text: str | None = None  # 이 파일에서 뽑은 글자 (raw_texts)
 
     def as_event_file(self) -> dict[str, Any]:
-        return {"name": self.name, "download_url": self.download_url, "file_hash": self.file_hash}
+        return {
+            "name": self.name,
+            "file_type": FileRef(self.name, "", 0).ext,
+            "role": self.role,
+            "s3_key": self.s3_key,
+            "download_url": self.download_url,
+            "file_hash": self.file_hash,
+        }
 
 
 @dataclass
@@ -73,7 +81,6 @@ class NewVersion:
     full_text: str
     run_id: UUID | None
     files: list[SavedFile] = field(default_factory=list)
-    units: list[dict[str, Any]] = field(default_factory=list)
     event: dict[str, Any] | None = None
 
 
@@ -88,6 +95,7 @@ class Store(Protocol):
     def find_post(self, source_code: str, post_key: str) -> PostRow | None: ...
     def insert_post(self, post: PostRow) -> None: ...
     def update_list_fields(self, post_id: UUID, list_status: str | None, deadline_on: date | None) -> None: ...
+    def set_parent(self, post_id: UUID, parent_post_id: UUID) -> None: ...
     def queued_posts(self, source_code: str, board_key: str, limit: int) -> list[PostRow]: ...
     def notices_posted_on(self, source_code: str, posted_on: date) -> list[PostRow]: ...
     def recent_notices(self, source_code: str, limit: int = 300) -> list[PostRow]: ...
@@ -194,6 +202,9 @@ class PostgresStore:
             (list_status, deadline_on, post_id, list_status, deadline_on),
         )
 
+    def set_parent(self, post_id: UUID, parent_post_id: UUID) -> None:
+        self.conn.execute("update raw_posts set parent_post_id = %s, updated_at = now() where id = %s", (parent_post_id, post_id))
+
     def queued_posts(self, source_code: str, board_key: str, limit: int) -> list[PostRow]:
         rows = self.conn.execute(
             f"select {POST_COLUMNS} from raw_posts where source_code = %s and board_key = %s "
@@ -258,34 +269,6 @@ class PostgresStore:
                 )
                 if f.text:
                     cur.execute("insert into raw_texts (id, file_id, text) values (%s, %s, %s)", (uuid7(), file_id, f.text))
-            for u in new.units:
-                cur.execute(
-                    "insert into raw_units (id, version_id, source_file, page, complex, district, address, unit, floor, house_type, "
-                    "target_group, rooms, area_m2, deposit_won, rent_won, supply_count, elevator, parking, raw, checks) "
-                    "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (
-                        uuid7(),
-                        version_id,
-                        u.get("source_file"),
-                        u.get("page"),
-                        u.get("complex"),
-                        u.get("district"),
-                        u.get("address"),
-                        u.get("unit"),
-                        u.get("floor"),
-                        u.get("type"),
-                        u.get("target"),
-                        u.get("rooms"),
-                        u.get("area_m2"),
-                        u.get("deposit_won"),
-                        u.get("rent_won"),
-                        u.get("count"),
-                        u.get("elevator"),
-                        u.get("parking"),
-                        self._json(u.get("raw", {})),
-                        self._json(u.get("check", [])),
-                    ),
-                )
             cur.execute(
                 "update raw_posts set status = 'DONE', latest_version = %s, attempts = 0, last_error = null, updated_at = now() where id = %s",
                 (new.version, new.post.id),

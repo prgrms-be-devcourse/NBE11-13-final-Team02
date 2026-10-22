@@ -1,0 +1,45 @@
+[
+  {
+    "dsSch": [
+      {
+        "PAN_ID": "2015122300020793",
+        "CCR_CNNT_SYS_DS_CD": "03",
+        "SPL_INF_TP_CD": "062",
+        "UPP_AIS_TP_CD": "06",
+        "AIS_TP_CD": "07"
+      }
+    ]
+  },
+  {
+    "dsList01Nm": [
+      {
+        "RFE": "월임대료(원)",
+        "NOW_HSH_CNT": "금회공급 세대수",
+        "HSH_CNT": "세대수",
+        "HTY_NNA": "주택형",
+        "LS_GMY": "임대보증금(원)",
+        "SBD_LGO_NM": "단지명",
+        "DDO_AR": "전용면적(㎡)",
+        "SPL_AR": "공급면적"
+      }
+    ],
+    "resHeader": [
+      {
+        "RS_DTTM": "20261014123429",
+        "SS_CODE": "Y"
+      }
+    ],
+    "dsList01": [
+      {
+        "RFE": "공고문 참조",
+        "NOW_HSH_CNT": "60",
+        "HSH_CNT": "212",
+        "HTY_NNA": "36",
+        "LS_GMY": "공고문 참조",
+        "SBD_LGO_NM": "태백소도 LH천년나무",
+        "DDO_AR": "36.79",
+        "SPL_AR": "53.6806"
+      }
+    ]
+  }
+]

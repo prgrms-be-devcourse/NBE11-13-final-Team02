@@ -53,6 +53,9 @@ _run_lock = threading.Lock()  # 수집 작업은 한 번에 하나만
 
 
 def make_client(source: Source, settings: Settings) -> Fetcher:
+    custom = source.make_client(settings)
+    if custom is not None:
+        return custom
     return PoliteClient(delay_seconds=settings.delay_seconds, legacy_tls=source.legacy_tls, max_file_bytes=settings.max_file_bytes)
 
 
@@ -181,7 +184,7 @@ def relay(settings: Settings) -> int:
 
 
 def cleanup(settings: Settings, today: date | None = None) -> int:
-    """보관 기한(stored_until)이 지난 원본 파일만 S3에서 지워요. 다운로드 주소·해시·추출한 글자·호별 표는 남아요."""
+    """보관 기한(stored_until)이 지난 원본 파일만 S3에서 지워요. 다운로드 주소·해시·추출한 글자는 남아요."""
     files = make_file_store(settings)
     removed = 0
     for store in (PostgresStore(settings.db_url), PostgresPolicyStore(settings.db_url)):  # 게시판 첨부(raw_files)와 정책 첨부(raw_policy_files)

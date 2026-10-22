@@ -42,7 +42,6 @@ def pages(client, rows, body="본문"):
 
 def run(source, client, store, file_store, settings, monkeypatch, **kwargs):
     monkeypatch.setattr(pipeline, "extract_text", lambda data, ext: ("공고문 글자 " * 30, "PDF 텍스트·표"))
-    monkeypatch.setattr(pipeline, "read_tables", lambda data, ext: [])
     return pipeline.run_source(source, client, store, file_store, settings, today=TODAY, **kwargs)
 
 
@@ -65,6 +64,42 @@ def test_new_posts_are_saved_with_event(client, store, file_store, settings, mon
     event = store.events[0]
     assert event["eventType"] == "raw.notice.collected" and event["payload"]["files"][0]["sha256"]
     assert any(key.startswith("raw/dcco/1/v1/") for key in file_store.objects)
+
+
+def test_correction_listed_before_its_original_is_linked(client, store, file_store, settings, monkeypatch):
+    """목록이 최신 글 먼저라 같은 회차에 정정공고가 원래 공고보다 먼저 등록돼도 이벤트에 원래 공고가 연결돼요."""
+    rows = [
+        ("11", "검암역 푸르지오 프라베뉴(검암B-1BL) 입주자모집공고[정정공고]", date(2026, 10, 5)),
+        ("10", "검암역 푸르지오 프라베뉴(검암B-1BL) 입주자모집공고", date(2026, 10, 1)),
+    ]
+    pages(client, rows)
+    run(FakeSource(rows), client, store, file_store, settings, monkeypatch)
+    original, correction = store.by_key("10"), store.by_key("11")
+    assert correction.kind == "CORRECTION" and correction.parent_post_id == original.id
+    event = next(v.event for v in store.versions if v.post.id == correction.id)
+    assert event["payload"]["supersedesPostId"] == str(original.id)
+
+
+def test_correction_links_to_the_round_before_it_not_a_later_one(client, store, file_store, settings, monkeypatch):
+    """매달 같은 이름으로 올라오는 공고: 정정공고는 자기보다 먼저 올라온 회차에 연결돼요 (LH 김제하동 국민임대 같은 경우)."""
+    rows = [
+        ("22", "김제하동 국민임대주택 모집공고", date(2026, 10, 7)),
+        ("21", "김제하동 국민임대주택 모집공고", date(2026, 9, 7)),
+        ("23", "[정정공고]김제하동 국민임대주택 모집공고", date(2026, 9, 8)),
+    ]
+    pages(client, rows)
+    run(FakeSource(rows), client, store, file_store, settings, monkeypatch)
+    assert store.by_key("23").parent_post_id == store.by_key("21").id
+
+
+def test_event_files_point_to_uploaded_s3_objects(client, store, file_store, settings, monkeypatch):
+    """이벤트의 s3Key는 실제로 올린 S3 경로와 같고, 받는 쪽은 role로 공고문을 찾아요."""
+    rows = ROWS[:1]
+    pages(client, rows)
+    run(FakeSource(rows), client, store, file_store, settings, monkeypatch)
+    (file,) = store.events[0]["payload"]["files"]
+    assert file["s3Key"] == "raw/dcco/1/v1/01-모집공고문.pdf" and file["s3Key"] in file_store.objects
+    assert (file["role"], file["fileType"], file["name"]) == ("NOTICE_DOC", "pdf", "모집공고문.pdf")
 
 
 def test_same_list_next_time_stops_after_first_page(client, store, file_store, settings, monkeypatch):
@@ -122,3 +157,48 @@ def test_empty_list_counts_towards_structure_alert(client, store, file_store, se
     for _ in range(3):
         result = run(FakeSource([]), client, store, file_store, settings, monkeypatch)
     assert store.boards[("dcco", "43")].empty_runs == 3 and "구조 변경 의심" in result.warnings[-1]
+
+
+def test_unclear_notice_file_leaves_warning(client, store, file_store, settings, monkeypatch):
+    class UnnamedFiles(FakeSource):
+        def parse_detail(self, item, body):
+            files = [FileRef("붙임1 신청자격.pdf", "https://a.kr/f/a.pdf", 1), FileRef("2026 행복주택.pdf", "https://a.kr/f/b.pdf", 2)]
+            return Detail(item.title, body, files)
+
+    rows = ROWS[:1]
+    pages(client, rows)
+    client.files["https://a.kr/f/a.pdf"] = client.files["https://a.kr/f/b.pdf"] = b"%PDF-1.4 fake"
+    result = run(UnnamedFiles(rows), client, store, file_store, settings, monkeypatch)
+    assert result.new_count == 1 and any("첨부 순서로 골랐어요 (붙임1 신청자격.pdf)" in w for w in result.warnings)
+
+
+class RegionSource(FakeSource):
+    def parse_detail(self, item, body):
+        detail = super().parse_detail(item, body)
+        detail.meta = {"유형": "국민임대", "_raw": {"응답": "원본 그대로"}}
+        detail.region_code = "11110"
+        return detail
+
+
+def test_region_code_goes_to_event_and_underscore_meta_stays_out_of_ai_text(client, store, file_store, settings, monkeypatch):
+    rows = ROWS[:1]
+    pages(client, rows)
+    run(RegionSource(rows), client, store, file_store, settings, monkeypatch)
+    [version] = store.versions
+    assert store.events[0]["payload"]["regionCode"] == "11110"
+    assert "유형: 국민임대" in version.full_text and "원본 그대로" not in version.full_text
+    assert version.meta["_raw"] == {"응답": "원본 그대로"}  # 원본은 DB(raw_post_versions.meta)에는 남아요
+
+
+def test_source_can_bring_its_own_client(settings):
+    from mujuthaek_collector.__main__ import make_client
+    from mujuthaek_collector.core.http_client import PoliteClient
+
+    class OwnClientSource(FakeSource):
+        def make_client(self, settings):
+            return "출처 전용 클라이언트"
+
+    assert make_client(OwnClientSource([]), settings) == "출처 전용 클라이언트"
+    default = make_client(FakeSource([]), settings)
+    assert isinstance(default, PoliteClient)
+    default.close()
