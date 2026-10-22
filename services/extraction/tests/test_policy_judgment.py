@@ -286,3 +286,11 @@ def test_unknown_collector_region_uses_the_quoted_region_from_the_text_and_regio
     assert policy_region_codes(unknown, regions, reading(answer([], supportRegions={"names": ["강원특별자치도"], "quote": "강원 전역"}))) is None
     assert policy_region_codes(unknown, regions, reading(answer([], supportRegions={"names": ["충청북도"], "quote": "강원특별자치도 소재 창업기업"}))) is None
     assert policy_region_codes(unknown, regions, reading(answer([]))) is None
+
+
+def test_nationwide_region_condition_is_not_a_restriction():
+    # 실측 2026-10-22 서초창업스테이션: 「전국 소재」가 지역 코드로 못 바꾼 확인 필요 질문으로 들어갔음
+    text = TOUR_TEXT + "모집대상 : 전국 소재 업력 7년 이내 스타트업\n"
+    made = answer([condition("REGION", "모집대상 : 전국 소재 업력 7년 이내 스타트업", regionNames=["전국"], regionBasis="BUSINESS_SITE")])
+    frame = startup_frame(tour() | {"field": "STARTUP_SUPPORT", "text": text}, reading(made), REGIONS)
+    assert frame_errors(frame) == [] and frame["common"] == []
