@@ -58,7 +58,7 @@ public class NoticeQueryService {
       NoticeListFilter filter, String cursor, Integer size) {
     CursorQuery page = CursorQuery.of(cursor, size, filter.sort());
     LocalDate today = LocalDate.now(clock);
-    var rows = queries.list(filter, today, page.after(), page.fetchSize());
+    var rows = queries.list(filter, page.after(), page.fetchSize());
     return CursorPageResponse.from(
         rows,
         page.size(),
@@ -79,14 +79,15 @@ public class NoticeQueryService {
             row.provider(),
             row.noticeType(),
             current.supplyTypeText(),
-            NoticeStatus.of(row.applyStart(), row.applyEnd(), today).name(),
+            row.status(),
             row.applyStart(),
             row.applyEnd(),
             NoticeStatus.dday(row.applyEnd(), today),
             row.regionCode(),
             regions.displayName(regionLookup(row.regionCode())),
             row.postedOn(),
-            current.detailUrl());
+            current.detailUrl(),
+            row.needsCheck());
     return NoticeDetailMapper.map(
         header,
         payload(current),
@@ -179,11 +180,12 @@ public class NoticeQueryService {
         row.noticeType(),
         row.regionCode(),
         regions.displayName(regionLookup(row.regionCode())),
-        NoticeStatus.of(row.applyStart(), row.applyEnd(), today).name(),
+        row.status(),
         row.applyStart(),
         row.applyEnd(),
         NoticeStatus.dday(row.applyEnd(), today),
-        row.postedOn());
+        row.postedOn(),
+        row.needsCheck());
   }
 
   /** 시도 단위 코드(11000)는 시도 이름으로 찾아요. */

@@ -2,13 +2,16 @@ package kr.mujuthaek.api.notice.service.internal;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import kr.mujuthaek.api.common.event.NoticeClosed;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.common.id.UuidV7;
+import kr.mujuthaek.api.notice.domain.ApplicationStatusCalculator;
 import kr.mujuthaek.api.notice.domain.CompletedNotice;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
 import kr.mujuthaek.api.notice.domain.PublicationPolicy;
@@ -23,6 +26,7 @@ import kr.mujuthaek.api.notice.repository.FollowUpRepository.Attached;
 import kr.mujuthaek.api.notice.repository.FollowUpRepository.FollowUpRow;
 import kr.mujuthaek.api.notice.repository.NoticeRepository;
 import kr.mujuthaek.api.notice.repository.NoticeRepository.CurrentVersion;
+import kr.mujuthaek.api.notice.repository.NoticeRepository.Listing;
 import kr.mujuthaek.api.notice.repository.NoticeRepository.SourceVersion;
 import kr.mujuthaek.api.notice.repository.NoticeRepository.VersionRow;
 import org.slf4j.Logger;
@@ -283,7 +287,7 @@ public class NoticeIngestionService {
   private UUID publishNew(ExtractionEvent event, Source source, String contentHash, Instant now) {
     UUID noticeId = UuidV7.next();
     CompletedNotice listValues = CompletedNotice.from(event.payload());
-    notices.insertNotice(noticeId, listValues, 1, now);
+    notices.insertNotice(noticeId, listValues, 1, listing(event, now), now);
     notices.insertVersion(versionRow(noticeId, 1, event, contentHash, List.of()), now);
     notices.upsertPost(
         event.rawPostId(),
@@ -317,7 +321,9 @@ public class NoticeIngestionService {
       List<String> changed,
       Instant now) {
     int version = current.version() + 1;
-    notices.updateNotice(current.noticeId(), CompletedNotice.from(event.payload()), version, now);
+    Listing listing = listing(event, now);
+    notices.updateNotice(
+        current.noticeId(), CompletedNotice.from(event.payload()), version, listing, now);
     notices.insertVersion(
         versionRow(current.noticeId(), version, event, contentHash, changed), now);
     notices.upsertPost(
@@ -328,6 +334,28 @@ public class NoticeIngestionService {
         source.postedOn(),
         now);
     events.publishEvent(new NoticeUpdated(current.noticeId(), changed, event.reprocess()));
+    if (!event.reprocess()
+        && ApplicationStatusCalculator.justClosed(current.status(), listing.status())) {
+      // 정정으로 접수 기간이 끝난 경우 (예: 마감일 앞당김). 재처리(reprocess)는 상태·이력만 갱신하고 사용자 알림용 이벤트는 보내지 않아요
+      LocalDate today = LocalDate.ofInstant(now, ApplicationStatusCalculator.KOREA);
+      events.publishEvent(
+          new NoticeClosed(
+              current.noticeId(),
+              ApplicationStatusCalculator.closedOn(NoticeContent.statusWindows(event), today)));
+    }
+  }
+
+  /** 버전과 함께 바뀌는 목록 값: 원문 일정으로 계산한 접수 상태와 다시 계산할 시각, 「확인 필요」(보류 항목이 있거나 검수가 필요한 조건이 있음). */
+  private static Listing listing(ExtractionEvent event, Instant now) {
+    ApplicationStatusCalculator.Result status =
+        ApplicationStatusCalculator.calculate(
+            NoticeContent.statusWindows(event), NoticeContent.rolling(event), now);
+    boolean inReview = false;
+    for (JsonNode condition : event.conditions()) {
+      inReview |= condition.path("inReview").asBoolean(false);
+    }
+    return new Listing(
+        status.status(), status.nextCheckAt(), !event.heldItems().isEmpty() || inReview);
   }
 
   private VersionRow versionRow(

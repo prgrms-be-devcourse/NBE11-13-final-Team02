@@ -3,6 +3,7 @@ package kr.mujuthaek.api.notice.mapper;
 import java.net.URI;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -10,6 +11,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
+import kr.mujuthaek.api.notice.domain.ApplicationStatusCalculator.Window;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.JsonNodeFactory;
@@ -136,6 +138,11 @@ public final class NoticeProjection {
     return result;
   }
 
+  public static boolean rolling(JsonNode detail, boolean approved) {
+    return items(detail, approved).stream()
+        .anyMatch(s -> "ROLLING".equals(s.path("applicationMode").asString("")));
+  }
+
   public static LocalDate day(JsonNode value) {
     if (value.isNull()
         || value.isMissingNode()
@@ -159,6 +166,38 @@ public final class NoticeProjection {
     LocalDate start = day(whole.getFirst().path("startsAt")),
         end = day(whole.getFirst().path("endsAt"));
     return start == null && end == null ? NODES.nullNode() : dates(NODES.objectNode(), start, end);
+  }
+
+  /**
+   * 접수 상태 계산용 구간. 원문 일정에서 바로 만들어 시각을 잃지 않아요(「10/30 17:00까지」는 17시까지만 접수 중). 확인 전까지 보류한 접수 일정은 빼지 않고
+   * 날짜 모르는 구간으로 넣어, 끝난 구간만 보고 마감으로 확정하지 않게 해요(남은 접수가 있을 수 있음).
+   */
+  public static List<Window> statusWindows(JsonNode detail, boolean approved) {
+    List<Window> result = new ArrayList<>();
+    JsonNode schedules = detail.path("schedules");
+    for (int i = 0; i < schedules.size(); i++) {
+      JsonNode s = schedules.get(i);
+      if (!application(s)) continue;
+      if (blocked(detail, i, approved)) {
+        result.add(new Window(null, null));
+        continue;
+      }
+      result.add(
+          new Window(
+              day(s.path("startsAt")),
+              day(s.path("endsAt")),
+              instant(s.path("startsAt")),
+              instant(s.path("endsAt"))));
+    }
+    return result;
+  }
+
+  /** 시각까지 적힌 일정 값이면 그 시각, 날짜·월만 있으면 null. */
+  static Instant instant(JsonNode value) {
+    if (value.isNull() || value.isMissingNode()) return null;
+    String precision = value.path("precision").asString("");
+    if ("DAY".equals(precision) || "MONTH".equals(precision)) return null;
+    return OffsetDateTime.parse(value.path("value").asString()).toInstant();
   }
 
   public static ArrayNode windows(JsonNode detail, boolean approved) {

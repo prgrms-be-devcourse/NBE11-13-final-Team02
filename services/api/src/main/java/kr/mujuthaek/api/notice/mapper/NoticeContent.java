@@ -12,6 +12,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.TreeMap;
 import java.util.UUID;
+import kr.mujuthaek.api.notice.domain.ApplicationStatusCalculator.Window;
+import kr.mujuthaek.api.notice.domain.ReviewStatus;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ObjectNode;
 
@@ -145,6 +147,17 @@ public final class NoticeContent {
     } else {
       out.append(node.toString());
     }
+  }
+
+  /** 접수 상태 계산용 구간 (원문 일정의 시각·보류 구간까지 반영). */
+  public static List<Window> statusWindows(ExtractionEvent event) {
+    return NoticeProjection.statusWindows(
+        event.notice(), event.reviewStatus() == ReviewStatus.APPROVED);
+  }
+
+  /** 원문에 상시 모집이 명시된 접수 일정(kinds에 APPLICATION, applicationMode=ROLLING)이 있는지. 보류한 일정은 판정에 쓰지 않아요. */
+  public static boolean rolling(ExtractionEvent event) {
+    return NoticeProjection.rolling(event.notice(), event.reviewStatus() == ReviewStatus.APPROVED);
   }
 
   /** 보류 범위와 양방향으로 겹치는지. 하위 필드를 보류한 항목도 사용하지 않아요. */

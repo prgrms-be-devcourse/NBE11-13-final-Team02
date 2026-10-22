@@ -16,6 +16,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
+import kr.mujuthaek.api.common.event.NoticeClosed;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
@@ -24,6 +25,7 @@ import kr.mujuthaek.api.notice.mapper.ExtractionEvent;
 import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
+import kr.mujuthaek.api.notice.service.internal.NoticeStatusService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,10 +40,15 @@ import org.springframework.test.context.event.ApplicationEvents;
 import org.springframework.test.context.event.RecordApplicationEvents;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /** 실제 extraction 결과(서리풀 공고, PARTIALLY_PASSED)로 수신·저장·조회를 확인해요. AI 호출은 없어요. */
-@SpringBootTest(properties = "spring.rabbitmq.listener.simple.auto-startup=false")
+@SpringBootTest(
+    properties = {
+      "spring.rabbitmq.listener.simple.auto-startup=false",
+      "notice.status-refresh.enabled=false" // 재계산은 테스트에서 직접 불러요
+    })
 @Import({TestcontainersConfiguration.class, NoticeIngestionIntegrationTest.FixedClock.class})
 @RecordApplicationEvents
 class NoticeIngestionIntegrationTest {
@@ -89,6 +96,7 @@ class NoticeIngestionIntegrationTest {
   @Autowired JsonMapper json;
   @Autowired ApplicationEvents events;
   @Autowired MovableClock clock;
+  @Autowired NoticeStatusService status;
   @MockitoSpyBean ExtractionResultRepository results;
 
   @BeforeEach
@@ -329,6 +337,192 @@ class NoticeIngestionIntegrationTest {
 
     org.mockito.Mockito.reset(results);
     assertThat(ingestion.apply(body(event))).isEqualTo(IngestionOutcome.PUBLISHED);
+  }
+
+  // ---------- 접수 상태 ----------
+
+  @Test
+  void 날짜가_지나면_접수_상태를_바꾸고_마감되면_NoticeClosed를_보낸다() {
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    assertThat(statusOf(id)).isEqualTo("UPCOMING");
+
+    clock.set("2026-10-25T23:59");
+    assertThat(status.refreshDue(10)).isZero(); // 다시 계산할 시각(10/26 0시) 전
+
+    clock.set("2026-10-26T00:05");
+    assertThat(status.refreshDue(10)).isEqualTo(1);
+    assertThat(statusOf(id)).isEqualTo("APPLYING");
+    assertThat(events.stream(NoticeClosed.class)).isEmpty();
+
+    clock.set("2026-10-30T16:59");
+    assertThat(status.refreshDue(10)).isZero(); // 원문 마감 시각(10/30 17:00) 전은 접수 중
+
+    clock.set("2026-10-30T17:01"); // 날짜만 보면 그날 자정까지 접수 중으로 남아요
+    assertThat(status.refreshDue(10)).isEqualTo(1);
+    assertThat(statusOf(id)).isEqualTo("CLOSED");
+    assertThat(events.stream(NoticeClosed.class))
+        .containsExactly(new NoticeClosed(id, LocalDate.of(2026, 10, 30)));
+
+    clock.set("2026-12-31T00:00");
+    assertThat(status.refreshDue(10)).isZero(); // 마감 뒤에는 다시 계산하지 않음
+  }
+
+  @Test
+  void 재처리로_접수가_끝나도_마감_알림_이벤트는_보내지_않는다() {
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    clock.set("2026-10-31T00:05");
+    ObjectNode reprocessed = correctionOf(fixture(), "2026-10-30");
+    ((ObjectNode) reprocessed.path("payload")).put("reprocess", true);
+    ((ObjectNode) reprocessed.path("payload").path("notice").path("input")).put("reprocess", true);
+    events.clear();
+
+    assertThat(ingestion.apply(body(reprocessed))).isEqualTo(IngestionOutcome.NEW_VERSION);
+    assertThat(statusOf(id)).isEqualTo("CLOSED");
+    assertThat(events.stream(NoticeClosed.class)).isEmpty();
+  }
+
+  @Test
+  void 처음부터_마감인_공고는_NoticeClosed를_보내지_않는다() {
+    clock.set("2026-11-15T10:00");
+    ingestion.apply(body(fixture()));
+
+    assertThat(statusOf(onlyNotice())).isEqualTo("CLOSED");
+    assertThat(status.refreshDue(10)).isZero();
+    assertThat(events.stream(NoticeClosed.class)).isEmpty();
+  }
+
+  @Test
+  void 정정으로_접수가_끝나면_NoticeClosed를_보낸다() {
+    clock.set("2026-10-27T10:00");
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    assertThat(statusOf(id)).isEqualTo("APPLYING");
+
+    ObjectNode corrected = withRawVersion(fixture(), 2); // 마감일을 10/26로 앞당김
+    corrected.put("eventId", UUID.randomUUID().toString());
+    setApplicationEnd((ObjectNode) corrected.path("payload"), "2026-10-26");
+
+    assertThat(ingestion.apply(body(corrected))).isEqualTo(IngestionOutcome.NEW_VERSION);
+    assertThat(statusOf(id)).isEqualTo("CLOSED");
+    assertThat(events.stream(NoticeClosed.class))
+        .containsExactly(new NoticeClosed(id, LocalDate.of(2026, 10, 26)));
+  }
+
+  @Test
+  void 한_공고의_일정을_읽지_못해도_다른_공고의_상태_재계산은_계속한다() {
+    ingestion.apply(body(fixture()));
+    ingestion.apply(body(otherPost(fixture())));
+    UUID broken =
+        jdbc.sql("select id from notice.notices order by created_at, id limit 1")
+            .query(UUID.class)
+            .single();
+    jdbc.sql(
+            "update notice.notice_versions set payload = jsonb_set(payload, '{notice,schedules}',"
+                + " (select jsonb_agg(jsonb_set(jsonb_set(s, '{startsAt}',"
+                + " '{\"precision\": \"DAY\", \"value\": \"broken\"}'), '{endsAt}',"
+                + " '{\"precision\": \"DAY\", \"value\": \"broken\"}'))"
+                + " from jsonb_array_elements(payload->'notice'->'schedules') s))"
+                + " where notice_id = :id")
+        .param("id", broken)
+        .update();
+
+    clock.set("2026-10-31T00:05");
+    assertThat(status.refreshDue(10)).isEqualTo(2);
+    assertThat(
+            jdbc.sql("select count(*) from notice.notices where status = 'CLOSED'")
+                .query(Long.class)
+                .single())
+        .isEqualTo(1); // 읽을 수 있는 공고는 마감 처리
+    assertThat(
+            jdbc.sql("select next_status_check_at > now() from notice.notices where id = :id")
+                .param("id", broken)
+                .query(Boolean.class)
+                .single())
+        .isTrue(); // 읽지 못한 공고는 하루 뒤로 미룸
+  }
+
+  @Test
+  void 날짜가_없으면_상시_모집이_아니라_확인_필요다() {
+    assertThat(statusWithRollingSchedule(false, false)).isEqualTo("ALWAYS");
+    clean();
+    assertThat(statusWithRollingSchedule(false, true)).isEqualTo("UNKNOWN");
+  }
+
+  @Test
+  void 보류한_일정의_상시_모집은_접수_상태에_쓰지_않는다() {
+    assertThat(statusWithRollingSchedule(true, false)).isEqualTo("UNKNOWN");
+  }
+
+  @Test
+  void 하위_필드가_보류된_일정은_주기_재계산에서도_상시_모집이_아니다() {
+    statusWithRollingSchedule(true, false);
+    UUID id = onlyNotice();
+    jdbc.sql(
+            "update notice.notices set next_status_check_at = '2026-10-18T00:00:00Z' where id = :id")
+        .param("id", id)
+        .update();
+    assertThat(status.refreshDue(200)).isEqualTo(1);
+    assertThat(statusOf(id)).isEqualTo("UNKNOWN");
+  }
+
+  /**
+   * 접수 기간 없이 상시 모집 일정만 있는 공고를 반영하고 접수 상태를 돌려줘요. held면 상시 모집 칸을 보류하고, notRolling이면 상시 모집이라고 적히지 않은
+   * 날짜 없는 일정이에요.
+   */
+  private String statusWithRollingSchedule(boolean held, boolean notRolling) {
+    ObjectNode event = fixture();
+    ObjectNode payload = (ObjectNode) event.path("payload");
+    payload.remove("schedule");
+    payload.remove("applicationWindows");
+    JsonNode schedules = payload.path("notice").path("schedules");
+    for (int i = 0; i < schedules.size(); i++) {
+      ObjectNode schedule = (ObjectNode) schedules.get(i);
+      if (schedule.path("kinds").toString().contains("APPLICATION")) {
+        schedule.put("applicationMode", notRolling ? "UNKNOWN" : "ROLLING");
+        schedule.putNull("startsAt").putNull("endsAt");
+        schedule.put("endStatus", "CONDITIONAL").put("endCondition", "소진 시까지");
+        if (held) {
+          ObjectNode item =
+              json.createObjectNode()
+                  .put("target", "/schedules/" + i + "/applicationMode")
+                  .put("extent", "ITEM")
+                  .put("description", "원문 확인이 필요합니다.");
+          item.putArray("codes").add("CHECK");
+          ((ArrayNode) payload.path("heldItems")).add(item);
+          ((ArrayNode) payload.path("notice").path("quality").path("heldItems"))
+              .add(item.deepCopy());
+        }
+      }
+    }
+    ingestion.apply(body(event));
+    return statusOf(onlyNotice());
+  }
+
+  // ---------- 보류 항목 ----------
+
+  @Test
+  void 보류한_항목은_상세에서_빼고_확인_필요로_알린다() {
+    ingestion.apply(body(fixture())); // 서리풀 공고는 자격 조건 하나를 보류했어요
+    UUID id = onlyNotice();
+
+    NoticeDetailResponse detail = query.detail(id);
+    assertThat(detail.header().needsCheck()).isTrue();
+    assertThat(detail.heldItems())
+        .isNotEmpty()
+        .allSatisfy(h -> assertThat(h.description()).isNotBlank());
+    String heldTarget = detail.heldItems().getFirst().target();
+    assertThat(heldTarget).startsWith("/eligibility/");
+    int index = Integer.parseInt(heldTarget.split("/")[2]);
+    assertThat(detail.conditions().get(index).inReview()).isTrue();
+
+    ingestion.apply(body(otherPost(withStatus(fixture(), "APPROVED"))));
+    assertThat(
+            jdbc.sql("select needs_check from notice.notices order by created_at, id")
+                .query(Boolean.class)
+                .list())
+        .containsExactly(true, false); // 승인본은 보류 항목이 없어요
   }
 
   // ---------- 정정 공고 ----------
@@ -595,16 +789,7 @@ class NoticeIngestionIntegrationTest {
     ObjectNode payload = (ObjectNode) original.path("payload");
     payload.put("rawPostId", correctionPostId);
     ((ObjectNode) payload.path("notice").path("input")).put("rawPostId", correctionPostId);
-    ((ObjectNode) payload.path("schedule")).put("applyEndOn", newApplyEndOn);
-    ((ObjectNode) payload.path("applicationWindows").get(0)).put("applyEndOn", newApplyEndOn);
-    for (JsonNode schedule : payload.path("notice").path("schedules")) {
-      if (schedule.path("kinds").toString().contains("APPLICATION")) {
-        ((ObjectNode) schedule)
-            .putObject("endsAt")
-            .put("precision", "DAY")
-            .put("value", newApplyEndOn);
-      }
-    }
+    setApplicationEnd(payload, newApplyEndOn);
     ObjectNode reference = (ObjectNode) payload.path("notice").path("sourceReferences").get(0);
     reference.put("rawPostId", correctionPostId);
     reference.put("kind", "CORRECTION");
@@ -622,6 +807,37 @@ class NoticeIngestionIntegrationTest {
     ((ObjectNode) payload.path("notice"))
         .set("schedules", original.path("notice").path("schedules"));
     return correction;
+  }
+
+  /** 접수 마감일을 바꿔요 (원문 일정과 목록용 칸 모두). */
+  private static void setApplicationEnd(ObjectNode payload, String end) {
+    ((ObjectNode) payload.path("schedule")).put("applyEndOn", end);
+    ((ObjectNode) payload.path("applicationWindows").get(0)).put("applyEndOn", end);
+    for (JsonNode schedule : payload.path("notice").path("schedules")) {
+      if (schedule.path("kinds").toString().contains("APPLICATION")) {
+        ((ObjectNode) schedule).putObject("endsAt").put("precision", "DAY").put("value", end);
+      }
+    }
+  }
+
+  private static int round = 1;
+
+  /** 다른 공고: 다른 원본 글에 모집 회차(「N차」)가 다른 공고. */
+  private static ObjectNode otherPost(ObjectNode event) {
+    String title = event.path("payload").path("title").asString() + " " + (++round) + "차";
+    ((ObjectNode) event.path("payload")).put("title", title);
+    ((ObjectNode) event.path("payload").path("notice").path("notice")).put("title", title);
+    event.put("eventId", UUID.randomUUID().toString());
+    String id = UUID.randomUUID().toString();
+    ((ObjectNode) event.path("payload")).put("rawPostId", id);
+    ((ObjectNode) event.path("payload").path("notice").path("input")).put("rawPostId", id);
+    ((ObjectNode) event.path("payload").path("notice").path("sourceReferences").get(0))
+        .put("rawPostId", id);
+    return event;
+  }
+
+  private String statusOf(UUID id) {
+    return query.detail(id).header().status();
   }
 
   /** 원본 글 게시일을 바꿔요. */

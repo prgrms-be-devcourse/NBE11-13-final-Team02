@@ -12,7 +12,7 @@ import kr.mujuthaek.api.notice.domain.NoticeType;
  * @param field HOUSING(기본) · BUSINESS_SPACE
  * @param regionCodes 시군구 5자리 또는 시도 2자리
  * @param tenure RENT 빌려서 · BUY 사서 (공고 유형에서 정해요: 공공·민영 분양이 BUY)
- * @param statuses 비우면 마감(CLOSED)을 뺀 전부
+ * @param statuses 비우면 마감(CLOSED)을 뺀 전부 (확인 필요 UNKNOWN 포함)
  * @param sort DEADLINE(기본) 마감 임박 · LATEST 최신
  */
 public record NoticeListFilter(
@@ -38,7 +38,8 @@ public record NoticeListFilter(
             ? List.of(
                 NoticeStatus.UPCOMING.name(),
                 NoticeStatus.APPLYING.name(),
-                NoticeStatus.ALWAYS.name())
+                NoticeStatus.ALWAYS.name(),
+                NoticeStatus.UNKNOWN.name())
             : statuses;
     check(List.of(field), List.of("HOUSING", "BUSINESS_SPACE"), "field");
     check(List.of(sort), List.of("DEADLINE", "LATEST"), "sort");

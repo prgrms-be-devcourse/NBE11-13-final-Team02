@@ -92,6 +92,7 @@ class NoticeContractTest {
             .put("target", "/schedules/" + i + "/applicationMode");
       }
     }
+    assertThat(NoticeProjection.rolling(detail, false)).isFalse();
     assertThat(NoticeProjection.windows(detail, false)).isEmpty();
   }
 

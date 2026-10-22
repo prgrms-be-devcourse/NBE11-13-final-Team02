@@ -73,8 +73,12 @@ public record CompletedNotice(
     String field = p.get("field").asString();
     JsonNode detail = p.path("notice");
     JsonNode source = sourceReference(detail, rawPostId);
-    String supplyType = text(detail.path("notice").path("supplyType"));
-    LocalDate announced = date(detail.path("notice").path("announcedOn"));
+    JsonNode held = p.path("heldItems");
+    // 원문 확인 전까지 보류한 칸은 목록 값으로 쓰지 않아요(틀린 값보다 빈 값이 나아요)
+    String supplyType =
+        held(held, "/notice/supplyType") ? null : text(detail.path("notice").path("supplyType"));
+    LocalDate announced =
+        held(held, "/notice/announcedOn") ? null : date(detail.path("notice").path("announcedOn"));
     return new CompletedNotice(
         rawPostId,
         p.get("rawVersion").asInt(),
@@ -103,6 +107,20 @@ public record CompletedNotice(
       }
     }
     return detail.path("sourceReferences").path(0);
+  }
+
+  /** 보류 범위가 이 칸이거나 그 위·아래와 겹치는지. */
+  private static boolean held(JsonNode heldItems, String pointer) {
+    for (JsonNode item : heldItems) {
+      String target = item.path("target").asString("");
+      if (!target.isEmpty()
+          && (pointer.equals(target)
+              || pointer.startsWith(target + "/")
+              || target.startsWith(pointer + "/"))) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static String text(JsonNode node) {
