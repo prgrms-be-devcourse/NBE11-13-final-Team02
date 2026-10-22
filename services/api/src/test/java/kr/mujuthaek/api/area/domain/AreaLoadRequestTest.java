@@ -27,6 +27,15 @@ class AreaLoadRequestTest {
   }
 
   @Test
+  void csvSourcesHaveHeaderAndComma_andOnlyStoresNeedScope() {
+    for (AreaSource source : AreaSource.values()) {
+      assertThat(source.delimiter()).isEqualTo(',');
+      assertThat(source.headerless()).isFalse();
+      assertThat(source.scoped()).isEqualTo(source == AreaSource.STORES);
+    }
+  }
+
+  @Test
   void fileKeyAndFingerprintAreRequired() {
     assertThatThrownBy(() -> new AreaLoadRequest(AreaSource.PARK, "ALL", null, "ab", DAY, false))
         .isInstanceOf(NullPointerException.class);
