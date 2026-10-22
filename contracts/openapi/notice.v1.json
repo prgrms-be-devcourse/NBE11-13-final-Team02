@@ -1,0 +1,1385 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "무주택자들 공고 API",
+    "version": "1.0.0",
+    "description": "누구나 보는 공고 조회 API입니다(로그인 없음, GET만). services/api의 NoticeController와 같아야 하고, NoticeOpenApiSyncTest가 경로·요청 방식·요청 값 이름을 코드와 대조합니다. 자격 판정은 이 API에 없습니다(eligibility).\n\n- 공개된 공고만 나옵니다: 검수 대기 등 공개하지 않은 결과와 관리자가 숨긴 공고는 없는 공고와 같습니다(404 NOTICE_NOT_FOUND).\n- 다른 공고에 합쳐진 공고는 목록에 나오지 않고, 그 ID로 상세·주택목록·정정 이력을 물으면 합친(남은) 공고의 것이 나옵니다(상세의 header.id가 요청 ID와 다를 수 있음).\n- 값이 없는 칸도 null(목록은 빈 목록)로 내려갑니다. 날짜는 yyyy-MM-dd, 시각은 서울 시간(+09:00)입니다.\n- 오류는 모두 Problem Details(application/problem+json)이고 code로 구분합니다. 문서에 없는 경로는 404 NOT_FOUND, GET이 아닌 요청 방식은 405 METHOD_NOT_ALLOWED(Allow 헤더 포함), 그 밖의 표준 요청 오류(406 등)는 REQUEST_NOT_SUPPORTED에 실제 상태 코드를 넣습니다.\n- 특정 버전의 내용을 그대로 돌려주는 API는 아직 없습니다(정정 이력은 버전별로 바뀐 목록 값만 줍니다)."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "notice",
+      "description": "공고 조회"
+    }
+  ],
+  "paths": {
+    "/api/v1/notices": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "listNotices",
+        "summary": "공고 목록",
+        "description": "공개 목록입니다. 다음 페이지는 응답의 nextCursor를 cursor로 넘기고, 정렬을 바꾸면 처음부터 다시 받습니다(다른 정렬로 만든 커서는 400 INVALID_CURSOR). 예: GET /api/v1/notices?regionCodes=11440,41&tenure=RENT&statuses=APPLYING&sort=DEADLINE&applyEndFrom=2026-11-01&applyEndTo=2026-11-30",
+        "parameters": [
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "HOUSING",
+                "BUSINESS_SPACE"
+              ],
+              "default": "HOUSING"
+            },
+            "description": "분야. 없으면 HOUSING"
+          },
+          {
+            "name": "regionCodes",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9]{2}([0-9]{3})?$"
+              }
+            },
+            "description": "지역: 시군구 5자리 또는 시도 2자리. 시도 2자리나 시도 단위 5자리(xx000, 예: 11000 = 서울특별시)는 그 시도의 모든 공고, 시군구 5자리는 그 시군구 공고와 그 시군구를 품는 대상 지역 전체 공고(예: 「대구 전체」)가 나옵니다. 여러 지역에 걸친 공고는 어느 지역으로도 찾을 수 있고, 전국 대상 공고는 어느 지역으로 찾아도 나옵니다. 여러 값은 하나라도 맞으면 나옵니다. 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: regionCodes=A,B)."
+          },
+          {
+            "name": "tenure",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RENT",
+                "BUY"
+              ]
+            },
+            "description": "RENT 빌려서 · BUY 사서. 공고 유형으로 정해요: PUBLIC_SALE·PRIVATE_SALE이 BUY, 그 밖의 유형이 RENT이고 유형을 모르는 공고는 둘 다에서 빠져요"
+          },
+          {
+            "name": "noticeTypes",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "YOUTH_SAFE_HOUSING",
+                  "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+                  "INTEGRATED_PUBLIC_RENTAL",
+                  "HAPPY_HOUSING",
+                  "NATIONAL_RENTAL",
+                  "PERMANENT_RENTAL",
+                  "PURCHASE_RENTAL",
+                  "JEONSE_RENTAL",
+                  "LONG_TERM_JEONSE",
+                  "PUBLIC_SALE",
+                  "PRIVATE_SALE",
+                  "STARTUP_SPACE",
+                  "SHOP_RENTAL",
+                  "MEETING_ROOM"
+                ]
+              }
+            },
+            "description": "공고 유형 (하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: noticeTypes=A,B)."
+          },
+          {
+            "name": "providers",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "공급 기관 이름 (원문 그대로, 하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: providers=A,B)."
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "UPCOMING",
+                  "APPLYING",
+                  "CLOSED",
+                  "ALWAYS",
+                  "UNKNOWN"
+                ]
+              }
+            },
+            "description": "접수 상태. 비우면 마감(CLOSED)을 뺀 전부(확인 필요 UNKNOWN 포함). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: statuses=A,B)."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DEADLINE",
+                "LATEST"
+              ],
+              "default": "DEADLINE"
+            },
+            "description": "DEADLINE 마감 임박순(마감일 없는 공고는 맨 뒤) · LATEST 최신 공고일순(공고일 없는 공고는 맨 뒤). 없으면 DEADLINE"
+          },
+          {
+            "name": "applyEndFrom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "마감일이 이날 이후(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요"
+          },
+          {
+            "name": "applyEndTo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "마감일이 이날 이전(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요. applyEndFrom보다 이르면 400"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "공고 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/{id}": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "getNotice",
+        "summary": "공고 상세 (현재 공개 버전)",
+        "description": "요약, 일정, 단지·건물, 주택형별 조건, 자격 조건과 근거 원문, 첨부 링크, 보류 항목, 지역 점수, 후속 안내입니다. 첨부는 기관 링크만 줍니다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "공고 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/{id}/units": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "listNoticeUnits",
+        "summary": "주택목록 (호별)",
+        "description": "호별 주소·면적·금액입니다. 주택목록이 없는 공고(상세의 hasUnits가 false)는 빈 목록입니다. 원문 확인 전까지 보류한 호는 빠집니다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          },
+          {
+            "name": "siteId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "단지·건물 하나만 볼 때 (상세의 sites[].id). 없는 ID면 빈 목록"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "주택목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeUnitPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/{id}/versions": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "listNoticeVersions",
+        "summary": "정정 이력",
+        "description": "공개한 버전 목록입니다(버전 오름차순, 첫 버전부터). 공개하지 않은 결과(검수 대기 등)와 후속 안내는 버전이 아닙니다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "버전 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/components/schemas/NoticeVersion"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "NoticeId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "공고 ID. UUID 형식이 아니면 400 VALIDATION_FAILED"
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "이전 응답의 nextCursor. 없으면 첫 페이지. 읽을 수 없거나 다른 정렬로 만든 커서면 400 INVALID_CURSOR"
+      },
+      "Size": {
+        "name": "size",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "description": "한 페이지 개수. 범위를 벗어나면 400 VALIDATION_FAILED"
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "요청 값이 올바르지 않음. code: VALIDATION_FAILED(쓸 수 없는 값·형식이 맞지 않는 값·size 범위·applyEndFrom이 applyEndTo보다 늦음 등), INVALID_CURSOR(커서를 읽을 수 없거나 다른 정렬의 커서)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "NoticeNotFound": {
+        "description": "공고가 없거나 숨김·공개 전 (code: NOTICE_NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "서버 오류 (code: INTERNAL_ERROR). detail에 원인을 넣지 않고 timestamp를 붙여요",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "description": "오류 응답: Problem Details(RFC 9457) + 화면이 문구를 고르는 code. 입력값은 detail·errors에 넣지 않아요.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "code"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "https://mujuthaek.kr/problems/ 뒤에 code를 소문자·하이픈으로 (예: .../validation-failed)"
+          },
+          "title": {
+            "type": "string",
+            "description": "code의 기본 문구"
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP 상태 코드"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "description": "요청 경로"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "VALIDATION_FAILED",
+              "INVALID_CURSOR",
+              "NOT_FOUND",
+              "NOTICE_NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "UNSUPPORTED_MEDIA_TYPE",
+              "REQUEST_NOT_SUPPORTED",
+              "INTERNAL_ERROR"
+            ],
+            "description": "이 API에서 나올 수 있는 코드. NOT_FOUND는 없는 경로, METHOD_NOT_ALLOWED는 GET이 아닌 요청, REQUEST_NOT_SUPPORTED는 그 밖의 표준 4xx(status는 실제 값)"
+          },
+          "errors": {
+            "type": "array",
+            "description": "본문 검증 오류의 칸별 이유 (이 API의 쿼리 오류에는 없음)",
+            "items": {
+              "type": "object",
+              "required": [
+                "field",
+                "reason"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "500일 때만"
+          }
+        }
+      },
+      "NoticeStatus": {
+        "type": "string",
+        "enum": [
+          "UPCOMING",
+          "APPLYING",
+          "CLOSED",
+          "ALWAYS",
+          "UNKNOWN"
+        ],
+        "description": "접수 상태: UPCOMING 접수예정 · APPLYING 접수중 · CLOSED 마감 · ALWAYS 상시 · UNKNOWN 확인 필요(일정이 없거나 확실하지 않아 단정할 수 없음)"
+      },
+      "NoticePage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor",
+          "hasNext"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "다음 페이지 커서 (마지막 페이지면 null)"
+          },
+          "hasNext": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeSummary": {
+        "type": "object",
+        "description": "공고 목록 한 줄",
+        "required": [
+          "id",
+          "field",
+          "title",
+          "provider",
+          "noticeType",
+          "regionCode",
+          "regionName",
+          "status",
+          "applyStart",
+          "applyEnd",
+          "dday",
+          "postedOn",
+          "needsCheck"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "HOUSING",
+              "BUSINESS_SPACE"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "공급 기관"
+          },
+          "noticeType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "YOUTH_SAFE_HOUSING",
+              "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+              "INTEGRATED_PUBLIC_RENTAL",
+              "HAPPY_HOUSING",
+              "NATIONAL_RENTAL",
+              "PERMANENT_RENTAL",
+              "PURCHASE_RENTAL",
+              "JEONSE_RENTAL",
+              "LONG_TERM_JEONSE",
+              "PUBLIC_SALE",
+              "PRIVATE_SALE",
+              "STARTUP_SPACE",
+              "SHOP_RENTAL",
+              "MEETING_ROOM",
+              null
+            ],
+            "description": "공고 유형 (원문 공급 유형에서 못 정하면 null)"
+          },
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "대표 지역 5자리 (시도 단위면 xx000, 여러 시도면 null)"
+          },
+          "regionName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "대표 지역 이름"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NoticeStatus"
+          },
+          "applyStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "접수 시작일"
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "접수 마감일 (상시거나 모르면 null)"
+          },
+          "dday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "마감까지 남은 날 (마감일 당일 0, 마감일이 없거나 지났으면 null)"
+          },
+          "postedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "공고 게시일"
+          },
+          "needsCheck": {
+            "type": "boolean",
+            "description": "원문 확인 전까지 보여 주지 않는 항목이 있음 (화면의 「확인 필요」)"
+          }
+        }
+      },
+      "NoticeDetail": {
+        "type": "object",
+        "description": "공고 상세 (현재 공개 버전)",
+        "required": [
+          "header",
+          "summary",
+          "schedules",
+          "sites",
+          "unitTypes",
+          "conditions",
+          "files",
+          "heldItems",
+          "areaSummaries",
+          "followUps",
+          "hasUnits",
+          "version",
+          "reviewed",
+          "updatedAt"
+        ],
+        "properties": {
+          "header": {
+            "$ref": "#/components/schemas/NoticeHeader"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/NoticeContentSummary"
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Schedule"
+            },
+            "description": "일정 (보류한 일정은 빠짐)"
+          },
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Site"
+            },
+            "description": "단지·건물 (보류한 위치는 빠지고, 보류한 칸만 null)"
+          },
+          "unitTypes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnitType"
+            },
+            "description": "주택형별 조건 (보류한 공급 묶음이 있는 주택형은 빠짐)"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "description": "대상별 자격 조건과 근거 원문. 판정은 eligibility API로"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileLink"
+            },
+            "description": "첨부 (기관 링크만)"
+          },
+          "heldItems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HeldItem"
+            },
+            "description": "원문 확인 전까지 보여 주지 않는 항목. 화면은 「확인 필요」로 알려요"
+          },
+          "areaSummaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AreaSummary"
+            },
+            "description": "위치별 생활·상업 점수 (지금 버전의 위치로 계산한 것만)"
+          },
+          "followUps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FollowUp"
+            },
+            "description": "원래 공고에 붙은 후속 안내 (공고 버전과 따로)"
+          },
+          "hasUnits": {
+            "type": "boolean",
+            "description": "호별 주택목록이 있는지 (없으면 주택목록·지도 섹션을 숨겨요)"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "공고 버전 (정정되면 올라가요)"
+          },
+          "reviewed": {
+            "type": "boolean",
+            "description": "검수자가 확인한 버전인지"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "공고가 마지막으로 바뀐 시각 (+09:00)"
+          }
+        }
+      },
+      "NoticeHeader": {
+        "type": "object",
+        "required": [
+          "id",
+          "field",
+          "title",
+          "provider",
+          "noticeType",
+          "supplyTypeText",
+          "status",
+          "applyStart",
+          "applyEnd",
+          "dday",
+          "regionCode",
+          "regionName",
+          "postedOn",
+          "detailUrl",
+          "needsCheck"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "공고 ID (합쳐진 공고 ID로 물었으면 합친 공고 ID)"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "HOUSING",
+              "BUSINESS_SPACE"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "noticeType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "YOUTH_SAFE_HOUSING",
+              "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+              "INTEGRATED_PUBLIC_RENTAL",
+              "HAPPY_HOUSING",
+              "NATIONAL_RENTAL",
+              "PERMANENT_RENTAL",
+              "PURCHASE_RENTAL",
+              "JEONSE_RENTAL",
+              "LONG_TERM_JEONSE",
+              "PUBLIC_SALE",
+              "PRIVATE_SALE",
+              "STARTUP_SPACE",
+              "SHOP_RENTAL",
+              "MEETING_ROOM",
+              null
+            ]
+          },
+          "supplyTypeText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문 공급 유형 그대로 (예: 매입임대)"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NoticeStatus"
+          },
+          "applyStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "dday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "regionName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "기관 원문 주소"
+          },
+          "needsCheck": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeContentSummary": {
+        "type": "object",
+        "required": [
+          "summaryText",
+          "targetGroups",
+          "supplyTotal",
+          "exclusiveM2Min",
+          "exclusiveM2Max"
+        ],
+        "properties": {
+          "summaryText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "한 줄 요약"
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "공급 대상 (원문 표현)"
+          },
+          "supplyTotal": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "모집 호수 (공고에 적힌 수, 없으면 주택형별 합)"
+          },
+          "exclusiveM2Min": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "전용면적 최소 (㎡)"
+          },
+          "exclusiveM2Max": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "전용면적 최대 (㎡)"
+          }
+        }
+      },
+      "Schedule": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "kinds",
+          "startsAt",
+          "endsAt",
+          "description",
+          "applicationUrl",
+          "current"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문 일정 이름"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "일정 종류 (APPLICATION, DOCUMENT_SUBMISSION, WINNER_ANNOUNCEMENT, CONTRACT, MOVE_IN 등)"
+          },
+          "startsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "시작: 날짜(yyyy-MM-dd) 또는 시각(yyyy-MM-ddTHH:mm:ss+09:00)"
+          },
+          "endsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "끝: 날짜 또는 시각"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applicationUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "신청 주소"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "오늘이 이 일정 안이면 true"
+          }
+        }
+      },
+      "Site": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "address",
+          "regionCode"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "위치 ID (주택목록 siteId, 지역 점수 siteId)"
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "COMPLEX, BUILDING, SITE, AREA, UNKNOWN"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지 이름 (없으면 건물 이름)"
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "지역 5자리"
+          }
+        }
+      },
+      "UnitType": {
+        "type": "object",
+        "required": [
+          "houseType",
+          "targetGroups",
+          "exclusiveM2",
+          "depositWon",
+          "rentWon",
+          "supplyCount"
+        ],
+        "properties": {
+          "houseType": {
+            "type": "string",
+            "description": "주택형"
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "exclusiveM2": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "전용면적 (㎡)"
+          },
+          "depositWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "보증금 (원)"
+          },
+          "rentWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "월임대료 (원)"
+          },
+          "supplyCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "공급 호수 (같은 주택형 합)"
+          }
+        }
+      },
+      "Condition": {
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "target",
+          "targetGroups",
+          "description",
+          "originalText",
+          "inReview"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originalText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "근거 원문"
+          },
+          "inReview": {
+            "type": "boolean",
+            "description": "확인 필요 (검수 중이거나 원문 확인 전까지 보류한 조건)"
+          }
+        }
+      },
+      "FileLink": {
+        "type": "object",
+        "required": [
+          "name",
+          "url"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "description": "기관 원문 첨부 주소"
+          }
+        }
+      },
+      "HeldItem": {
+        "type": "object",
+        "required": [
+          "section",
+          "target",
+          "description"
+        ],
+        "properties": {
+          "section": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "어느 섹션인지 (schedules, supplyGroups, locations, eligibility, notice …)"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "보류한 항목의 위치 (JSON Pointer, 예: /schedules/2)"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "확인이 필요한 이유"
+          }
+        }
+      },
+      "AreaSummary": {
+        "type": "object",
+        "required": [
+          "siteId",
+          "kind",
+          "score",
+          "calculatedAt"
+        ],
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "description": "단지·건물 (sites[].id)"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "LIVING",
+              "COMMERCIAL"
+            ],
+            "description": "LIVING 생활 · COMMERCIAL 상업"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "calculatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FollowUp": {
+        "type": "object",
+        "required": [
+          "title",
+          "detailUrl",
+          "postedOn",
+          "schedules"
+        ],
+        "properties": {
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Schedule"
+            }
+          }
+        }
+      },
+      "NoticeUnitPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor",
+          "hasNext"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeUnit"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasNext": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeUnit": {
+        "type": "object",
+        "description": "주택목록 한 호",
+        "required": [
+          "id",
+          "siteId",
+          "address",
+          "unitLabel",
+          "floor",
+          "houseType",
+          "exclusiveM2",
+          "depositWon",
+          "rentWon"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "siteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지·건물 (sites[].id)"
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지·건물 주소 (보류했으면 null)"
+          },
+          "unitLabel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "동·호"
+          },
+          "floor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "houseType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exclusiveM2": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "depositWon": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rentWon": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        }
+      },
+      "NoticeVersion": {
+        "type": "object",
+        "description": "정정 이력 한 줄",
+        "required": [
+          "version",
+          "kind",
+          "reviewStatus",
+          "changedFields",
+          "receivedAt"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "NOTICE",
+              "CORRECTION"
+            ],
+            "description": "NOTICE 모집공고 · CORRECTION 정정공고"
+          },
+          "reviewStatus": {
+            "type": "string",
+            "enum": [
+              "AUTO_PASSED",
+              "PARTIALLY_PASSED",
+              "APPROVED"
+            ]
+          },
+          "changedFields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "title",
+                "provider",
+                "noticeType",
+                "regionCode",
+                "applyStart",
+                "applyEnd",
+                "summaryText"
+              ]
+            },
+            "description": "앞 버전과 비교해 바뀐 목록 값 (첫 버전은 빈 목록). 목록 값 밖의 내용만 바뀐 버전은 빈 목록일 수 있어요"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "이 버전을 받은 시각 (+09:00)"
+          }
+        }
+      }
+    }
+  }
+}
