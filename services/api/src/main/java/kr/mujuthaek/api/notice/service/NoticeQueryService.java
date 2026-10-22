@@ -182,7 +182,9 @@ public class NoticeQueryService {
                         row.title(),
                         row.applyStart(),
                         row.applyEnd(),
-                        row.nationwide() ? List.of() : legalDongs(row.regionCodes()),
+                        row.nationwide()
+                            ? List.of()
+                            : row.regionCodes().isEmpty() ? null : legalDongs(row.regionCodes()),
                         row.frameJson() == null ? null : json.readTree(row.frameJson())))
             .toList();
     if (field != NoticeField.BUSINESS_SPACE) {

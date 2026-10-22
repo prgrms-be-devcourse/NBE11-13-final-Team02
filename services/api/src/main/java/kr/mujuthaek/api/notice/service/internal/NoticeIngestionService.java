@@ -145,11 +145,16 @@ public class NoticeIngestionService {
                 event.applyStartOn(),
                 event.applyEndOn(),
                 regions,
-                json.writeValueAsString(event.judgment())),
+                json.writeValueAsString(event.judgment()),
+                event.reviewStatus()),
             now);
-    return saved
-        ? new Decision(IngestionOutcome.POLICY_JUDGMENT_SAVED, event.field())
-        : new Decision(IngestionOutcome.STALE, event.field());
+    if (saved) {
+      return new Decision(IngestionOutcome.POLICY_JUDGMENT_SAVED, event.field());
+    }
+    boolean sameVersion =
+        notices.policyJudgmentVersion(event.rawPostId()).orElse(-1) == event.rawVersion();
+    return new Decision(
+        sameVersion ? IngestionOutcome.KEPT_APPROVED : IngestionOutcome.STALE, event.field());
   }
 
   /**

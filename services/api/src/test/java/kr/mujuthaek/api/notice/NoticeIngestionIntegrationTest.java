@@ -386,6 +386,38 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 같은_버전의_승인된_정책_판정_틀은_승인_아닌_결과로_덮지_않는다() {
+    // 리뷰 2026-10-22: 같은 rawVersion이면 IN_REVIEW·퇴화 틀이 승인본을 덮었음 (공고의 KEPT_APPROVED와 같은 규칙)
+    ObjectNode approved = policyEvent("STARTUP_SUPPORT", 2, "2026-11-02");
+    ((ObjectNode) approved.path("payload")).put("reviewStatus", "APPROVED");
+    ((ObjectNode) approved.path("payload")).put("title", "승인본");
+    ObjectNode later = policyEvent("STARTUP_SUPPORT", 2, "2026-11-02");
+    later.put("eventId", UUID.randomUUID().toString());
+    ((ObjectNode) later.path("payload"))
+        .put("rawPostId", approved.path("payload").path("rawPostId").asString())
+        .put("reviewStatus", "IN_REVIEW")
+        .put("title", "자동 결과");
+    ((ObjectNode) later.path("payload").path("judgment"))
+        .put("rawPolicyId", approved.path("payload").path("rawPostId").asString());
+
+    assertThat(ingestion.apply(body(approved))).isEqualTo(IngestionOutcome.POLICY_JUDGMENT_SAVED);
+    assertThat(ingestion.apply(body(later))).isEqualTo(IngestionOutcome.KEPT_APPROVED);
+    assertThat(query.findOpenProgramsForJudgment().get(0).title()).isEqualTo("승인본");
+  }
+
+  @Test
+  void 지역을_모르는_공고는_판정_목록에서_전국으로_주지_않는다() {
+    // 리뷰 2026-10-22: 위치 지역이 보류·없음이라 지역 색인이 비면 빈 목록(전국)으로 나가 모든 지역이 충족됐음
+    ingestion.apply(body(fixture()));
+    jdbc.sql("delete from notice.notice_regions").update();
+
+    List<NoticeForJudgment> open = query.findOpenForJudgment(NoticeField.HOUSING);
+
+    assertThat(open).hasSize(1);
+    assertThat(open.get(0).regionCodes()).isNull();
+  }
+
+  @Test
   void 정책_분야인데_판정_틀이나_지원_지역이_없으면_계약_위반이다() {
     ObjectNode missing = policyEvent("SPACE_RECRUITMENT", 2, "2026-10-27", "11000");
     ((ObjectNode) missing.path("payload")).remove("regionCodes");
