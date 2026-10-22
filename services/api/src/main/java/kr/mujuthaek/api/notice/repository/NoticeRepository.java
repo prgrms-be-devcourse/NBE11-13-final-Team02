@@ -149,6 +149,17 @@ public class NoticeRepository {
         .optional();
   }
 
+  /** 공고 버전의 위치 목록 (상세 locations, JSON 글자). 없는 버전이면 빈 값. */
+  public Optional<String> findLocations(UUID noticeId, int version) {
+    return jdbc.sql(
+            "select (payload -> 'notice' -> 'locations')::text from notice.notice_versions"
+                + " where notice_id = :id and version = :version")
+        .param("id", noticeId)
+        .param("version", version)
+        .query(String.class)
+        .optional();
+  }
+
   /** 새 공고를 공개해요. raw_post_id는 공고를 처음 만든 글로 두고(updateNotice는 바꾸지 않음), 정정은 notice_posts로 이어요. */
   public void insertNotice(UUID id, CompletedNotice n, int version, Listing listing, Instant now) {
     jdbc.sql(

@@ -4,7 +4,8 @@ import java.util.List;
 import java.util.UUID;
 
 /**
- * 새 공고가 등록됨. area(점수 계산)와 notification(사용자 알림)이 받아요. reprocess면 사용자 알림을 보내지 않아요.
+ * 새 공고가 등록됨. notification(사용자 알림)이 받아요. reprocess면 사용자 알림을 보내지 않아요. 지역 점수 계산(area)은 위치가 담긴
+ * NoticeLocationsChanged를 받아요.
  *
  * @param regionCode 대표 지역 5자리 하나: 한 시군구면 그 코드, 한 시도 안의 여러 시군구면 시도 코드(xx000), 여러 시도에 걸치면 null (알림
  *     대상은 regionCodes로 고르세요)

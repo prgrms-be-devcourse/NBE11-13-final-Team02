@@ -14,6 +14,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import kr.mujuthaek.api.common.event.NoticeLocationsChanged;
 import kr.mujuthaek.api.notice.domain.ApplicationStatusCalculator.Window;
 import kr.mujuthaek.api.notice.domain.ReviewStatus;
 import tools.jackson.databind.JsonNode;
@@ -329,6 +330,73 @@ public final class NoticeContent {
   /** 상세 공고의 공급 기관·공급 유형 (목록 표시·필터용). */
   public static String publisher(ExtractionEvent event) {
     return noticeText(event, "publisher");
+  }
+
+  /** area에 보낼 위치 목록 (상세 공고의 locations). */
+  public static List<NoticeLocationsChanged.Location> locations(ExtractionEvent event) {
+    return event.notice() == null
+        ? new ArrayList<>()
+        : locations(event.notice(), event.heldItems());
+  }
+
+  /** 저장해 둔 스냅샷의 위치 목록 (보충 발행용). 보류 항목은 스냅샷의 quality.heldItems를 봐요. */
+  public static List<NoticeLocationsChanged.Location> locations(JsonNode snapshot) {
+    return locations(snapshot, snapshot.path("quality").path("heldItems"));
+  }
+
+  /**
+   * 위치 목록. 보류한 위치(/locations/{i} 전체나 주소·이름)는 빼고, 지역 코드만 보류했으면 코드 없이 보내요. 미확정 위치로 지역 점수를 계산하지 않게 해요.
+   */
+  private static List<NoticeLocationsChanged.Location> locations(
+      JsonNode snapshot, JsonNode heldItems) {
+    List<NoticeLocationsChanged.Location> locations = new ArrayList<>();
+    JsonNode all = snapshot.path("locations");
+    for (int i = 0; i < all.size(); i++) {
+      JsonNode location = all.get(i);
+      String id = textOrNull(location, "id");
+      if (id == null || "AREA".equals(location.path("kind").asString(""))) {
+        continue; // 대상 지역(AREA)은 주택 위치가 아니라 생활·상업 점수를 계산하지 않아요
+      }
+      String at = "/locations/" + i;
+      if (coversWhole(heldItems, at)
+          || held(heldItems, at + "/address")
+          || held(heldItems, at + "/complexName")
+          || held(heldItems, at + "/buildingName")) {
+        continue;
+      }
+      String name = textOrNull(location, "complexName");
+      locations.add(
+          new NoticeLocationsChanged.Location(
+              id,
+              location.path("kind").asString("UNKNOWN"),
+              held(heldItems, at + "/regionCode") ? null : textOrNull(location, "regionCode"),
+              textOrNull(location, "address"),
+              name != null ? name : textOrNull(location, "buildingName")));
+    }
+    return locations;
+  }
+
+  /** 보류 범위가 pointer 자체이거나 그 위(상위 섹션)인지. 하위 칸 하나만 보류한 경우는 포함하지 않아요. */
+  private static boolean coversWhole(JsonNode heldItems, String pointer) {
+    for (JsonNode item : heldItems) {
+      String target = item.path("target").asString("");
+      if (!target.isEmpty() && (pointer.equals(target) || pointer.startsWith(target + "/"))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 지역 점수를 저장하고 보여 줄 위치 ID. area에 보내는 위치(locations(snapshot))와 같은 규칙이라, 보류한 위치(위치 전체나 주소·이름)는 빠져요.
+   * 이전 버전에서 계산한 점수가 남아 있어도 지금 보류한 위치의 점수는 보여 주지 않아요.
+   */
+  public static Set<String> locationIds(JsonNode snapshot) {
+    Set<String> ids = new java.util.HashSet<>();
+    for (NoticeLocationsChanged.Location location : locations(snapshot)) {
+      ids.add(location.locationId());
+    }
+    return ids;
   }
 
   /** 결과에 공고문 PDF가 있는지 (기준 출처 고르기). */
