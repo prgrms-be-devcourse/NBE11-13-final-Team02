@@ -4,35 +4,20 @@ import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
 /**
- * 접수 상태 (API 설계 "이번에 정하는 코드"). 날짜가 지나면 바뀌어서 저장하지 않고 조회할 때 오늘 날짜로 계산해요.
- *
- * <ul>
- *   <li>ALWAYS 상시: 접수 시작·마감이 둘 다 없음
- *   <li>CLOSED 마감: 마감일이 지남
- *   <li>UPCOMING 접수예정: 시작일 전
- *   <li>APPLYING 접수중: 그 밖 (시작일만 있고 지났거나, 기간 안)
- * </ul>
- *
- * 목록 필터는 같은 규칙의 SQL 식({@link #sql})을 써요.
+ * 접수 상태 (API 설계 "이번에 정하는 코드"). 원문 일정으로 계산해 저장하고, 상태가 바뀔 수 있는 시각에 다시 계산해요 ({@link
+ * ApplicationStatusCalculator}).
  */
 public enum NoticeStatus {
+  /** 접수예정: 다음 접수 기간이 아직 오지 않음 */
   UPCOMING,
+  /** 접수중 */
   APPLYING,
+  /** 마감: 모든 접수 기간이 끝남 */
   CLOSED,
-  ALWAYS;
-
-  public static NoticeStatus of(LocalDate applyStart, LocalDate applyEnd, LocalDate today) {
-    if (applyStart == null && applyEnd == null) {
-      return ALWAYS;
-    }
-    if (applyEnd != null && today.isAfter(applyEnd)) {
-      return CLOSED;
-    }
-    if (applyStart != null && today.isBefore(applyStart)) {
-      return UPCOMING;
-    }
-    return APPLYING;
-  }
+  /** 상시: 원문에 상시 모집이 명시됨 */
+  ALWAYS,
+  /** 확인 필요: 일정이 없거나 확실하지 않아 단정할 수 없음 */
+  UNKNOWN;
 
   /** 마감까지 남은 날 (마감일 당일 0). 마감일이 없거나 지났으면 null. */
   public static Integer dday(LocalDate applyEnd, LocalDate today) {
@@ -40,22 +25,5 @@ public enum NoticeStatus {
       return null;
     }
     return (int) ChronoUnit.DAYS.between(today, applyEnd);
-  }
-
-  /** 같은 규칙의 SQL 식. start·end는 칸 이름, today는 자리표시(?)나 날짜 식이에요. */
-  public static String sql(String start, String end, String today) {
-    return "case when "
-        + start
-        + " is null and "
-        + end
-        + " is null then 'ALWAYS' when "
-        + end
-        + " < "
-        + today
-        + " then 'CLOSED' when "
-        + start
-        + " > "
-        + today
-        + " then 'UPCOMING' else 'APPLYING' end";
   }
 }

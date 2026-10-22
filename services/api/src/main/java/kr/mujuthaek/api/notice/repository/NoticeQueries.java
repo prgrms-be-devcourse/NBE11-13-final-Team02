@@ -1,13 +1,11 @@
 package kr.mujuthaek.api.notice.repository;
 
-import java.sql.Date;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import kr.mujuthaek.api.common.pagination.CursorKey;
-import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -38,25 +36,24 @@ public class NoticeQueries {
       String regionCode,
       LocalDate applyStart,
       LocalDate applyEnd,
-      LocalDate postedOn) {}
+      LocalDate postedOn,
+      String status,
+      boolean needsCheck) {}
 
-  public List<ListRow> list(NoticeListFilter f, LocalDate today, CursorKey after, int fetchSize) {
+  public List<ListRow> list(NoticeListFilter f, CursorKey after, int fetchSize) {
     var params =
         new MapSqlParameterSource()
             .addValue("field", f.field())
-            .addValue("today", Date.valueOf(today))
             .addValue("statuses", f.statuses())
             .addValue("limit", fetchSize);
     StringBuilder sql =
         new StringBuilder(
             """
-            select id, field, title, provider, notice_type, region_code, apply_start, apply_end, posted_on
+            select id, field, title, provider, notice_type, region_code, apply_start, apply_end, posted_on,
+                   status, needs_check
             from notice.notices n
-            where current_version > 0 and not hidden and field = :field
+            where current_version > 0 and not hidden and field = :field and status in (:statuses)
             """);
-    sql.append(" and ")
-        .append(NoticeStatus.sql("n.apply_start", "n.apply_end", "cast(:today as date)"))
-        .append(" in (:statuses)");
     if (!f.regionCodes().isEmpty()) {
       sql.append(" and (false");
       if (!f.sigunguCodes().isEmpty()) {
@@ -114,7 +111,9 @@ public class NoticeQueries {
                 rs.getString(6),
                 rs.getObject(7, LocalDate.class),
                 rs.getObject(8, LocalDate.class),
-                rs.getObject(9, LocalDate.class)));
+                rs.getObject(9, LocalDate.class),
+                rs.getString(10),
+                rs.getBoolean(11)));
   }
 
   /** 공개된 공고의 현재 버전 (목록 값 + 저장한 payload). 숨김·공개 전·없는 공고는 빈 값. */
@@ -133,7 +132,7 @@ public class NoticeQueries {
             """
             select n.id, n.field, n.title, n.provider, n.notice_type, n.region_code, n.apply_start,
                    n.apply_end, n.posted_on, n.supply_type_text, n.detail_url, n.current_version,
-                   n.reviewed, n.updated_at, v.payload::text
+                   n.reviewed, n.updated_at, v.payload::text, n.status, n.needs_check
             from notice.notices n
             join notice.notice_versions v on v.notice_id = n.id and v.version = n.current_version
             where n.id = :id and n.current_version > 0 and not n.hidden
@@ -150,7 +149,9 @@ public class NoticeQueries {
                         rs.getString(6),
                         rs.getObject(7, LocalDate.class),
                         rs.getObject(8, LocalDate.class),
-                        rs.getObject(9, LocalDate.class)),
+                        rs.getObject(9, LocalDate.class),
+                        rs.getString(16),
+                        rs.getBoolean(17)),
                     rs.getString(10),
                     rs.getString(11),
                     rs.getInt(12),

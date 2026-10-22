@@ -9,6 +9,7 @@ import java.util.UUID;
 /**
  * 공고 상세 (API 설계 "상세 응답의 묶음"). 현재 공개 버전의 추출 결과에서 만들어요. 첨부는 기관 링크만 주고 파일은 주지 않아요.
  *
+ * @param heldItems 원문 확인 전까지 보여 주지 않는 항목 (일정·주택형·위치 등에서 뺐어요). 화면은 「확인 필요」로 알려요
  * @param followUps 원래 공고에 붙은 후속 안내 (서류 제출·당첨자 발표 등). 공고 버전과 따로 붙어요
  * @param hasUnits 호별 주택목록이 있는지 (없으면 화면이 주택목록·지도 섹션을 숨겨요)
  * @param reviewed 검수자가 확인한 버전인지
@@ -21,6 +22,7 @@ public record NoticeDetailResponse(
     List<UnitType> unitTypes,
     List<Condition> conditions,
     List<FileLink> files,
+    List<HeldItem> heldItems,
     List<FollowUp> followUps,
     boolean hasUnits,
     int version,
@@ -41,7 +43,8 @@ public record NoticeDetailResponse(
       String regionCode,
       String regionName,
       LocalDate postedOn,
-      String detailUrl) {}
+      String detailUrl,
+      boolean needsCheck) {}
 
   /**
    * @param supplyTotal 모집 호수 (공고에 적힌 수, 없으면 주택형별 합)
@@ -87,6 +90,15 @@ public record NoticeDetailResponse(
       boolean inReview) {}
 
   public record FileLink(String name, String url) {}
+
+  /**
+   * 원문 확인 전까지 보여 주지 않는 항목.
+   *
+   * @param section 어느 섹션인지 (schedules, supplyGroups, locations, eligibility, notice …)
+   * @param target 보류한 항목의 위치 (JSON Pointer, 예: /schedules/2)
+   * @param description 확인이 필요한 이유
+   */
+  public record HeldItem(String section, String target, String description) {}
 
   /** 후속 안내 글 하나와 그 일정. */
   public record FollowUp(
