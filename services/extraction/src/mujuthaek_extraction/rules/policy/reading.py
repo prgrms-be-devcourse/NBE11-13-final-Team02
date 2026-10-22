@@ -13,7 +13,7 @@ from typing import Any
 
 from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest, StopReason
 
-PROMPT_VERSION = "policy/v3"
+PROMPT_VERSION = "policy/v4"
 CALL_NAME = "policy_reading"
 MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다(수집기가 20만 자까지 줌). 잘렸으면 모든 조건을 확인 필요로
 MAX_OUTPUT_TOKENS = 12000
@@ -220,6 +220,8 @@ conditions: 신청 자격 조건 하나씩. group은 그 조건이 속한 groups
   한 길이 조건 여러 개로 이뤄지면(「10년 이내 신산업 분야 창업기업」 = 업력 10년 이내 그리고 신산업 분야) 그 조건들의 option을 같게 둡니다.
   예: 「7년 이내 창업기업 또는 10년 이내 신산업 분야 창업기업」 → (anyOf "a", option "1") 7년 이내 / (anyOf "a", option "2") 10년 이내 /
   (anyOf "a", option "2") 신산업 분야. 여러 길이 아니면 anyOf·option 모두 null.
+  모집 대상이 쉼표·「및」·「또는」으로 서로 다른 대상을 나열하면(「7년 이내 스타트업, 「벤처기업법」에 따른 벤처기업」) 그 대상 하나하나가
+  다른 길입니다. 나열된 대상 하나만의 조건을 모든 신청자에게 거는 공통 조건으로 두지 않습니다.
 - kind별로 채울 칸(나머지는 null·빈 목록):
   AGE: minAge, maxAge (만 나이, 「만 39세 이하」→ maxAge 39, 「만 40세 미만」→ maxAge 39)
   REGION: regionNames(「서울특별시」「대구광역시 남구」처럼 지역 이름),

@@ -246,6 +246,8 @@ class _Builder:
         made: list[dict[str, Any]] = []
         bundles: dict[str, list[dict[str, Any]]] = {}
         for item in items:
+            if _nationwide(item) and not item["anyOf"]:
+                continue  # 「전국 소재」 지역 조건은 제한이 아님(실측 2026-10-22 서초: 지역 코드로 못 바꿔 의미 없는 확인 필요 질문이 됨)
             if item["anyOf"]:
                 if item["anyOf"] not in bundles:
                     bundles[item["anyOf"]] = []
@@ -309,6 +311,11 @@ class _Builder:
             if n["text"].strip()
         ]
         return common, groups, preferences, notes
+
+
+def _nationwide(item: dict[str, Any]) -> bool:
+    names = [re.sub(r"\s+", "", n) for n in item.get("regionNames") or []]
+    return item["kind"] == "REGION" and bool(names) and all(n == "전국" for n in names)
 
 
 def _path_label(path: list[dict[str, Any]], number: int) -> str:
