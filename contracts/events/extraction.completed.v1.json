@@ -72,9 +72,10 @@
             "HOUSING",
             "BUSINESS_SPACE",
             "POLICY",
-            "STARTUP_SUPPORT"
+            "STARTUP_SUPPORT",
+            "SPACE_RECRUITMENT"
           ],
-          "description": "api는 HOUSING·BUSINESS_SPACE만 notice로 처리합니다"
+          "description": "api는 HOUSING·BUSINESS_SPACE만 공고(notice)로 처리합니다. STARTUP_SUPPORT·SPACE_RECRUITMENT는 정책 수집(raw.policy.collected)에서 만든 판정 틀만 실어 오고 notice가 판정 목록용으로 따로 저장합니다(2026-10-22)"
         },
         "title": {
           "type": "string",
@@ -103,6 +104,15 @@
             "null"
           ],
           "description": "공급 기관 (SH, LH …)"
+        },
+        "regionCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]{5}$"
+          },
+          "description": "정책(STARTUP_SUPPORT·SPACE_RECRUITMENT)만: 지원 지역 시군구 5자리(xx000은 시도 전체). 빈 목록이면 전국. 지역을 정하지 못한 정책은 이벤트를 보내지 않습니다"
         },
         "regionCode": {
           "anyOf": [

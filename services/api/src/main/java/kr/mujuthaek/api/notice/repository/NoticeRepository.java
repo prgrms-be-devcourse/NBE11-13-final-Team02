@@ -26,6 +26,45 @@ public class NoticeRepository {
 
   private final JdbcClient jdbc;
 
+  /** 정책 판정 틀 한 건 (notice.policy_judgments). regionCodes는 시군구 5자리, 빈 목록은 전국. */
+  public record PolicyJudgmentRow(
+      UUID rawPolicyId,
+      String field,
+      int rawVersion,
+      UUID sourceEventId,
+      String title,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      List<String> regionCodes,
+      String frameJson) {}
+
+  /** 정책 판정 틀을 저장해요. 이미 더 높은 버전이 있으면 바꾸지 않고 false. */
+  public boolean savePolicyJudgment(PolicyJudgmentRow row, Instant now) {
+    return jdbc.sql(
+                "insert into notice.policy_judgments (raw_policy_id, field, raw_version, source_event_id,"
+                    + " title, apply_start, apply_end, region_codes, frame, created_at, updated_at)"
+                    + " values (:id, :field, :version, :eventId, :title, :applyStart, :applyEnd,"
+                    + " cast(:regions as text[]), cast(:frame as jsonb), :now, :now)"
+                    + " on conflict (raw_policy_id) do update set field = excluded.field,"
+                    + " raw_version = excluded.raw_version, source_event_id = excluded.source_event_id,"
+                    + " title = excluded.title, apply_start = excluded.apply_start,"
+                    + " apply_end = excluded.apply_end, region_codes = excluded.region_codes,"
+                    + " frame = excluded.frame, updated_at = excluded.updated_at"
+                    + " where notice.policy_judgments.raw_version <= excluded.raw_version")
+            .param("id", row.rawPolicyId())
+            .param("field", row.field())
+            .param("version", row.rawVersion())
+            .param("eventId", row.sourceEventId())
+            .param("title", row.title())
+            .param("applyStart", row.applyStart())
+            .param("applyEnd", row.applyEnd())
+            .param("regions", row.regionCodes().toArray(String[]::new))
+            .param("frame", row.frameJson())
+            .param("now", now.atOffset(ZoneOffset.UTC))
+            .update()
+        == 1;
+  }
+
   public NoticeRepository(JdbcClient jdbc) {
     this.jdbc = jdbc;
   }

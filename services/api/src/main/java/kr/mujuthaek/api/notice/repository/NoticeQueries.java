@@ -197,6 +197,37 @@ public class NoticeQueries {
       List<String> regionCodes,
       String frameJson) {}
 
+  /** 판정용 정책 한 줄 (notice.policy_judgments). regionCodes는 시군구 5자리, 빈 목록은 전국. */
+  public record PolicyRow(
+      UUID rawPolicyId,
+      int version,
+      String title,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      List<String> regionCodes,
+      String frameJson) {}
+
+  /** 이 분야(STARTUP_SUPPORT·SPACE_RECRUITMENT)의 마감 안 된 정책 판정 틀 전부 (마감일이 오늘보다 앞이면 빼요, 마감일 순). */
+  public List<PolicyRow> openPolicies(String field, LocalDate today) {
+    return jdbc.query(
+        """
+        select raw_policy_id, raw_version, title, apply_start, apply_end, region_codes, frame::text
+        from notice.policy_judgments
+        where field = :field and (apply_end is null or apply_end >= :today)
+        order by apply_end nulls last, raw_policy_id
+        """,
+        new MapSqlParameterSource("field", field).addValue("today", today),
+        (rs, i) ->
+            new PolicyRow(
+                rs.getObject(1, UUID.class),
+                rs.getInt(2),
+                rs.getString(3),
+                rs.getObject(4, LocalDate.class),
+                rs.getObject(5, LocalDate.class),
+                List.of((String[]) rs.getArray(6).getArray()),
+                rs.getString(7)));
+  }
+
   /** 이 분야의 마감 안 된 공개 공고 전부 (합쳐진·숨긴 공고 제외, 마감일 순). */
   public List<JudgmentRow> openForJudgment(String field) {
     return jdbc.query(

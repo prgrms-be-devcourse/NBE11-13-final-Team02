@@ -33,6 +33,7 @@ import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.service.NoticeField;
 import kr.mujuthaek.api.notice.service.NoticeForJudgment;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import kr.mujuthaek.api.notice.service.ProgramForJudgment;
 import kr.mujuthaek.api.notice.service.internal.NoticeAreaScoreService;
 import kr.mujuthaek.api.notice.service.internal.NoticeBackfillService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
@@ -121,7 +122,7 @@ class NoticeIngestionIntegrationTest {
             "truncate notice.notice_versions, notice.notice_posts, notice.notice_follow_ups,"
                 + " notice.notice_regions, notice.notice_source_heads,"
                 + " notice.notice_duplicate_candidates, notice.notice_area_scores, notice.notices,"
-                + " notice.extraction_results,"
+                + " notice.extraction_results, notice.policy_judgments,"
                 + " common.processed_events")
         .update();
   }
@@ -303,27 +304,95 @@ class NoticeIngestionIntegrationTest {
     assertThat(outcomes()).containsExactly("UNSUPPORTED_FIELD:POLICY");
   }
 
-  @Test
-  void 창업지원_판정_틀이_실린_이벤트는_실패로_보내지_않고_기록만_남긴다() {
-    // 판정 요청안(2026-10-22): 창업지원 틀도 extraction.completed의 judgment로 와요(benefit이 받음). notice는 넘겨요
-    ObjectNode startup = fixture();
-    ObjectNode payload = (ObjectNode) startup.path("payload");
-    payload.put("field", "STARTUP_SUPPORT");
+  /** 정책 판정 틀만 실은 추출 결과 (창업지원·사업공간 모집, 2026-10-22). 상세(notice)·조건 없이 틀과 지원 지역만 있어요. */
+  private ObjectNode policyEvent(String field, int version, String applyEnd, String... regions) {
+    ObjectNode event = fixture();
+    ObjectNode payload = (ObjectNode) event.path("payload");
+    payload.put("field", field);
+    payload.put("rawVersion", version);
+    payload.put("reviewStatus", "AUTO_PASSED");
     payload.remove("notice");
+    payload.remove("heldItems");
     payload.putArray("conditions");
+    payload.putArray("applicationWindows");
+    payload.putNull("regionCode");
+    ObjectNode schedule = payload.putObject("schedule");
+    schedule.put("applyStartOn", "2026-10-07");
+    schedule.put("applyEndOn", applyEnd);
+    var codes = payload.putArray("regionCodes");
+    for (String region : regions) codes.add(region);
+    boolean startup = field.equals("STARTUP_SUPPORT");
     ObjectNode frame = payload.putObject("judgment");
-    frame.put("schema", "startup-support-judgment.v1");
-    frame.put("rawPolicyId", payload.path("rawPostId").asString());
-    frame.put("rawVersion", payload.path("rawVersion").asInt());
-    frame.putNull("referenceDate");
+    frame.put("schema", startup ? "startup-support-judgment.v1" : "business-space-judgment.v1");
+    frame.put(startup ? "rawPolicyId" : "rawPostId", payload.path("rawPostId").asString());
+    frame.put("rawVersion", version);
+    if (startup) frame.putNull("referenceDate");
+    else frame.put("referenceDate", "2026-10-07");
     frame.putArray("common");
     frame.putArray("groups").addObject().put("id", "all").put("name", "전체").putArray("criteria");
     frame.putArray("preferences");
     frame.putArray("notes");
+    return event;
+  }
 
-    assertThat(ingestion.apply(body(startup))).isEqualTo(IngestionOutcome.UNSUPPORTED_FIELD);
+  @Test
+  void 창업지원_판정_틀은_공고로_만들지_않고_판정용_창업지원_목록으로_준다() {
+    // 판정 요청안(2026-10-22) 창업지원: findOpenProgramsForJudgment(). 사용자 결정으로 notice가 저장하고 줘요
+    ObjectNode startup = policyEvent("STARTUP_SUPPORT", 2, "2026-11-02");
+
+    assertThat(ingestion.apply(body(startup))).isEqualTo(IngestionOutcome.POLICY_JUDGMENT_SAVED);
     assertThat(count("notice.notices")).isZero();
-    assertThat(outcomes()).containsExactly("UNSUPPORTED_FIELD:STARTUP_SUPPORT");
+    assertThat(outcomes()).containsExactly("POLICY_JUDGMENT_SAVED:STARTUP_SUPPORT");
+    List<ProgramForJudgment> programs = query.findOpenProgramsForJudgment();
+    assertThat(programs).hasSize(1);
+    ProgramForJudgment program = programs.get(0);
+    assertThat(program.programId().toString())
+        .isEqualTo(startup.path("payload").path("rawPostId").asString());
+    assertThat(program.version()).isEqualTo(2);
+    assertThat(program.applyEnd()).isEqualTo(LocalDate.of(2026, 11, 2));
+    assertThat(program.regionCodes()).isEmpty(); // 전국
+    assertThat(program.frame().path("schema").asString()).isEqualTo("startup-support-judgment.v1");
+    assertThat(query.findOpenForJudgment(NoticeField.BUSINESS_SPACE)).isEmpty();
+  }
+
+  @Test
+  void 사업공간_모집_판정_틀은_사업공간_판정_목록에_같이_준다() {
+    ObjectNode space = policyEvent("SPACE_RECRUITMENT", 2, "2026-10-27", "11000");
+
+    assertThat(ingestion.apply(body(space))).isEqualTo(IngestionOutcome.POLICY_JUDGMENT_SAVED);
+    List<NoticeForJudgment> open = query.findOpenForJudgment(NoticeField.BUSINESS_SPACE);
+    assertThat(open).hasSize(1);
+    assertThat(open.get(0).regionCodes()).containsExactly("1100000000");
+    assertThat(open.get(0).frame().path("schema").asString())
+        .isEqualTo("business-space-judgment.v1");
+    assertThat(query.findOpenProgramsForJudgment()).isEmpty();
+    assertThat(query.findOpenForJudgment(NoticeField.HOUSING)).isEmpty();
+  }
+
+  @Test
+  void 정책_판정_틀은_더_낮은_버전으로_덮지_않고_마감되면_목록에서_뺀다() {
+    ObjectNode newer = policyEvent("STARTUP_SUPPORT", 3, "2026-10-20");
+    ObjectNode older = newer.deepCopy();
+    older.put("eventId", UUID.randomUUID().toString());
+    ((ObjectNode) older.path("payload")).put("rawVersion", 2);
+    ((ObjectNode) older.path("payload").path("judgment")).put("rawVersion", 2);
+
+    assertThat(ingestion.apply(body(newer))).isEqualTo(IngestionOutcome.POLICY_JUDGMENT_SAVED);
+    assertThat(ingestion.apply(body(older))).isEqualTo(IngestionOutcome.STALE);
+    assertThat(query.findOpenProgramsForJudgment().get(0).version()).isEqualTo(3);
+
+    clock.set("2026-10-21T00:05"); // 마감일 다음 날
+    assertThat(query.findOpenProgramsForJudgment()).isEmpty();
+  }
+
+  @Test
+  void 정책_분야인데_판정_틀이나_지원_지역이_없으면_계약_위반이다() {
+    ObjectNode missing = policyEvent("SPACE_RECRUITMENT", 2, "2026-10-27", "11000");
+    ((ObjectNode) missing.path("payload")).remove("regionCodes");
+
+    assertThatThrownBy(() -> ingestion.apply(body(missing)))
+        .isInstanceOf(ExtractionEvent.InvalidEventException.class);
+    assertThat(count("notice.policy_judgments")).isZero();
   }
 
   @Test

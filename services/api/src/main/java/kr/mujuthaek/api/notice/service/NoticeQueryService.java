@@ -172,20 +172,61 @@ public class NoticeQueryService {
    * 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요.
    */
   public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
-    return queries.openForJudgment(field.name()).stream()
+    List<NoticeForJudgment> notices =
+        queries.openForJudgment(field.name()).stream()
+            .map(
+                row ->
+                    new NoticeForJudgment(
+                        row.id(),
+                        row.version(),
+                        row.title(),
+                        row.applyStart(),
+                        row.applyEnd(),
+                        row.nationwide() ? List.of() : legalDongs(row.regionCodes()),
+                        row.frameJson() == null ? null : json.readTree(row.frameJson())))
+            .toList();
+    if (field != NoticeField.BUSINESS_SPACE) {
+      return notices;
+    }
+    // 사업공간 모집(창업지원 API의 입주기업 모집)도 사업공간 판정 대상이에요. noticeId 자리에 정책 ID(rawPolicyId)를 줘요
+    List<NoticeForJudgment> spaces =
+        queries.openPolicies("SPACE_RECRUITMENT", LocalDate.now(clock)).stream()
+            .map(
+                row ->
+                    new NoticeForJudgment(
+                        row.rawPolicyId(),
+                        row.version(),
+                        row.title(),
+                        row.applyStart(),
+                        row.applyEnd(),
+                        legalDongs(row.regionCodes()),
+                        json.readTree(row.frameJson())))
+            .toList();
+    return java.util.stream.Stream.concat(notices.stream(), spaces.stream()).toList();
+  }
+
+  /**
+   * 판정용 창업지원 사업 목록(판정 담당 요청): 마감되지 않은 창업지원 사업 전부를 한 번에 줘요. 판정 틀이 있는 사업만 저장되므로 frame은 늘 있어요.
+   * programId는 수집 DB 정책 ID(rawPolicyId)예요.
+   */
+  public List<ProgramForJudgment> findOpenProgramsForJudgment() {
+    return queries.openPolicies("STARTUP_SUPPORT", LocalDate.now(clock)).stream()
         .map(
             row ->
-                new NoticeForJudgment(
-                    row.id(),
+                new ProgramForJudgment(
+                    row.rawPolicyId(),
                     row.version(),
                     row.title(),
                     row.applyStart(),
                     row.applyEnd(),
-                    row.nationwide()
-                        ? List.of()
-                        : row.regionCodes().stream().map(code -> code + "00000").toList(),
-                    row.frameJson() == null ? null : json.readTree(row.frameJson())))
+                    legalDongs(row.regionCodes()),
+                    json.readTree(row.frameJson())))
         .toList();
+  }
+
+  /** 시군구 5자리 → 법정동 10자리 (뒤를 0으로 채움). */
+  private static List<String> legalDongs(List<String> sigungu) {
+    return sigungu.stream().map(code -> code + "00000").toList();
   }
 
   /** API의 시각은 서울 시간(+09:00)이에요. DB에서는 UTC로 읽혀요. */

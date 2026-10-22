@@ -62,6 +62,9 @@ public class NoticeIngestionService {
   private static final Logger log = LoggerFactory.getLogger(NoticeIngestionService.class);
   private static final Set<String> NOTICE_FIELDS = Set.of("HOUSING", "BUSINESS_SPACE");
 
+  /** 공고가 아니라 판정 틀만 저장하는 정책 분야 (notice.policy_judgments). */
+  private static final Set<String> POLICY_FIELDS = Set.of("STARTUP_SUPPORT", "SPACE_RECRUITMENT");
+
   /** 후속 안내가 붙거나 바뀌었을 때 NoticeUpdated.changedFields에 넣는 이름. */
   static final String FOLLOW_UPS = "followUps";
 
@@ -111,6 +114,11 @@ public class NoticeIngestionService {
     }
     Instant now = clock.instant();
     Source source = NoticeContent.source(event);
+    if (POLICY_FIELDS.contains(event.field())) {
+      Decision decision = savePolicy(event, now);
+      record(event, source, decision, null, now);
+      return decision.outcome();
+    }
     if (!NOTICE_FIELDS.contains(event.field())) {
       Decision decision = new Decision(IngestionOutcome.UNSUPPORTED_FIELD, event.field());
       record(event, source, decision, null, now);
@@ -120,6 +128,28 @@ public class NoticeIngestionService {
     record(event, source, applied.decision(), applied.noticeId(), now);
     replayWaiting(event, applied, now);
     return applied.decision().outcome();
+  }
+
+  /** 정책 판정 틀 저장. 이미 더 높은 버전이 있으면 STALE. 계약 검사가 틀과 지원 지역이 있는지 먼저 봐요. */
+  private Decision savePolicy(ExtractionEvent event, Instant now) {
+    List<String> regions = new java.util.ArrayList<>();
+    event.payload().path("regionCodes").forEach(code -> regions.add(code.asString()));
+    boolean saved =
+        notices.savePolicyJudgment(
+            new NoticeRepository.PolicyJudgmentRow(
+                event.rawPostId(),
+                event.field(),
+                event.rawVersion(),
+                event.eventId(),
+                event.title(),
+                event.applyStartOn(),
+                event.applyEndOn(),
+                regions,
+                json.writeValueAsString(event.judgment())),
+            now);
+    return saved
+        ? new Decision(IngestionOutcome.POLICY_JUDGMENT_SAVED, event.field())
+        : new Decision(IngestionOutcome.STALE, event.field());
   }
 
   /**

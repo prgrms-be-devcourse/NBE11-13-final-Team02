@@ -169,7 +169,12 @@ public final class NoticeContract {
       Map.of(
           "HOUSING", "housing-judgment.v1",
           "BUSINESS_SPACE", "business-space-judgment.v1",
-          "STARTUP_SUPPORT", "startup-support-judgment.v1");
+          "STARTUP_SUPPORT", "startup-support-judgment.v1",
+          "SPACE_RECRUITMENT", "business-space-judgment.v1");
+
+  /** 정책 수집에서 만든 판정 틀만 실어 오는 분야: 틀과 지원 지역(regionCodes)이 있어야 하고 상세(notice)는 없어요. */
+  private static final Set<String> POLICY_FRAME_FIELDS =
+      Set.of("STARTUP_SUPPORT", "SPACE_RECRUITMENT");
 
   /** 틀이 가리키는 원본 칸: 창업지원 틀은 수집 이벤트(raw.policy.collected)의 rawPolicyId예요. */
   private static final Map<String, String> JUDGMENT_SOURCE_KEY =
@@ -178,6 +183,9 @@ public final class NoticeContract {
   /** 판정 틀: 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(계약 검사기 judgment_errors와 같게). */
   private static void checkJudgment(JsonNode payload) {
     JsonNode judgment = payload.path("judgment");
+    if (POLICY_FRAME_FIELDS.contains(payload.path("field").asString())
+        && (!judgment.isObject() || !payload.has("regionCodes") || payload.has("notice")))
+      fail("EVENT_POLICY_FRAME_SHAPE", "/payload");
     if (!judgment.isObject()) return;
     if (!judgment
         .path("schema")
