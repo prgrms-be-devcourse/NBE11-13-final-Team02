@@ -14,6 +14,7 @@ from mujuthaek_collector.area.upload import sha256_of, upload_once
 from tests.fakes import MemoryFileStore
 
 MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest.csv"
+ADDRESS_MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest_address.csv"
 
 
 class MemoryOutbox:
@@ -147,6 +148,18 @@ def test_the_manifest_in_the_repo_follows_the_key_rule():
     assert len(rows) == 21
     for row in rows:
         assert row["s3Key"] == sources.s3_key(row["source"], date.fromisoformat(row["dataDate"]), row["scope"])
+
+
+def test_the_address_manifest_in_the_repo_follows_the_key_rule():
+    # 2026-10-22에 개발 S3에 올린 도로명주소 출입구 16개 목록
+    with ADDRESS_MANIFEST.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 16
+    assert {row["scope"] for row in rows} == set(sources.ADDRESS_SCOPES)
+    for row in rows:
+        assert row["source"] == "ADDRESS_ENTRANCE"
+        assert row["s3Key"] == sources.s3_key(row["source"], date.fromisoformat(row["dataDate"]), row["scope"])
+        assert row["fileName"] == f"RNENTDATA_2610_{sources.ADDRESS_SCOPES[row['scope']]}.txt"
 
 
 class RecordingChannel:
