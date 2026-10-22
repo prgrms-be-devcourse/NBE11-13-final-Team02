@@ -21,5 +21,7 @@ def upload_once(files: FileStore, key: str, path: Path, source: str, data_date: 
     if existing is not None and existing.get("sha256") == sha256:
         return False
     metadata = {"source": source, "data-date": data_date.isoformat(), "sha256": sha256}
-    files.put_file(key, path, CONTENT_TYPES["csv"], metadata)
+    # .txt(도로명주소)는 CP949라 charset 없이 text/plain
+    content_type = "text/plain" if key.endswith(".txt") else CONTENT_TYPES["csv"]
+    files.put_file(key, path, content_type, metadata)
     return True

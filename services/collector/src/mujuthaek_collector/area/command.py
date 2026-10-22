@@ -3,6 +3,7 @@
 area-upload --source BUS_STOP --data-date 2025-10-31 --file 버스정류장.csv
 area-upload --source STORES --scope 강원 --data-date 2026-06-30 --file 상가_강원.csv
 area-upload --source SUBWAY_STATION --data-date 2026-06-18 --file 역사정보.xlsx   (엑셀은 UTF-8 CSV로 바꿔서 올려요)
+area-upload --source ADDRESS_ENTRANCE --scope 36110 --data-date 2026-09-30 --file RNENTDATA_2610_36110.txt   (원본 그대로)
 area-upload --manifest area/area_manifest.csv --skip-upload   (이미 S3에 있는 파일: sha256 메타데이터만 확인하고 이벤트만)
 """
 
@@ -41,7 +42,8 @@ def upload_file(files: FileStore, conn, source: str, data_date: date, path: Path
             xlsx_to_csv(path, csv_path)
         sha = sha256_of(csv_path)
         result = Result(uploaded=int(upload_once(files, key, csv_path, source, data_date, sha)))
-        event = events.ready_event(source, scope, key, sha, data_date, path.name, _rows(csv_path))
+        rows = _rows(csv_path, header=not sources.headerless(source))
+        event = events.ready_event(source, scope, key, sha, data_date, path.name, rows)
     result.recorded = int(events.record(conn, event))
     return result
 
@@ -83,7 +85,8 @@ def declare_receiver(channel) -> None:
     channel.queue_bind(queue=QUEUE, exchange=EXCHANGE, routing_key=events.EVENT_TYPE)
 
 
-def _rows(path: Path) -> int:
-    """파일 줄 수 - 머리줄 (확인용. 칸 안 줄바꿈 때문에 레코드 수와 다를 수 있어요)."""
+def _rows(path: Path, header: bool = True) -> int:
+    """파일 줄 수(머리줄이 있으면 빼고). 확인용이라 칸 안 줄바꿈 때문에 레코드 수와 다를 수 있어요."""
     with path.open("rb") as f:
-        return max(sum(1 for _ in f) - 1, 0)
+        lines = sum(1 for _ in f)
+    return max(lines - 1, 0) if header else lines
