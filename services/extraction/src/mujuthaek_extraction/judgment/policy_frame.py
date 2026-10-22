@@ -2,7 +2,8 @@
 
 AI는 중간 형식으로 답하고 이 모듈이 틀의 칸으로 옮깁니다. 확신이 없으면 그 조건은 inReview입니다.
 - 근거 문장(quote)이 원문 글에 그대로 없으면 확인 필요
-- 나이·연수·날짜·금액·업종 코드·지역 이름이 근거 문장에 없으면 확인 필요(AI가 값을 바꿨을 수 있음)
+- 나이·연수·날짜·금액·업종 코드·지역 이름이 근거 문장에 없으면 확인 필요(AI가 값을 바꿨을 수 있음). 금액은 단위까지 맞아야 함
+- 근거 문장이 범위(「19~39세」)인데 최소·최대 중 하나만 뽑았으면 확인 필요
 - 업력 날짜 범위는 공고가 찍은 날짜가 있으면 그대로, 연수만 있으면 기준일에서 틀 문서 규칙대로 계산(기준일이 없으면 질문)
 - 틀에 칸이 없는 조건(사업공간 틀의 업력 상한·매출 등)은 근거 문장을 묻는 질문(ASK)
 """
@@ -12,6 +13,7 @@ from __future__ import annotations
 import re
 import unicodedata
 from datetime import date, timedelta
+from decimal import Decimal
 from typing import Any
 
 STARTUP_STATUS = {"SME", "WOMAN", "SMALL_BUSINESS", "VENTURE_COMPANY", "SOCIAL_VENTURE", "DISABLED", "ONE_PERSON_CREATIVE", "STUDENT"}
@@ -69,19 +71,70 @@ def _has_date(quote: str, value: str | None) -> bool:
     return year_ok and str(day.month) in numbers and str(day.day) in numbers
 
 
+# 금액 한 덩어리: 숫자(쉼표 자리 구분·소수 허용) + 단위. 단위까지 맞아야 금액으로 셉니다
+# (리뷰 2026-10-22: 「1억원」에서 「1」만 보고 1만 원(10000)을 확정했음)
+_AMOUNT = re.compile(r"(?<![\d.,])(\d{1,3}(?:,\d{3})+|\d+)(\.\d+)?\s*(억|천|백|십|만)?\s*(원)?")
+_WON_UNITS = {"억": 100000000, "만": 10000, None: 1}
+
+
+def _amounts(quote: str) -> tuple[list[int], int]:
+    """근거 문장의 금액 → (깔끔하게 읽은 원 단위 값들, 읽지 못한 금액 수).
+    「1억원」「5,000만 원」「100,000,000원」만 깔끔한 금액이고, 「1억 5천만원」처럼 섞인 표기나 「5천만원」은 읽지 못한 금액입니다."""
+    text = unicodedata.normalize("NFKC", quote or "")
+    found = list(_AMOUNT.finditer(text))
+    clean: list[int] = []
+    unclean = 0
+    for n, match in enumerate(found):
+        number, fraction, unit, won = match.group(1), match.group(2) or "", match.group(3), match.group(4)
+        if unit is None and won is None:
+            continue  # 「2025년」「3년」 같은 금액 아닌 숫자
+        mixed = (unit == "억" and n + 1 < len(found) and found[n + 1].start() == match.end()) or (
+            n > 0 and found[n - 1].group(3) == "억" and found[n - 1].end() == match.start()
+        )  # 「1억 5000만원」: 억 뒤에 바로 숫자가 이어짐
+        if mixed or unit not in _WON_UNITS or (unit is None and fraction):
+            unclean += 1
+            continue
+        value = Decimal(number.replace(",", "") + fraction) * _WON_UNITS[unit]
+        if value != value.to_integral_value():
+            unclean += 1
+            continue
+        clean.append(int(value))
+    return clean, unclean
+
+
 def _has_won(quote: str, won: int | None) -> bool:
-    """금액이 원·만 원·억 원 어느 단위로든 근거 문장에 있는지."""
+    """금액이 단위와 함께(「N원」「N만 원」「N억 원」) 근거 문장에 있는지. 섞인 표기(「1억 5천만원」)는 맞다고 보지 않습니다."""
     if won is None:
         return True
-    plain = (quote or "").replace(",", "")
-    candidates = {str(won)}
-    if won % 10000 == 0:
-        candidates.add(str(won // 10000))
-    if won % 100000000 == 0:
-        candidates.add(str(won // 100000000))
-    elif won % 10000000 == 0:
-        candidates.add(f"{won / 100000000:g}")
-    return any(re.search(rf"(?<![\d.]){re.escape(c)}(?![\d])", plain) for c in candidates)
+    return won in _amounts(quote)[0]
+
+
+# 한쪽 경계만 뽑았는지 볼 때 쓰는 범위 표현(리뷰 2026-10-22: 「만 19~39세」를 maxAge 39만 뽑아도 확정됐음)
+_AGE_DASH = re.compile(r"\d\s*(?:세|살)?\s*[~∼\-–]\s*(?:만\s*)?\d+\s*(?:세|살)")
+_WON_DASH = re.compile(r"\d\s*(?:억|천|백|십|만)?\s*(?:원)?\s*[~∼\-–]\s*\d[\d,.]*\s*(?:억|천|백|십|만|원)")
+_RANGE_PAIRS = (
+    (re.compile(r"이상|초과|부터"), re.compile(r"이하|미만|이내|까지")),
+    (re.compile(r"에서"), re.compile(r"까지")),
+)
+
+
+def _half_range(quote: str, low: Any, high: Any, dash: re.Pattern[str], others: bool) -> bool:
+    """최소·최대 중 하나만 뽑았는데 근거 문장이 범위(「19~39세」「이상…이하」「부터…까지」)이거나 쓰지 않은 같은 종류 숫자(others)가 있으면 True."""
+    if (low is None) == (high is None):
+        return False
+    text = unicodedata.normalize("NFKC", quote or "")
+    return bool(dash.search(text)) or any(a.search(text) and b.search(text) for a, b in _RANGE_PAIRS) or others
+
+
+def _age_half_range(quote: str, min_age: int | None, max_age: int | None) -> bool:
+    used = {v for a in (min_age, max_age) if a is not None for v in (a - 1, a, a + 1)}  # 초과·미만이면 숫자가 하나 다름
+    ages = {int(n) for n in re.findall(r"(\d+)\s*(?:세|살)", unicodedata.normalize("NFKC", quote or ""))}
+    return _half_range(quote, min_age, max_age, _AGE_DASH, bool(ages - used))
+
+
+def _won_half_range(quote: str, min_won: int | None, max_won: int | None) -> bool:
+    clean, unclean = _amounts(quote)
+    return _half_range(quote, min_won, max_won, _WON_DASH, bool(unclean) or any(v not in (min_won, max_won) for v in clean))
 
 
 # 값의 방향(리뷰 2026-10-22: 「만 40세 이상」을 maxAge 39로, 「3년 이상」을 「3년 이내」로 뽑아도 숫자만 맞아 확정됐음)
@@ -200,6 +253,7 @@ class _Builder:
         if kind == "AGE" and (item["minAge"] is not None or item["maxAge"] is not None):
             seen = _has_number(quote, item["minAge"]) and (_has_number(quote, item["maxAge"]) or _has_number(quote, (item["maxAge"] or 0) + 1))
             seen = seen and (item["minAge"] is None or bool(LOWER.search(quote))) and (item["maxAge"] is None or bool(UPPER.search(quote)))
+            seen = seen and not _age_half_range(quote, item["minAge"], item["maxAge"])
             return self.flag(self.base("AGE", quote) | {"minAge": item["minAge"], "maxAge": item["maxAge"]}, reasons + ([] if seen else [VALUE_MISSING]))
         if kind == "REGION" and item["regionNames"] and item["regionBasis"]:
             codes = self.region_codes(item["regionNames"])
@@ -240,6 +294,7 @@ class _Builder:
                 return self.ask(item, quote, reasons + [VALUE_MISSING])
             seen = _has_won(quote, item["revenueMinWon"]) and _has_won(quote, item["revenueMaxWon"])
             seen = seen and (not item["revenueMinWon"] or bool(LOWER.search(quote))) and (not item["revenueMaxWon"] or bool(UPPER.search(quote)))
+            seen = seen and not _won_half_range(quote, item["revenueMinWon"] or None, item["revenueMaxWon"] or None)
             # 「전년도」면 기준일 연도 − 1, 숫자 연도면 근거 문장에 그 연도가 있어야 함
             prior = "전년도" in quote and reference is not None and item["revenueYear"] == reference.year - 1
             seen = seen and (prior or str(item["revenueYear"]) in quote or str(item["revenueYear"] % 100) in _numbers(quote))

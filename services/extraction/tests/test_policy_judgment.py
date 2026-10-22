@@ -360,3 +360,57 @@ def test_same_policy_version_with_a_new_event_id_is_not_read_again():
     assert judge_policy(store, {"eventId": "01a16146-b9b3-704f-8da4-54c2dcfa1001", "payload": tour()}, model, REGIONS)
     assert judge_policy(store, {"eventId": "01a16146-b9b3-704f-8da4-54c2dcfa1002", "payload": tour()}, model, REGIONS) is None
     assert len(model.requests) == 1
+
+
+def revenue(quote, **won):
+    return first_of([condition("REVENUE", quote, revenueYear=2025, **won)], quote + "\n")
+
+
+def test_amount_must_match_with_its_unit():
+    # 리뷰 2026-10-22 재현: 「1억원」에서 「1」만 보고 1만 원(10000)이 확정됐음
+    assert revenue("2025년 매출액 1억원 이상인 기업", revenueMinWon=10000)["inReview"]
+    assert revenue("2025년 매출액 1억원 이상인 기업", revenueMinWon=1)["inReview"]
+    assert not revenue("2025년 매출액 1억원 이상인 기업", revenueMinWon=100000000)["inReview"]
+    assert not revenue("2025년 매출액 100,000,000원 이상인 기업", revenueMinWon=100000000)["inReview"]
+    assert not revenue("2025년 매출액 5,000만 원 이하인 기업", revenueMaxWon=50000000)["inReview"]
+    assert revenue("2025년 매출액 5,000만 원 이하인 기업", revenueMaxWon=5000)["inReview"]
+    assert not revenue("2025년 매출액 1.5억원 이상인 기업", revenueMinWon=150000000)["inReview"]
+    # 섞인 표기는 맞는 값이어도 확정하지 않음(검수로)
+    assert revenue("2025년 매출액 1억 5천만원 이상인 기업", revenueMinWon=150000000)["inReview"]
+    assert revenue("2025년 매출액 1억 5000만원 이상인 기업", revenueMinWon=50000000)["inReview"]
+
+
+def test_range_with_only_one_bound_is_held_for_review():
+    # 리뷰 2026-10-22 재현: 「만 19~39세」에서 maxAge 39만(또는 minAge 19만) 뽑아도 확정됐음
+    quote = "공고일 기준 만 19~39세인 자"
+    for bound in ({"maxAge": 39}, {"minAge": 19}):
+        age = first_of([condition("AGE", quote, **bound)], quote + "\n")
+        assert age["inReview"] and VALUE_MISSING in age["reviewReason"]
+        spaced = space_frame(tour() | {"text": TOUR_TEXT + quote + "\n"}, reading(answer([condition("AGE", quote, **bound)])), REGIONS)
+        assert frame_errors(spaced) == [] and spaced["common"][0]["inReview"]
+    assert first_of([condition("AGE", "만 19세 이상 39세 이하", maxAge=39)], "만 19세 이상 39세 이하\n")["inReview"]
+    assert not first_of([condition("AGE", quote, minAge=19, maxAge=39)], quote + "\n")["inReview"]
+    assert not first_of([condition("AGE", "대표자 만 39세 이하", maxAge=39)], "대표자 만 39세 이하\n")["inReview"]
+    assert not first_of([condition("AGE", "대표자 만 40세 미만", maxAge=39)], "대표자 만 40세 미만\n")["inReview"]
+    assert revenue("2025년 매출액 1억원 이상 10억원 미만인 기업", revenueMinWon=100000000)["inReview"]
+    assert revenue("2025년 매출액 1억원~10억원인 기업", revenueMaxWon=1000000000)["inReview"]
+    assert not revenue("2025년 매출액 1억원 이상 10억원 이하인 기업", revenueMinWon=100000000, revenueMaxWon=1000000000)["inReview"]
+
+
+def test_permanent_ai_failure_without_a_band_rule_frame_is_not_dropped_silently():
+    # 리뷰 2026-10-22: 영구 오류 + 구간 칸 규칙도 없음(기업마당)이면 None을 돌려 ack되어 기록이 남지 않았음
+    import pytest
+
+    from mujuthaek_extraction.worker import AiFailed, AiUnavailable
+
+    store = FakeStore()
+    bizinfo = {"eventId": "01a16146-b9b3-704f-8da4-54c2dcfa1901", "payload": tour() | {"provider": "BIZINFO", "field": "STARTUP_SUPPORT"}}
+    assert policy_frame(bizinfo["payload"], None, REGIONS) is None
+    for code in ("BAD_SHAPE", "HTTP_400", "NOT_CONFIGURED"):
+        with pytest.raises(AiFailed):
+            judge_policy(store, bizinfo, RecordedModel({CALL_NAME: [ModelError("x", transient=False, code=code)]}), REGIONS)
+    # 로컬 AI 연결 실패는 정책 판정에서만 일시 실패(큐로 되돌림)
+    for code in ("CONNECTION", "SKIPPED_DOWN"):
+        with pytest.raises(AiUnavailable):
+            judge_policy(store, bizinfo, RecordedModel({CALL_NAME: [ModelError("x", transient=False, code=code)]}), REGIONS)
+    assert store.saved == []
