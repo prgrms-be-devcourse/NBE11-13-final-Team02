@@ -5,6 +5,7 @@
   처리 실패·형식 오류 메시지는 재시도 없이 mujuthaek.dlx → mujuthaek.raw.collected.dlq
   교환기 mujuthaek.events ── raw.policy.collected ──▶ 큐 mujuthaek.raw.policy.judgment(우리 전용): 창업지원·사업공간 모집이면 판정 틀을
   만들어 extraction.completed(judgment)를 아웃박스에 넣습니다. 실패는 mujuthaek.dlx → mujuthaek.raw.policy.judgment.dlq
+  (AI 영구 실패로 틀을 못 만들었거나 AI 일시 실패가 MAX_AI_RETRIES번 이어진 메시지도 .dlq로)
   공용 큐 mujuthaek.raw.policy는 정책 화면용 추출(다른 담당) 몫이라 꺼내 가지 않습니다(같은 큐를 함께 꺼내면 메시지를 나눠 가져 양쪽이 일부를 놓침)
   prefetch 1: 한 번에 한 건만 처리합니다(AI 호출이 길어서). 처리는 별도 스레드에서 하고 ack는 연결 스레드로 넘깁니다(pika 하트비트 유지).
   DB 연결은 메시지마다 새로 엽니다. 예전에는 하나를 계속 써서 DB가 한 번 끊기면 이후 메시지가 전부 .dlq로 갔습니다(검토 2026-10-16).
@@ -95,6 +96,47 @@ class BudgetExhausted(Exception):
 class AiUnavailable(Exception):
     """AI 호출이 일시적으로 실패했습니다(한도 초과·시간 초과 등). 정책 메시지를 잠시 뒤 큐로 되돌립니다.
     구간 칸 규칙으로 대신 만들면 그 버전의 AI 틀은 다시 만들어지지 않습니다(리뷰 2026-10-22)."""
+
+
+class AiFailed(Exception):
+    """AI 읽기가 영구 오류로 실패했고 구간 칸 규칙으로도 틀을 만들지 못했습니다. 기록 없이 ack하지 않고 .dlq로 보냅니다(리뷰 2026-10-22)."""
+
+
+# 정책 판정에서만 일시 실패로 보는 코드: 로컬 AI 연결 실패(주거 추출은 대체 모델로 넘기려 영구 오류로 둠, model/local_ai.py)
+POLICY_RETRY_CODES = {"CONNECTION", "SKIPPED_DOWN"}
+MAX_AI_RETRIES = 5  # 같은 정책 메시지가 AI 일시 실패로 이만큼 연속 되돌아오면 .dlq로(5xx가 계속되면 끝없이 돌지 않게)
+
+
+class RetryCounter:
+    """같은 정책 원본 버전의 연속 AI 일시 실패 횟수(워커 프로세스 안에서만 셉니다. 다시 시작하면 처음부터)."""
+
+    def __init__(self, limit: int = MAX_AI_RETRIES):
+        self.limit = limit
+        self._counts: dict[str, int] = {}
+        self._lock = threading.Lock()
+
+    def fail(self, key: str) -> bool:
+        """실패 한 번을 세고, limit번째면 기록을 지우고 True(.dlq로 보낼 차례)."""
+        with self._lock:
+            count = self._counts.get(key, 0) + 1
+            if count >= self.limit:
+                self._counts.pop(key, None)
+                return True
+            self._counts[key] = count
+            return False
+
+    def clear(self, key: str) -> None:
+        with self._lock:
+            self._counts.pop(key, None)
+
+
+def _policy_retry_key(raw_event: dict[str, Any]) -> str:
+    """연속 실패를 셀 열쇠: 정책 ID·버전(재발행돼 eventId가 달라도 같은 원본), 없으면 eventId."""
+    payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+    policy, version = _uuid_or_none(payload.get("rawPolicyId")), payload.get("version")
+    if policy and isinstance(version, int) and not isinstance(version, bool):
+        return f"{policy}:{version}"
+    return f"event:{raw_event.get('eventId')}"
 
 
 class ClaimBusy(Exception):
@@ -286,22 +328,27 @@ def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, 
     """정책 수집 이벤트 → 판정 틀(창업지원·사업공간 모집)을 담은 extraction.completed를 아웃박스에 넣고 그 eventId.
     model이 있으면 AI로 공고 글을 읽고(정책 공고는 PDF 없이 글만 옴), 없거나 읽기에 실패하면 K-Startup 구간 칸 규칙으로 만듭니다.
     판정 틀이 없는 분야(BENEFIT), 틀·지원 지역을 정하지 못한 정책, 이미 넣은 수집 이벤트면 None.
-    전체 비용 상한에 걸리면 BudgetExhausted(큐로 되돌림), 만든 이벤트가 계약에 맞지 않으면 ValueError(.dlq)."""
+    전체 비용 상한에 걸리면 BudgetExhausted(큐로 되돌림), AI 일시 실패(로컬 AI 연결 실패 포함)면 AiUnavailable(큐로 되돌림),
+    AI 영구 실패 뒤 구간 칸 규칙으로도 보낼 것을 만들지 못하면 AiFailed(.dlq), 만든 이벤트가 계약에 맞지 않으면 ValueError(.dlq)."""
     payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
     if payload.get("field") not in POLICY_FIELDS or store.judged(raw_event):
         return None
     reading = None
+    failed: str | None = None
     if model is not None:
         try:
             reading = read_policy(payload, model)
         except ModelError as error:
             if error.code == "GLOBAL_BUDGET":
                 raise BudgetExhausted(str(error)) from error
-            if error.transient:
+            if error.transient or error.code in POLICY_RETRY_CODES:
                 raise AiUnavailable(error.code or "transient") from error
+            failed = error.code or "unknown"
             log.warning("정책 글을 AI로 읽지 못해 구간 칸 규칙으로 만듭니다", extra={"code": error.code, "rawPolicyId": payload.get("rawPolicyId")})
     completed = policy_completed_payload(payload, policy_frame(payload, reading, regions), regions, reading)
     if completed is None:
+        if failed is not None:  # AI가 읽지 못해 못 만든 것: 조용히 ack하면 기록이 남지 않음(리뷰 2026-10-22)
+            raise AiFailed(failed)
         return None
     event = {**new_event(EVENT_TYPE, PRODUCER, completed), "traceId": raw_event.get("traceId")}
     if errors := tools().validate(event, COMPLETED_SCHEMA):
@@ -345,6 +392,53 @@ def relay_loop(settings: Settings, stop: threading.Event, health: Health | None 
 
 
 CONSUMER_BEAT_SECONDS = 30
+
+
+def judge_message(settings: Settings, processor: Processor, raw_event: dict[str, Any], retries: RetryCounter) -> str:
+    """정책 수집 이벤트 하나 → "ack"·"requeue"·"dlq". 창업지원·사업공간이면 판정 틀 이벤트를 넣고 ack, 전체 비용 상한·DB 장애·AI 일시
+    실패면 requeue, AI 일시 실패가 retries.limit번 이어지거나 AI 영구 실패로 틀을 못 만들었거나 계약 위반이면 .dlq."""
+    payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+    if payload.get("field") not in POLICY_FIELDS:  # 판정 틀이 없는 분야(BENEFIT): 비용 장부·DB를 열지 않고 넘김
+        return "ack"
+    key = _policy_retry_key(raw_event)
+    trace = {"eventId": raw_event.get("eventId"), "rawPolicyId": payload.get("rawPolicyId"), "rawVersion": payload.get("version")}
+    try:
+        ledger = processor.open_ledger(raw_event)
+        try:
+            if ledger is not None and (reason := ledger.room(settings.notice_budget_usd)):
+                raise BudgetExhausted(reason)
+            models = processor.models.for_notice(ledger=ledger)
+            model = FallbackOnErrorModel(models.primary, models.fallback) if models.fallback is not None else models.primary
+            with store_session(settings) as store:
+                judge_policy(store, raw_event, model, processor.regions)
+        finally:
+            if ledger is not None:
+                ledger.close()
+    except BudgetExhausted as reason:
+        log.warning("전체 비용 상한에 닿아 정책 처리를 미룹니다", extra={"reason": str(reason)})
+        time.sleep(BUDGET_WAIT_SECONDS)
+        return "requeue"
+    except AiUnavailable as reason:
+        if retries.fail(key):
+            log.warning("AI 호출이 연속으로 일시 실패해 .dlq로 보냅니다", extra={"code": str(reason), "failures": retries.limit, **trace})
+            return "dlq"
+        log.warning("AI 호출이 일시적으로 실패해 잠시 뒤 큐로 되돌립니다", extra={"code": str(reason), **trace})
+        time.sleep(DB_RETRY_SECONDS)
+        return "requeue"
+    except AiFailed as reason:
+        retries.clear(key)
+        log.warning("AI가 정책 글을 읽지 못했고 구간 칸 규칙으로도 판정 틀을 만들지 못해 .dlq로 보냅니다", extra={"code": str(reason), **trace})
+        return "dlq"
+    except _db_errors():
+        log.exception("DB를 쓸 수 없어 잠시 뒤 큐로 되돌립니다")
+        time.sleep(DB_RETRY_SECONDS)
+        return "requeue"
+    except Exception:
+        retries.clear(key)
+        log.exception("판정 틀을 만들지 못했습니다. .dlq로 보냅니다")
+        return "dlq"
+    retries.clear(key)
+    return "ack"
 
 
 def consume(settings: Settings, processor: Processor, health: Health | None = None) -> None:
@@ -394,40 +488,15 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
     def on_message(_channel, method, _properties, body: bytes) -> None:
         threading.Thread(target=work, args=(method.delivery_tag, body), daemon=True).start()
 
+    retries = RetryCounter()
+
     def judge(delivery_tag: int, body: bytes) -> None:
-        """정책 수집 이벤트 하나: 창업지원이면 판정 틀 이벤트를 넣고 ack, DB 장애면 requeue, 형식 오류·계약 위반이면 .dlq."""
-        decision = "ack"
+        """정책 수집 이벤트 하나를 judge_message로 처리하고 그 결정(ack·requeue·.dlq)을 연결 스레드로 넘깁니다."""
         try:
             raw_event = json.loads(body)
             if not isinstance(raw_event, dict):
                 raise ValueError("이벤트가 객체가 아닙니다.")
-            payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
-            if payload.get("field") not in POLICY_FIELDS:  # 판정 틀이 없는 분야(BENEFIT): 비용 장부·DB를 열지 않고 넘김
-                connection.add_callback_threadsafe(functools.partial(finish, delivery_tag, "ack"))
-                return
-            ledger = processor.open_ledger(raw_event)
-            try:
-                if ledger is not None and (reason := ledger.room(settings.notice_budget_usd)):
-                    raise BudgetExhausted(reason)
-                models = processor.models.for_notice(ledger=ledger)
-                model = FallbackOnErrorModel(models.primary, models.fallback) if models.fallback is not None else models.primary
-                with store_session(settings) as store:
-                    judge_policy(store, raw_event, model, processor.regions)
-            finally:
-                if ledger is not None:
-                    ledger.close()
-        except BudgetExhausted as reason:
-            log.warning("전체 비용 상한에 닿아 정책 처리를 미룹니다", extra={"reason": str(reason)})
-            time.sleep(BUDGET_WAIT_SECONDS)
-            decision = "requeue"
-        except AiUnavailable as reason:
-            log.warning("AI 호출이 일시적으로 실패해 잠시 뒤 큐로 되돌립니다", extra={"code": str(reason)})
-            time.sleep(DB_RETRY_SECONDS)
-            decision = "requeue"
-        except _db_errors():
-            log.exception("DB를 쓸 수 없어 잠시 뒤 큐로 되돌립니다")
-            time.sleep(DB_RETRY_SECONDS)
-            decision = "requeue"
+            decision = judge_message(settings, processor, raw_event, retries)
         except Exception:
             log.exception("판정 틀을 만들지 못했습니다. .dlq로 보냅니다")
             decision = "dlq"

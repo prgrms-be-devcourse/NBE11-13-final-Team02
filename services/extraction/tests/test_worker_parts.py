@@ -623,3 +623,69 @@ def test_claim_is_released_even_when_saving_fails():
         assert store.claims
         raise RuntimeError("저장 실패")
     assert store.claims == {}
+
+
+# ---------- 정책 판정 메시지 결정 ----------
+
+
+def policy_message_setup(monkeypatch, outcomes):
+    """judge_policy가 outcomes 차례대로 예외를 내거나(예외 객체) 값을 돌려주게 하고, 잠자기·DB를 끈 judge_message 실행기."""
+    from mujuthaek_extraction import worker
+
+    calls = []
+
+    def fake_judge(store, raw_event, model, regions):
+        calls.append(raw_event["eventId"])
+        result = outcomes.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    @contextmanager
+    def no_store(_settings):
+        yield None
+
+    opened = []
+    monkeypatch.setattr(worker, "judge_policy", fake_judge)
+    monkeypatch.setattr(worker, "store_session", no_store)
+    monkeypatch.setattr(worker.time, "sleep", lambda seconds: None)
+    processor = SimpleNamespace(
+        open_ledger=lambda raw_event: opened.append(raw_event) or None,
+        models=SimpleNamespace(for_notice=lambda ledger=None: SimpleNamespace(primary="model", fallback=None)),
+        regions=None,
+    )
+    retries = worker.RetryCounter(limit=3)
+    policy = {"field": "STARTUP_SUPPORT", "rawPolicyId": "01a16146-b9b3-704f-8da4-54c2dcfa1999", "version": 2}
+
+    def handle(event_id, **payload):
+        return worker.judge_message(SimpleNamespace(notice_budget_usd=0.5), processor, {"eventId": event_id, "payload": policy | payload}, retries)
+
+    return handle, calls, opened
+
+
+def test_permanent_ai_failure_without_frame_goes_to_dlq_not_ack(monkeypatch):
+    # 리뷰 2026-10-22: 영구 오류로 AI 틀도 규칙 틀도 없으면 None이 돌아와 ack되고 아무 기록도 남지 않았음
+    from mujuthaek_extraction import worker
+
+    handle, calls, _ = policy_message_setup(monkeypatch, [worker.AiFailed("BAD_SHAPE"), "event-id", None])
+    assert handle("e-1") == "dlq"
+    assert handle("e-2") == "ack" and handle("e-3") == "ack"  # 만들었거나(값) 보낼 것이 없는(None, 예: 이미 처리) 경우는 ack
+
+
+def test_repeated_temporary_ai_failures_end_in_dlq_instead_of_looping(monkeypatch):
+    # 5xx가 계속되면 같은 메시지가 끝없이 큐를 돌았음: 같은 정책 버전이 limit번 연속 실패하면 .dlq로
+    from mujuthaek_extraction import worker
+
+    fail = worker.AiUnavailable
+    handle, calls, _ = policy_message_setup(monkeypatch, [fail("HTTP_503"), fail("HTTP_503"), fail("HTTP_503"), fail("HTTP_503"), "id", fail("HTTP_503")])
+    assert [handle("e-1"), handle("e-1")] == ["requeue", "requeue"]
+    assert handle("e-2") == "dlq"  # eventId가 달라도(재발행) 같은 정책 버전이면 이어 셈
+    assert handle("e-1") == "requeue"  # .dlq로 보낸 뒤에는 처음부터
+    assert handle("e-1") == "ack"
+    assert handle("e-1") == "requeue"  # 성공하면 셈을 지움
+    assert len(calls) == 6
+
+
+def test_benefit_policy_is_acked_before_opening_the_ledger(monkeypatch):
+    handle, calls, opened = policy_message_setup(monkeypatch, [])
+    assert handle("e-1", field="BENEFIT") == "ack" and calls == [] and opened == []
