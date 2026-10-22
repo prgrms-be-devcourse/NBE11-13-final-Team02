@@ -158,10 +158,27 @@ def test_rank_items_become_their_own_groups_and_an_umbrella_group_is_asked():
     frame = build_judgment(candidate([seventy, hundred], target_groups=["저소득계층"]))
     assert frame["common"] == []
     by_name = {g["name"]: g["criteria"] for g in frame["groups"]}
-    assert [(c["kind"], c.get("percent"), c.get("anyOf")) for c in by_name["1순위 일반 장애인"]] == [("STATUS", None, ["DISABLED"]), ("INCOME", 70, None)]
+    # 신분은 닫힌 목록 밖이라 대상 해당 여부를 묻습니다(2026-10-21)
+    member, income = by_name["1순위 일반 장애인"]
+    assert (member["kind"], member["question"]) == ("ASK", "「1순위 일반 장애인」 대상에 해당하나요?")
+    assert (income["kind"], income["percent"]) == ("INCOME", 70)
     assert [(c["kind"], c.get("percent")) for c in by_name["2순위"]] == [("INCOME", 100)]
     [umbrella] = by_name["저소득계층"]
     assert umbrella["kind"] == "ASK" and umbrella["inReview"]
+    # 대상군의 신청 순위(판정 틀 rank, 2026-10-22): 순위가 없는 상위 묶음은 null
+    assert {g["name"]: g["rank"] for g in frame["groups"]} == {"저소득계층": None, "1순위 일반 장애인": 1, "2순위": 2}
+
+
+def test_group_rank_comes_only_from_one_clear_rank_in_the_name():
+    from mujuthaek_extraction.judgment.frame import rank_of
+
+    assert rank_of("1순위") == 1
+    assert rank_of("일반공급 제2순위 장애인") == 2
+    assert rank_of("1순위 우선 수급자 (그 밖의 주택형·단지)") == 1
+    assert rank_of("신혼부부") is None
+    assert rank_of("1·2순위") is None  # 여러 순위를 묶은 대상군
+    assert rank_of("1~3순위 공통") is None
+    assert rank_of("1순위 및 2순위") is None
 
 
 def test_sentences_that_are_not_requirements_become_notes():
@@ -182,11 +199,12 @@ def test_limit_sentence_is_a_question_answered_no():
     assert (made["kind"], made["metWhen"], made["inReview"]) == ("ASK", "NO", False)
 
 
-def test_benefit_list_definition_becomes_status_codes():
+def test_benefit_list_definition_is_asked_as_written_in_housing():
     text = "「국민기초생활보장법」 제7조제1항제1호~제7조제1항제4호에 따른 생계·주거· 의료·교육급여 수급자"
     frame = build_judgment(candidate([item("recipient", "OTHER", text, groups=["수급자"])], target_groups=["수급자"]))
     [made] = {g["name"]: g for g in frame["groups"]}["수급자"]["criteria"]
-    assert made["kind"] == "STATUS" and sorted(made["anyOf"]) == ["EDUCATION_BENEFIT", "HOUSING_BENEFIT", "LIVELIHOOD_BENEFIT", "MEDICAL_BENEFIT"]
+    # 주거 틀은 신분을 코드로 판정하지 않고 원문 그대로 묻습니다(닫힌 목록, 2026-10-21). 급여 종류가 다 적혀 있어 확인 필요는 아님
+    assert made["kind"] == "ASK" and text in made["question"] and not made["inReview"]
 
 
 def test_held_eligibility_is_sent_in_review_not_dropped():
@@ -296,6 +314,70 @@ def test_cannot_apply_or_be_selected_sentences_are_limits():
     assert (made["kind"], made["metWhen"], made["inReview"]) == ("ASK", "NO", False)
 
 
+def test_question_direction_is_decided_only_for_clear_qualification_endings():
+    # 2026-10-22 방향 미정 959건 분류: 대상 명사(끝 괄호 부연은 빼고)·「갖추어야 합니다」로 끝나면 자격, 그 밖에는 그대로 확인 필요
+    clear = [
+        "매각공고일(2026.09.30.) 기준 국내에 거주하는 만19세 이상 성년자인 무주택세대구성원(주민등록표등본 기준)",
+        "신청일로부터 최근 2년이내 출산한 자녀(태아, 2년이내 출생한 입양자를 포함)가 있는 가구",
+        "신청자는 무주택세대구성원, 소득·자산기준을 충족하고, 다음의 입주자격 구분별 신청자격을 갖추어야합니다.",
+    ]
+    for text in clear:
+        [made] = build_judgment(candidate([item("who", "OTHER", text)]))["common"]
+        assert (made["metWhen"], made["inReview"]) == ("YES", False), text
+    unclear = [
+        "세대구성원(자격검증대상)",  # 머리글
+        "또한 배우자가 국내 거주하지 않는 재외국민이거나 외국인 등록을 하지 않은 외국인인 경우(국내거소신고를 하지 않은 외국국적동포 포함)",
+        "본 공고에 따라 신청하여 서류제출까지 완료한 경우, 예비입주자 순번 발표 시까지",
+    ]
+    for text in unclear:
+        [made] = build_judgment(candidate([item("who", "OTHER", text)]))["common"]
+        assert made["inReview"] and "자격인지 신청 제한인지" in made["reviewReason"], text
+
+
+def test_duties_after_selection_and_household_scope_are_notes_and_disqualifications_are_limits():
+    duties = [
+        "현재 임대주택에 거주하고 있는 자는 이 주택에 입주하기 전에 기존 임대주택을 명도하여야 합니다.",
+        "기 대출받은 주택도시기금이 있을 경우에는 전세임대주택 입주 전까지 상환하여야 함",
+        "선정되면 종전에 동일한 공급유형에 선정된 예비입주자 지위는 자동 상실됩니다.",
+        "신청자격은 공고일부터 입주 시까지 유지하여야 합니다.",
+        "입주 전에 세대 분리를 해야 합니다.",
+    ]
+    scope = [
+        "신청자 및 배우자 신청자와 세대 분리되어 있는 배우자도 세대구성원에 포함",
+        "단, 아래에 해당하는 사람은 자격검증대상(세대구성원)에 포함합니다.",
+        "제2호 나목(국군귀환포로)의 경우 관련 신분 증빙자료 제출하면 소득자산 검증이 생략됩니다.",
+    ]
+    frame = build_judgment(candidate([item(f"t{i}", "OTHER", t) for i, t in enumerate([*duties, *scope])]))
+    assert frame["common"] == []
+    assert [n["kind"] for n in frame["notes"]] == ["OBLIGATION"] * len(duties) + ["OTHER"] * len(scope)
+    for text in ["※ 주거약자 아닌 자가 주거약자용을 신청할 경우 탈락처리 됨", "다만, 세대 구성원 중 유주택자인 부모님이 포함될 경우 부적격자로 처리됩니다."]:
+        [made] = build_judgment(candidate([item("no", "OTHER", text)]))["common"]
+        assert (made["kind"], made["metWhen"], made["inReview"]) == ("ASK", "NO", False), text
+
+
+def test_dual_income_option_equal_to_the_base_bonuses_is_not_a_separate_option():
+    # 2026-10-22 실측: 「맞벌이 2인 가구 130%」가 기본 100% + 맞벌이 20%p + 2인 10%p와 같은데 선택지로 또 들어감
+    def replace(ex_id, text, value):
+        return {
+            "id": ex_id,
+            "originalText": text,
+            "description": text,
+            "when": {"expression": None, "status": "UNSTRUCTURED", "reason": "맞벌이 여부는 속성 사전에 없습니다."},
+            "effect": "REPLACE",
+            "effectExpression": atom("INCOME_BENCHMARK_PERCENT", "LTE", value, benchmark=URBAN),
+            "evidenceIds": ["ev-1"],
+        }
+
+    text = "월평균소득 100% 이하(맞벌이 120%, 2인 110%)"
+    base = atom("INCOME_BENCHMARK_PERCENT", "LTE", 100, benchmark=URBAN)
+    same = replace("ex-dual", "맞벌이 2인 가구는 130% 이하", 130)
+    [made] = build_judgment(candidate([item("income", "INCOME", text, base, exceptions=[same])]))["common"]
+    assert made["kind"] == "INCOME" and made["percent"] == 100
+    child = replace("ex-child", "자녀가 있는 맞벌이 가구는 140% 이하", 140)
+    [made] = build_judgment(candidate([item("income", "INCOME", text, base, exceptions=[same, child])]))["common"]
+    assert made["kind"] == "ANY_OF" and [o["label"] for o in made["options"]] == ["기본 기준", "자녀가 있는 맞벌이 가구는 140% 이하"]
+
+
 def test_income_below_percent_keeps_source_value_and_review():
     """「100% 미만」을 「99% 이하」로 바꾸면 99.5%가 떨어집니다. 원문 값과 확인 필요로 둡니다."""
     income = item("e1", "INCOME", "월평균소득 100% 미만", atom("INCOME_BENCHMARK_PERCENT", "LT", 100, benchmark=URBAN))
@@ -396,3 +478,136 @@ def test_page_numbers_come_from_pdf_page_marks():
     frame = build_judgment(candidate([age]), pages={"ev-1": 2})
     assert frame["common"][0]["page"] == 2
     assert build_judgment(candidate([age]))["common"][0]["page"] is None
+
+
+class _Regions:
+    def lookup(self, name):
+        class Found:
+            code, level = ("1100000000", "SIDO") if "서울" in name else (None, None)
+
+        return Found()
+
+
+def test_group_name_with_other_targets_is_asked_not_narrowed_to_one_status():
+    # 2026-10-21 리뷰: 「장애인 등 주거약자」를 장애인 신분만 요구함
+    income = item("income", "INCOME", "70% 이하인 자", atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN), groups=["장애인 등 주거약자"])
+    plain = item(
+        "income-2", "INCOME", "70% 이하인 자", atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN), groups=["1순위 월평균소득 70% 이하 장애인"]
+    )
+    by_name = {g["name"]: g["criteria"] for g in build_judgment(candidate([income, plain]))["groups"]}
+    first = by_name["장애인 등 주거약자"][0]
+    assert first["kind"] == "ASK" and "장애인 등 주거약자" in first["question"]
+    assert not any(c["kind"] == "STATUS" for c in by_name["장애인 등 주거약자"])
+    assert by_name["1순위 월평균소득 70% 이하 장애인"][0]["question"] == "「1순위 월평균소득 70% 이하 장애인」 대상에 해당하나요?"
+
+
+def test_child_count_with_an_age_limit_is_asked_whole():
+    # 2026-10-21 리뷰·실측 10곳: 「미성년 자녀 2명 이상」이 나이 제한 없는 「자녀 2명 이상」이 됨
+    minors = item("kids", "CHILDREN", "2명 이상의 미성년자인 자녀를 둔 사람", atom("CHILD_COUNT", "GTE", 2, unit="COUNT"))
+    [made] = build_judgment(candidate([minors]))["common"]
+    assert made["kind"] == "ASK" and made["inReview"] and "미성년자인 자녀" in made["question"]
+    young = item("young", "CHILDREN", "6세 이하 자녀가 있는 혼인가구", atom("CHILD_COUNT", "GTE", 1, unit="COUNT"))
+    # 자녀 조건은 닫힌 목록 밖이라 원문 질문입니다. 칸으로 정확히 담을 수 있는 「6세 이하 자녀가 있는」은 확인 필요가 아닙니다
+    [kept] = build_judgment(candidate([young]))["common"]
+    assert (kept["kind"], kept["inReview"]) == ("ASK", False) and "6세 이하 자녀" in kept["question"]
+
+
+def test_age_of_another_family_member_is_not_the_applicant_age():
+    # 실측 2026-10-21: 「65세 이상 직계존속 부양자」가 신청자 65세 이상이 됨
+    parent = item("parent", "AGE", "65세 이상 직계존속(배우자의 직계존속 포함)을 부양하는 자", atom("AGE_YEARS", "GTE", 65, subject="APPLICANT", unit="YEAR"))
+    [made] = build_judgment(candidate([parent]))["common"]
+    assert made["kind"] == "ASK" and made["inReview"]
+
+
+def test_residence_sentence_with_other_conditions_is_asked_whole():
+    # 2026-10-21 리뷰: 「서울 거주 만 19~39세 무주택자」를 거주지로만 체크함
+    text = "서울특별시에 거주하는 만 19세 이상 39세 이하 무주택자"
+    [made] = build_judgment(candidate([item("res", "RESIDENCE", text)]), _Regions())["common"]
+    assert made["kind"] == "ASK" and made["inReview"] and text in made["question"]
+    [simple] = build_judgment(candidate([item("res", "RESIDENCE", "서울특별시에 거주하는 사람")]), _Regions())["common"]
+    assert simple["kind"] == "RESIDENCE" and simple["regionCodes"] == ["1100000000"]
+
+
+def test_qualification_with_a_bracketed_limit_is_not_asked_as_a_limit():
+    # 실측 2026-10-21 부산: 자격 문장을 「신청 제한에 해당하나요?」로 물어 자격을 갖춘 사람이 떨어지게 됨
+    text = "부산광역시에 거주하는 무주택세대구성원인 성년자 [외국인 청약불가]"
+    [made] = build_judgment(candidate([item("who", "RESIDENCE", text)]))["common"]
+    assert made["kind"] == "ASK" and made["metWhen"] == "YES" and made["inReview"]
+
+
+def test_list_items_in_one_group_are_in_review():
+    # 실측 2026-10-21: 우선공급 ㉮·㉯ 항목이 「고령자」 대상의 필수 조건으로 모두 들어가 아무도 자격이 안 됨
+    kids = item("a", "CHILDREN", "㉮ 자녀가 2명 이상인 사람", atom("CHILD_COUNT", "GTE", 2, unit="COUNT"), groups=["고령자"])
+    merit = item("b", "OTHER", "㉯ 「국가유공자 등 예우 및 지원에 관한 법률」에 따른 국가유공자 또는 그 유족", groups=["고령자"])
+    frame = build_judgment(candidate([kids, merit], target_groups=["고령자"]))
+    made = {g["name"]: g["criteria"] for g in frame["groups"]}["고령자"]
+    assert len(made) == 2 and all(c["inReview"] for c in made)
+
+
+def test_one_household_bonus_does_not_clear_the_review_of_another():
+    # 2026-10-21 리뷰: 1인 가산 하나만 받아도 「가산」 사유를 모두 지워 2인 가산 문제도 사라졌음
+    text = "월평균소득 70% 이하. 가구원수가 1인인 경우 20%p, 2인인 경우 10%p 가산"
+    one = item("income", "INCOME", text, atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN), exceptions=[replace_income("ex-1", 1, 90)])
+    [made] = build_judgment(candidate([one]))["common"]
+    assert made["inReview"]
+    both = item(
+        "income",
+        "INCOME",
+        text,
+        atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN),
+        exceptions=[replace_income("ex-1", 1, 90), replace_income("ex-2", 2, 80)],
+    )
+    [done] = build_judgment(candidate([both]))["common"]
+    assert not done["inReview"] and "_bonusKeys" not in done
+
+
+def test_generic_recipient_in_a_status_list_is_in_review():
+    # 실측 2026-10-21: 「수급자가구 또는 차상위계층, 지원대상 한부모가족인 자」에서 급여 종류 없는 수급자가 빠지고 차상위·한부모만 요구함
+    text = "수급자가구 또는 차상위계층, 지원대상 한부모가족인 자"
+    frame = build_judgment(candidate([item("rank1", "OTHER", text, groups=["1순위 신생아가구"])], target_groups=["1순위 신생아가구"]))
+    [made] = {g["name"]: g for g in frame["groups"]}["1순위 신생아가구"]["criteria"]
+    assert made["kind"] == "ASK" and made["inReview"] and "수급자" in made["reviewReason"]
+
+
+def test_only_main_conditions_are_judged_by_code_and_others_are_asked():
+    # 닫힌 목록(2026-10-21): 나이·거주·무주택·소득·자산·자동차만 코드로 판정. 혼인·청약통장·자녀는 원문 질문
+    married = item("married", "MARRIAGE", "혼인기간 7년 이내인 신혼부부", atom("MARRIAGE_MONTHS", "LTE", 84, unit="MONTH"))
+    kids = item("kids", "CHILDREN", "자녀가 1명 이상인 자", atom("CHILD_COUNT", "GTE", 1, unit="COUNT"))
+    age = item("age", "AGE", "만 19세 이상 39세 이하인 자", atom("AGE_YEARS", "BETWEEN", [19, 39], subject="APPLICANT", unit="YEAR"))
+    made = build_judgment(candidate([married, kids, age]))["common"]
+    assert [c["kind"] for c in made] == ["ASK", "ASK", "AGE"]
+    assert made[0]["question"] == "다음 조건에 해당하나요? 「혼인기간 7년 이내인 신혼부부」" and not made[2]["inReview"]
+
+
+def test_main_condition_is_confirmed_only_when_code_reads_the_same_value():
+    # 두 방법 일치(2026-10-21): AI 값과 코드가 원문에서 읽은 값이 같을 때만 확정
+    wrong = item("age", "AGE", "만 19세 이상 39세 이하인 자", atom("AGE_YEARS", "BETWEEN", [19, 45], subject="APPLICANT", unit="YEAR"))
+    [made] = build_judgment(candidate([wrong]))["common"]
+    assert made["kind"] == "AGE" and made["inReview"] and "다릅니다" in made["reviewReason"]
+    car = item("car", "CAR_ASSETS", "총자산 3억 4,500만원 이하, 자동차 3,708만원 이하", atom("CAR_ASSETS_KRW", "LTE", 3_708_000, unit="KRW"))
+    [made] = build_judgment(candidate([car]))["common"]
+    assert made["kind"] == "CAR" and made["inReview"]  # 리뷰 사례: 3,708만원을 370만 8천원으로
+    right = item("car", "CAR_ASSETS", "총자산 3억 4,500만원 이하, 자동차 3,708만원 이하", atom("CAR_ASSETS_KRW", "LTE", 37_080_000, unit="KRW"))
+    assert not build_judgment(candidate([right]))["common"][0]["inReview"]
+    two = item("income", "INCOME", "70% 이하 또는 100% 이하", atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN))
+    assert build_judgment(candidate([two]))["common"][0]["inReview"]  # 코드가 하나로 못 읽음
+
+
+def test_approved_frame_does_not_need_the_code_reading():
+    # 검수자가 원문과 대조해 승인한 값은 두 방법 일치 사유로 막지 않습니다
+    two = item("income", "INCOME", "70% 이하 또는 100% 이하", atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN))
+    [made] = build_judgment(candidate([two]), approved=True)["common"]
+    assert not made["inReview"]
+
+
+def test_code_reading_handles_common_written_forms():
+    from mujuthaek_extraction.judgment.readback import ages, amounts, percents
+
+    assert ages("「민법」상 미성년자(만 19세 미만)는 신청하실 수 없습니다.") == (19, None)  # 금지 문장은 방향 반대
+    assert ages("만 19세 이상 성년자와 법인(단, 외국인 신청불가)") == (19, None)  # 괄호 안 금지는 이 문장의 방향이 아님
+    assert ages("65세 이상의 직계존속을 부양하는 만 19세 이상인 자") == (19, None)  # 가족의 나이는 뺌
+    assert percents("월평균소득의 100% (【완화조건】120%(2순위),150%(3순위)) 이하") == {100.0}
+    assert percents("70%(1인 90%, 2인 80%) 이하") == {70.0}
+    assert amounts("총자산 3억 4,500만원 이하, 자동차 3,708만원 이하") == {"ASSET": {345_000_000}, "CAR": {37_080_000}, "ANY": set()}
+    assert amounts("총 자산기준 2억4천5백만원 이하")["ASSET"] == {245_000_000}
+    assert amounts("4,542만원 이하 일 것")["ANY"] == {45_420_000}

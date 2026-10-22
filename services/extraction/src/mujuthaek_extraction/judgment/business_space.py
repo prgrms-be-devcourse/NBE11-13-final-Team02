@@ -12,7 +12,7 @@ import re
 from datetime import date
 from typing import Any
 
-from mujuthaek_extraction.judgment.common import LIMIT_WORDS, Context, base_fields, status_codes, statuses_of
+from mujuthaek_extraction.judgment.common import LIMIT_WORDS, Context, base_fields, status_codes, status_rest, statuses_of
 from mujuthaek_extraction.judgment.frame import Criterion, Made, Spec, as_int, bounds, build_frame
 
 # 대상 이름·신분 정의 문장 → 틀의 유형 코드(예비사회적기업을 사회적기업보다 먼저 봅니다)
@@ -104,6 +104,7 @@ SPEC = Spec(
     atom=_atom,
     statuses_of=lambda name: statuses_of(name, STATUS_WORDS),
     status_codes=lambda text: status_codes(text, STATUS_WORDS),
+    status_rest=lambda text: status_rest(text, STATUS_WORDS),
     text=_text,
     simplify=_simplify,
     preferences=True,

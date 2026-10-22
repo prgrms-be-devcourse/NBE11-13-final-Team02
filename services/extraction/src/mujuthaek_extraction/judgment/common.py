@@ -27,10 +27,24 @@ STATUS_WORDS = (
 STATUS_FILLER = re.compile(r"수급(?:권)?자|계층|가구|가족|대상자|기업|[·,/및\s()]")
 BONUS_WORDS = re.compile(r"[1-9]\s*인\s*(?:가구)?\s*\(?\s*\d+\s*%|맞벌이|가산|신생아|출생\s*자녀")
 # 「청약할 수 없습니다」「입주자로 선정될 수 없습니다」도 제한(실측 2026-10-21 김해 매각·든든전세가 방향 모르는 질문으로 나감)
-LIMIT_WORDS = re.compile(r"불가(?:합니다|함|능)?|(?:신청|청약|선정|공급)\S*\s*(?:할|될|받을)\s*수\s*없|제외|무효|안\s*됩니다")
+# 「부적격자로 처리됩니다」「탈락처리 됨」「지원받을 수 없으며」「공동명의 … 불허」도 제한(2026-10-22 방향 미정 959건 분류)
+LIMIT_WORDS = re.compile(
+    r"불가(?:합니다|함|능)?|(?:신청|청약|선정|공급)\S*\s*(?:할|될|받을)\s*수\s*없|제외|무효|안\s*됩니다"
+    r"|부적격|탈락\s*처리|지원\s*받을\s*수\s*없|불허"
+)
 PERMIT_WORDS = re.compile(r"(?:신청|청약)\s*(?:이\s*)?가능|(?:신청|청약)할\s*수\s*있|(?:도|이상도)\s*가능")
 NOT_REQUIRED = re.compile(r"불문|따지지\s*않|묻지\s*않|검증하지\s*않|적용(?:되|하)지\s*않|제한하지\s*않|관계\s*없")
 REQUIRE_END = re.compile(r"(?:것|자|자로서|사람|세대|경우|에게\s*공급합니다)\s*[.)]?$")
+# 자격 문장의 다른 끝(2026-10-22 방향 미정 959건 분류): 대상을 가리키는 명사(「…성년자인 무주택세대구성원(주민등록표등본 기준)」
+# 「…자녀가 있는 가구」)와 「…을 갖추어야 합니다」「…무주택이어야 합니다」 같은 요구. 끝의 괄호 부연은 빼고 봅니다
+PERSON_END = re.compile(r"(?:구성원|성년자|가구|부부|가족)\s*\.?$")
+MUST_END = re.compile(r"(?:어|여|해|이어)\s*야\s*(?:합니다|함|한다)\s*\.?$")
+# 요구 끝이라도 「…경우에는 … 상환하여야 함」처럼 조건이 붙은 문장은 자격인지 정하지 않습니다
+CONDITIONAL = re.compile(r"경우|때에?는|시에는|되면|이후라도")
+TAIL_ASIDE = re.compile(r"(?:\s*(?:\([^)]*\)|\[[^\]]*\]|（[^）]*）|【[^】]*】))+\s*\.?$")
+# 괄호·대괄호 안 부연(「[외국인 청약불가]」「(LH 임직원 제외)」): 문장의 주된 뜻(자격인지 제한인지)을 정할 때는 빼고 봅니다
+ASIDE = re.compile(r"\[[^\]]*\]|\([^)]*\)|（[^）]*）|【[^】]*】")
+QUALIFY_WORDS = re.compile(r"자격|요건|갖춘|충족|해당하는\s*(?:자|사람|분)|에게\s*공급")
 
 
 class Context:
@@ -121,13 +135,43 @@ def ask(ctx: Context, item: dict[str, Any], reasons: list[str]) -> dict[str, Any
     둘 중 무엇인지 정할 수 없으면 YES로 두고 inReview입니다."""
     text = (item.get("originalText") or item.get("description") or "").strip()
     criterion = base_fields(ctx.new_id(item["id"]), "ASK", item.get("originalText"))
-    if LIMIT_WORDS.search(text):
+    core = ASIDE.sub(" ", text).strip()
+    if LIMIT_WORDS.search(core):
         criterion |= {"question": f"다음 신청 제한에 해당하나요? 「{text}」", "metWhen": "NO"}
+        if QUALIFY_WORDS.search(core) or REQUIRE_END.search(core):
+            # 「…성년자는 신청 가능하며 외국인은 불가」처럼 자격과 제한이 한 문장에 섞이면 어느 쪽으로 물어도 틀릴 수 있습니다
+            reasons = [*reasons, "자격과 신청 제한이 한 문장에 섞여 있어 질문 방향을 코드로 정하지 못했습니다"]
     else:
         criterion |= {"question": f"다음 자격을 갖추었나요? 「{text}」", "metWhen": "YES"}
-        if not REQUIRE_END.search(text):
+        if LIMIT_WORDS.search(text):
+            # 제한 문구가 괄호 안에만 있음(실측 2026-10-21 부산: 「…거주하는 무주택세대구성원인 성년자 [외국인 청약불가]」를
+            # 「신청 제한에 해당하나요?」로 물어 자격을 갖춘 사람이 떨어지게 됨)
+            reasons = [*reasons, "괄호 안에 신청 제한 문구가 있어 질문 하나로 자격과 제한을 함께 확인할 수 없습니다"]
+        elif not _qualification(text):
             reasons = [*reasons, "원문 문장이 자격인지 신청 제한인지 코드로 정하지 못했습니다"]
     ctx.flag(criterion, reasons)
+    return criterion
+
+
+def _qualification(text: str) -> bool:
+    """제한 문구가 없는 문장이 자격(갖추면 됨)으로 끝나는지. 머리글만 있는 짧은 문장(「세대구성원(자격검증대상)」)과
+    「단, …」로 시작하는 덧붙임은 정하지 않습니다."""
+    end = TAIL_ASIDE.sub("", text).strip()
+    if len(end) < 10 or re.match(r"^[※*\-•·▪◾\s]*단\s*[,.]?\s", end):
+        return False
+    if end != text and re.search(r"경우\s*\.?$", end):
+        return False  # 「…외국인인 경우(…)」: 괄호를 떼면 「경우」로 끝나지만 문장이 이어지다 잘린 것
+    if REQUIRE_END.search(end) or PERSON_END.search(end):
+        return True
+    return bool(MUST_END.search(end)) and not CONDITIONAL.search(end)
+
+
+def ask_whole(ctx: Context, item: dict[str, Any], quote: str | None, reason: str) -> dict[str, Any]:
+    """틀의 칸으로 정확히 담을 수 없는 조건: 원문 전체를 질문으로 두고 확인 필요(2026-10-21 리뷰: 담을 수 있는 부분만 떼어 내면 뜻이 바뀜)."""
+    text = (item.get("originalText") or quote or "").strip()
+    criterion = base_fields(ctx.new_id(item["id"]), "ASK", item.get("originalText") or quote)
+    criterion |= {"question": f"다음 조건에 해당하나요? 「{text}」", "metWhen": "YES"}
+    ctx.flag(criterion, [reason])
     return criterion
 
 
@@ -167,7 +211,7 @@ def _day(value: Any) -> date | None:
     return None
 
 
-BENEFIT_LIST = re.compile(r"(?:생계|주거|의료|교육)(?:[\s·,ㆍ]*(?:생계|주거|의료|교육))*\s*급여")
+BENEFIT_LIST = re.compile(r"(?:생계|주거|의료|교육)(?:[\s·,ㆍ․‧]*(?:생계|주거|의료|교육))*\s*급여")
 BENEFIT_CODES = {"생계": "LIVELIHOOD_BENEFIT", "의료": "MEDICAL_BENEFIT", "주거": "HOUSING_BENEFIT", "교육": "EDUCATION_BENEFIT"}
 
 
@@ -179,6 +223,14 @@ def status_codes(text: str, words: tuple[tuple[re.Pattern[str], str], ...]) -> l
     rest = BENEFIT_LIST.sub(" ", text)
     codes += [code for pattern, code in words if code not in BENEFIT_CODES.values() and pattern.search(rest)]
     return list(dict.fromkeys(codes))
+
+
+def status_rest(text: str, words: tuple[tuple[re.Pattern[str], str], ...]) -> str:
+    """신분 낱말·이어 주는 말을 뺀 나머지(비면 문장 전체가 신분)."""
+    rest = BENEFIT_LIST.sub(" ", text)
+    for pattern, _ in words:
+        rest = pattern.sub(" ", rest)
+    return STATUS_FILLER.sub("", rest)
 
 
 def statuses_of(name: str, words: tuple[tuple[re.Pattern[str], str], ...]) -> list[str]:
