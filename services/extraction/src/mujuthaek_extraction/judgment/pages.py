@@ -12,7 +12,8 @@ import re
 from typing import Any
 
 PAGE_MARK = re.compile(r"^--- (\d+)쪽(?: 왼쪽| 오른쪽)? ---$", re.M)
-FILE_MARK = re.compile(r"^=== 첨부 .* ===$", re.M)
+# 첨부 경계(「=== 첨부 …」)와 원문 끝의 그림 판독 묶음(「=== 그림 판독 …」, image_reading.py): 그 뒤 근거는 앞 PDF 쪽이 아님(리뷰 2026-10-22)
+FILE_MARK = re.compile(r"^=== (?:첨부|그림 판독) .* ===$", re.M)
 
 
 def evidence_pages(candidate: dict[str, Any], texts: dict[str, str]) -> dict[str, int]:

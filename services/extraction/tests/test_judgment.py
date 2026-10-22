@@ -677,3 +677,13 @@ def test_merged_duplicate_question_keeps_the_review_mark_and_rank_zero_is_not_a_
     [made] = frame["common"]
     assert made["inReview"]  # 둘 중 하나만 검수여도 합친 질문은 확인 필요
     assert rank_of("0순위 우선공급") is None and rank_of("1순위") == 1
+
+
+def test_evidence_inside_the_image_reading_block_gets_no_pdf_page():
+    # 리뷰 2026-10-22: 원문 끝 「=== 그림 판독 … ===」 묶음 안 근거가 앞 PDF의 마지막 쪽 번호를 받았음
+    from mujuthaek_extraction.judgment.pages import evidence_pages
+
+    text = "--- 7쪽 ---\n본문\n=== 그림 판독 공고문.pdf 3쪽 ===\n판독 글자"
+    start = text.index("판독 글자")
+    made = {"evidence": [{"id": "ev-1", "sourceId": "pdf", "locator": {"kind": "TEXT_RANGE", "start": start, "end": start + 5}}]}
+    assert evidence_pages(made, {"pdf": text}) == {}
