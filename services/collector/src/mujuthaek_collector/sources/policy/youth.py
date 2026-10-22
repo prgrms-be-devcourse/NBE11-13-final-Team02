@@ -25,8 +25,10 @@ from typing import Any
 from mujuthaek_collector.errors import ParseError
 from mujuthaek_collector.sources.base import Request
 from mujuthaek_collector.sources.policy.base import (
+    BENEFIT,
     NATIONWIDE,
     SIGUNGU,
+    STARTUP_SUPPORT,
     UNKNOWN,
     PolicyDetail,
     PolicyItem,
@@ -187,7 +189,7 @@ class YouthSource(PolicySource):
         return has_class(record.get("mclsfNm"), "창업") and startup_in_scope(record.get("plcyNm"), record.get("plcySprtCn"))
 
     def field_of(self, record: dict[str, Any]) -> str:
-        return "STARTUP_SUPPORT" if self.startup(record) else "BENEFIT"
+        return STARTUP_SUPPORT if self.startup(record) else BENEFIT
 
     def parse_detail(self, item: PolicyItem, bodies: list[str]) -> PolicyDetail:
         record = dict(item.record)

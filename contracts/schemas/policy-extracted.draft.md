@@ -5,6 +5,7 @@
 - 보내는 쪽: extraction `rules/policy`·`rules/startup_support` (담당자3), 공통 추출·검증 코드 (담당자2)
 - 받는 쪽: api `benefit` 모듈 (담당자3). eligibility는 benefit의 service 조회 메서드로 조건을 읽어요
 - 조건 한 줄의 모양과 type 목록은 [benefit-condition-types.draft.md](benefit-condition-types.draft.md)를 따라요
+- 대상은 **지원 정책**(`field` = `BENEFIT`·`STARTUP_SUPPORT`)이에요. 사업공간 모집(`SPACE_RECRUITMENT`)은 [space-recruitment-extracted.draft.md](space-recruitment-extracted.draft.md)의 `space_recruitments`에 저장해요 (2026-10-22 결정)
 - 상태: **초안**이에요. 담당자2(extraction)·담당자4(eligibility) 확인 후 `contracts/events/policy.extracted.v1.json`과 api 마이그레이션으로 옮겨요
 
 ## 1. 흐름
@@ -30,7 +31,7 @@ collector ──raw.policy.collected──▶ extraction ──policy.extracted�
 | `rawPolicyId` | uuid | 수집 DB의 정책 ID. benefits를 찾는 키 | 받은 그대로 |
 | `version` | int | 수집 버전. 받는 쪽은 저장된 버전보다 작으면 버려요 (순서 뒤바뀜 대비) | 받은 그대로 |
 | `sourceCode`, `provider`, `policyId` | string | 출처와 출처 정책 ID | 받은 그대로 |
-| `field` | `BENEFIT` · `STARTUP_SUPPORT` | 분야 | 받은 그대로 |
+| `field` | `BENEFIT` · `STARTUP_SUPPORT` | 분야 (`SPACE_RECRUITMENT`는 이 이벤트로 오지 않아요) | 받은 그대로 |
 | `reprocess` | bool | true면 사용자 알림을 보내지 않아요 | 받은 그대로 |
 | `source` | object | 통일 기본 칸 (3-1) | 받은 그대로 |
 | `relevant` | bool | 서비스 범위에 맞는지 (이주 혜택, 창업 공간·자금). false면 benefit은 숨겨요 | AI |

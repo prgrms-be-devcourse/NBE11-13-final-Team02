@@ -142,6 +142,22 @@ def test_kstartup_uses_list_only(api, web, policy_store, file_store, policy_sett
     assert again.new_count == 0 and len(policy_store.versions) == 1
 
 
+def test_space_recruitment_is_classified_at_list_and_sent_with_its_field(api, web, policy_store, file_store, policy_settings):
+    source = KStartupSource(KEY)
+    space = {**s.KSTARTUP_POLICY, "pbanc_sn": "179600", "biz_pbanc_nm": "2026년 서울창업센터 동작 입주기업 모집", "supt_biz_clsfc": "시설ㆍ공간ㆍ보육"}
+    api.pages[list_url(source)] = s.kstartup_list([s.KSTARTUP_POLICY, space])
+    policy_settings = replace(policy_settings, detail_limit=0)  # 목록만 읽어요
+    run(source, api, web, policy_store, file_store, policy_settings)
+    assert policy_store.by_key("179600").field == "SPACE_RECRUITMENT" and policy_store.by_key("179540").field == "STARTUP_SUPPORT"
+
+    run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=10))
+    for event in policy_store.events:
+        validate_event(event)
+    fields = {e["payload"]["policyId"]: e["payload"]["field"] for e in policy_store.events}
+    assert fields == {"179540": "STARTUP_SUPPORT", "179600": "SPACE_RECRUITMENT"}
+    assert policy_store.by_key("179600").field == "SPACE_RECRUITMENT"
+
+
 def test_origin_page_is_opened_when_api_has_only_forms(api, web, policy_store, file_store, policy_settings):
     source = central(api, web)
     item = source.parse_list(s.BOKJIRO_CENTRAL_LIST).items[0]

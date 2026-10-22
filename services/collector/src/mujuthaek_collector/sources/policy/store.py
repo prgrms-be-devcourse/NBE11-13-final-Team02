@@ -6,6 +6,7 @@ raw_policy_versions  내용이 바뀔 때마다 한 줄. 통일한 내용 칸(�
 raw_policy_files     버전의 첨부 (S3 원본 위치, 역할 POLICY_DOC·ATTACHMENT, 찾은 곳 API·ORIGIN_PAGE)
 raw_policy_texts     첨부에서 뽑은 글자 (원본 파일을 지워도 남겨요)
 outbox               게시판 수집과 같이 써요. 새 버전마다 raw.policy.collected 이벤트 한 건
+분류(raw_policies.field)는 BENEFIT·STARTUP_SUPPORT(지원 정책)와 SPACE_RECRUITMENT(사업공간 모집). 원본은 한 테이블에 두고 이 칸으로 나눠요
 수집 회차(crawl_runs)도 게시판 수집과 같이 써요.
 """
 
@@ -43,6 +44,7 @@ class PolicyRow:
     attempts: int = 0
     last_error: str | None = None
     latest_version: int = 0
+    field: str = "BENEFIT"  # 분류 (BENEFIT, STARTUP_SUPPORT, SPACE_RECRUITMENT). 목록 단계에서 정해 저장만 해요 (queued_policies는 읽지 않음)
 
 
 @dataclass
@@ -107,8 +109,8 @@ class PolicyStore(Protocol):
     def finish_run(self, run_id: UUID, status: str, new_count: int, warnings: list[str]) -> None: ...
     def known_policies(self, source_code: str) -> dict[str, KnownPolicy]: ...
     def insert_policy(self, policy: PolicyRow) -> None: ...
-    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any]) -> None: ...
-    def skip_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any]) -> None: ...
+    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None: ...
+    def skip_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None: ...
     def queued_policies(self, source_code: str, limit: int) -> list[PolicyRow]: ...
     def latest_hash(self, policy_id: UUID) -> tuple[int, str] | None: ...
     def mark_done(self, policy_id: UUID) -> None: ...
@@ -131,24 +133,25 @@ class PostgresPolicyStore(PostgresStore):
 
     def insert_policy(self, policy: PolicyRow) -> None:
         self.conn.execute(
-            "insert into raw_policies (id, source_code, policy_id, title, marker, list_raw, status) values (%s, %s, %s, %s, %s, %s, %s) "
+            "insert into raw_policies (id, source_code, policy_id, title, marker, list_raw, status, field) values (%s, %s, %s, %s, %s, %s, %s, %s) "
             "on conflict (source_code, policy_id) do nothing",
-            (policy.id, policy.source_code, policy.policy_id, policy.title, policy.marker, self._json(policy.list_raw), policy.status),
+            (policy.id, policy.source_code, policy.policy_id, policy.title, policy.marker, self._json(policy.list_raw), policy.status, policy.field),
         )
 
-    def _set_list(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], status: str) -> None:
+    def _set_list(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], status: str, field: str) -> None:
         self.conn.execute(
-            "update raw_policies set title = %s, marker = %s, list_raw = %s, status = %s, attempts = 0, last_error = null, updated_at = now() where id = %s",
-            (title, marker, self._json(list_raw), status, policy_id),
+            "update raw_policies set title = %s, marker = %s, list_raw = %s, status = %s, field = %s, attempts = 0, last_error = null, "
+            "updated_at = now() where id = %s",
+            (title, marker, self._json(list_raw), status, field, policy_id),
         )
 
-    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any]) -> None:
+    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None:
         """목록에서 바뀐 정책(수정일·항목이 달라짐)을 다시 열도록 PENDING으로 돌려요."""
-        self._set_list(policy_id, title, marker, list_raw, "PENDING")
+        self._set_list(policy_id, title, marker, list_raw, "PENDING", field)
 
-    def skip_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any]) -> None:
+    def skip_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None:
         """1차 거름에 걸리지 않은 정책을 SKIPPED로 둬요. 목록 항목은 새 값으로 바꿔서 다음 판단에 써요."""
-        self._set_list(policy_id, title, marker, list_raw, "SKIPPED")
+        self._set_list(policy_id, title, marker, list_raw, "SKIPPED", field)
 
     def queued_policies(self, source_code: str, limit: int) -> list[PolicyRow]:
         rows = self.conn.execute(

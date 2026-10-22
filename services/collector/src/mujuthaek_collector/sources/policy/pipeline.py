@@ -3,6 +3,7 @@
 run_policy_source
   ├─ 목록 전체 읽기 (sync_list, 구간이 있으면 구간마다) → source.fetch_list
   │    처음 본 정책 → 1차 거름(source.wanted)에 걸리고 신청이 끝나지 않았으면(source.closed) PENDING, 아니면 SKIPPED
+  │    분류(source.classify)도 여기서 정해 raw_policies.field에 둬요: 지원 정책(BENEFIT·STARTUP_SUPPORT) / 사업공간 모집(SPACE_RECRUITMENT)
   │    이미 본 정책 → 수정일(또는 목록 항목 해시)이 바뀌면 다시 PENDING. 거름은 회차마다 다시 판단해요
   └─ 밀린 정책(PENDING·FAILED)을 한 번에 detail_limit건까지 처리 (process_policy)
        상세를 한꺼번에 받을 수 있는 출처(보조금24)는 먼저 받아 둠 (source.prefetch)
@@ -147,17 +148,18 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
                 seen.add(item.policy_id)
                 entry = known.get(item.policy_id)
                 wanted = source.wanted(item) and not source.closed(item, ctx.today)
+                kind = source.classify(item.title, item.record)  # 지원 정책(BENEFIT·STARTUP_SUPPORT) / 사업공간 모집(SPACE_RECRUITMENT)
                 if entry is None:
-                    register(ctx, item, PENDING if wanted else SKIPPED)
+                    register(ctx, item, PENDING if wanted else SKIPPED, kind)
                     added += wanted
                     skipped += not wanted
                 elif not wanted:
                     # 기다리던 정책과 바뀐 정책은 SKIPPED로. 이미 수집한(DONE) 정책은 목록이 바뀔 때까지 그대로 둬요
                     if entry.status in (PENDING, FAILED) or entry.marker != item.marker:
-                        store.skip_policy(entry.id, item.title, item.marker, item.record)
+                        store.skip_policy(entry.id, item.title, item.marker, item.record, kind)
                         skipped += 1
                 elif entry.status == SKIPPED or entry.marker != item.marker or (recheck and entry.status == DONE):
-                    store.requeue_policy(entry.id, item.title, item.marker, item.record)
+                    store.requeue_policy(entry.id, item.title, item.marker, item.record, kind)
                     changed += 1
             fetched += len(result.items)
             if not result.items or len(result.items) < source.page_size or (result.total is not None and fetched >= result.total):
@@ -167,8 +169,9 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
     log.info("정책 목록", extra={"source": source.code, "listed": len(seen), "new": added, "changed": changed, "skipped": skipped})
 
 
-def register(ctx: PolicyContext, item: PolicyItem, status: str = PENDING) -> None:
-    ctx.store.insert_policy(PolicyRow(uuid7(), ctx.source.code, item.policy_id, item.title, item.marker, item.record, status))
+def register(ctx: PolicyContext, item: PolicyItem, status: str = PENDING, kind: str | None = None) -> None:
+    kind = kind or ctx.source.classify(item.title, item.record)
+    ctx.store.insert_policy(PolicyRow(uuid7(), ctx.source.code, item.policy_id, item.title, item.marker, item.record, status, field=kind))
 
 
 def prefetch(ctx: PolicyContext, queue: list[PolicyRow]) -> None:
@@ -284,7 +287,7 @@ def policy_fields(source: PolicySource, item: PolicyItem, detail: PolicyDetail) 
         region_scope=detail.region_scope,
         region_names=detail.region_names,
         region_codes=detail.region_codes,
-        field=source.field_of(detail.record),
+        field=source.classify(item.title, detail.record),
         categories=detail.categories,
         detail_url=detail.detail_url,
         apply_url=detail.apply_url,

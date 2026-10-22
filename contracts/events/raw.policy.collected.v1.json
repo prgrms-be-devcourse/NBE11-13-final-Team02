@@ -29,7 +29,7 @@
         "version": { "type": "integer", "minimum": 1, "description": "API 응답이나 첨부가 바뀔 때마다 1씩 늘어요" },
         "sourceCode": { "enum": ["gov24", "bokjiro_central", "bokjiro_local", "youth", "kstartup", "bizinfo"], "description": "출처 code" },
         "provider": { "enum": ["GOV24", "BOKJIRO", "YOUTHCENTER", "KSTARTUP", "BIZINFO"], "description": "API 제공처" },
-        "field": { "enum": ["BENEFIT", "STARTUP_SUPPORT"], "description": "혜택 또는 창업지원 사업. K-Startup·기업마당은 STARTUP_SUPPORT, 온통청년은 정책마다 (중분류 창업이면 STARTUP_SUPPORT)" },
+        "field": { "enum": ["BENEFIT", "STARTUP_SUPPORT", "SPACE_RECRUITMENT"], "description": "분류. 지원 정책: BENEFIT 주거·이주 혜택, STARTUP_SUPPORT 창업 지원금·정책자금·임대료 지원 (K-Startup·기업마당, 온통청년 중분류 창업). 사업공간 모집: SPACE_RECRUITMENT 창업 공간 입주·입점 모집, 임대 공급 (창업지원 중 이름으로 나눠요). 지원 정책은 benefits, 사업공간 모집은 space_recruitments에 추출 결과를 저장해요" },
         "policyId": { "type": "string", "minLength": 1, "description": "출처의 정책 ID (보조금24 서비스ID, 복지로 servId, 온통청년 plcyNo, K-Startup pbanc_sn, 기업마당 pblancId). 출처끼리 같은 정책 합치기는 받는 쪽이 해요" },
         "title": { "type": "string", "minLength": 1 },
         "agency": { "$ref": "#/$defs/nullableString", "description": "소관·주관 기관 이름" },

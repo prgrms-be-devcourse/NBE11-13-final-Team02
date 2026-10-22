@@ -192,6 +192,32 @@ def test_kstartup_scope_is_space_and_funds(title, field, expected):
     assert source.wanted(item) is expected
 
 
+@pytest.mark.parametrize(
+    ("title", "expected"),
+    [
+        ("2026년 서울창업센터 동작 입주기업 모집", "SPACE_RECRUITMENT"),
+        ("남서울대학교 창업보육센터 입주기업 모집 공고", "SPACE_RECRUITMENT"),
+        ("영도 창업오피스 크립톤 1:1 멘토링 입주기업 모집", "SPACE_RECRUITMENT"),
+        ("화성동탄2 인큐베이팅센터 업무시설 입점기업 임대공급", "SPACE_RECRUITMENT"),
+        ("김제전통시장 청년몰 입점 희망자 모집", "SPACE_RECRUITMENT"),
+        ("2026 WEROUND 공유오피스 멤버십 모집", "SPACE_RECRUITMENT"),
+        ("강진군 2026년 소상공인 창업 임대료 지원사업", "STARTUP_SUPPORT"),  # 임대료를 대신 내주는 사업은 지원 정책
+        ("2026년 용산구 청년기업 융자지원사업", "STARTUP_SUPPORT"),
+    ],
+)
+def test_space_recruitment_is_split_from_startup_support(title, expected):
+    source = KStartupSource("KEY")
+    item = source.parse_list(s.kstartup_list([{**s.KSTARTUP_POLICY, "biz_pbanc_nm": title}])).items[0]
+    assert source.classify(item.title, item.record) == expected
+
+
+def test_housing_words_stay_benefit():
+    """사업공간 모집은 창업지원에서만 나눠요. 주거 혜택의 '입주자 모집'·'임대공급'은 그대로 BENEFIT이에요."""
+    source = Gov24Source("KEY")
+    item = source.parse_list(s.GOV24_LIST).items[0]
+    assert source.classify("행복주택 입주자 모집 임대공급", item.record) == "BENEFIT"
+
+
 def test_youth_startup_scope_reads_support_text():
     source = YouthSource("KEY")
 

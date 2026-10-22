@@ -63,6 +63,21 @@ STARTUP_EXCLUDE = re.compile(
 )
 
 
+# 정책 분류 (raw_policies.field, 이벤트 field). 2026-10-22 결정: 지원 정책과 사업공간 모집을 나눠 따로 추출·저장해요.
+#   BENEFIT            주거·이주 혜택 (보조금24, 복지로, 온통청년 주거)
+#   STARTUP_SUPPORT    창업 지원금·정책자금, 창업 공간 임대료 지원
+#   SPACE_RECRUITMENT  사업공간 모집: 창업 공간에 들어올 기업·팀을 뽑는 공고 (입주·입점 모집, 임대 공급)
+BENEFIT, STARTUP_SUPPORT, SPACE_RECRUITMENT = "BENEFIT", "STARTUP_SUPPORT", "SPACE_RECRUITMENT"
+
+# 사업공간 모집은 이름으로 나눠요. 공간을 빌려주지 않고 임대료를 대신 내주는 사업('창업 임대료 지원')은 STARTUP_SUPPORT예요.
+# 2026-10-21 창업지원 DONE 287건 중 약 36건 (K-Startup 31: 창업보육센터·공유오피스 입주 모집, LH 업무시설 임대공급)
+SPACE_RECRUIT = re.compile(r"입주(?:기업|자|팀|스타트업|기관)?.{0,6}모집|입점.{0,6}모집|임대\s*공급|입주.{0,4}공고|멤버십.{0,4}모집|입주ㆍ")
+
+
+def space_recruitment(title: Any) -> bool:
+    return bool(SPACE_RECRUIT.search(str(title or "")))
+
+
 def startup_in_scope(title: Any, text: Any = None, *, category_ok: bool = False) -> bool:
     """창업 공간·지원금·정책자금 공고인지. title은 공고·정책 이름, text는 지원 내용(이름만으로 모를 때), category_ok는 출처 분류가 공간·자금일 때."""
     name = str(title or "")
@@ -131,7 +146,7 @@ class PolicySource(ABC):
     code: str  # sources.code와 같아야 해요 (gov24, bokjiro_central, bokjiro_local, youth, kstartup, bizinfo)
     name: str
     provider: str  # 이벤트의 provider (GOV24, BOKJIRO, YOUTHCENTER, KSTARTUP, BIZINFO)
-    field = "BENEFIT"  # 이벤트의 field. 창업지원 출처는 STARTUP_SUPPORT
+    field = BENEFIT  # 출처의 기본 분류. 창업지원 출처는 STARTUP_SUPPORT (정책마다 정하는 건 classify)
     page_size = 100
     weekly_recheck = False  # 목록에 수정일이 없는 출처는 주 1회 전부 다시 열어 상세·첨부가 바뀌었는지 봐요
     key_env = ""  # 인증키 환경 변수 이름 (README와 오류 안내에 써요)
@@ -180,8 +195,14 @@ class PolicySource(ABC):
         return False
 
     def field_of(self, record: dict[str, Any]) -> str:
-        """이벤트의 field. 한 출처에 혜택과 창업지원이 섞여 있으면 정책마다 정해요 (온통청년)."""
+        """혜택인지 창업지원인지. 한 출처에 둘이 섞여 있으면 정책마다 정해요 (온통청년)."""
         return self.field
+
+    def classify(self, title: Any, record: dict[str, Any]) -> str:
+        """정책 분류 (raw_policies.field, 이벤트 field). 창업지원 중 이름이 입주·입점 모집, 임대 공급이면 사업공간 모집이에요.
+        목록 단계(1차 거름)에서 정해 저장하고, 상세를 읽은 뒤 다시 정해요 (온통청년은 상세 없이 목록 항목으로 정해요)."""
+        kind = self.field_of(record)
+        return SPACE_RECRUITMENT if kind == STARTUP_SUPPORT and space_recruitment(title) else kind
 
     def prefetch(self, client: Fetcher, policy_ids: list[str]) -> None:
         """상세를 페이지로 한꺼번에 받을 수 있는 출처는 여기서 미리 받아 둬요 (보조금24).

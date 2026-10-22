@@ -47,15 +47,15 @@ class PolicyMemoryStore:
     def insert_policy(self, policy):
         self.policies.setdefault(policy.id, policy)
 
-    def _set(self, policy_id, title, marker, list_raw, status):
+    def _set(self, policy_id, title, marker, list_raw, status, kind):
         p = self.policies[policy_id]
-        p.title, p.marker, p.list_raw, p.status, p.attempts, p.last_error = title, marker, list_raw, status, 0, None
+        p.title, p.marker, p.list_raw, p.status, p.field, p.attempts, p.last_error = title, marker, list_raw, status, kind, 0, None
 
-    def requeue_policy(self, policy_id, title, marker, list_raw):
-        self._set(policy_id, title, marker, list_raw, "PENDING")
+    def requeue_policy(self, policy_id, title, marker, list_raw, field):
+        self._set(policy_id, title, marker, list_raw, "PENDING", field)
 
-    def skip_policy(self, policy_id, title, marker, list_raw):
-        self._set(policy_id, title, marker, list_raw, "SKIPPED")
+    def skip_policy(self, policy_id, title, marker, list_raw, field):
+        self._set(policy_id, title, marker, list_raw, "SKIPPED", field)
 
     def queued_policies(self, source_code, limit):
         queued = [
@@ -79,4 +79,4 @@ class PolicyMemoryStore:
     def save_version(self, new):
         self.versions.append(new)
         p = self.policies[new.policy.id]
-        p.status, p.latest_version, p.attempts = "DONE", new.version, 0
+        p.status, p.latest_version, p.attempts, p.field = "DONE", new.version, 0, new.fields.field

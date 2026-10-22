@@ -96,6 +96,9 @@ make up                                                                   # 스�
    신청이 끝난 정책(`source.closed`, 지금은 온통청년만)도 AI 추출 비용을 아끼려고 SKIPPED로 남겨요. 기관이 새 신청 기간으로 고치면 다음 회차에 PENDING으로 돌아와요.
 
    창업지원 범위는 **창업 공간 + 지원금·정책자금**이에요 (`base.startup_in_scope`). 출처 분류가 공간·자금이거나 이름(온통청년은 지원 내용도)에 공간·자금 단어가 있으면 넣고, 이름에 교육·멘토링·컨설팅·행사·경진대회·홍보 단어가 있으면 빼요(공간 단어가 같이 있으면 넣어요).
+   **분류(`raw_policies.field`, 이벤트 `field`)**: 지원 정책(`BENEFIT`·`STARTUP_SUPPORT`)과 사업공간 모집(`SPACE_RECRUITMENT`)으로 나눠요 (2026-10-22 결정, `source.classify`).
+   창업지원 중 이름이 입주·입점 모집, 임대 공급이면 `SPACE_RECRUITMENT`예요 (`base.SPACE_RECRUIT`, 창업보육센터·공유오피스 입주기업 모집, 청년몰 입점 모집, LH 업무시설 임대공급). 임대료를 대신 내주는 사업은 `STARTUP_SUPPORT`예요.
+   원본은 `raw_policies` 한 테이블에 두고 이 칸으로 나눠요. 목록 단계에서 정해 저장하고, 추출 결과는 지원 정책은 `benefits`, 사업공간 모집은 `space_recruitments`에 저장해요 (`contracts/schemas/*-extracted.draft.md`).
    보조금24는 열 정책이 20건 이상이면 상세·지원조건을 1000건씩 한꺼번에 받아요(정책마다 2번 대신 모두 합쳐 22번).
 2. PENDING 정책을 회차마다 `POLICY_DETAIL_LIMIT`건까지 처리해요. 상세 API → 첨부(API 첨부, 없으면 원문 화면의 첨부 링크) → 공고·안내 문서 글자 뽑기 → 버전 비교 → 저장 + 이벤트.
 3. 수정일만 바뀌고 내용·첨부가 같으면 새 버전을 만들지 않아요. 조회수도 비교에서 빼요.
