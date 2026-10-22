@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.AreaSummary;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Condition;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FileLink;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FollowUp;
@@ -38,6 +39,7 @@ public final class NoticeDetailMapper {
   public static NoticeDetailResponse map(
       NoticeDetailResponse.Header header,
       JsonNode payload,
+      List<AreaSummary> areaSummaries,
       List<FollowUp> followUps,
       int version,
       boolean reviewed,
@@ -54,6 +56,7 @@ public final class NoticeDetailMapper {
         conditions(payload, detail),
         files(detail),
         heldItems(detail),
+        areaSummaries,
         followUps,
         hasUnits(detail),
         version,

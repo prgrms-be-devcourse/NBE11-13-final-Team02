@@ -16,7 +16,9 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
+import kr.mujuthaek.api.common.event.AreaScoresCalculated;
 import kr.mujuthaek.api.common.event.NoticeClosed;
+import kr.mujuthaek.api.common.event.NoticeLocationsChanged;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.notice.domain.DuplicateRule;
@@ -27,6 +29,7 @@ import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.mapper.ExtractionEvent;
 import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import kr.mujuthaek.api.notice.service.internal.NoticeAreaScoreService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
 import kr.mujuthaek.api.notice.service.internal.NoticeMergeService;
 import kr.mujuthaek.api.notice.service.internal.NoticeStatusService;
@@ -102,6 +105,7 @@ class NoticeIngestionIntegrationTest {
   @Autowired MovableClock clock;
   @Autowired NoticeStatusService status;
   @Autowired NoticeMergeService merges;
+  @Autowired NoticeAreaScoreService areaScores;
   @MockitoSpyBean ExtractionResultRepository results;
 
   @BeforeEach
@@ -110,7 +114,8 @@ class NoticeIngestionIntegrationTest {
     jdbc.sql(
             "truncate notice.notice_versions, notice.notice_posts, notice.notice_follow_ups,"
                 + " notice.notice_regions, notice.notice_source_heads,"
-                + " notice.notice_duplicate_candidates, notice.notices, notice.extraction_results,"
+                + " notice.notice_duplicate_candidates, notice.notice_area_scores, notice.notices,"
+                + " notice.extraction_results,"
                 + " common.processed_events")
         .update();
   }
@@ -1109,6 +1114,136 @@ class NoticeIngestionIntegrationTest {
     merges.merge(second, first);
     assertThatThrownBy(() -> merges.merge(second, first))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  // ---------- 지역 점수 ----------
+
+  @Test
+  void 공개할_때_위치를_area에_알린다() {
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+
+    assertThat(events.stream(NoticeLocationsChanged.class))
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.noticeId()).isEqualTo(id);
+              assertThat(e.noticeVersion()).isEqualTo(1);
+              assertThat(e.locations()).isNotEmpty();
+              assertThat(e.locations().getFirst().regionCode()).isEqualTo("1165000000");
+            });
+  }
+
+  @Test
+  void area가_계산한_점수를_저장하고_현재_위치의_점수만_보여준다() {
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    String locationId = firstLocation();
+    Instant at = Instant.parse("2026-10-19T01:00:00Z");
+
+    int saved =
+        areaScores.save(
+            new AreaScoresCalculated(
+                id,
+                1,
+                List.of(
+                    new AreaScoresCalculated.Score(locationId, "LIVING", 72.5, at, "v1"),
+                    new AreaScoresCalculated.Score(locationId, "COMMERCIAL", 101, at, "v1"),
+                    new AreaScoresCalculated.Score("old-location", "LIVING", 50, at, "v1"))));
+
+    assertThat(saved).isEqualTo(1); // 현재 위치에 없거나 범위를 넘은 점수는 버려요
+    assertThat(query.detail(id).areaSummaries())
+        .singleElement()
+        .satisfies(
+            a -> {
+              assertThat(a.siteId()).isEqualTo(locationId);
+              assertThat(a.score()).isEqualByComparingTo("72.5");
+            });
+
+    areaScores.save( // 늦게 도착한 옛 계산은 덮어쓰지 않아요
+        new AreaScoresCalculated(
+            id,
+            1,
+            List.of(
+                new AreaScoresCalculated.Score(
+                    locationId, "LIVING", 10, at.minusSeconds(60), "v0"))));
+    assertThat(query.detail(id).areaSummaries().getFirst().score()).isEqualByComparingTo("72.5");
+    assertThat(areaScores.save(new AreaScoresCalculated(UUID.randomUUID(), 1, List.of()))).isZero();
+  }
+
+  @Test
+  void 같은_위치_ID라도_주소가_바뀌면_이전_버전의_점수를_쓰지_않는다() {
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    var score = new AreaScoresCalculated.Score(firstLocation(), "LIVING", 72.5, START, "v1");
+    assertThat(areaScores.save(new AreaScoresCalculated(id, 1, List.of(score)))).isEqualTo(1);
+    assertThat(areaScores.save(new AreaScoresCalculated(id, 99, List.of(score)))).isZero();
+    ObjectNode changed = withRawVersion(fixture(), 2);
+    changed.put("eventId", UUID.randomUUID().toString());
+    ((ObjectNode) changed.path("payload").path("notice").path("locations").get(0))
+        .put("address", "변경된 주소");
+    ingestion.apply(body(changed));
+    assertThat(query.detail(id).areaSummaries()).isEmpty();
+    assertThat(areaScores.save(new AreaScoresCalculated(id, 1, List.of(score)))).isZero();
+    assertThat(areaScores.save(new AreaScoresCalculated(id, 2, List.of(score)))).isEqualTo(1);
+    assertThat(query.detail(id).areaSummaries()).hasSize(1);
+  }
+
+  @Test
+  void 제목만_바뀌었으면_지역_점수를_재사용한다() {
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    var score = new AreaScoresCalculated.Score(firstLocation(), "LIVING", 72.5, START, "v1");
+    areaScores.save(new AreaScoresCalculated(id, 1, List.of(score)));
+    ObjectNode changed = withRawVersion(fixture(), 2);
+    changed.put("eventId", UUID.randomUUID().toString());
+    ((ObjectNode) changed.path("payload")).put("title", "바뀐 제목");
+    ((ObjectNode) changed.path("payload").path("notice").path("notice")).put("title", "바뀐 제목");
+    ingestion.apply(body(changed));
+    assertThat(query.detail(id).areaSummaries()).hasSize(1);
+    assertThat(areaScores.save(new AreaScoresCalculated(id, 1, List.of(score)))).isEqualTo(1);
+    assertThat(events.stream(NoticeLocationsChanged.class)).hasSize(1);
+  }
+
+  @Test
+  void 지금_버전에서_보류한_위치는_이전_버전의_점수를_보여주지_않는다() {
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    String locationId = firstLocation();
+    var score = new AreaScoresCalculated.Score(locationId, "LIVING", 72.5, START, "v1");
+    assertThat(areaScores.save(new AreaScoresCalculated(id, 1, List.of(score)))).isEqualTo(1);
+
+    // 위치 내용은 그대로 두고 그 위치의 주소만 보류한 새 버전
+    ObjectNode changed = withRawVersion(fixture(), 2);
+    changed.put("eventId", UUID.randomUUID().toString());
+    ObjectNode payload = (ObjectNode) changed.path("payload");
+    JsonNode locations = payload.path("notice").path("locations");
+    int index = 0;
+    while (!locations.get(index).path("id").asString().equals(locationId)) {
+      index++;
+    }
+    ObjectNode item =
+        json.createObjectNode()
+            .put("target", "/locations/" + index + "/address")
+            .put("extent", "ITEM")
+            .put("description", "원문 확인이 필요합니다.");
+    item.putArray("codes").add("CHECK");
+    ((ArrayNode) payload.path("heldItems")).add(item);
+    ((ArrayNode) payload.path("notice").path("quality").path("heldItems")).add(item.deepCopy());
+    assertThat(ingestion.apply(body(changed))).isEqualTo(IngestionOutcome.NEW_VERSION);
+
+    assertThat(query.detail(id).areaSummaries()).isEmpty();
+    assertThat(areaScores.save(new AreaScoresCalculated(id, 2, List.of(score)))).isZero();
+    assertThat(query.detail(id).areaSummaries()).isEmpty();
+  }
+
+  private String firstLocation() {
+    return events.stream(NoticeLocationsChanged.class)
+        .findFirst()
+        .orElseThrow()
+        .locations()
+        .getFirst()
+        .locationId();
   }
 
   // ---------- 도우미 ----------

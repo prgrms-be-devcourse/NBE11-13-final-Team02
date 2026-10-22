@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -18,7 +19,9 @@ import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeVersionResponse;
+import kr.mujuthaek.api.notice.mapper.NoticeContent;
 import kr.mujuthaek.api.notice.mapper.NoticeDetailMapper;
+import kr.mujuthaek.api.notice.repository.AreaScoreRepository;
 import kr.mujuthaek.api.notice.repository.FollowUpRepository;
 import kr.mujuthaek.api.notice.repository.NoticeQueries;
 import kr.mujuthaek.api.notice.repository.NoticeQueries.CurrentRow;
@@ -37,6 +40,7 @@ public class NoticeQueryService {
 
   private final NoticeQueries queries;
   private final FollowUpRepository followUps;
+  private final AreaScoreRepository areaScores;
   private final RegionQueryService regions;
   private final Clock clock;
   private final JsonMapper json;
@@ -44,11 +48,13 @@ public class NoticeQueryService {
   public NoticeQueryService(
       NoticeQueries queries,
       FollowUpRepository followUps,
+      AreaScoreRepository areaScores,
       RegionQueryService regions,
       Clock clock,
       JsonMapper json) {
     this.queries = queries;
     this.followUps = followUps;
+    this.areaScores = areaScores;
     this.regions = regions;
     this.clock = clock;
     this.json = json;
@@ -88,9 +94,22 @@ public class NoticeQueryService {
             row.postedOn(),
             current.detailUrl(),
             row.needsCheck());
+    JsonNode payload = payload(current);
+    // 지금 버전에서 보류한 위치의 점수는 빼요(위치 내용은 같아도 보류 항목만 늘어난 버전이면 이전 점수가 남아 있어요)
+    Set<String> scored = NoticeContent.locationIds(payload.path("notice"));
     return NoticeDetailMapper.map(
         header,
-        payload(current),
+        payload,
+        areaScores.findByNotice(row.id()).stream()
+            .filter(s -> scored.contains(s.locationId()))
+            .map(
+                s ->
+                    new NoticeDetailResponse.AreaSummary(
+                        s.locationId(),
+                        s.kind(),
+                        s.score(),
+                        s.calculatedAt().atZone(clock.getZone()).toOffsetDateTime()))
+            .toList(),
         followUps.findByNotice(row.id()).stream()
             .map(
                 f ->

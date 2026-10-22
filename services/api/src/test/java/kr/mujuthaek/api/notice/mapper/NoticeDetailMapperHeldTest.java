@@ -24,7 +24,14 @@ class NoticeDetailMapperHeldTest {
       held.addObject().put("target", target).put("description", "원문 확인 필요: " + target);
     }
     return NoticeDetailMapper.map(
-        null, p, List.of(), 1, false, OffsetDateTime.parse("2026-10-22T09:00:00+09:00"), TODAY);
+        null,
+        p,
+        List.of(),
+        List.of(),
+        1,
+        false,
+        OffsetDateTime.parse("2026-10-22T09:00:00+09:00"),
+        TODAY);
   }
 
   @Test
