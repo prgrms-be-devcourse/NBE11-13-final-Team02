@@ -105,6 +105,37 @@ class PostgresAreaBaseDataLoaderTest {
   }
 
   @Test
+  void newDataDateWithSameRows_leavesRowsUntouched() throws Exception {
+    // 같은 내용을 기준일만 바꿔 다시 받으면(지문은 달라서 SKIPPED가 아님) 줄은 그대로, 원천 기준일은 적재 기록에만
+    load(
+        loader,
+        AreaSource.STORES,
+        "강원",
+        "stores_gangwon.csv",
+        "a".repeat(64),
+        LocalDate.of(2026, 6, 30),
+        false);
+    AreaLoadReport again =
+        load(
+            loader,
+            AreaSource.STORES,
+            "강원",
+            "stores_gangwon.csv",
+            "b".repeat(64),
+            LocalDate.of(2026, 9, 30),
+            false);
+
+    assertThat(again.status()).isEqualTo(AreaLoadReport.Status.SUCCEEDED);
+    assertThat(again.rowsUnchanged()).isEqualTo(7);
+    assertThat(again.rowsInserted() + again.rowsUpdated() + again.rowsDeleted()).isZero();
+    assertThat(one("select string_agg(distinct data_date::text, ',') from area.stores"))
+        .isEqualTo("2026-06-30");
+    assertThat(
+            one("select string_agg(data_date::text, ',' order by started_at) from area.load_runs"))
+        .isEqualTo("2026-06-30,2026-09-30");
+  }
+
+  @Test
   void sameFileTwice_isSkipped() throws Exception {
     load(AreaSource.BUS_STOP, "ALL", "bus_stop.csv", false);
     AreaLoadReport again = load(AreaSource.BUS_STOP, "ALL", "bus_stop.csv", false);
@@ -177,15 +208,28 @@ class PostgresAreaBaseDataLoaderTest {
     String sha =
         HexFormat.of()
             .formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path)));
+    return load(loader, source, scope, file, sha, LocalDate.of(2026, 10, 21), allowShrink);
+  }
+
+  /** 지문과 기준일을 직접 정해서 적재 (같은 파일을 다른 적재로 다시 넣을 때). */
+  static AreaLoadReport load(
+      PostgresAreaBaseDataLoader loader,
+      AreaSource source,
+      String scope,
+      String file,
+      String sha,
+      LocalDate dataDate,
+      boolean allowShrink)
+      throws Exception {
     var req =
         new AreaLoadRequest(
             source,
             scope,
-            "area/" + source + "/2026-10-21/" + file,
+            "area/" + source + "/" + dataDate + "/" + file,
             sha,
-            LocalDate.of(2026, 10, 21),
+            dataDate,
             allowShrink);
-    try (InputStream in = Files.newInputStream(path)) {
+    try (InputStream in = Files.newInputStream(fixture(file))) {
       return loader.load(req, in);
     }
   }

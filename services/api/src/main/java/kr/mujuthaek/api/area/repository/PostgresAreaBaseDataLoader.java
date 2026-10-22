@@ -35,6 +35,9 @@ import org.springframework.stereotype.Component;
  * 데이터 변경은 트랜잭션 하나라 실패하면 이전 데이터가 그대로 남아요. 실행 기록은 실패해도 남아야 해서 커넥션을 직접 잡고 커밋·롤백해요 — 부르는 쪽에
  * {@code @Transactional}을 붙이지 마세요.
  *
+ * <p>내용이 같은 줄은 건드리지 않아요(기준일도 그대로). 그래서 줄의 data_date는 "그 줄이 마지막으로 바뀐 적재의 기준일"이고, 원천 파일의 기준일은
+ * load_runs.data_date에 남아요. 같은 줄의 기준일까지 맞추면 다시 넣기가 크게 느려져요(서울 상가 55만 줄 다시 넣기 22초 중 15.6초가 기준일 갱신).
+ *
  * <p>{@code @Repository}는 예외 변환 프록시(CGLIB)를 만들어 final 클래스에 붙일 수 없어서 {@code @Component}예요.
  */
 @Component
@@ -116,12 +119,10 @@ public final class PostgresAreaBaseDataLoader {
           queryPair(
               conn, sql("apply_facilities.sql"), source.facilityKind(), source.name(), dataDate);
       deleted = update(conn, sql("delete_facilities.sql"), source.name());
-      update(conn, sql("touch_facilities.sql"), dataDate, source.name(), dataDate);
     } else {
-      // 상가는 시도 파일 하나가 적재 한 번이라, 지우기·기준일 맞추기를 그 시도(load_scope) 안에서만 해요.
+      // 상가는 시도 파일 하나가 적재 한 번이라, 지우기를 그 시도(load_scope) 안에서만 해요.
       iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
       deleted = update(conn, sql("delete_stores.sql"), req.scope());
-      update(conn, sql("touch_stores.sql"), dataDate, req.scope(), dataDate);
     }
     int inserted = iu[0];
     int updated = iu[1];
