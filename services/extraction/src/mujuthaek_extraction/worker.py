@@ -92,6 +92,11 @@ class BudgetExhausted(Exception):
     """하루·월 전체 비용 상한에 닿아 새 처리를 시작하지 않습니다. 메시지는 잠시 뒤 큐로 되돌리고, 다시 처리는 다음 차례로 미룹니다."""
 
 
+class AiUnavailable(Exception):
+    """AI 호출이 일시적으로 실패했습니다(한도 초과·시간 초과 등). 정책 메시지를 잠시 뒤 큐로 되돌립니다.
+    구간 칸 규칙으로 대신 만들면 그 버전의 AI 틀은 다시 만들어지지 않습니다(리뷰 2026-10-22)."""
+
+
 class ClaimBusy(Exception):
     """같은 원본 버전을 다른 처리가 하고 있습니다. 메시지를 잠시 뒤 큐로 되돌립니다(검토 2026-10-20: 동시 처리로 예산을 몇 배 씀)."""
 
@@ -288,6 +293,8 @@ def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, 
         except ModelError as error:
             if error.code == "GLOBAL_BUDGET":
                 raise BudgetExhausted(str(error)) from error
+            if error.transient:
+                raise AiUnavailable(error.code or "transient") from error
             log.warning("정책 글을 AI로 읽지 못해 구간 칸 규칙으로 만듭니다", extra={"code": error.code, "rawPolicyId": payload.get("rawPolicyId")})
     completed = policy_completed_payload(payload, policy_frame(payload, reading, regions), regions, reading)
     if completed is None:
@@ -390,6 +397,10 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
             raw_event = json.loads(body)
             if not isinstance(raw_event, dict):
                 raise ValueError("이벤트가 객체가 아닙니다.")
+            payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+            if payload.get("field") not in POLICY_FIELDS:  # 판정 틀이 없는 분야(BENEFIT): 비용 장부·DB를 열지 않고 넘김
+                connection.add_callback_threadsafe(functools.partial(finish, delivery_tag, "ack"))
+                return
             ledger = processor.open_ledger(raw_event)
             try:
                 if ledger is not None and (reason := ledger.room(settings.notice_budget_usd)):
@@ -404,6 +415,10 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
         except BudgetExhausted as reason:
             log.warning("전체 비용 상한에 닿아 정책 처리를 미룹니다", extra={"reason": str(reason)})
             time.sleep(BUDGET_WAIT_SECONDS)
+            decision = "requeue"
+        except AiUnavailable as reason:
+            log.warning("AI 호출이 일시적으로 실패해 잠시 뒤 큐로 되돌립니다", extra={"code": str(reason)})
+            time.sleep(DB_RETRY_SECONDS)
             decision = "requeue"
         except _db_errors():
             log.exception("DB를 쓸 수 없어 잠시 뒤 큐로 되돌립니다")

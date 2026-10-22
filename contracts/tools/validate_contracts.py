@@ -322,8 +322,10 @@ def judgment_errors(payload):
     """판정 틀(judgment): 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(group·조건·우대)."""
     judgment = payload.get("judgment")
     policy = payload["field"] in POLICY_FRAME_FIELDS
-    if policy and (judgment is None or "regionCodes" not in payload or "notice" in payload):
+    if policy and (judgment is None or "regionCodes" not in payload or "notice" in payload or payload["conditions"]):
         return ["EVENT_POLICY_FRAME_SHAPE /payload"]
+    if not policy and "regionCodes" in payload:
+        return ["EVENT_POLICY_FRAME_SHAPE /payload/regionCodes"]
     if judgment is None:
         return []
     errors = []

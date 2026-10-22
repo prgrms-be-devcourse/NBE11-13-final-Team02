@@ -25,6 +25,19 @@ SUPERSEDED = "SUPERSEDED"
 JUDGMENT_NAMESPACE = uuid.UUID("5b0c8f9e-2f0a-4f41-9d7e-3f1c2a6b9d10")  # 창업지원 판정 틀 처리 기록 ID를 만드는 이름공간(고정값)
 
 
+def _judgment_keys(raw_event: dict[str, Any], *, with_version: bool) -> list[str]:
+    """판정 틀 처리 기록 ID: 수집 eventId에서 하나, with_version이면 정책·버전에서 하나 더(재처리 이벤트는 버전 기록을 보지 않음)."""
+    keys = []
+    source = _uuid_or_none(raw_event.get("eventId"))
+    if source:
+        keys.append(str(uuid.uuid5(JUDGMENT_NAMESPACE, source)))
+    payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+    policy, version = _uuid_or_none(payload.get("rawPolicyId")), payload.get("version")
+    if with_version and policy and isinstance(version, int) and not payload.get("reprocess"):
+        keys.append(str(uuid.uuid5(JUDGMENT_NAMESPACE, f"{policy}/v{version}")))
+    return keys
+
+
 class DuplicateEvent(Exception):
     """같은 이벤트를 다른 처리가 이미 끝냈습니다. 아무것도 저장하지 않았습니다."""
 
@@ -127,23 +140,24 @@ class JobStore:
         return job_id
 
     def judged(self, raw_event: dict[str, Any]) -> bool:
-        """이 수집 이벤트로 판정 틀 이벤트를 이미 넣었는지(AI를 다시 부르지 않게 처리 전에 봅니다)."""
-        source = _uuid_or_none(raw_event.get("eventId"))
-        return bool(source) and self.already_processed(str(uuid.uuid5(JUDGMENT_NAMESPACE, source)))
+        """이 수집 이벤트, 또는 같은 정책·버전(재처리가 아니면)으로 판정 틀 이벤트를 이미 넣었는지. AI를 다시 부르지 않게 처리 전에 봅니다
+        (리뷰 2026-10-22: 수집기가 같은 버전을 새 eventId로 다시 보내면 AI를 또 불렀음. 공고의 version_published와 같은 규칙)."""
+        return any(self.already_processed(key) for key in _judgment_keys(raw_event, with_version=True))
 
     def save_judgment(self, raw_event: dict[str, Any], event: dict[str, Any]) -> bool:
         """정책 판정 틀 이벤트를 아웃박스에 넣습니다(AI 작업이 아니라 작업 기록은 없음). 같은 수집 이벤트로 이미 넣었으면 False.
         처리 기록은 수집 eventId에서 만든 별도 ID로 남겨, 같은 수집 이벤트를 정책 추출이 따로 처리하는 것과 겹치지 않게 합니다."""
         with self.conn.transaction(), self.conn.cursor() as cur:
-            source = _uuid_or_none(raw_event.get("eventId"))
-            if source:
-                mine = str(uuid.uuid5(JUDGMENT_NAMESPACE, source))
+            keys = _judgment_keys(raw_event, with_version=False)
+            if keys:
                 claimed = cur.execute(
                     "insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing returning event_id",
-                    (mine, "startup-judgment"),
+                    (keys[0], "startup-judgment"),
                 ).fetchone()
                 if claimed is None:
                     return False
+            for key in _judgment_keys(raw_event, with_version=True)[len(keys) :]:  # 정책·버전 기록(재처리로 다시 와도 오류 없이)
+                cur.execute("insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing", (key, "startup-judgment"))
             outbox.add(cur, event)
         return True
 

@@ -332,6 +332,10 @@ class _Builder:
             for key, group in keys.items()
         ] or [{"id": self.new_id("all"), "name": "전체", "criteria": []}]
         common = self.criteria(common_items, reference)
+        if self.truncated:
+            # 뒷부분에 자격 조건이 있을 수 있음(리뷰 2026-10-22: 조건 0개면 자동 통과로 나갔음)
+            question = "공고 글이 길어 뒷부분을 읽지 못했습니다. 원문의 나머지 신청 자격도 갖추었나요?"
+            common.append(self.flag(self.base("ASK", None) | {"question": question, "metWhen": "YES"}, [TRUNCATED]))
         preferences = []
         for item in self.answer["preferences"]:
             quote = item["quote"]
@@ -414,7 +418,9 @@ def space_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[str
     if not reading.answer["relevant"]:
         return None
     builder = _Builder(reading, str(payload.get("text") or ""), regions, startup=False)
-    reference = builder.reference() or builder.announced()
+    reference = builder.reference()
+    if reference is None and reading.answer["referenceRule"] != "EXPLICIT":
+        reference = builder.announced()  # 「공고일 기준」이나 문구 없음: 공고일. 찍힌 기준일을 확인하지 못했으면 공고일로 바꾸지 않음(리뷰 2026-10-22)
     if reference is None:
         return None
     common, groups, preferences, notes = builder.build(reference)

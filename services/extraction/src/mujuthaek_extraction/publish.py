@@ -219,7 +219,7 @@ def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | Non
         return None
     record = policy.get("record") or {}
     start, end = _day(record.get("pbanc_rcpt_bgng_dt")), _day(record.get("pbanc_rcpt_end_dt"))
-    every = [*frame["common"], *(c for g in frame["groups"] for c in g["criteria"])]
+    every = [*frame["common"], *(c for g in frame["groups"] for c in g["criteria"]), *(c for p in frame["preferences"] for c in p["criteria"])]
     return {
         "rawPostId": policy["rawPolicyId"],
         "rawVersion": policy["version"],

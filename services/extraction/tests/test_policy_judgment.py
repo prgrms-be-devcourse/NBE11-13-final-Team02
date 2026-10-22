@@ -241,10 +241,18 @@ def test_worker_reads_with_ai_once_per_collected_event_and_ignores_benefit():
     assert judge_policy(store, benefit, model, REGIONS) is None and len(store.saved) == 1
 
 
-def test_worker_falls_back_to_band_rules_when_the_ai_call_fails():
+def test_worker_retries_temporary_ai_failures_and_falls_back_on_permanent_ones():
+    import pytest
+
+    from mujuthaek_extraction.worker import AiUnavailable
+
     store = FakeStore()
-    model = RecordedModel({CALL_NAME: [ModelError("연결 실패", transient=True, code="NETWORK")]})
     collected = {"eventId": "01a16146-b9b3-704f-8da4-54c2dcfa1871", "payload": tour()}
+    temporary = RecordedModel({CALL_NAME: [ModelError("연결 실패", transient=True, code="NETWORK")]})
+    with pytest.raises(AiUnavailable):  # 큐로 되돌려 나중에 AI로 다시(리뷰 2026-10-22)
+        judge_policy(store, collected, temporary, REGIONS)
+    assert store.saved == []
+    model = RecordedModel({CALL_NAME: [ModelError("형식이 틀린 답", transient=False, code="BAD_SHAPE")]})
     assert judge_policy(store, collected, model, REGIONS)
     frame = store.saved[0]["payload"]["judgment"]
     assert frame["referenceDate"] == "2026-10-07" and frame["common"][0]["kind"] == "BUSINESS_REGISTRATION"  # 원문 게시일 줄 규칙
@@ -327,3 +335,28 @@ def test_values_the_frame_cannot_hold_become_questions_instead_of_dropping_the_f
     assert (bad_date["kind"], bad_date["inReview"]) == ("ASK", True)
     huge = first_of([condition("BUSINESS_AGE", "공고일 기준 창업 7년 이내의 법인사업자 또는 개인사업자", years=5000, yearsRule="WITHIN")], "")
     assert huge["kind"] == "ASK"
+
+
+def test_truncated_text_is_never_auto_passed_and_unverified_explicit_date_is_not_replaced():
+    # 리뷰 2026-10-22: 글이 잘렸는데 조건이 0개면 자동 통과였고, 찍힌 기준일을 확인하지 못하면 공고일로 조용히 바뀌었음
+    frame = startup_frame(tour() | {"field": "STARTUP_SUPPORT"}, reading(answer([]), truncated=True), REGIONS)
+    assert frame_errors(frame) == [] and [c["inReview"] for c in frame["common"]] == [True]
+    explicit = answer([], referenceRule="EXPLICIT", referenceDate={"date": "2026-01-22", "quote": "원문에 없는 기준일 문장"})
+    assert space_frame(tour(), reading(explicit), REGIONS) is None
+
+
+def test_same_policy_version_with_a_new_event_id_is_not_read_again():
+    class VersionStore(FakeStore):
+        def judged(self, raw_event):
+            return (raw_event["payload"]["rawPolicyId"], raw_event["payload"]["version"]) in self.versions
+
+        def save_judgment(self, raw_event, event):
+            self.versions.add((raw_event["payload"]["rawPolicyId"], raw_event["payload"]["version"]))
+            return super().save_judgment(raw_event, event)
+
+    store = VersionStore()
+    store.versions = set()
+    model = RecordedModel({CALL_NAME: [json.dumps(TOUR_ANSWER)]})
+    assert judge_policy(store, {"eventId": "01a16146-b9b3-704f-8da4-54c2dcfa1001", "payload": tour()}, model, REGIONS)
+    assert judge_policy(store, {"eventId": "01a16146-b9b3-704f-8da4-54c2dcfa1002", "payload": tour()}, model, REGIONS) is None
+    assert len(model.requests) == 1
