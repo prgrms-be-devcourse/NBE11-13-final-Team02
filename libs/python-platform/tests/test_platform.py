@@ -166,12 +166,13 @@ def test_contract_checks_values_inside_referenced_schemas():
         validate_event(event)
 
 
-def area_ready_example():
-    return json.loads((events_dir().parent / "examples" / "area.source.ready.json").read_text(encoding="utf-8"))
+def area_ready_example(name="area.source.ready.json"):
+    return json.loads((events_dir().parent / "examples" / name).read_text(encoding="utf-8"))
 
 
 def test_area_source_ready_example_passes():
     validate_event(area_ready_example())
+    validate_event(area_ready_example("area.source.ready.address.json"))
 
 
 @pytest.mark.parametrize(
@@ -182,10 +183,27 @@ def test_area_source_ready_example_passes():
         {"s3Key": "raw/STORES/2026-06-30/stores_gangwon.csv"},  # area/ 경로만
         {"s3Key": "area/STORES/2026-06-30/상가_강원.csv"},  # 영문 파일 이름만
         {"sha256": "AB" * 32},
+        {"s3Key": "area/STORES/2026-06-30/stores_gangwon.txt"},  # .txt는 도로명주소만
     ],
 )
 def test_area_source_ready_rejects_invalid_payload(payload):
     event = area_ready_example()
+    event["payload"].update(payload)
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"scope": "ALL"},  # 도로명주소는 시도 코드가 있어야 해요
+        {"scope": "세종"},  # 시도 이름이 아니라 코드
+        {"scope": "36110"},  # 두 자리
+        {"s3Key": "area/ADDRESS_ENTRANCE/2026-09-30/address_entrance_36110.csv"},  # 원본 그대로 .txt
+    ],
+)
+def test_area_source_ready_rejects_invalid_address_payload(payload):
+    event = area_ready_example("area.source.ready.address.json")
     event["payload"].update(payload)
     with pytest.raises(ValidationError):
         validate_event(event)
