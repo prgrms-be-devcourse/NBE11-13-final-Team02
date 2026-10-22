@@ -18,3 +18,8 @@ spring:
           google:
             client-id: test-google-client
             client-secret: test-google-secret
+# CI에는 RabbitMQ가 없어서 상태 검사를 끄면 health가 DB(Testcontainers)만 봐요. 운영 설정은 그대로 켜져 있어요
+management:
+  health:
+    rabbit:
+      enabled: false

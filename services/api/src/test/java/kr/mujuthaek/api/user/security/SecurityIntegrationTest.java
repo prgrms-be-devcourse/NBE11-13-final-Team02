@@ -130,7 +130,9 @@ class SecurityIntegrationTest {
 
   @Test
   void publicPathsNeedNoLogin() throws Exception {
-    mvc.perform(get("/actuator/health")).andExpect(status().isOk());
+    // 로그인 없이 열리는지만 봐요. 상태 코드는 DB·RabbitMQ 상태에 따라 200·503이 갈려서 비교하지 않아요
+    mvc.perform(get("/actuator/health"))
+        .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotIn(401, 403));
   }
 
   @Test
