@@ -10,7 +10,8 @@ import kr.mujuthaek.api.notice.domain.NoticeType;
  * 공고 목록 필터 (GET /notices 쿼리). 목록 값은 쉼표로 이어도 되고 같은 이름을 여러 번 줘도 돼요.
  *
  * @param field HOUSING(기본) · BUSINESS_SPACE
- * @param regionCodes 시군구 5자리 또는 시도 2자리
+ * @param regionCodes 시군구 5자리 또는 시도 2자리. 시도 단위 5자리(xx000, 예: 11000 = 서울특별시)는 시도 2자리와 같아서 그 시도의 모든
+ *     시군구 공고가 나와요
  * @param tenure RENT 빌려서 · BUY 사서 (공고 유형에서 정해요: 공공·민영 분양이 BUY)
  * @param statuses 비우면 마감(CLOSED)을 뺀 전부 (확인 필요 UNKNOWN 포함)
  * @param sort DEADLINE(기본) 마감 임박 · LATEST 최신
@@ -53,12 +54,17 @@ public record NoticeListFilter(
     }
   }
 
+  /** 시군구 5자리 (시도 단위 xx000은 빼요). */
   public List<String> sigunguCodes() {
-    return regionCodes.stream().filter(c -> c.length() == 5).toList();
+    return regionCodes.stream().filter(c -> c.length() == 5 && !c.endsWith("000")).toList();
   }
 
+  /** 시도 2자리 (시도 단위 xx000은 앞 2자리로). */
   public List<String> sidoCodes() {
-    return regionCodes.stream().filter(c -> c.length() == 2).toList();
+    return regionCodes.stream()
+        .filter(c -> c.length() == 2 || c.endsWith("000"))
+        .map(c -> c.substring(0, 2))
+        .toList();
   }
 
   private static void check(List<String> values, List<String> allowed, String name) {

@@ -55,16 +55,26 @@ public class NoticeQueries {
             where current_version > 0 and not hidden and field = :field and status in (:statuses)
             """);
     if (!f.regionCodes().isEmpty()) {
-      sql.append(" and (false");
-      if (!f.sigunguCodes().isEmpty()) {
-        sql.append(" or region_code in (:sigungu)");
-        params.addValue("sigungu", f.sigunguCodes());
-      }
+      // 공고가 걸친 모든 지역(notice_regions)으로 찾아요. 시도(2자리·xx000)면 그 시도의 모든 지역, 시군구면 그 시군구와 그 시군구를 품는
+      // 대상 지역 전체(whole: 「대구 전체」 → 대구 중구, 「고양시 전체」 → 덕양구). 전국 대상 공고는 어느 지역으로도 나와요
+      sql.append(
+          " and (nationwide or exists (select 1 from notice.notice_regions r where r.notice_id = n.id"
+              + " and (false");
       if (!f.sidoCodes().isEmpty()) {
-        sql.append(" or left(region_code, 2) in (:sido)");
+        sql.append(" or left(r.sigungu_code, 2) in (:sido)");
         params.addValue("sido", f.sidoCodes());
       }
-      sql.append(")");
+      if (!f.sigunguCodes().isEmpty()) {
+        sql.append(
+            " or r.sigungu_code in (:sigungu)"
+                + " or (r.whole and r.sigungu_code in (:sigunguSido, :sigunguCity))");
+        params.addValue("sigungu", f.sigunguCodes());
+        params.addValue(
+            "sigunguSido", f.sigunguCodes().stream().map(c -> c.substring(0, 2) + "000").toList());
+        params.addValue(
+            "sigunguCity", f.sigunguCodes().stream().map(c -> c.substring(0, 4) + "0").toList());
+      }
+      sql.append(")))");
     }
     if ("BUY".equals(f.tenure())) {
       sql.append(" and notice_type in (:buy)");

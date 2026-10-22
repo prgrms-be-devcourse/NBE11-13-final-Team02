@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -296,9 +297,18 @@ public class NoticeIngestionService {
         source.supersedesPostId(),
         source.postedOn(),
         now);
+    Map<String, Boolean> regions = NoticeContent.regions(event);
+    boolean nationwide = NoticeContent.nationwide(event);
+    notices.replaceRegions(noticeId, regions, nationwide);
     events.publishEvent(
         new NoticePublished(
-            noticeId, event.field(), listValues.regionCode(), event.title(), event.reprocess()));
+            noticeId,
+            event.field(),
+            listValues.regionCode(),
+            List.copyOf(regions.keySet()), // 검색 색인과 같은 지역 목록(여러 시도도 모두)
+            nationwide,
+            event.title(),
+            event.reprocess()));
     return noticeId;
   }
 
@@ -333,6 +343,8 @@ public class NoticeIngestionService {
         source.supersedesPostId(),
         source.postedOn(),
         now);
+    notices.replaceRegions(
+        current.noticeId(), NoticeContent.regions(event), NoticeContent.nationwide(event));
     events.publishEvent(new NoticeUpdated(current.noticeId(), changed, event.reprocess()));
     if (!event.reprocess()
         && ApplicationStatusCalculator.justClosed(current.status(), listing.status())) {
