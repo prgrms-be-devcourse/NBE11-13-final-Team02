@@ -30,6 +30,8 @@ import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.mapper.ExtractionEvent;
 import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
+import kr.mujuthaek.api.notice.service.NoticeField;
+import kr.mujuthaek.api.notice.service.NoticeForJudgment;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.internal.NoticeAreaScoreService;
 import kr.mujuthaek.api.notice.service.internal.NoticeBackfillService;
@@ -1118,6 +1120,63 @@ class NoticeIngestionIntegrationTest {
     merges.merge(second, first);
     assertThatThrownBy(() -> merges.merge(second, first))
         .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  // ---------- 판정용 공고 목록 ----------
+
+  @Test
+  void 판정용_공고_목록은_마감만_빼고_법정동_10자리_지역과_판정_틀을_준다() {
+    ObjectNode withFrame = fixture(); // 서리풀 공고 + 계약 예시의 판정 틀
+    ObjectNode frame;
+    try (InputStream in =
+        getClass()
+            .getResourceAsStream("/contracts/tests/fixtures/judgment/housing-examples.json")) {
+      frame = (ObjectNode) json.readTree(in).get(0);
+    } catch (IOException e) {
+      throw new IllegalStateException(e);
+    }
+    frame.put("rawPostId", withFrame.path("payload").path("rawPostId").asString());
+    ((ObjectNode) withFrame.path("payload")).set("judgment", frame);
+    ingestion.apply(body(withFrame));
+    ingestion.apply(body(otherPost(fixture()))); // 판정 틀 없는 공고
+    ingestion.apply(body(otherPost(fixture()))); // 아래에서 마감으로
+    ingestion.apply(body(otherPost(fixture()))); // 아래에서 전국 공고로
+    List<UUID> ids =
+        jdbc.sql("select id from notice.notices order by created_at, id").query(UUID.class).list();
+    jdbc.sql("update notice.notices set status = 'CLOSED' where id = :id")
+        .param("id", ids.get(2))
+        .update();
+    jdbc.sql("update notice.notices set nationwide = true where id = :id")
+        .param("id", ids.get(3))
+        .update();
+
+    List<NoticeForJudgment> open = query.findOpenForJudgment(NoticeField.HOUSING);
+
+    assertThat(open)
+        .extracting(NoticeForJudgment::noticeId)
+        .containsExactlyInAnyOrder(ids.get(0), ids.get(1), ids.get(3)); // 마감 공고만 빠져요
+    NoticeForJudgment first =
+        open.stream().filter(n -> n.noticeId().equals(ids.get(0))).findFirst().orElseThrow();
+    assertThat(first.version()).isEqualTo(1);
+    assertThat(first.applyStart()).isEqualTo(LocalDate.of(2026, 10, 26));
+    assertThat(first.applyEnd()).isEqualTo(LocalDate.of(2026, 10, 30));
+    assertThat(first.regionCodes()).containsExactly("1165000000");
+    assertThat(first.frame().path("schema").asString()).isEqualTo("housing-judgment.v1");
+    assertThat(
+            open.stream()
+                .filter(n -> n.noticeId().equals(ids.get(1)))
+                .findFirst()
+                .orElseThrow()
+                .frame())
+        .isNull(); // 판정 틀이 없어도 빼지 않아요
+    assertThat(
+            open.stream()
+                .filter(n -> n.noticeId().equals(ids.get(3)))
+                .findFirst()
+                .orElseThrow()
+                .regionCodes())
+        .isEmpty(); // 전국 공고
+    assertThat(query.findOpenForJudgment(NoticeField.BUSINESS_SPACE)).isEmpty();
   }
 
   // ---------- 지역 점수 ----------

@@ -167,6 +167,27 @@ public class NoticeQueryService {
     return out;
   }
 
+  /**
+   * 판정용 공고 목록: 이 분야의 열린 공고 전부를 한 번에 줘요(판정 담당 요청). 마감(CLOSED)만 빼고 접수예정·접수중·상시·확인 필요(UNKNOWN)는 넣어요.
+   * 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요.
+   */
+  public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
+    return queries.openForJudgment(field.name()).stream()
+        .map(
+            row ->
+                new NoticeForJudgment(
+                    row.id(),
+                    row.version(),
+                    row.title(),
+                    row.applyStart(),
+                    row.applyEnd(),
+                    row.nationwide()
+                        ? List.of()
+                        : row.regionCodes().stream().map(code -> code + "00000").toList(),
+                    row.frameJson() == null ? null : json.readTree(row.frameJson())))
+        .toList();
+  }
+
   /** API의 시각은 서울 시간(+09:00)이에요. DB에서는 UTC로 읽혀요. */
   private OffsetDateTime local(OffsetDateTime time) {
     return time == null ? null : time.atZoneSameInstant(clock.getZone()).toOffsetDateTime();

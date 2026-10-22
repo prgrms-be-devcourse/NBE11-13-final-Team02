@@ -186,6 +186,45 @@ public class NoticeQueries {
         .findFirst();
   }
 
+  /** 판정용 공고 한 줄. regionCodes는 지역 색인(시군구 5자리), frameJson은 현재 버전의 판정 틀(없으면 null). */
+  public record JudgmentRow(
+      UUID id,
+      int version,
+      String title,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      boolean nationwide,
+      List<String> regionCodes,
+      String frameJson) {}
+
+  /** 이 분야의 마감 안 된 공개 공고 전부 (합쳐진·숨긴 공고 제외, 마감일 순). */
+  public List<JudgmentRow> openForJudgment(String field) {
+    return jdbc.query(
+        """
+        select n.id, n.current_version, n.title, n.apply_start, n.apply_end, n.nationwide,
+               array(select r.sigungu_code from notice.notice_regions r
+                     where r.notice_id = n.id order by r.sigungu_code) as regions,
+               case when jsonb_typeof(v.payload -> 'judgment') = 'object'
+                    then (v.payload -> 'judgment')::text end as frame
+        from notice.notices n
+        join notice.notice_versions v on v.notice_id = n.id and v.version = n.current_version
+        where n.field = :field and n.current_version > 0 and not n.hidden
+          and n.merged_into is null and n.status <> 'CLOSED'
+        order by n.apply_end nulls last, n.id
+        """,
+        new MapSqlParameterSource("field", field),
+        (rs, i) ->
+            new JudgmentRow(
+                rs.getObject(1, UUID.class),
+                rs.getInt(2),
+                rs.getString(3),
+                rs.getObject(4, LocalDate.class),
+                rs.getObject(5, LocalDate.class),
+                rs.getBoolean(6),
+                List.of((String[]) rs.getArray(7).getArray()),
+                rs.getString(8)));
+  }
+
   /** 공개 버전 하나 (정정 이력). 글 종류는 payload에서 읽어요. */
   public record VersionRow(
       int version, String reviewStatus, OffsetDateTime receivedAt, String payload) {}
