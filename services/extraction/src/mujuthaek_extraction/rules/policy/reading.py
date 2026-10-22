@@ -1,0 +1,272 @@
+"""정책 공고(창업지원·사업공간 모집) 글 읽기: AI 호출 한 번으로 자격 조건·공고일·우대·안내를 근거 문장과 함께 뽑습니다.
+
+정책 공고는 PDF 없이 수집 이벤트의 글(payload.text: API 항목 + 원문 화면 본문)만 옵니다. AI는 판정 틀을 직접 쓰지 않고
+틀보다 단순한 중간 형식으로 답하고, 틀 변환·날짜 계산·지역 코드는 코드가 합니다(judgment/policy_frame.py). AI가 적은 근거 문장이
+원문에 없거나 값이 근거 문장에 없으면 그 조건은 확인 필요가 됩니다(코드가 검사).
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from typing import Any
+
+from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest, StopReason
+
+PROMPT_VERSION = "policy/v2"
+CALL_NAME = "policy_reading"
+MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다(수집기가 20만 자까지 줌). 잘렸으면 모든 조건을 확인 필요로
+MAX_OUTPUT_TOKENS = 12000
+
+KINDS = [
+    "AGE",  # 만 나이 (예비창업자는 본인, 기업은 대표자)
+    "REGION",  # 주소지·사업장 소재지
+    "PRE_FOUNDER",  # 사업자가 아니어야 함 (예비창업자)
+    "REGISTERED",  # 사업자여야 함
+    "BUSINESS_AGE",  # 업력 (창업 N년 이내·미만, 날짜 범위)
+    "NO_RECENT_CLOSURE",  # 최근 폐업 이력이 없어야 함
+    "CLOSURE_REQUIRED",  # 폐업 경험이 있어야 함 (재창업)
+    "REVENUE",  # 매출액
+    "INDUSTRY_EXCLUDE",  # 제외 업종
+    "INDUSTRY_ONLY",  # 대상 업종
+    "STATUS",  # 해당해야 하는 유형 (중소기업·여성·소상공인 …)
+    "EXCLUDED_STATUS",  # 해당하면 안 되는 신청 제외 사유 (체납·채무불이행 …)
+    "OTHER",  # 위로 못 담는 조건 (질문으로)
+]
+STATUS_CODES = [
+    "SME",
+    "WOMAN",
+    "SMALL_BUSINESS",
+    "VENTURE_COMPANY",
+    "SOCIAL_VENTURE",
+    "DISABLED",
+    "ONE_PERSON_CREATIVE",
+    "STUDENT",
+    "SOCIAL_ENTERPRISE",
+    "PRE_SOCIAL_ENTERPRISE",
+    "SOCIAL_COOPERATIVE",
+    "VILLAGE_ENTERPRISE",
+    "SELF_SUFFICIENCY_ENTERPRISE",
+    "CAREER_BREAK_WOMAN",
+    "NATIONAL_MERIT",
+]
+EXCLUDED_CODES = [
+    "CREDIT_DELINQUENT",
+    "TAX_ARREARS",
+    "CLAWBACK_UNPAID",
+    "PROGRAM_SANCTION",
+    "BUSINESS_SUSPENDED",
+    "WAGE_ARREARS",
+    "SUBSIDY_EXCLUDED",
+]
+
+
+def _nullable(kind: str) -> dict[str, Any]:
+    return {"type": [kind, "null"]}
+
+
+def _enum_or_null(values: list[str]) -> dict[str, Any]:
+    return {"type": ["string", "null"], "enum": [*values, None]}
+
+
+def _dated() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": ["date", "quote"],
+        "properties": {"date": _nullable("string"), "quote": _nullable("string")},
+    }
+
+
+CONDITION = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": [
+        "group",
+        "anyOf",
+        "option",
+        "kind",
+        "minAge",
+        "maxAge",
+        "regionNames",
+        "regionBasis",
+        "years",
+        "yearsRule",
+        "openedFrom",
+        "openedTo",
+        "closedYears",
+        "closedFrom",
+        "closedTo",
+        "revenueYear",
+        "revenueMinWon",
+        "revenueMaxWon",
+        "industryCodes",
+        "statusCodes",
+        "excludedCodes",
+        "question",
+        "metWhen",
+        "quote",
+    ],
+    "properties": {
+        "group": _nullable("string"),
+        "anyOf": _nullable("string"),
+        "option": _nullable("string"),
+        "kind": {"type": "string", "enum": KINDS},
+        "minAge": _nullable("integer"),
+        "maxAge": _nullable("integer"),
+        "regionNames": {"type": "array", "items": {"type": "string"}},
+        "regionBasis": _enum_or_null(["RESIDENCE", "BUSINESS_SITE", "RESIDENCE_OR_BUSINESS_SITE"]),
+        "years": _nullable("number"),
+        "yearsRule": _enum_or_null(["WITHIN", "UNDER", "AT_LEAST", "OVER"]),
+        "openedFrom": _nullable("string"),
+        "openedTo": _nullable("string"),
+        "closedYears": _nullable("number"),
+        "closedFrom": _nullable("string"),
+        "closedTo": _nullable("string"),
+        "revenueYear": _nullable("integer"),
+        "revenueMinWon": _nullable("integer"),
+        "revenueMaxWon": _nullable("integer"),
+        "industryCodes": {"type": "array", "items": {"type": "string"}},
+        "statusCodes": {"type": "array", "items": {"type": "string", "enum": STATUS_CODES}},
+        "excludedCodes": {"type": "array", "items": {"type": "string", "enum": EXCLUDED_CODES}},
+        "question": _nullable("string"),
+        "metWhen": _enum_or_null(["YES", "NO"]),
+        "quote": {"type": "string"},
+    },
+}
+
+OUTPUT_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["relevant", "announcedOn", "referenceRule", "referenceDate", "groups", "conditions", "preferences", "notes"],
+    "properties": {
+        "relevant": {"type": "boolean"},
+        "announcedOn": _dated(),
+        "referenceRule": {"type": "string", "enum": ["ANNOUNCEMENT", "EXPLICIT", "NONE"]},
+        "referenceDate": _dated(),
+        "groups": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["key", "name", "quote"],
+                "properties": {"key": {"type": "string"}, "name": {"type": "string"}, "quote": {"type": "string"}},
+            },
+        },
+        "conditions": {"type": "array", "items": CONDITION},
+        "preferences": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["label", "group", "effect", "points", "question", "quote"],
+                "properties": {
+                    "label": {"type": "string"},
+                    "group": _nullable("string"),
+                    "effect": {"type": "string", "enum": ["PRIORITY", "BONUS_POINTS", "OTHER"]},
+                    "points": _nullable("number"),
+                    "question": {"type": "string"},
+                    "quote": {"type": "string"},
+                },
+            },
+        },
+        "notes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["kind", "group", "text", "quote"],
+                "properties": {
+                    "kind": {"type": "string", "enum": ["RULE", "OBLIGATION", "SELECTION", "OTHER"]},
+                    "group": _nullable("string"),
+                    "text": {"type": "string"},
+                    "quote": {"type": "string"},
+                },
+            },
+        },
+    },
+}
+
+SYSTEM = """당신은 한국 창업지원·사업공간 모집 공고에서 신청 자격을 뽑는 도구입니다. 사용자가 준 공고 글만 근거로 씁니다.
+
+공통 규칙
+- 글에 없는 내용은 만들지 않습니다. 모르면 null이나 빈 목록으로 둡니다.
+- 모든 항목의 quote에는 그 내용이 적힌 문장을 공고 글에서 글자 그대로 복사합니다(줄임·요약·고침 금지). 한 줄을 넘지 않게 필요한 부분만 복사합니다.
+- 날짜는 YYYY-MM-DD로 씁니다. 금액은 원 단위 정수입니다(10억원 → 1000000000).
+- 같은 내용을 여러 번 쓰지 않습니다. API 항목 줄과 원문 화면 본문에 같은 조건이 있으면 한 번만 씁니다.
+
+relevant: 실제로 창업 지원(자금·공간·보육 등)이나 사업 공간 입주 모집 공고면 true, 아니면 false.
+
+announcedOn: 공고 게시일(모집공고일). 본문 끝·머리의 「2026년 10월 07일」 같은 공고 날짜. 접수 시작일은 공고일이 아닙니다. 없으면 null.
+referenceRule / referenceDate: 자격 판단 기준일 문구.
+- 「공고일 기준」「모집공고일 현재」 → ANNOUNCEMENT (referenceDate는 null)
+- 「기준일: '26.1.22.」처럼 다른 날짜가 찍혀 있으면 → EXPLICIT, referenceDate에 그 날짜
+- 기준일 문구가 없으면 → NONE
+
+groups: 신청 분야·부문이 나뉘면(예비창업자 / 초기 창업기업, 일반 / 여성 분야, 4인실 / 6인실은 자격이 같으면 나누지 않음) 하나씩. key는 짧은 영문 소문자.
+자격이 나뉘지 않으면 빈 목록.
+
+conditions: 신청 자격 조건 하나씩. group은 그 조건이 속한 groups의 key, 모두에게 공통이면 null.
+- 「A 또는 B」처럼 여러 길 중 하나면 그 길들의 조건에 anyOf로 같은 문자열을 넣고, 길마다 option에 다른 문자열을 넣습니다.
+  한 길이 조건 여러 개로 이뤄지면(「10년 이내 신산업 분야 창업기업」 = 업력 10년 이내 그리고 신산업 분야) 그 조건들의 option을 같게 둡니다.
+  예: 「7년 이내 창업기업 또는 10년 이내 신산업 분야 창업기업」 → (anyOf "a", option "1") 7년 이내 / (anyOf "a", option "2") 10년 이내 /
+  (anyOf "a", option "2") 신산업 분야. 여러 길이 아니면 anyOf·option 모두 null.
+- kind별로 채울 칸(나머지는 null·빈 목록):
+  AGE: minAge, maxAge (만 나이, 「만 39세 이하」→ maxAge 39, 「만 40세 미만」→ maxAge 39)
+  REGION: regionNames(「서울특별시」「대구광역시 남구」처럼 지역 이름),
+    regionBasis(주소지 RESIDENCE / 사업장 BUSINESS_SITE / 둘 중 하나 RESIDENCE_OR_BUSINESS_SITE)
+  PRE_FOUNDER: 사업자 등록이 없어야 함(예비창업자). REGISTERED: 사업자(개인·법인)여야 함
+  BUSINESS_AGE: 업력. 공고에 날짜 범위가 찍혀 있으면 openedFrom·openedTo에 그대로. 연수만 있으면 years와 yearsRule
+    (「N년 이내」 WITHIN, 「N년 미만」「N년이 지나지 않은」 UNDER, 「N년 이상」 AT_LEAST, 「N년 초과」 OVER)
+  NO_RECENT_CLOSURE: 「최근 N년 이내 폐업한 자 제외」 → closedYears 또는 closedFrom·closedTo
+  CLOSURE_REQUIRED: 폐업 경험이 있어야 하는 재창업 → closedYears 또는 closedFrom·closedTo
+  REVENUE: revenueYear(「전년도」면 공고 연도 − 1), revenueMinWon, revenueMaxWon
+  INDUSTRY_EXCLUDE / INDUSTRY_ONLY: industryCodes는 공고에 한국표준산업분류 숫자 코드가 적혀 있을 때만. 업종 이름만 있으면 OTHER로
+  STATUS: statusCodes. 대상이 그 유형이어야 할 때만(SME 중소기업, WOMAN 여성, SMALL_BUSINESS 소상공인, VENTURE_COMPANY 벤처기업,
+    SOCIAL_VENTURE 소셜벤처, DISABLED 장애인, ONE_PERSON_CREATIVE 1인 창조기업, STUDENT 대학생·대학원생, SOCIAL_ENTERPRISE 사회적기업,
+    PRE_SOCIAL_ENTERPRISE 예비사회적기업, SOCIAL_COOPERATIVE 사회적협동조합, VILLAGE_ENTERPRISE 마을기업, SELF_SUFFICIENCY_ENTERPRISE 자활기업,
+    CAREER_BREAK_WOMAN 경력단절여성, NATIONAL_MERIT 국가유공자)
+  EXCLUDED_STATUS: excludedCodes. 신청 제외 대상 중 코드가 있는 것(CREDIT_DELINQUENT 채무불이행, TAX_ARREARS 국세·지방세 체납,
+    CLAWBACK_UNPAID 환수금 미반환, PROGRAM_SANCTION 정부·창업지원사업 참여제한 제재, BUSINESS_SUSPENDED 휴업, WAGE_ARREARS 임금 체불 명단,
+    SUBSIDY_EXCLUDED 보조사업 수행 배제). 「신청 제외」「신청 불가」로 적힌 문장에서만 고릅니다(「적격여부 검토」 같은 심사 절차 목록에서
+    뽑지 않음). 한 문장에 코드가 있는 사유와 없는 사유가 섞이면 있는 것만 코드로, 나머지는 OTHER로. 코드가 없는 제외 사유는 OTHER로
+  OTHER: 위로 못 담는 조건. question에 예/아니오로 답할 질문, metWhen은 「예」면 충족 YES, 「예」면 신청 불가 NO
+- 선정 뒤에 할 일(입주 후 본점 이전, 협약 기간 안 창업)과 마감·입주 전까지 하면 되는 일(「마감일 전까지 사업자등록 必」)은
+  지금 갖춰야 하는 자격이 아니라 notes(OBLIGATION)입니다. 질문으로 만들면 아직 하지 않은 사람이 떨어집니다.
+
+preferences: 가점·우선 선정·서류평가 면제. 자격이 아닙니다. question은 「예」면 우대에 해당하는 질문. 점수가 적혀 있으면 points.
+notes: 판정하지 않고 보여 줄 문장(신청 방법·중복 신청 금지 RULE, 선정 의무 OBLIGATION, 평가 절차 SELECTION, 그 밖의 OTHER)."""
+
+
+@dataclass(frozen=True)
+class PolicyReading:
+    answer: dict[str, Any]
+    truncated: bool  # 글이 MAX_TEXT보다 길어 앞부분만 읽음
+
+
+def read_policy(payload: dict[str, Any], model: ExtractionModel) -> PolicyReading:
+    """수집 이벤트 payload의 글을 AI로 읽습니다. 답이 형식에 맞지 않으면 ModelError(transient=False)."""
+    text = str(payload.get("text") or "")
+    truncated = len(text) > MAX_TEXT or bool(payload.get("textKey"))
+    request = ModelRequest(
+        prompt_version=PROMPT_VERSION,
+        call_name=CALL_NAME,
+        system=SYSTEM,
+        user=text[:MAX_TEXT],
+        instructions=f"분류: {payload.get('field')}. 위 공고 글에서 신청 자격·공고일·우대·안내를 형식대로 뽑아 주세요.",
+        output_schema=OUTPUT_SCHEMA,
+        max_output_tokens=MAX_OUTPUT_TOKENS,
+    )
+    response = model.complete(request)
+    if response.stop_reason is not StopReason.END:
+        raise ModelError(f"정책 글 읽기가 끝나지 않았습니다: {response.stop_reason.value}", transient=False, code="INCOMPLETE")
+    try:
+        answer = json.loads(response.raw_text)
+    except json.JSONDecodeError as error:
+        raise ModelError("정책 글 읽기 답이 JSON이 아닙니다", transient=False, code="BAD_JSON") from error
+    from jsonschema import Draft202012Validator
+
+    errors = sorted(Draft202012Validator(OUTPUT_SCHEMA).iter_errors(answer), key=lambda e: list(e.absolute_path))
+    if errors:
+        raise ModelError(f"정책 글 읽기 답이 형식에 맞지 않습니다: {errors[0].message[:200]}", transient=False, code="BAD_SHAPE")
+    return PolicyReading(answer, truncated)

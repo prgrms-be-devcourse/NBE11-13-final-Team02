@@ -14,6 +14,7 @@ from mujuthaek_extraction.judgment.sanity import semantic_errors
 SCHEMAS = {
     "housing-judgment.v1": "housing-judgment.v1.json",
     "business-space-judgment.v1": "business-space-judgment.v1.json",
+    "startup-support-judgment.v1": "startup-support-judgment.v1.json",
 }
 
 

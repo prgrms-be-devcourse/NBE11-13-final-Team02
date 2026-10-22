@@ -10,10 +10,15 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.judgment import build_judgment
+from mujuthaek_extraction.judgment.policy_frame import space_frame, startup_frame
+from mujuthaek_extraction.judgment.schema import frame_errors
+from mujuthaek_extraction.judgment.space import build_space
+from mujuthaek_extraction.judgment.startup import build_startup
 
 
 def _issue_targets(candidate: dict[str, Any], *, with_notes: bool = False) -> list[tuple[str, str]]:
@@ -118,3 +123,77 @@ def approved_payload(candidate: dict[str, Any], *, provider: str | None = None, 
     )
     payload.pop("heldItems", None)
     return payload
+
+
+def _in_review(criteria: list[dict[str, Any]]) -> bool:
+    return any(c["inReview"] or _in_review([i for o in c.get("options") or [] for i in o["criteria"]]) for c in criteria)
+
+
+POLICY_FIELDS = ("STARTUP_SUPPORT", "SPACE_RECRUITMENT")
+
+
+def policy_region_codes(policy: dict[str, Any], regions: Any) -> list[str] | None:
+    """정책의 지원 지역 → 시군구 5자리 목록(xx000은 시도 전체). 전국이면 빈 목록, 정하지 못하면 None(빈 목록은 전국으로 읽혀 틀림).
+    K-Startup은 지역 코드 없이 이름(「서울」)만 줘서 지역표로 바꿉니다."""
+    scope = policy.get("regionScope")
+    if scope == "NATIONWIDE":
+        return []
+    codes = [str(c) for c in policy.get("regionCodes") or [] if re.fullmatch(r"[0-9]{5}", str(c))]
+    if codes:
+        return list(dict.fromkeys(codes))
+    names = policy.get("regionNames") or []
+    if scope not in ("SIDO", "SIGUNGU") or not names or regions is None:
+        return None
+    found = []
+    for name in names:
+        match = regions.lookup(name)
+        if match.code is None or match.note:
+            return None
+        found.append(match.code[:5])
+    return list(dict.fromkeys(found))
+
+
+def policy_frame(policy: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
+    """정책 판정 틀: AI 읽기가 있으면 그것으로, 없거나 틀 검사를 통과하지 못하면 K-Startup 구간 칸 규칙으로(startup·space).
+    AI가 창업 지원·사업공간 모집이 아니라고 읽었으면 None(보내지 않음)."""
+    startup = policy.get("field") == "STARTUP_SUPPORT"
+    if reading is not None and not reading.answer["relevant"]:
+        return None
+    candidates = []
+    if reading is not None:
+        candidates.append((startup_frame if startup else space_frame)(policy, reading, regions))
+    candidates.append(build_startup(policy) if startup else build_space(policy))
+    return next((f for f in candidates if f is not None and not frame_errors(f)), None)
+
+
+def _day(value: Any) -> str | None:
+    text = str(value or "")
+    return f"{text[:4]}-{text[4:6]}-{text[6:8]}" if re.fullmatch(r"20\d{6}", text) else None
+
+
+def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | None, regions: Any) -> dict[str, Any] | None:
+    """정책 판정 틀 → extraction.completed payload(판정 요청안 2026-10-22: 틀은 이 이벤트의 judgment, rawPostId는 rawPolicyId).
+    상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지원 지역을 정하지 못하면 None(보내지 않음).
+    틀에 확인 필요 조건이 하나라도 있으면 IN_REVIEW입니다. 접수 기간은 K-Startup 날짜 칸(규칙)에서만 옮깁니다."""
+    codes = policy_region_codes(policy, regions)
+    if frame is None or codes is None or policy.get("field") not in POLICY_FIELDS:
+        return None
+    record = policy.get("record") or {}
+    start, end = _day(record.get("pbanc_rcpt_bgng_dt")), _day(record.get("pbanc_rcpt_end_dt"))
+    every = [*frame["common"], *(c for g in frame["groups"] for c in g["criteria"])]
+    return {
+        "rawPostId": policy["rawPolicyId"],
+        "rawVersion": policy["version"],
+        "field": policy["field"],
+        "title": policy["title"],
+        "conditions": [],
+        "reviewStatus": "IN_REVIEW" if _in_review(every) else "AUTO_PASSED",
+        "provider": policy.get("agency"),
+        "regionCode": None,
+        "regionCodes": codes,
+        "schedule": {"applyStartOn": start, "applyEndOn": end} if start or end else None,
+        "applicationWindows": [],
+        "summary": None,
+        "reprocess": bool(policy.get("reprocess")),
+        "judgment": frame,
+    }

@@ -22,6 +22,7 @@ from mujuthaek_platform.ids import uuid7
 REVIEW_STATUSES = {"IN_REVIEW", "INTAKE_REVIEW"}
 PARTIAL = "PARTIAL"  # 부분 게시: 이미 발행했고, 보류 항목은 사람이 확인해 승인할 수 있게 검수 목록에도 넣습니다(게시를 막지 않음)
 SUPERSEDED = "SUPERSEDED"
+JUDGMENT_NAMESPACE = uuid.UUID("5b0c8f9e-2f0a-4f41-9d7e-3f1c2a6b9d10")  # 창업지원 판정 틀 처리 기록 ID를 만드는 이름공간(고정값)
 
 
 class DuplicateEvent(Exception):
@@ -124,6 +125,27 @@ class JobStore:
             elif status == PARTIAL and (held := _held_reasons(outcome.candidate)):
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(held)))
         return job_id
+
+    def judged(self, raw_event: dict[str, Any]) -> bool:
+        """이 수집 이벤트로 판정 틀 이벤트를 이미 넣었는지(AI를 다시 부르지 않게 처리 전에 봅니다)."""
+        source = _uuid_or_none(raw_event.get("eventId"))
+        return bool(source) and self.already_processed(str(uuid.uuid5(JUDGMENT_NAMESPACE, source)))
+
+    def save_judgment(self, raw_event: dict[str, Any], event: dict[str, Any]) -> bool:
+        """정책 판정 틀 이벤트를 아웃박스에 넣습니다(AI 작업이 아니라 작업 기록은 없음). 같은 수집 이벤트로 이미 넣었으면 False.
+        처리 기록은 수집 eventId에서 만든 별도 ID로 남겨, 같은 수집 이벤트를 정책 추출이 따로 처리하는 것과 겹치지 않게 합니다."""
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            source = _uuid_or_none(raw_event.get("eventId"))
+            if source:
+                mine = str(uuid.uuid5(JUDGMENT_NAMESPACE, source))
+                claimed = cur.execute(
+                    "insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing returning event_id",
+                    (mine, "startup-judgment"),
+                ).fetchone()
+                if claimed is None:
+                    return False
+            outbox.add(cur, event)
+        return True
 
     # ---- 원본 버전 처리권 (migrations/V202610201200__extraction_claims.sql) ----
     def claim(self, raw_post_id: str, raw_version: int, owner: str, lease_seconds: float) -> bool:

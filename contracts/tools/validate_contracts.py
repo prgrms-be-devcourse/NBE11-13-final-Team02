@@ -296,8 +296,17 @@ def event_errors(payload):
     return errors
 
 
-# 분야별 판정 틀(판정 담당이 준 원본 그대로, contracts/schemas/*-judgment.v1.json). 정책·창업지원은 아직 이 이벤트에 틀이 없습니다
-JUDGMENT_SCHEMAS = {"HOUSING": "housing-judgment.v1", "BUSINESS_SPACE": "business-space-judgment.v1"}
+# 분야별 판정 틀(판정 담당이 준 원본 그대로, contracts/schemas/*-judgment.v1.json). 정책(POLICY)은 틀이 없습니다
+JUDGMENT_SCHEMAS = {
+    "HOUSING": "housing-judgment.v1",
+    "BUSINESS_SPACE": "business-space-judgment.v1",
+    "STARTUP_SUPPORT": "startup-support-judgment.v1",
+    "SPACE_RECRUITMENT": "business-space-judgment.v1",
+}
+# 정책 수집에서 만든 판정 틀만 실어 오는 분야: 틀과 지원 지역(regionCodes)이 있어야 하고 상세(notice)는 없습니다
+POLICY_FRAME_FIELDS = {"STARTUP_SUPPORT", "SPACE_RECRUITMENT"}
+# 틀이 가리키는 원본 칸: 창업지원 틀은 수집 이벤트 raw.policy.collected의 rawPolicyId를 씁니다
+JUDGMENT_SOURCE_KEY = {"STARTUP_SUPPORT": "rawPolicyId"}
 
 
 def _judgment_ids(node):
@@ -312,12 +321,16 @@ def _judgment_ids(node):
 def judgment_errors(payload):
     """판정 틀(judgment): 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(group·조건·우대)."""
     judgment = payload.get("judgment")
+    policy = payload["field"] in POLICY_FRAME_FIELDS
+    if policy and (judgment is None or "regionCodes" not in payload or "notice" in payload):
+        return ["EVENT_POLICY_FRAME_SHAPE /payload"]
     if judgment is None:
         return []
     errors = []
     if judgment.get("schema") != JUDGMENT_SCHEMAS.get(payload["field"]):
         errors.append("EVENT_JUDGMENT_FIELD_CONFLICT /payload/judgment/schema")
-    if (judgment.get("rawPostId"), judgment.get("rawVersion")) != (payload["rawPostId"], payload["rawVersion"]):
+    source_key = JUDGMENT_SOURCE_KEY.get(payload["field"], "rawPostId")
+    if (judgment.get(source_key), judgment.get("rawVersion")) != (payload["rawPostId"], payload["rawVersion"]):
         errors.append("EVENT_JUDGMENT_IDENTITY_CONFLICT /payload/judgment")
     ids = _judgment_ids({k: v for k, v in judgment.items() if k != "notes"})
     if len(ids) != len(set(ids)):

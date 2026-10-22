@@ -199,3 +199,11 @@ def test_call_cache_table_stores_reuses_and_purges(store):
     store.conn.execute("update extraction_call_cache set created_at = now() - interval '91 days'")
     cache.put("k2", "local", "documents", {"rawText": "{}"}, None)
     assert cache.purge(90) == 1 and cache.get("k1") is None and cache.get("k2") is not None
+
+
+def test_startup_judgment_is_saved_once_and_does_not_mark_the_collected_event_processed(store):
+    raw = {"eventId": str(uuid.uuid4())}
+    event = new_event("extraction.completed", "extraction", {"rawPostId": str(uuid.uuid4())})
+    assert store.save_judgment(raw, event) and not store.save_judgment(raw, event)
+    assert count(store, "select count(*) from outbox") == 1
+    assert not store.already_processed(raw["eventId"])  # 정책 추출이 같은 수집 이벤트를 따로 처리할 수 있게
