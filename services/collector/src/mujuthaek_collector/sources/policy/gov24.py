@@ -9,7 +9,8 @@
       상세·조건은 cond 없이 부르면 전체가 페이지로 와요. 열 정책이 많으면 1000건씩 받아 둬요 (정책마다 2번 대신 모두 합쳐 22번)
 거름  서비스명·서비스목적요약에 이주 혜택 단어가 있는 정책만 상세를 열어요 (base.SETTLE_WORDS). 서비스분야는 쓰지 않아요
 오류  {"code": -401, "msg": "인증키는 필수 항목 입니다."} (HTTP 401)
-첨부  API에 첨부가 없어요. 원문(상세조회URL, www.gov.kr)은 robots.txt가 막아서(Disallow: /) 열지 않아요.
+첨부  보지 않아요 (attachments = NEVER, 이벤트 documentStatus NOT_NEEDED). API에 첨부가 없고, 원문(상세조회URL, www.gov.kr)은
+      robots.txt가 막아서(Disallow: /) 요청하지 않아요. 내용은 목록·상세·지원조건 API 칸으로 채워요. 상세조회URL은 사람이 볼 링크(detailUrl)로만 보내요.
 """
 
 from __future__ import annotations
@@ -145,6 +146,7 @@ class Gov24Source(PolicySource):
     provider = "GOV24"
     page_size = BULK_PAGE
     key_env = "DATA_GO_KR_SERVICE_KEY"
+    attachments = "NEVER"  # 원문(www.gov.kr)은 robots.txt 금지, API에는 첨부가 없어요
     volatile_keys = frozenset({"조회수", "수정일시"})
     # 지원조건(체크 목록)은 규칙으로 옮기고, 구비서류·문의처·주소·법령은 화면에 원본 그대로 써서 AI 입력에서 빼요
     ai_keys = ("서비스명", "서비스분야", "서비스목적요약", "지원유형", "사용자구분", "지원대상", "선정기준", "지원내용", "신청기한", "신청방법")
@@ -167,7 +169,7 @@ class Gov24Source(PolicySource):
                 continue
             marker = str(record.get("수정일시") or "") or self.record_marker(record)
             items.append(PolicyItem(str(policy_id), record.get("서비스명") or str(policy_id), marker, record))
-        return PolicyPage(items, data.get("totalCount"))
+        return PolicyPage(items, data.get("totalCount"), len(data.get("data") or []))
 
     def wanted(self, item: PolicyItem) -> bool:
         return settle_related(item.record.get("서비스명"), item.record.get("서비스목적요약"))
@@ -218,8 +220,7 @@ class Gov24Source(PolicySource):
         scope, names = region_of(record.get("소관기관유형"), agency)
         return PolicyDetail(
             record=record,
-            origin_urls=[detail_url] if detail_url else [],
-            detail_url=detail_url,
+            detail_url=detail_url,  # 사람이 볼 링크로만. 원문은 열지 않아요 (robots.txt 금지)
             apply_url=record.get("온라인신청사이트URL"),
             agency=agency,
             region_scope=scope,

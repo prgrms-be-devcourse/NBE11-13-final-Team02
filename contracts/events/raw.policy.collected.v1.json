@@ -54,9 +54,11 @@
     "file": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "downloadUrl", "sha256", "role", "foundOn"],
+      "required": ["name", "fileType", "role", "s3Key", "downloadUrl", "sha256", "foundOn"],
       "properties": {
         "name": { "type": "string" },
+        "fileType": { "enum": ["pdf", "hwp", "hwpx"], "description": "파일 형식 (확장자). 설명 문서만 받아서 이 셋뿐이에요. 받는 쪽은 이름 대신 이 값으로 형식을 정해요" },
+        "s3Key": { "type": ["string", "null"], "pattern": "^raw/[a-z0-9_]+/", "description": "S3 버킷 안 경로 (주소 아님, raw/<출처>/<정책 ID>/v<버전>/<순번>-<이름>). extraction은 이 경로로 원본을 가져가요. 보관 기한(12개월)이 지나 파일을 지운 뒤 재처리하면 null" },
         "downloadUrl": { "type": "string", "description": "기관 다운로드 주소 (사람에게 보여줄 링크용. extraction은 이 주소로 요청하지 않아요)" },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
         "role": { "enum": ["POLICY_DOC", "FORM", "ATTACHMENT"], "description": "POLICY_DOC 글자를 뽑아 text에 넣은 공고·안내 문서, ATTACHMENT 글자를 뽑지 못한(스캔본 등) 설명 문서. 신청서·서식·포스터는 받지 않아서 FORM은 2026-10-19부터 오지 않아요 (그 전 이벤트에만 있어요)" },

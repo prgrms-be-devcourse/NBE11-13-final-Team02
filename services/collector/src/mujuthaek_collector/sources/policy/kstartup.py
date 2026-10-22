@@ -158,7 +158,7 @@ class KStartupSource(PolicySource):
             if policy_id in (None, ""):
                 continue
             items.append(PolicyItem(str(policy_id), record.get("biz_pbanc_nm") or str(policy_id), self.record_marker(record), record))
-        return PolicyPage(items, data.get("totalCount"))
+        return PolicyPage(items, data.get("totalCount"), len(data.get("data") or []))
 
     def wanted(self, item: PolicyItem) -> bool:
         return startup_in_scope(item.title, category_ok=item.record.get("supt_biz_clsfc") in IN_SCOPE_FIELDS)

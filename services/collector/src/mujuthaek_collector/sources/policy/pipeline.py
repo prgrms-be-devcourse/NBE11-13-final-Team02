@@ -12,6 +12,7 @@ run_policy_source
 
 오류 반응
   API 키·호출 한도 오류(BlockedError)  출처 회차 중단(BLOCKED). 밀린 정책은 다음 회차에 먼저 처리
+  목록 페이지 실패·응답 모양 다름       목록 읽기를 멈추고 회차는 FAILED. 이미 쌓인 정책(PENDING·FAILED) 처리는 계속해요
   상세 API 실패·응답 모양 다름         그 정책만 FAILED (3번까지 다시 시도)
   원문·첨부 robots 금지·403·429·오류   그 화면·파일만 건너뛰고 정책은 저장. 막힌 도메인은 이번 회차에 다시 요청하지 않아요
 """
@@ -130,7 +131,7 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
     source, store = ctx.source, ctx.store
     known = store.known_policies(source.code)
     seen: set[str] = set()
-    added = changed = skipped = 0
+    added = changed = skipped = dropped = 0
     for segment in source.segments():
         label = f"{source.name}{f' [{segment}]' if segment else ''}"
         fetched = 0
@@ -138,10 +139,13 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
             try:
                 result = source.fetch_list(ctx.api, page, segment)
             except (ParseError, ApiError) as error:
+                # 목록을 끝까지 못 읽으면 이번 회차에 새로 올라온 정책을 놓쳐요. 회차는 FAILED로 남기고, 이미 쌓인 정책 처리는 계속해요
+                ctx.result.status = "FAILED"
                 ctx.warn(f"{label} 목록 {page}페이지를 읽지 못해 목록 읽기를 멈춰요: {error}")
                 break
-            if page == 1 and not result.items:
+            if page == 1 and not result.count:
                 ctx.warn(f"{label} 목록이 비어 있어요 (API 응답 모양이나 검색 조건 확인)")
+            dropped += result.count - len(result.items)
             for item in result.items:
                 if item.policy_id in seen:
                     continue
@@ -161,11 +165,14 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
                 elif entry.status == SKIPPED or entry.marker != item.marker or (recheck and entry.status == DONE):
                     store.requeue_policy(entry.id, item.title, item.marker, item.record, kind)
                     changed += 1
-            fetched += len(result.items)
-            if not result.items or len(result.items) < source.page_size or (result.total is not None and fetched >= result.total):
+            # 페이지 넘김은 응답에 온 항목 수로 판단해요 (ID가 없어 버린 항목 포함)
+            fetched += result.count
+            if not result.count or result.count < source.page_size or (result.total is not None and fetched >= result.total):
                 break
         else:
             ctx.warn(f"{label} 목록이 {ctx.settings.max_pages}페이지를 넘어서 나머지는 읽지 않았어요")
+    if dropped:
+        ctx.warn(f"{source.name} 목록에서 정책 ID가 없는 항목 {dropped}건을 건너뛰었어요 (API 응답 확인)")
     log.info("정책 목록", extra={"source": source.code, "listed": len(seen), "new": added, "changed": changed, "skipped": skipped})
 
 
@@ -254,7 +261,18 @@ def process_policy(ctx: PolicyContext, policy: PolicyRow) -> bool:
         has_origin_text=origin.text is not None,
         document_status=document_state,
         origin_status=origin_state,
-        files=[{"name": f.name, "downloadUrl": f.download_url, "sha256": f.file_hash, "role": f.role, "foundOn": f.found_on} for f, _ in saved],
+        files=[
+            {
+                "name": f.name,
+                "fileType": FileRef(f.name, "", 0).ext,  # pdf, hwp, hwpx (설명 문서만 받아요. with_ext가 확장자를 맞춰 둬요)
+                "role": f.role,
+                "s3Key": f.s3_key,
+                "downloadUrl": f.download_url,
+                "sha256": f.file_hash,
+                "foundOn": f.found_on,
+            }
+            for f, _ in saved
+        ],
     )
     ctx.store.save_version(
         NewPolicyVersion(

@@ -141,7 +141,7 @@ class BizinfoSource(PolicySource):
             marker = str(record.get("updtPnttm") or "") or self.record_marker(record)
             items.append(PolicyItem(str(policy_id), record.get("pblancNm") or str(policy_id), marker, record))
         total = int_or_none(rows[0].get("totCnt")) if rows else 0
-        return PolicyPage(items, total)
+        return PolicyPage(items, total, len(rows))
 
     def wanted(self, item: PolicyItem) -> bool:
         record = item.record

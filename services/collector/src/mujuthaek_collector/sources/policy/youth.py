@@ -176,7 +176,7 @@ class YouthSource(PolicySource):
             marker = str(record.get("lastMdfcnDt") or "") or self.record_marker(record)
             items.append(PolicyItem(str(record["plcyNo"]), record.get("plcyNm") or str(record["plcyNo"]), marker, record))
         paging = result.get("pagging") or result.get("paging") or {}
-        return PolicyPage(items, int_or_none(paging.get("totCount")))
+        return PolicyPage(items, int_or_none(paging.get("totCount")), len(rows))
 
     def wanted(self, item: PolicyItem) -> bool:
         record = item.record

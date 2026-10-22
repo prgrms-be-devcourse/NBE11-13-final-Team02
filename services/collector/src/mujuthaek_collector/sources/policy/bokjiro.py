@@ -88,7 +88,7 @@ def read_list(body: str, what: str) -> tuple[PolicyPage, list[dict[str, Any]]]:
     rows = [xml_to_dict(e) for e in root.iter("servList")]
     if not rows and root.find(".//totalCount") is None:
         raise ParseError(f"{what} 응답에 servList·totalCount가 없어요 (응답 모양이 바뀌었는지 확인)")
-    return PolicyPage([], int_or_none(root.findtext(".//totalCount"))), rows
+    return PolicyPage([], int_or_none(root.findtext(".//totalCount")), len(rows)), rows
 
 
 def read_detail(body: str, what: str) -> dict[str, Any]:

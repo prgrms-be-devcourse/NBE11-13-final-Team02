@@ -32,7 +32,7 @@ def test_gov24_list_detail_and_conditions():
     assert detail.record["지원조건"] == {"대상": ["1인가구", "무주택세대"], "대상연령": "19~34"}
     assert detail.categories == ["주거·자립"] and detail.files == []
     assert (detail.region_scope, detail.region_names) == ("NATIONWIDE", [])  # 국토교통부 (중앙행정기관)
-    assert detail.origin_urls == ["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"]
+    assert detail.origin_urls == [] and detail.detail_url == "https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"  # 원문은 열지 않아요
     local = source.parse_detail(page.items[1], [s.gov24_detail("641000000123"), s.gov24_conditions("641000000123")])
     assert (local.region_scope, local.region_names) == ("SIGUNGU", ["서울특별시 강남구"])
     assert detail.modified_at == "20260901093011"  # 상세의 '2026-01-29' 같은 날짜가 아니라 목록의 정확한 값

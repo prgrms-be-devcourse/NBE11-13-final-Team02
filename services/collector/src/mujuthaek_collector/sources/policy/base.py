@@ -107,6 +107,13 @@ class PolicyItem:
 class PolicyPage:
     items: list[PolicyItem]
     total: int | None  # 응답이 알려준 전체 건수 (모르면 None)
+    # 응답에 온 항목 수 (ID가 없어 버린 항목 포함). 페이지 넘김은 이 값으로 판단해요.
+    # items 수로 판단하면 꽉 찬 페이지에서 한 건만 버려도 마지막 페이지로 보고 다음 페이지를 읽지 않아요
+    listed: int | None = None
+
+    @property
+    def count(self) -> int:
+        return len(self.items) if self.listed is None else self.listed
 
 
 NATIONWIDE, SIDO, SIGUNGU, UNKNOWN = "NATIONWIDE", "SIDO", "SIGUNGU", "UNKNOWN"

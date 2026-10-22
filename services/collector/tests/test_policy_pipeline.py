@@ -115,6 +115,9 @@ def test_bizinfo_print_file_is_main_document(api, web, policy_store, file_store,
     event = policy_store.events[0]
     validate_event(event)
     assert (event["payload"]["sourceCode"], event["payload"]["provider"], event["payload"]["field"]) == ("bizinfo", "BIZINFO", "STARTUP_SUPPORT")
+    sent = event["payload"]["files"][0]  # extraction이 S3에서 원본을 가져갈 위치와 형식
+    assert (sent["fileType"], sent["role"]) == ("pdf", "POLICY_DOC")
+    assert sent["s3Key"] == version.files[0].s3_key and sent["s3Key"].startswith("raw/bizinfo/") and sent["s3Key"] in file_store.objects
     assert not any(KEY in w for w in result.warnings)
 
 
@@ -337,20 +340,58 @@ def test_recheck_reopens_unchanged_policies(api, web, policy_store, file_store, 
 
 
 def test_robots_blocked_origin_is_skipped_once_per_run(api, web, policy_store, file_store, policy_settings):
+    source = YouthSource(KEY)
+    second = {**s.YOUTH_POLICY, "plcyNo": "2026SECOND", "refUrlAddr1": "https://www.incheon.go.kr/board/view.do?id=3302"}
+    api.pages[list_url(source, 1)] = s.youth_list([s.YOUTH_POLICY, second])
+    web.pages["https://www.incheon.go.kr/board/view.do?id=3301"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.status == "SUCCESS" and result.new_count == 2
+    assert len([w for w in result.warnings if "www.incheon.go.kr" in w]) == 1
+    assert web.requested == ["https://www.incheon.go.kr/board/view.do?id=3301"]  # 두 번째 정책은 같은 도메인이라 묻지 않아요
+    assert {(v.document_status, v.origin_status) for v in policy_store.versions} == {("BLOCKED", "BLOCKED")}  # 묻지 않아도 BLOCKED
+
+
+def test_gov24_does_not_open_origin(api, web, policy_store, file_store, policy_settings):
+    """보조금24 원문(www.gov.kr)은 robots.txt 금지라 열지 않아요 (attachments = NEVER). 내용은 API 칸으로 채워요."""
     source = Gov24Source(KEY)
     api.pages[list_url(source, 1)] = s.GOV24_LIST
     for item in source.parse_list(s.GOV24_LIST).items:
         detail_url, conditions_url = detail_urls(source, item)
         api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
-    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
     result = run(source, api, web, policy_store, file_store, policy_settings)
-    assert result.status == "SUCCESS" and result.new_count == 2
-    assert len([w for w in result.warnings if "www.gov.kr" in w]) == 1
-    assert web.requested == ["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"]  # 두 번째 정책은 같은 도메인이라 묻지 않아요
-    assert all(v.files == [] for v in policy_store.versions)
+    assert result.status == "SUCCESS" and result.new_count == 2 and not result.warnings
+    assert web.requested == []  # robots.txt도 묻지 않아요
+    assert {(v.document_status, v.origin_status) for v in policy_store.versions} == {("NOT_NEEDED", "NOT_OPENED")}
     first = policy_store.versions[0]
+    assert first.fields.detail_url == "https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"  # 사람이 볼 링크는 그대로
+    assert (first.fields.age_min, first.fields.age_max, first.fields.documents) == (19, 34, "신분증, 임대차계약서")
+    assert first.fields.target == "만 19~34세 부모와 별도 거주하는 무주택 청년" and first.fields.apply_period == "2026. 12. 31.까지"
     assert "구비서류: 신분증, 임대차계약서" in first.body_text  # 버전 비교에는 전체 항목
     assert "구비서류" not in first.full_text and "선정기준: 청년가구 기준중위소득 60% 이하" in first.full_text  # AI 입력에는 설명 칸만
+
+
+def test_paging_counts_items_without_id(api, web, policy_store, file_store, policy_settings):
+    """ID 없는 항목을 버려도 페이지 넘김은 응답에 온 항목 수로 판단해요 (꽉 찬 페이지를 마지막 페이지로 착각하지 않게)."""
+    source = KStartupSource(KEY)
+    source.page_size = 2
+    no_id = {**s.KSTARTUP_POLICY, "pbanc_sn": None}
+    second = {**s.KSTARTUP_POLICY, "pbanc_sn": "179541"}
+    api.pages[list_url(source, 1)] = s.kstartup_list([s.KSTARTUP_POLICY, no_id], total=3)
+    api.pages[list_url(source, 2)] = s.kstartup_list([second], total=3)
+    result = run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=0))
+    assert list_url(source, 2) in api.requested
+    assert {p.policy_id for p in policy_store.policies.values()} == {"179540", "179541"}
+    assert any("ID가 없는 항목 1건" in w for w in result.warnings)
+
+
+def test_list_failure_marks_run_failed_but_processes_queue(api, web, policy_store, file_store, policy_settings):
+    source = KStartupSource(KEY)
+    api.pages[list_url(source, 1)] = s.kstartup_list([s.KSTARTUP_POLICY])
+    run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=0))  # 목록만 읽어 PENDING으로 쌓아 둬요
+    api.pages[list_url(source, 1)] = "<html>점검 중</html>"
+    result = run(source, api, web, policy_store, file_store, policy_settings)
+    assert result.status == "FAILED" and any("목록 1페이지를 읽지 못해" in w for w in result.warnings)
+    assert result.new_count == 1 and policy_store.by_key("179540").status == "DONE"  # 이미 쌓인 정책은 처리해요
 
 
 def test_missing_key_fails_without_requests(api, web, policy_store, file_store, policy_settings):
@@ -364,7 +405,7 @@ def test_key_error_blocks_and_hides_key(api, web, policy_store, file_store, poli
     request = httpx.Request("GET", url)
     api.pages[url] = httpx.HTTPStatusError(f"HTTP 500: {url}", request=request, response=httpx.Response(500, request=request))
     result = run(source, api, web, policy_store, file_store, policy_settings)
-    assert result.status == "SUCCESS" and result.warnings  # 목록 실패는 경고만 (다음 회차에 다시)
+    assert result.status == "FAILED" and result.warnings  # 목록을 못 읽으면 회차는 실패 (다음 회차에 다시)
     assert not any(KEY in w or "SeCrEt%2BKey" in w for w in result.warnings)
 
     api.pages[url] = s.GOV24_KEY_ERROR
@@ -557,20 +598,6 @@ def test_unified_fields_and_statuses_with_api_files(api, web, policy_store, file
     assert all(f.found_on == "API" for f in version.files)
     payload = policy_store.events[0]["payload"]
     assert (payload["documentStatus"], payload["originStatus"]) == ("OK", "NOT_OPENED")
-
-
-def test_blocked_origin_is_recorded_as_blocked(api, web, policy_store, file_store, policy_settings):
-    source = Gov24Source(KEY)
-    api.pages[list_url(source, 1)] = s.GOV24_LIST
-    for item in source.parse_list(s.GOV24_LIST).items:
-        detail_url, conditions_url = detail_urls(source, item)
-        api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
-    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt가 막은 주소라 요청하지 않아요")
-    run(source, api, web, policy_store, file_store, policy_settings)
-    assert {(v.document_status, v.origin_status) for v in policy_store.versions} == {("BLOCKED", "BLOCKED")}  # 두 번째는 같은 도메인이라 묻지 않아도 BLOCKED
-    first = policy_store.versions[0].fields
-    assert (first.age_min, first.age_max, first.documents) == (19, 34, "신분증, 임대차계약서")
-    assert first.target == "만 19~34세 부모와 별도 거주하는 무주택 청년" and first.apply_period == "2026. 12. 31.까지"
 
 
 def test_youth_closed_policy_is_skipped_until_reopened(api, web, policy_store, file_store, policy_settings):

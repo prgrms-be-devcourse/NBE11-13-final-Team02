@@ -77,7 +77,7 @@ make up                                                                   # 스�
 
 | 출처 | API | 첨부 |
 | --- | --- | --- |
-| `gov24` | 행안부 공공서비스(혜택) 목록·상세·지원조건 (`api.odcloud.kr/api/gov24/v3`) | API에 없음. 원문(www.gov.kr)은 robots.txt가 막아서 열지 않아요 |
+| `gov24` | 행안부 공공서비스(혜택) 목록·상세·지원조건 (`api.odcloud.kr/api/gov24/v3`) | API에 없음. 원문(www.gov.kr)은 robots.txt가 막아서 요청하지 않아요 (`attachments = NEVER`, 상태 `NOT_NEEDED`) |
 | `bokjiro_central` | 복지로 중앙부처 복지서비스 목록·상세 (`B554287/NationalWelfareInformationsV001`) | 상세의 관련 서식(`basfrmList`) 중 안내문·지침만. 서식뿐이면 원문 화면에서 찾기 |
 | `bokjiro_local` | 복지로 지자체 복지서비스 목록·상세 (`B554287/LocalGovernmentWelfareInformations`) | 관련 서식 중 안내문·지침만. 서식뿐이거나 없으면 관련 홈페이지(원문)에서 찾기 |
 | `youth` | 온통청년 청년정책 (`youthcenter.go.kr/go/ythip/getPlcy`), 분류 조건 없이 전체 | API에 없음. 참고 주소(`refUrlAddr1·2`, 기관 원문 공고)에서 찾기 |
