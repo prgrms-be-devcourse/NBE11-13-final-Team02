@@ -41,9 +41,9 @@ public class FollowUpRepository {
     jdbc.sql(
             "insert into notice.notice_follow_ups (raw_post_id, notice_id, raw_version,"
                 + " source_event_id, title, detail_url, posted_on, schedules, content_hash,"
-                + " review_status, created_at, updated_at) values (:rawPostId, :noticeId,"
-                + " :rawVersion, :eventId, :title, :detailUrl, :postedOn, cast(:schedules as jsonb),"
-                + " :hash, :reviewStatus, :now, :now)"
+                + " review_status, original_notice_id, created_at, updated_at) values (:rawPostId,"
+                + " :noticeId, :rawVersion, :eventId, :title, :detailUrl, :postedOn,"
+                + " cast(:schedules as jsonb), :hash, :reviewStatus, :originalNoticeId, :now, :now)"
                 + " on conflict (raw_post_id) do update set raw_version = excluded.raw_version,"
                 + " source_event_id = excluded.source_event_id, title = excluded.title,"
                 + " detail_url = excluded.detail_url, posted_on = excluded.posted_on,"
@@ -59,6 +59,7 @@ public class FollowUpRepository {
         .param("schedules", row.schedulesJson())
         .param("hash", row.contentHash())
         .param("reviewStatus", row.reviewStatus().name())
+        .param("originalNoticeId", row.originalNoticeId())
         .param("now", now.atOffset(ZoneOffset.UTC))
         .update();
   }
@@ -69,6 +70,17 @@ public class FollowUpRepository {
             "update notice.notice_follow_ups set review_status = 'APPROVED', updated_at = :now"
                 + " where raw_post_id = :id")
         .param("id", rawPostId)
+        .param("now", now.atOffset(ZoneOffset.UTC))
+        .update();
+  }
+
+  /** 공고를 합칠 때 후속 안내를 옮겨요. */
+  public void moveToNotice(UUID from, UUID into, Instant now) {
+    jdbc.sql(
+            "update notice.notice_follow_ups set notice_id = :into, updated_at = :now"
+                + " where notice_id = :from")
+        .param("from", from)
+        .param("into", into)
         .param("now", now.atOffset(ZoneOffset.UTC))
         .update();
   }
@@ -103,7 +115,8 @@ public class FollowUpRepository {
       LocalDate postedOn,
       String schedulesJson,
       String contentHash,
-      ReviewStatus reviewStatus) {}
+      ReviewStatus reviewStatus,
+      UUID originalNoticeId) {}
 
   public record FollowUpView(
       String title, String detailUrl, LocalDate postedOn, String schedulesJson) {}

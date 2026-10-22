@@ -19,6 +19,7 @@ import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.event.NoticeClosed;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
+import kr.mujuthaek.api.notice.domain.DuplicateRule;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
@@ -27,6 +28,7 @@ import kr.mujuthaek.api.notice.mapper.ExtractionEvent;
 import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
+import kr.mujuthaek.api.notice.service.internal.NoticeMergeService;
 import kr.mujuthaek.api.notice.service.internal.NoticeStatusService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -99,6 +101,7 @@ class NoticeIngestionIntegrationTest {
   @Autowired ApplicationEvents events;
   @Autowired MovableClock clock;
   @Autowired NoticeStatusService status;
+  @Autowired NoticeMergeService merges;
   @MockitoSpyBean ExtractionResultRepository results;
 
   @BeforeEach
@@ -106,7 +109,8 @@ class NoticeIngestionIntegrationTest {
     clock.now = START;
     jdbc.sql(
             "truncate notice.notice_versions, notice.notice_posts, notice.notice_follow_ups,"
-                + " notice.notice_regions, notice.notices, notice.extraction_results,"
+                + " notice.notice_regions, notice.notice_source_heads,"
+                + " notice.notice_duplicate_candidates, notice.notices, notice.extraction_results,"
                 + " common.processed_events")
         .update();
   }
@@ -803,7 +807,40 @@ class NoticeIngestionIntegrationTest {
     assertThat(count("notice.notice_follow_ups")).isZero();
   }
 
-  // ---------- 도우미 ----------
+  // ---------- 같은 공고 합치기 ----------
+
+  @Test
+  void 다른_출처의_같은_공고는_자동으로_합치고_회차가_다른_공고는_따로_둔다() {
+    ingestion.apply(body(fixture()));
+    UUID kept = onlyNotice();
+    events.clear();
+
+    assertThat(ingestion.apply(body(samePostElsewhere(fixture()))))
+        .isEqualTo(IngestionOutcome.PUBLISHED);
+    assertThat(outcomes()).contains("PUBLISHED:AUTO_MERGED");
+    assertThat(onlyNotice()).isEqualTo(kept); // 목록에 한 번만
+    assertThat(events.stream(NoticePublished.class)).isEmpty(); // 새 공고 알림은 보내지 않음
+    assertThat(events.stream(NoticeUpdated.class))
+        .singleElement()
+        .satisfies(e -> assertThat(e.changedFields()).containsExactly("sources"));
+    assertThat(merges.pendingCandidates()).isEmpty(); // 합친 후보는 정리됨
+
+    ingestion.apply(body(otherPost(fixture()))); // 모집 회차가 다른 공고
+    assertThat(listed()).hasSize(2);
+  }
+
+  @Test
+  void 정정을_다시_정정한_글도_원래_공고에_반영된다() {
+    // 원공고 N → 정정 C1 → C1을 정정하는 C2: 줄기의 출처는 N이라 C2도 기준 출처의 새 버전이에요
+    ingestion.apply(body(fixture()));
+    UUID id = onlyNotice();
+    ObjectNode first = correctionOf(fixture(), "2026-10-31");
+    assertThat(ingestion.apply(body(first))).isEqualTo(IngestionOutcome.NEW_VERSION);
+
+    ObjectNode second = correctionOf(first.deepCopy(), "2026-11-02"); // C1을 가리킴
+    assertThat(ingestion.apply(body(second))).isEqualTo(IngestionOutcome.NEW_VERSION);
+    assertThat(query.detail(id).header().applyEnd()).isEqualTo(LocalDate.of(2026, 11, 2));
+  }
 
   @Test
   void 새_버전을_만들지_않은_정정도_공고에_이어_그_정정을_다시_정정한_글이_반영된다() {
@@ -845,6 +882,236 @@ class NoticeIngestionIntegrationTest {
     assertThat(ingestion.apply(body(second))).isEqualTo(IngestionOutcome.HELD);
     assertThat(outcomes()).last().isEqualTo("HELD:PARENT_NOT_PUBLISHED");
   }
+
+  @Test
+  void 분야가_다른_같은_공고_후보가_있어도_새_공고는_정상으로_공개된다() {
+    // 합칠 수 없는 후보(분야 다름)를 합치려다 예외가 나면 트랜잭션이 롤백 표시돼 정상 공고 저장까지 되돌아가요
+    ingestion.apply(body(fixture()));
+    UUID other = onlyNotice();
+    jdbc.sql("update notice.notices set field = 'BUSINESS_SPACE' where id = :id")
+        .param("id", other)
+        .update();
+
+    assertThat(ingestion.apply(body(samePostElsewhere(fixture()))))
+        .isEqualTo(IngestionOutcome.PUBLISHED);
+    assertThat(listed()).hasSize(2);
+    assertThat(outcomes()).doesNotContain("PUBLISHED:AUTO_MERGED");
+  }
+
+  @Test
+  void 다른_출처의_같은_공고가_동시에_들어와도_하나만_공개된다() throws Exception {
+    // 원본 글 단위 잠금만으로는 출처가 다른 같은 공고가 동시에 오면 둘 다 공개돼요
+    java.util.concurrent.CyclicBarrier start = new java.util.concurrent.CyclicBarrier(2);
+    java.util.concurrent.ExecutorService pool =
+        java.util.concurrent.Executors.newFixedThreadPool(2);
+    try {
+      List<java.util.concurrent.Future<IngestionOutcome>> done = new java.util.ArrayList<>();
+      for (int i = 0; i < 2; i++) {
+        String body = body(samePostElsewhere(fixture()));
+        done.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  return ingestion.apply(body);
+                }));
+      }
+      for (var f : done) {
+        assertThat(f.get(60, java.util.concurrent.TimeUnit.SECONDS))
+            .isEqualTo(IngestionOutcome.PUBLISHED);
+      }
+    } finally {
+      pool.shutdownNow();
+    }
+    assertThat(listed()).hasSize(1);
+    assertThat(outcomes()).contains("PUBLISHED:AUTO_MERGED");
+  }
+
+  @Test
+  void 공고일이_한_달_넘게_차이나면_같은_공고로_보지_않는다() {
+    ingestion.apply(body(fixture()));
+    ingestion.apply(body(announcedLater(samePostElsewhere(fixture()))));
+    assertThat(listed()).hasSize(2);
+  }
+
+  @Test
+  void 다시_훑기는_이미_따로_공개된_같은_공고를_먼저_공고에_합친다() {
+    ingestion.apply(body(fixture()));
+    UUID kept = onlyNotice();
+    LocalDate announced =
+        jdbc.sql("select announced_on from notice.notices where id = :id")
+            .param("id", kept)
+            .query(LocalDate.class)
+            .single();
+    clock.set("2026-10-19T10:00"); // 먼저 공개된 공고에 합쳐요
+    ingestion.apply(body(announcedLater(samePostElsewhere(fixture())))); // 공개 당시 규칙으로는 다른 공고
+    ingestion.apply(body(otherPost(fixture()))); // 모집 회차가 다른 공고
+    UUID separate =
+        jdbc.sql("select id from notice.notices where id <> :kept and announced_on <> :on")
+            .param("kept", kept)
+            .param("on", announced)
+            .query(UUID.class)
+            .single();
+    // 규칙이 바뀌어 이제는 같은 공고로 판정되는 상황: 공고일을 맞춰요
+    jdbc.sql("update notice.notices set announced_on = :on where id = :id")
+        .param("on", announced)
+        .param("id", separate)
+        .update();
+    assertThat(listed()).hasSize(3);
+    events.clear();
+
+    assertThat(ingestion.mergeDuplicates()).isEqualTo(1);
+
+    assertThat(listed()).hasSize(2); // 회차가 다른 공고는 그대로
+    assertThat(query.detail(separate).header().id()).isEqualTo(kept);
+    assertThat(merges.pendingCandidates()).isEmpty();
+    assertThat(events.stream(NoticeUpdated.class))
+        .anySatisfy(
+            e -> {
+              assertThat(e.noticeId()).isEqualTo(kept);
+              assertThat(e.changedFields()).contains("sources");
+            });
+    assertThat(ingestion.mergeDuplicates()).isZero(); // 다시 돌려도 더 합칠 공고 없음
+  }
+
+  @Test
+  void 되돌리거나_같은_공고가_아니라고_한_공고는_다시_훑어도_합치지_않는다() {
+    ingestion.apply(body(fixture()));
+    UUID kept = onlyNotice();
+    clock.set("2026-10-19T10:00");
+    ingestion.apply(body(samePostElsewhere(fixture())));
+    UUID merged = mergedInto(kept);
+
+    ingestion.unmerge(merged);
+    assertThat(ingestion.mergeDuplicates()).isZero(); // 되돌린 쌍은 다시 합치지 않음
+    assertThat(listed()).hasSize(2);
+
+    ingestion.apply(body(otherPost(fixture())));
+    UUID third =
+        jdbc.sql("select id from notice.notices where id not in (:a, :b)")
+            .param("a", kept)
+            .param("b", merged)
+            .query(UUID.class)
+            .single();
+    jdbc.sql(
+            "update notice.notices set title = (select title from notice.notices where id = :kept)"
+                + " where id = :id")
+        .param("kept", kept)
+        .param("id", third)
+        .update(); // 규칙상 같은 공고가 되게
+    merges.reject(third, kept);
+    merges.reject(third, merged);
+    assertThat(ingestion.mergeDuplicates()).isZero(); // 같은 공고가 아니라고 표시한 쌍도
+  }
+
+  @Test
+  void 합치면_한_공고만_남고_합쳐진_공고의_원본_글은_남은_공고의_새_버전이_된다() {
+    ingestion.apply(body(fixture()));
+    UUID kept = onlyNotice();
+    ObjectNode duplicate = samePostElsewhere(fixture());
+    ingestion.apply(body(duplicate)); // 같은 공고라 자동으로 합쳐짐
+    UUID merged = mergedInto(kept);
+
+    assertThat(onlyNotice()).isEqualTo(kept);
+    assertThat(query.detail(merged).header().id()).isEqualTo(kept); // 합쳐진 공고 ID로도 열려요
+    assertThat(query.versions(merged)).hasSize(1); // 남은 공고의 이력
+    assertThat(merges.pendingCandidates()).isEmpty();
+    assertThat(events.stream(NoticeUpdated.class))
+        .anySatisfy(e -> assertThat(e.changedFields()).containsExactly("sources"));
+
+    // 기준 출처는 먼저 들어온 원래 공고(둘 다 같은 게시일): 다른 출처의 새 버전은 출처 기록만 바꾸고 공고 내용은 그대로예요
+    ObjectNode next = withRawVersion(duplicate.deepCopy(), 2);
+    next.put("eventId", UUID.randomUUID().toString());
+    ((ObjectNode) next.path("payload")).put("title", "다른 출처에서 고친 제목");
+    ((ObjectNode) next.path("payload").path("notice").path("notice")).put("title", "다른 출처에서 고친 제목");
+    assertThat(ingestion.apply(body(next))).isEqualTo(IngestionOutcome.KEPT_BASE_SOURCE);
+    assertThat(query.detail(kept).header().title()).isNotEqualTo("다른 출처에서 고친 제목");
+  }
+
+  @Test
+  void 먼저_게시된_출처가_합쳐지면_기준_출처가_되어_공고_내용이_그_출처로_바뀌고_버전을_이어_간다() {
+    ingestion.apply(body(fixture())); // 게시일 10-16
+    UUID kept = onlyNotice();
+    String title = "서리풀 청년아트타운 잔여세대 모집 (먼저 게시된 출처)";
+    ObjectNode earlier = postedOn(samePostElsewhere(fixture()), "2026-10-10");
+    ((ObjectNode) earlier.path("payload")).put("title", title);
+    ((ObjectNode) earlier.path("payload").path("notice").path("notice")).put("title", title);
+
+    assertThat(ingestion.apply(body(earlier))).isEqualTo(IngestionOutcome.PUBLISHED);
+    assertThat(onlyNotice()).isEqualTo(kept); // 공고 ID는 그대로
+    NoticeDetailResponse detail = query.detail(kept);
+    assertThat(detail.header().title()).isEqualTo(title);
+    assertThat(detail.version()).isEqualTo(2); // 남은 공고의 버전을 이어 가요
+
+    // 이제 원래 공고 글은 기준이 아니라 새 버전이 와도 내용을 바꾸지 않아요
+    ObjectNode original = withRawVersion(fixture(), 2);
+    original.put("eventId", UUID.randomUUID().toString());
+    ((ObjectNode) original.path("payload")).put("title", "기준 아닌 출처의 수정");
+    ((ObjectNode) original.path("payload").path("notice").path("notice"))
+        .put("title", "기준 아닌 출처의 수정");
+    assertThat(ingestion.apply(body(original))).isEqualTo(IngestionOutcome.KEPT_BASE_SOURCE);
+    assertThat(query.detail(kept).header().title()).isEqualTo(title);
+  }
+
+  @Test
+  void 합치기를_되돌리면_두_공고가_각자_자기_출처_내용으로_돌아온다() {
+    ingestion.apply(body(fixture()));
+    UUID kept = onlyNotice();
+    String keptTitle = query.detail(kept).header().title();
+    String wrongTitle = "서리풀 청년아트타운 잔여세대 모집 (잘못 합쳐진 출처)";
+    ObjectNode earlier = postedOn(samePostElsewhere(fixture()), "2026-10-10");
+    ((ObjectNode) earlier.path("payload")).put("title", wrongTitle);
+    ((ObjectNode) earlier.path("payload").path("notice").path("notice")).put("title", wrongTitle);
+    ingestion.apply(body(earlier));
+    UUID merged = mergedInto(kept);
+    assertThat(query.detail(kept).header().title()).isEqualTo(wrongTitle); // 기준이 바뀌어 있었음
+    events.clear();
+
+    ingestion.unmerge(merged);
+
+    assertThat(listed()).hasSize(2);
+    assertThat(query.detail(merged).header().id()).isEqualTo(merged); // 다시 따로 보임
+    assertThat(query.detail(merged).header().title()).isEqualTo(wrongTitle);
+    assertThat(query.detail(kept).header().title()).isEqualTo(keptTitle); // 원래 출처 내용으로 돌아옴
+    assertThat(events.stream(NoticeUpdated.class))
+        .extracting(NoticeUpdated::noticeId)
+        .contains(kept, merged);
+    assertThatThrownBy(() -> ingestion.unmerge(merged))
+        .isInstanceOf(IllegalArgumentException.class); // 이미 따로인 공고
+  }
+
+  @Test
+  void 잘못된_합치기는_거절하고_아니라고_표시한_후보는_정리한다() {
+    ingestion.apply(body(fixture()));
+    UUID first = onlyNotice();
+    ingestion.apply(body(otherPost(fixture()))); // 다른 공고(자동으로 합쳐지지 않음)
+    UUID second =
+        jdbc.sql("select id from notice.notices where id <> :first")
+            .param("first", first)
+            .query(UUID.class)
+            .single();
+    // 사람이 확인할 후보(자동으로 합치지 못한 경우)
+    jdbc.sql(
+            "insert into notice.notice_duplicate_candidates (notice_id, candidate_of, reason,"
+                + " status, created_at) values (:a, :b, 'TEST', 'PENDING', now())")
+        .param("a", second)
+        .param("b", first)
+        .update();
+
+    assertThatThrownBy(() -> merges.merge(first, first))
+        .isInstanceOf(IllegalArgumentException.class);
+    assertThatThrownBy(() -> merges.merge(UUID.randomUUID(), first))
+        .isInstanceOf(IllegalArgumentException.class);
+
+    assertThat(merges.reject(second, first)).isTrue();
+    assertThat(merges.pendingCandidates()).isEmpty();
+    assertThat(merges.reject(second, first)).isFalse();
+
+    merges.merge(second, first);
+    assertThatThrownBy(() -> merges.merge(second, first))
+        .isInstanceOf(IllegalArgumentException.class);
+  }
+
+  // ---------- 도우미 ----------
 
   private ObjectNode load(String name) {
     try (InputStream in = getClass().getResourceAsStream(name)) {
@@ -943,6 +1210,43 @@ class NoticeIngestionIntegrationTest {
         .items();
   }
 
+  /** 다른 출처에 올라온 같은 공고: 다른 원본 글의 같은 내용. 같은 공고로 판정돼 자동으로 합쳐져요. */
+  private static ObjectNode samePostElsewhere(ObjectNode event) {
+    event.put("eventId", UUID.randomUUID().toString());
+    String id = UUID.randomUUID().toString();
+    ((ObjectNode) event.path("payload")).put("rawPostId", id);
+    ((ObjectNode) event.path("payload").path("notice").path("input")).put("rawPostId", id);
+    ((ObjectNode) event.path("payload").path("notice").path("sourceReferences").get(0))
+        .put("rawPostId", id);
+    return event;
+  }
+
+  /** 공고일을 같은 공고로 보는 기간보다 늦춰요. */
+  private static ObjectNode announcedLater(ObjectNode event) {
+    ObjectNode notice = (ObjectNode) event.path("payload").path("notice").path("notice");
+    notice.put(
+        "announcedOn",
+        LocalDate.parse(notice.path("announcedOn").asString())
+            .plusDays(DuplicateRule.WINDOW_DAYS + 1)
+            .toString());
+    return event;
+  }
+
+  /** kept에 합쳐진 공고 하나. */
+  private UUID mergedInto(UUID kept) {
+    return jdbc.sql("select id from notice.notices where merged_into = :kept")
+        .param("kept", kept)
+        .query(UUID.class)
+        .single();
+  }
+
+  /** 목록에 나오는(다른 공고에 합쳐지지 않은) 공고. */
+  private List<UUID> listed() {
+    return jdbc.sql("select id from notice.notices where merged_into is null")
+        .query(UUID.class)
+        .list();
+  }
+
   private String statusOf(UUID id) {
     return query.detail(id).header().status();
   }
@@ -969,7 +1273,7 @@ class NoticeIngestionIntegrationTest {
   }
 
   private UUID onlyNotice() {
-    List<UUID> ids = jdbc.sql("select id from notice.notices").query(UUID.class).list();
+    List<UUID> ids = listed();
     assertThat(ids).hasSize(1);
     return ids.getFirst();
   }

@@ -1,9 +1,12 @@
 package kr.mujuthaek.api.notice.repository;
 
+import java.sql.Array;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -54,8 +57,8 @@ public class NoticeRepository {
                 + " select raw_version, review_status, created_at as at from notice.notice_versions"
                 + " where raw_post_id = :rawPostId"
                 + " union all select raw_version, review_status, received_at from notice.extraction_results"
-                + " where raw_post_id = :rawPostId and outcome in ('NO_CHANGE', 'KEPT_CORRECTION',"
-                + " 'KEPT_APPROVED', 'APPROVAL_RECORDED')"
+                + " where raw_post_id = :rawPostId and outcome in ('NO_CHANGE', 'KEPT_BASE_SOURCE',"
+                + " 'KEPT_CORRECTION', 'KEPT_APPROVED', 'APPROVAL_RECORDED')"
                 + ") seen order by raw_version desc, (review_status = 'APPROVED') desc, at desc limit 1")
         .param("rawPostId", rawPostId)
         .query(
@@ -99,8 +102,11 @@ public class NoticeRepository {
       Instant now) {
     jdbc.sql(
             "insert into notice.notice_posts (raw_post_id, notice_id, kind, supersedes_post_id,"
-                + " posted_on, created_at, updated_at) values (:rawPostId, :noticeId, :kind,"
-                + " :supersedes, :postedOn, :now, :now)"
+                + " posted_on, original_notice_id, created_at, updated_at) values (:rawPostId,"
+                + " :noticeId, :kind, :supersedes, :postedOn,"
+                // 처음 속한 공고: 정정 공고는 원래 공고 글이 처음 속한 공고 (합친 뒤 들어온 정정도 되돌리면 원래 공고로)
+                + " coalesce((select p.original_notice_id from notice.notice_posts p"
+                + " where p.raw_post_id = :supersedes), :noticeId), :now, :now)"
                 + " on conflict (raw_post_id) do update set"
                 + " posted_on = coalesce(excluded.posted_on, notice.notice_posts.posted_on),"
                 + " updated_at = :now")
@@ -124,7 +130,7 @@ public class NoticeRepository {
                 + " then (v.payload -> 'judgment')::text end as judgment"
                 + " from notice.notices n join notice.notice_versions v"
                 + " on v.notice_id = n.id and v.version = n.current_version"
-                + " where n.id = :noticeId for update of n")
+                + " where n.id = :noticeId and n.merged_into is null for update of n")
         .param("noticeId", noticeId)
         .query(
             (rs, i) ->
@@ -149,10 +155,11 @@ public class NoticeRepository {
             "insert into notice.notices (id, raw_post_id, field, title, provider, notice_type,"
                 + " supply_type_text, region_code, apply_start, apply_end, posted_on, summary_text,"
                 + " detail_url, current_version, current_raw_post_id, current_raw_version, reviewed,"
-                + " status, next_status_check_at, needs_check, created_at, updated_at) values (:id,"
-                + " :rawPostId, :field, :title, :provider, :noticeType, :supplyTypeText, :regionCode,"
-                + " :applyStart, :applyEnd, :postedOn, :summary, :detailUrl, :version, :rawPostId,"
-                + " :rawVersion, :reviewed, :status, :nextCheck, :needsCheck, :now, :now)")
+                + " status, next_status_check_at, needs_check, announced_on, base_root_post_id,"
+                + " created_at, updated_at) values (:id, :rawPostId, :field, :title, :provider,"
+                + " :noticeType, :supplyTypeText, :regionCode, :applyStart, :applyEnd, :postedOn,"
+                + " :summary, :detailUrl, :version, :rawPostId, :rawVersion, :reviewed, :status,"
+                + " :nextCheck, :needsCheck, :announcedOn, :rawPostId, :now, :now)")
         .params(listValues(id, n, version, listing))
         .param("now", utc(now))
         .update();
@@ -167,7 +174,8 @@ public class NoticeRepository {
                 + " posted_on = :postedOn, summary_text = :summary, detail_url = :detailUrl,"
                 + " current_version = :version, current_raw_post_id = :rawPostId,"
                 + " current_raw_version = :rawVersion, reviewed = :reviewed, status = :status,"
-                + " next_status_check_at = :nextCheck, needs_check = :needsCheck, updated_at = :now"
+                + " next_status_check_at = :nextCheck, needs_check = :needsCheck,"
+                + " announced_on = :announcedOn, updated_at = :now"
                 + " where id = :id")
         .params(listValues(id, n, version, listing))
         .param("now", utc(now))
@@ -221,7 +229,7 @@ public class NoticeRepository {
             "select n.id, n.status, (v.payload -> 'notice')::text as detail, v.review_status"
                 + " from notice.notices n join notice.notice_versions v"
                 + " on v.notice_id = n.id and v.version = n.current_version"
-                + " where n.next_status_check_at <= :now"
+                + " where n.next_status_check_at <= :now and n.merged_into is null"
                 + " order by n.next_status_check_at limit :limit"
                 + " for update of n skip locked")
         .param("now", utc(now))
@@ -271,6 +279,350 @@ public class NoticeRepository {
         .update();
   }
 
+  // ---------- 같은 공고 합치기 ----------
+
+  /**
+   * 같은 공고일 수 있는 새 공고 공개를 줄 세워요(분야·공급기관 단위, 트랜잭션이 끝나면 풀림). 원본 글 잠금만으로는 출처가 다른 같은 공고가 동시에 오면 둘 다
+   * 공개돼요. 잠금을 얻은 뒤 후보를 다시 조회하면 먼저 공개된 공고가 보여요.
+   */
+  public void lockIdentity(String field, String publisherKey) {
+    jdbc.sql("select pg_advisory_xact_lock(hashtextextended(cast(:key as text), 1))")
+        .param("key", "notice-identity:" + field + ":" + publisherKey)
+        .query((rs, i) -> 1)
+        .list();
+  }
+
+  /**
+   * 두 공고의 모든 원본 글을 반영과 같은 순서로 잠가요(합치기용). 반영은 원래 글 → 정정 글 순서로 원본 글을 잠그므로, 원래 공고(NOTICE) 글을 먼저, 정정 글을
+   * 나중에(각각 ID 순서) 잠가 서로 엇갈려 교착되지 않게 해요. 잠금을 잡으면 그 글들의 반영이 끝날 때까지 기다리고, 합치는 동안 새 반영이 시작되지 않아요.
+   */
+  public void lockPostsOf(UUID first, UUID second) {
+    List<UUID> rawPosts =
+        jdbc.sql(
+                "select raw_post_id from notice.notice_posts where notice_id in (:first, :second)"
+                    + " order by case when kind = 'NOTICE' then 0 else 1 end, raw_post_id")
+            .param("first", first)
+            .param("second", second)
+            .query(UUID.class)
+            .list();
+    for (UUID rawPost : rawPosts) {
+      lockRawPost(rawPost);
+    }
+  }
+
+  /** 합쳐진 공고면 합친 공고 ID(합침이 이어져도 마지막 공고), 아니면 그대로. */
+  public UUID resolveMerged(UUID noticeId) {
+    return jdbc.sql("select coalesce(merged_into, id) from notice.notices where id = :id")
+        .param("id", noticeId)
+        .query(UUID.class)
+        .optional()
+        .orElse(noticeId);
+  }
+
+  /**
+   * 원본 글이 속한 출처 줄기의 최초 원공고 글. 정정을 다시 정정한 글(C2 → C1 → N)이면 N이에요(바로 앞 글 C1을 줄기로 쓰면 「기준 출처 아님」으로 빠져요).
+   * 모르는 글이면 그 글 자신.
+   */
+  public UUID rootPostOf(UUID rawPostId) {
+    return jdbc.sql(
+            "with recursive chain(id, depth) as (select cast(:id as uuid), 0"
+                + " union all select p.supersedes_post_id, c.depth + 1 from notice.notice_posts p"
+                + " join chain c on p.raw_post_id = c.id"
+                + " where p.kind = 'CORRECTION' and p.supersedes_post_id is not null and c.depth < 50)"
+                + " select id from chain order by depth desc limit 1")
+        .param("id", rawPostId)
+        .query(UUID.class)
+        .single();
+  }
+
+  /** 원본 글이 처음 속한 공고 (없으면 빈 값). 후속 안내의 처음 공고를 정할 때 써요. */
+  public Optional<UUID> originalNoticeOf(UUID rawPostId) {
+    return jdbc.sql("select original_notice_id from notice.notice_posts where raw_post_id = :id")
+        .param("id", rawPostId)
+        .query(UUID.class)
+        .optional();
+  }
+
+  /**
+   * 출처(원래 공고 글)의 마지막 반영 결과를 기록해요. 처음이면 지금 공고를 처음 공고로 남겨요. hasPdf·게시일은 마지막 결과 기준이에요(게시일은 모르면 이전 값
+   * 유지).
+   */
+  public void upsertSourceHead(
+      UUID root, UUID noticeId, UUID eventId, boolean hasPdf, LocalDate postedOn, Instant now) {
+    jdbc.sql(
+            "insert into notice.notice_source_heads (root_post_id, notice_id, original_notice_id,"
+                + " latest_event_id, has_pdf, posted_on, first_seen_at, updated_at) values (:root,"
+                + " :noticeId, :noticeId, :eventId, :hasPdf, :postedOn, :now, :now)"
+                + " on conflict (root_post_id) do update set latest_event_id = excluded.latest_event_id,"
+                + " has_pdf = excluded.has_pdf,"
+                + " posted_on = coalesce(excluded.posted_on, notice.notice_source_heads.posted_on),"
+                + " updated_at = excluded.updated_at")
+        .param("root", root)
+        .param("noticeId", noticeId)
+        .param("eventId", eventId)
+        .param("hasPdf", hasPdf)
+        .param("postedOn", postedOn)
+        .param("now", utc(now))
+        .update();
+  }
+
+  /** 공고에 속한 출처들. */
+  public List<SourceHead> findSourceHeads(UUID noticeId) {
+    return jdbc.sql(
+            "select root_post_id, latest_event_id, has_pdf, posted_on, first_seen_at"
+                + " from notice.notice_source_heads where notice_id = :id")
+        .param("id", noticeId)
+        .query(
+            (rs, i) ->
+                new SourceHead(
+                    rs.getObject("root_post_id", UUID.class),
+                    rs.getObject("latest_event_id", UUID.class),
+                    rs.getBoolean("has_pdf"),
+                    rs.getObject("posted_on", LocalDate.class),
+                    rs.getObject("first_seen_at", OffsetDateTime.class).toInstant()))
+        .list();
+  }
+
+  /** 공고의 기준 출처(원래 공고 글). 정해지지 않았으면 빈 값. */
+  public Optional<UUID> baseRoot(UUID noticeId) {
+    return jdbc.sql("select base_root_post_id from notice.notices where id = :id")
+        .param("id", noticeId)
+        .query((rs, i) -> Optional.ofNullable(rs.getObject("base_root_post_id", UUID.class)))
+        .optional()
+        .flatMap(o -> o);
+  }
+
+  public void setBaseRoot(UUID noticeId, UUID root, Instant now) {
+    jdbc.sql(
+            "update notice.notices set base_root_post_id = :root, updated_at = :now where id = :id")
+        .param("id", noticeId)
+        .param("root", root)
+        .param("now", utc(now))
+        .update();
+  }
+
+  /** 수신 기록에 보관한 결과 payload (기준 출처를 바꾸거나 되돌릴 때 다시 적용). */
+  public Optional<String> storedPayload(UUID eventId) {
+    return jdbc.sql("select payload::text from notice.extraction_results where event_id = :id")
+        .param("id", eventId)
+        .query(String.class)
+        .optional();
+  }
+
+  /** 합쳐진 공고가 합쳐진 대상 (합쳐지지 않았으면 빈 값). */
+  public Optional<UUID> mergedInto(UUID noticeId) {
+    return jdbc.sql("select merged_into from notice.notices where id = :id")
+        .param("id", noticeId)
+        .query((rs, i) -> Optional.ofNullable(rs.getObject("merged_into", UUID.class)))
+        .optional()
+        .flatMap(o -> o);
+  }
+
+  /**
+   * 같은 분야이고 공고일이 days일 안인 다른 공고 (합쳐지지 않은 것만, 먼저 공개된 순서). 분야가 다른 공고는 합칠 수 없어 후보로도 찾지 않아요. 기관·단지 이름은
+   * 현재 공개 버전의 상세에서 가져와요(payload의 provider는 수집 출처라 출처마다 달라요).
+   */
+  public List<Peer> findIdentityPeers(
+      String field, LocalDate announcedOn, int days, UUID excludeId) {
+    return identities(
+        " and n.field = :field and n.announced_on between :from and :to and n.id <> :excludeId",
+        Map.of(
+            "field",
+            field,
+            "from",
+            announcedOn.minusDays(days),
+            "to",
+            announcedOn.plusDays(days),
+            "excludeId",
+            excludeId));
+  }
+
+  /** 합쳐지지 않은 공고 전체의 같은 공고 판별 정보 (공개된 순서). 이미 공개된 공고끼리 다시 훑어 합칠 때 써요. */
+  public List<Peer> findOpenIdentities() {
+    return identities("", Map.of());
+  }
+
+  private List<Peer> identities(String condition, Map<String, Object> params) {
+    return jdbc.sql(
+            "select n.id, n.field, n.title, n.announced_on, n.supply_type_text,"
+                + " v.payload -> 'notice' -> 'notice' ->> 'publisher' as publisher,"
+                + " array(select r.sigungu_code from notice.notice_regions r"
+                + " where r.notice_id = n.id) as regions,"
+                + " array(select distinct coalesce(l->>'complexName', l->>'buildingName')"
+                + " from jsonb_array_elements(v.payload->'notice'->'locations') l"
+                + " where coalesce(l->>'complexName', l->>'buildingName') is not null) as names"
+                + " from notice.notices n join notice.notice_versions v"
+                + " on v.notice_id = n.id and v.version = n.current_version"
+                // 기관은 정식 명칭·약칭 표기가 달라 DuplicateRule에서 비교해요
+                + " where n.announced_on is not null and n.merged_into is null"
+                + " and v.payload -> 'notice' -> 'notice' ->> 'publisher' is not null"
+                + condition
+                + " order by n.created_at, n.id")
+        .params(params)
+        .query(
+            (rs, i) ->
+                new Peer(
+                    rs.getObject("id", UUID.class),
+                    rs.getString("field"),
+                    rs.getString("publisher"),
+                    rs.getString("title"),
+                    strings(rs.getArray("regions")),
+                    rs.getObject("announced_on", LocalDate.class),
+                    rs.getString("supply_type_text"),
+                    strings(rs.getArray("names"))))
+        .list();
+  }
+
+  public void insertDuplicateCandidate(
+      UUID noticeId, UUID candidateOf, String reason, Instant now) {
+    jdbc.sql(
+            "insert into notice.notice_duplicate_candidates (notice_id, candidate_of, reason,"
+                + " status, created_at) values (:noticeId, :candidateOf, :reason, 'PENDING', :now)"
+                + " on conflict do nothing")
+        .param("noticeId", noticeId)
+        .param("candidateOf", candidateOf)
+        .param("reason", reason)
+        .param("now", utc(now))
+        .update();
+  }
+
+  public List<DuplicateCandidate> findPendingCandidates() {
+    return jdbc.sql(
+            "select c.notice_id, a.title as notice_title, c.candidate_of,"
+                + " b.title as candidate_title, c.reason, c.created_at"
+                + " from notice.notice_duplicate_candidates c"
+                + " join notice.notices a on a.id = c.notice_id"
+                + " join notice.notices b on b.id = c.candidate_of"
+                + " where c.status = 'PENDING' order by c.created_at")
+        .query(
+            (rs, i) ->
+                new DuplicateCandidate(
+                    rs.getObject("notice_id", UUID.class),
+                    rs.getString("notice_title"),
+                    rs.getObject("candidate_of", UUID.class),
+                    rs.getString("candidate_title"),
+                    rs.getString("reason"),
+                    rs.getObject("created_at", OffsetDateTime.class).toInstant()))
+        .list();
+  }
+
+  /**
+   * 두 공고를 같은 공고로 보지 않기로 한 기록(UNMERGED: 합친 뒤 되돌림, REJECTED: 같은 공고 아님)을 남겨요. 후보 기록이 없거나 이미
+   * 합쳐짐(MERGED)이어도 남겨, 다시 훑기·자동 합치기가 이 쌍을 다시 합치지 않게 해요.
+   */
+  public void markNotSame(UUID from, UUID into, String status, Instant now) {
+    jdbc.sql(
+            "update notice.notice_duplicate_candidates set status = :status, decided_at = :now"
+                + " where (notice_id = :a and candidate_of = :b) or (notice_id = :b and candidate_of = :a)")
+        .param("a", from)
+        .param("b", into)
+        .param("status", status)
+        .param("now", utc(now))
+        .update();
+    jdbc.sql(
+            "insert into notice.notice_duplicate_candidates (notice_id, candidate_of, reason,"
+                + " status, created_at, decided_at) select :a, :b, :reason, :status, :now, :now"
+                + " where not exists (select 1 from notice.notice_duplicate_candidates"
+                + " where (notice_id = :a and candidate_of = :b) or (notice_id = :b and candidate_of = :a))")
+        .param("a", from)
+        .param("b", into)
+        .param("reason", status)
+        .param("status", status)
+        .param("now", utc(now))
+        .update();
+  }
+
+  /** 두 공고를 같은 공고로 보지 않기로 했는지(되돌림·거절, 어느 쪽 방향이든). */
+  public boolean markedNotSame(UUID a, UUID b) {
+    return jdbc.sql(
+            "select exists (select 1 from notice.notice_duplicate_candidates"
+                + " where status in ('UNMERGED', 'REJECTED')"
+                + " and ((notice_id = :a and candidate_of = :b) or (notice_id = :b and candidate_of = :a)))")
+        .param("a", a)
+        .param("b", b)
+        .query(Boolean.class)
+        .single();
+  }
+
+  /** 두 공고 사이의 대기 중인 후보를 정리해요 (어느 쪽 방향이든). */
+  public int decideCandidates(UUID a, UUID b, String status, Instant now) {
+    return jdbc.sql(
+            "update notice.notice_duplicate_candidates set status = :status, decided_at = :now"
+                + " where status = 'PENDING' and ((notice_id = :a and candidate_of = :b)"
+                + " or (notice_id = :b and candidate_of = :a))")
+        .param("a", a)
+        .param("b", b)
+        .param("status", status)
+        .param("now", utc(now))
+        .update();
+  }
+
+  /** 합치기 전에 공고를 잠그고 상태를 읽어요. */
+  public Optional<MergeState> lockForMerge(UUID noticeId) {
+    return jdbc.sql("select id, field, merged_into from notice.notices where id = :id for update")
+        .param("id", noticeId)
+        .query(
+            (rs, i) ->
+                new MergeState(
+                    rs.getObject("id", UUID.class),
+                    rs.getString("field"),
+                    rs.getObject("merged_into", UUID.class)))
+        .optional();
+  }
+
+  /** from 공고를 into 공고에 합쳐요: 원본 글·출처를 옮기고, from은 목록·재계산에서 빠져요. */
+  public void mergeInto(UUID from, UUID into, Instant now) {
+    for (String table : List.of("notice_posts", "notice_source_heads")) {
+      jdbc.sql("update notice." + table + " set notice_id = :into where notice_id = :from")
+          .param("from", from)
+          .param("into", into)
+          .update();
+    }
+    jdbc.sql(
+            "update notice.notices set merged_into = :into, next_status_check_at = null,"
+                + " updated_at = :now where id = :from")
+        .param("from", from)
+        .param("into", into)
+        .param("now", utc(now))
+        .update();
+    // 예전에 from으로 합쳐진 공고도 into를 가리키게 해요 (합침이 이어져도 한 번에 찾게)
+    jdbc.sql("update notice.notices set merged_into = :into where merged_into = :from")
+        .param("from", from)
+        .param("into", into)
+        .update();
+  }
+
+  /**
+   * 합치기를 되돌려요: from 공고를 다시 살리고, from에 처음 속했던 원본 글·출처·후속 안내를 from으로 돌려놓아요. into에 다른 공고가 합쳐진 기록은
+   * 그대로예요.
+   */
+  public void unmerge(UUID from, UUID into, Instant now) {
+    jdbc.sql(
+            "update notice.notices set merged_into = null, next_status_check_at = :now,"
+                + " updated_at = :now where id = :from")
+        .param("from", from)
+        .param("now", utc(now))
+        .update();
+    for (String table : List.of("notice_posts", "notice_source_heads", "notice_follow_ups")) {
+      jdbc.sql(
+              "update notice."
+                  + table
+                  + " set notice_id = :from where notice_id = :into and original_notice_id = :from")
+          .param("from", from)
+          .param("into", into)
+          .update();
+    }
+  }
+
+  private static List<String> strings(Array array) throws SQLException {
+    if (array == null) {
+      return List.of();
+    }
+    List<String> values = new ArrayList<>(List.of((String[]) array.getArray()));
+    array.free();
+    return values;
+  }
+
   private static Map<String, Object> listValues(
       UUID id, CompletedNotice n, int version, Listing listing) {
     Map<String, Object> params = new LinkedHashMap<>();
@@ -293,6 +645,7 @@ public class NoticeRepository {
     params.put("status", listing.status().name());
     params.put("nextCheck", listing.nextCheckAt() == null ? null : utc(listing.nextCheckAt()));
     params.put("needsCheck", listing.needsCheck());
+    params.put("announcedOn", listing.announcedOn());
     return params;
   }
 
@@ -305,8 +658,10 @@ public class NoticeRepository {
    *
    * @param nextCheckAt 접수 상태를 다시 계산할 시각 (없으면 null)
    * @param needsCheck 원문 확인 전까지 보류한 항목이 있는지
+   * @param announcedOn 공고일 (같은 공고 후보 찾기용, 보류했으면 null)
    */
-  public record Listing(NoticeStatus status, Instant nextCheckAt, boolean needsCheck) {}
+  public record Listing(
+      NoticeStatus status, Instant nextCheckAt, boolean needsCheck, LocalDate announcedOn) {}
 
   /** 접수 상태를 다시 계산할 공고. detailJson은 현재 버전의 상세(원문 일정·보류 항목). */
   public record StatusCheckRow(
@@ -325,6 +680,33 @@ public class NoticeRepository {
       String heldItemsJson,
       String applicationWindowsJson,
       String judgmentJson) {}
+
+  /** 공고에 속한 출처 하나 (기준 출처 고르기·되돌리기용). */
+  public record SourceHead(
+      UUID root, UUID latestEventId, boolean hasPdf, LocalDate postedOn, Instant firstSeenAt) {}
+
+  /** 같은 공고 후보를 찾을 때 비교하는 다른 공고. */
+  public record Peer(
+      UUID noticeId,
+      String field,
+      String publisher,
+      String title,
+      List<String> sigunguCodes,
+      LocalDate announcedOn,
+      String supplyType,
+      List<String> complexNames) {}
+
+  /** 대기 중인 같은 공고 후보. */
+  public record DuplicateCandidate(
+      UUID noticeId,
+      String noticeTitle,
+      UUID candidateOf,
+      String candidateTitle,
+      String reason,
+      Instant createdAt) {}
+
+  /** 합치기 전 공고 상태. */
+  public record MergeState(UUID noticeId, String field, UUID mergedInto) {}
 
   /** 한 원본 글에서 마지막으로 반영한 버전. */
   public record SourceVersion(int rawVersion, ReviewStatus reviewStatus) {}

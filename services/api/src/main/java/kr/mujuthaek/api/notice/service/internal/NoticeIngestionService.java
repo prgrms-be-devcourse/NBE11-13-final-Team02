@@ -3,6 +3,7 @@ package kr.mujuthaek.api.notice.service.internal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -13,7 +14,9 @@ import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.common.id.UuidV7;
 import kr.mujuthaek.api.notice.domain.ApplicationStatusCalculator;
+import kr.mujuthaek.api.notice.domain.BaseSource;
 import kr.mujuthaek.api.notice.domain.CompletedNotice;
+import kr.mujuthaek.api.notice.domain.DuplicateRule;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
 import kr.mujuthaek.api.notice.domain.PublicationPolicy;
 import kr.mujuthaek.api.notice.domain.PublicationPolicy.Decision;
@@ -49,6 +52,7 @@ import tools.jackson.databind.json.JsonMapper;
  *       (PARENT_NOT_PUBLISHED), 원래 공고가 공개될 때 같은 트랜잭션에서 이어서 반영해요. 정정이 반영된 뒤 원래 공고 글이 바뀌어도 정정 내용을
  *       덮어쓰지 않아요.
  *   <li>후속 안내: 원래 공고의 버전을 바꾸지 않고 따로 붙여요(attachFollowUp).
+ *   <li>같은 공고: 다른 출처에 올라온 같은 공고는 먼저 공개된 공고에 자동으로 합치고, 내용은 기준 출처 하나만 바꿔요.
  * </ul>
  */
 @Service
@@ -60,12 +64,22 @@ public class NoticeIngestionService {
   /** 후속 안내가 붙거나 바뀌었을 때 NoticeUpdated.changedFields에 넣는 이름. */
   static final String FOLLOW_UPS = "followUps";
 
+  /** 같은 공고의 기준 출처가 아닌 출처의 새 버전. */
+  static final String NOT_BASE_SOURCE = "NOT_BASE_SOURCE";
+
+  /** 합치기·되돌리기로 출처가 바뀌었을 때 NoticeUpdated.changedFields에 넣는 이름. */
+  static final String SOURCES = "sources";
+
+  /** 새 공고가 같은 공고로 판정돼 기존 공고에 자동으로 합쳐짐. */
+  static final String AUTO_MERGED = "AUTO_MERGED";
+
   /** 내용 해시는 다르지만 비교하는 섹션은 모두 같음 (근거 위치·검증 기록 등만 바뀜). */
   static final String NO_VISIBLE_CHANGE = "NO_VISIBLE_CHANGE";
 
   private final NoticeRepository notices;
   private final ExtractionResultRepository results;
   private final FollowUpRepository followUps;
+  private final NoticeMergeService merges;
   private final ApplicationEventPublisher events;
   private final JsonMapper json;
   private final Clock clock;
@@ -74,12 +88,14 @@ public class NoticeIngestionService {
       NoticeRepository notices,
       ExtractionResultRepository results,
       FollowUpRepository followUps,
+      NoticeMergeService merges,
       ApplicationEventPublisher events,
       JsonMapper json,
       Clock clock) {
     this.notices = notices;
     this.results = results;
     this.followUps = followUps;
+    this.merges = merges;
     this.events = events;
     this.json = json;
     this.clock = clock;
@@ -139,6 +155,8 @@ public class NoticeIngestionService {
     if (noticeId.isEmpty() && source.correction()) {
       noticeId = notices.findNoticeIdByPost(source.supersedesPostId());
     }
+    // 원본 글을 찾은 뒤 그 공고가 합쳐졌으면 합친 공고로 따라가요(합치기와 엇갈렸을 때의 안전장치)
+    noticeId = noticeId.map(notices::resolveMerged);
     Optional<CurrentVersion> current = noticeId.flatMap(notices::lockCurrent);
     String contentHash = NoticeContent.hash(event);
     Decision decision =
@@ -157,10 +175,23 @@ public class NoticeIngestionService {
       decision =
           new Decision(IngestionOutcome.HELD, ExtractionResultRepository.PARENT_NOT_PUBLISHED);
     } else if (decision.outcome() == IngestionOutcome.PUBLISHED) {
-      noticeId = Optional.of(publishNew(event, source, contentHash, now));
+      NewNotice published = publishNew(event, source, contentHash, now);
+      noticeId = Optional.of(published.noticeId());
+      if (published.mergedInto()) {
+        decision = new Decision(IngestionOutcome.PUBLISHED, AUTO_MERGED);
+      }
     } else if (decision.outcome() == IngestionOutcome.NEW_VERSION) {
+      // 정정 줄기의 최초 원공고 글(정정의 정정 C2 → C1 → N이면 N)
+      UUID root =
+          notices.rootPostOf(source.correction() ? source.supersedesPostId() : event.rawPostId());
+      UUID target = current.orElseThrow().noticeId();
+      recordSourceHead(root, target, event, source, now);
       List<String> changed = changedSections(current.orElseThrow(), event);
-      if (changed.isEmpty()) {
+      Optional<UUID> base = notices.baseRoot(target);
+      if (base.isPresent() && !base.get().equals(root)) {
+        // 같은 공고의 다른 출처가 기준이에요: 이 출처의 최신 결과만 기억하고 공고 내용은 바꾸지 않아요(출처끼리 번갈아 덮어쓰지 않게)
+        decision = new Decision(IngestionOutcome.KEPT_BASE_SOURCE, NOT_BASE_SOURCE);
+      } else if (changed.isEmpty()) {
         // 근거 인용 위치·검증 기록·문서 정보·수집 기록처럼 사용자에게 의미 없는 부분만 바뀜: 새 버전과 「바뀐 것 없는 정정」 알림을 만들지 않아요
         decision = new Decision(IngestionOutcome.NO_CHANGE, NO_VISIBLE_CHANGE);
       } else {
@@ -177,7 +208,7 @@ public class NoticeIngestionService {
         && current.isPresent()
         && !decision.publishes() // 새 버전으로 반영했으면 publishVersion이 이미 이었어요
         && decision.outcome() != IngestionOutcome.HELD) {
-      // 원래 공고에 속한 정정이면 새 버전을 만들지 않았어도(보이는 변화 없음·내용 같음·더 늦은 정정이 있음 등) 글을 공고에 이어요.
+      // 원래 공고에 속한 정정이면 새 버전을 만들지 않았어도(보이는 변화 없음·내용 같음·기준 출처 아님·더 늦은 정정이 있음 등) 글을 공고에 이어요.
       // 잇지 않으면 이 정정을 다시 정정한 글이 원래 공고를 찾지 못해 PARENT_NOT_PUBLISHED로 계속 기다려요.
       // 검수 대기·상세 없음(HELD)은 공고 내용에 들어가지 않은 글이라 잇지 않아요
       notices.upsertPost(
@@ -229,7 +260,9 @@ public class NoticeIngestionService {
               source.postedOn(),
               json.writeValueAsString(NoticeContent.schedules(event)),
               contentHash,
-              event.reviewStatus()),
+              event.reviewStatus(),
+              // 처음 속한 공고: 원래 공고 글이 처음 속한 공고 (합친 뒤 붙어도 되돌리면 원래 공고로)
+              notices.originalNoticeOf(source.supersedesPostId()).orElse(noticeId.orElseThrow())),
           now);
       events.publishEvent(
           new NoticeUpdated(noticeId.orElseThrow(), List.of(FOLLOW_UPS), event.reprocess()));
@@ -285,7 +318,16 @@ public class NoticeIngestionService {
     }
   }
 
-  private UUID publishNew(ExtractionEvent event, Source source, String contentHash, Instant now) {
+  /** 새로 공개한 결과. mergedInto면 같은 공고로 판정돼 기존 공고에 합쳤고 noticeId는 그 기존 공고예요. */
+  private record NewNotice(UUID noticeId, boolean mergedInto) {}
+
+  private NewNotice publishNew(
+      ExtractionEvent event, Source source, String contentHash, Instant now) {
+    String publisher = NoticeContent.publisher(event);
+    if (publisher != null) {
+      // 같은 공고일 수 있는 공개를 줄 세워요: 다른 출처의 같은 공고가 동시에 와도 뒤에 온 쪽이 먼저 공개된 공고를 보고 합쳐져요
+      notices.lockIdentity(event.field(), DuplicateRule.publisher(publisher));
+    }
     UUID noticeId = UuidV7.next();
     CompletedNotice listValues = CompletedNotice.from(event.payload());
     notices.insertNotice(noticeId, listValues, 1, listing(event, now), now);
@@ -300,6 +342,12 @@ public class NoticeIngestionService {
     Map<String, Boolean> regions = NoticeContent.regions(event);
     boolean nationwide = NoticeContent.nationwide(event);
     notices.replaceRegions(noticeId, regions, nationwide);
+    recordSourceHead(event.rawPostId(), noticeId, event, source, now);
+    Optional<UUID> same = mergeIntoSameNotice(noticeId, event, now);
+    if (same.isPresent()) {
+      // 이미 공개된 같은 공고에 합쳤어요: 새 공고 알림은 보내지 않아요(남은 공고에 NoticeUpdated(sources)가 나가요)
+      return new NewNotice(same.get(), true);
+    }
     events.publishEvent(
         new NoticePublished(
             noticeId,
@@ -309,7 +357,208 @@ public class NoticeIngestionService {
             nationwide,
             event.title(),
             event.reprocess()));
-    return noticeId;
+    return new NewNotice(noticeId, false);
+  }
+
+  /**
+   * 같은 공고로 판정되는 기존 공고가 있으면 새 공고를 그 공고에 자동으로 합쳐요. 다른 출처(기관 게시판·LH API)에 같은 공고가 올라온 경우예요. 먼저 공개된 공고를
+   * 남겨 사용자가 보던 공고 ID·버전·알림이 이어지게 하고, 같은 공고가 여럿이면 가장 먼저 공개된 것에 합쳐요. 합칠 수 없으면(분야가 다름 등) 후보로만 남겨요. 합친
+   * 뒤 새 공고 원본 글의 정정·새 버전은 남은 공고의 새 버전으로 들어가요.
+   */
+  private Optional<UUID> mergeIntoSameNotice(UUID noticeId, ExtractionEvent event, Instant now) {
+    String publisher = NoticeContent.publisher(event);
+    LocalDate announcedOn = NoticeContent.announcedOn(event);
+    if (publisher == null || announcedOn == null) {
+      return Optional.empty();
+    }
+    DuplicateRule.Identity incoming =
+        new DuplicateRule.Identity(
+            publisher,
+            announcedOn,
+            event.title(),
+            Set.copyOf(NoticeContent.sigunguCodes(event)),
+            NoticeContent.complexNames(event),
+            NoticeContent.supplyType(event));
+    for (NoticeRepository.Peer peer :
+        notices.findIdentityPeers(
+            event.field(), announcedOn, DuplicateRule.WINDOW_DAYS, noticeId)) {
+      if (!DuplicateRule.likelySame(incoming, identity(peer))) {
+        continue;
+      }
+      notices.insertDuplicateCandidate(noticeId, peer.noticeId(), DuplicateRule.REASON, now);
+      Optional<String> refused = merges.tryMerge(noticeId, peer.noticeId(), event.reprocess());
+      if (refused.isEmpty()) {
+        log.info("같은 공고라 자동으로 합침 from={} into={}", noticeId, peer.noticeId());
+        rebase(peer.noticeId(), false, now, event);
+        return Optional.of(peer.noticeId());
+      }
+      log.warn(
+          "같은 공고 후보지만 합치지 못해 후보로 남깁니다 noticeId={} candidateOf={} reason={}",
+          noticeId,
+          peer.noticeId(),
+          refused.get());
+    }
+    return Optional.empty();
+  }
+
+  // ---------- 기준 출처·합치기 ----------
+
+  /** 출처(원래 공고 글)의 마지막 반영 결과를 기록해요. 게시일은 원래 공고 글일 때만 알아요(정정 공고의 게시일은 원래 글 게시일이 아님). */
+  private void recordSourceHead(
+      UUID root, UUID noticeId, ExtractionEvent event, Source source, Instant now) {
+    notices.upsertSourceHead(
+        root,
+        noticeId,
+        event.eventId(),
+        NoticeContent.hasPdf(event),
+        source.correction() ? null : source.postedOn(),
+        now);
+  }
+
+  /** 공고의 기준 출처를 다시 골라요(BaseSource 순서). 바뀌었거나 force면 기준 출처의 마지막 결과를 다시 적용해 내용이 다르면 새 버전을 만들어요. */
+  private void rebase(UUID noticeId, boolean force, Instant now, ExtractionEvent incoming) {
+    List<NoticeRepository.SourceHead> heads = notices.findSourceHeads(noticeId);
+    Optional<UUID> currentBase = notices.baseRoot(noticeId);
+    Optional<BaseSource.Candidate> best =
+        BaseSource.choose(
+            heads.stream()
+                .map(
+                    h ->
+                        new BaseSource.Candidate(
+                            h.root(), h.hasPdf(), h.postedOn(), h.firstSeenAt()))
+                .toList(),
+            currentBase.orElse(null));
+    if (best.isEmpty()) {
+      return;
+    }
+    UUID root = best.get().root();
+    boolean changed = !currentBase.map(root::equals).orElse(false);
+    if (changed) {
+      notices.setBaseRoot(noticeId, root, now);
+      log.info("기준 출처 바꿈 noticeId={} root={}", noticeId, root);
+    }
+    if (changed || force) {
+      heads.stream()
+          .filter(h -> h.root().equals(root))
+          .findFirst()
+          .ifPresent(h -> applyStored(noticeId, h.latestEventId(), now, incoming));
+    }
+  }
+
+  /** 보관한 결과를 공고의 새 버전으로 다시 적용해요. 내용이 같거나 보이는 섹션이 같으면 아무것도 하지 않아요. */
+  private void applyStored(UUID noticeId, UUID eventId, Instant now, ExtractionEvent incoming) {
+    ExtractionEvent event;
+    if (incoming != null && incoming.eventId().equals(eventId)) {
+      event = incoming; // 지금 처리 중인 결과는 아직 수신 기록에 저장 전이에요
+    } else {
+      Optional<String> payload = notices.storedPayload(eventId);
+      if (payload.isEmpty()) {
+        return;
+      }
+      try {
+        event = ExtractionEvent.fromStored(eventId, parse(payload.get()));
+      } catch (ExtractionEvent.InvalidEventException e) {
+        log.warn("보관한 결과가 지금 계약에 맞지 않아 다시 적용하지 않아요 eventId={}", eventId);
+        return;
+      }
+    }
+    Optional<CurrentVersion> current = notices.lockCurrent(noticeId);
+    if (current.isEmpty()) {
+      return;
+    }
+    String contentHash = NoticeContent.hash(event);
+    if (contentHash.equals(current.get().contentHash())) {
+      return;
+    }
+    List<String> changed = changedSections(current.get(), event);
+    if (!changed.isEmpty()) {
+      publishVersion(current.get(), event, NoticeContent.source(event), contentHash, changed, now);
+    }
+  }
+
+  /**
+   * 이미 공개된 공고끼리 다시 훑어 같은 공고를 합쳐요(자동 합치기 전에 공개됐거나 판별 규칙이 바뀐 경우). 먼저 공개된 공고부터 보고, 나중에 공개된 같은 공고를 먼저
+   * 공개된 공고에 합쳐요. 되돌렸거나 같은 공고가 아니라고 표시한 쌍은 건너뛰어요. 합친 수를 돌려줘요.
+   */
+  @Transactional
+  public int mergeDuplicates() {
+    Instant now = clock.instant();
+    int merged = 0;
+    List<NoticeRepository.Peer> open = notices.findOpenIdentities(); // 공개된 순서
+    Map<UUID, Integer> order = new HashMap<>();
+    for (NoticeRepository.Peer notice : open) {
+      order.put(notice.noticeId(), order.size());
+    }
+    for (NoticeRepository.Peer notice : open) {
+      if (notices.mergedInto(notice.noticeId()).isPresent()) {
+        continue; // 이번에 이미 다른 공고에 합쳐짐
+      }
+      DuplicateRule.Identity kept = identity(notice);
+      for (NoticeRepository.Peer peer :
+          notices.findIdentityPeers(
+              notice.field(), notice.announcedOn(), DuplicateRule.WINDOW_DAYS, notice.noticeId())) {
+        boolean later = order.getOrDefault(peer.noticeId(), -1) > order.get(notice.noticeId());
+        if (!later || !DuplicateRule.likelySame(kept, identity(peer))) {
+          continue;
+        }
+        if (notices.markedNotSame(peer.noticeId(), notice.noticeId())) {
+          continue;
+        }
+        notices.insertDuplicateCandidate(
+            peer.noticeId(), notice.noticeId(), DuplicateRule.REASON, now);
+        Optional<String> refused = merges.tryMerge(peer.noticeId(), notice.noticeId());
+        if (refused.isPresent()) {
+          log.warn(
+              "같은 공고 후보지만 합치지 못했어요 from={} into={} reason={}",
+              peer.noticeId(),
+              notice.noticeId(),
+              refused.get());
+          continue;
+        }
+        rebase(notice.noticeId(), false, now, null);
+        merged++;
+        log.info("같은 공고라 합침(다시 훑기) from={} into={}", peer.noticeId(), notice.noticeId());
+      }
+    }
+    return merged;
+  }
+
+  private static DuplicateRule.Identity identity(NoticeRepository.Peer notice) {
+    return new DuplicateRule.Identity(
+        notice.publisher(),
+        notice.announcedOn(),
+        notice.title(),
+        Set.copyOf(notice.sigunguCodes()),
+        Set.copyOf(notice.complexNames()),
+        notice.supplyType());
+  }
+
+  /** 공고를 합쳐요(운영자 명령). 합친 뒤 기준 출처를 다시 골라요. 잘못된 요청이면 IllegalArgumentException. */
+  @Transactional
+  public void merge(UUID from, UUID into) {
+    merges.merge(from, into);
+    rebase(into, false, clock.instant(), null);
+  }
+
+  /**
+   * 합치기를 되돌려요. from 공고를 다시 살리고 처음 속했던 원본 글·후속 안내를 돌려놓은 뒤, 두 공고 모두 기준 출처를 다시 골라 그 출처의 마지막 결과로 내용을
+   * 맞춰요. 이미 나간 알림은 되돌릴 수 없어요.
+   */
+  @Transactional
+  public void unmerge(UUID from) {
+    UUID into =
+        notices
+            .mergedInto(from)
+            .orElseThrow(() -> new IllegalArgumentException("합쳐진 공고가 아니에요: " + from));
+    Instant now = clock.instant();
+    notices.lockPostsOf(from, into);
+    notices.unmerge(from, into, now);
+    notices.markNotSame(from, into, "UNMERGED", now); // 다시 훑기·자동 합치기가 이 쌍을 다시 합치지 않게
+    rebase(from, true, now, null);
+    rebase(into, true, now, null);
+    events.publishEvent(new NoticeUpdated(from, List.of(SOURCES), false));
+    events.publishEvent(new NoticeUpdated(into, List.of(SOURCES), false));
+    log.info("공고 합치기 되돌림 from={} into={}", from, into);
   }
 
   /** 지금 공개 버전과 비교해 달라진 섹션 (NoticeUpdated.changedFields). */
@@ -367,7 +616,10 @@ public class NoticeIngestionService {
       inReview |= condition.path("inReview").asBoolean(false);
     }
     return new Listing(
-        status.status(), status.nextCheckAt(), !event.heldItems().isEmpty() || inReview);
+        status.status(),
+        status.nextCheckAt(),
+        !event.heldItems().isEmpty() || inReview,
+        NoticeContent.announcedOn(event));
   }
 
   private VersionRow versionRow(
