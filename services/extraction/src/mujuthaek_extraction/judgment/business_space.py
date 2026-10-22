@@ -12,8 +12,9 @@ import re
 from datetime import date
 from typing import Any
 
-from mujuthaek_extraction.judgment.common import LIMIT_WORDS, Context, base_fields, status_codes, status_rest, statuses_of
+from mujuthaek_extraction.judgment.common import LIMIT_WORDS, Context, ask_whole, base_fields, status_codes, status_rest, statuses_of
 from mujuthaek_extraction.judgment.frame import Criterion, Made, Spec, as_int, bounds, build_frame
+from mujuthaek_extraction.judgment.sanity import INVERTED
 
 # 대상 이름·신분 정의 문장 → 틀의 유형 코드(예비사회적기업을 사회적기업보다 먼저 봅니다)
 STATUS_WORDS = (
@@ -43,6 +44,8 @@ def _atom(ctx: Context, item: dict[str, Any], node: dict[str, Any], quote: str |
     span = bounds(node)
     new = lambda: ctx.new_id(item["id"])  # noqa: E731
     if attribute == "AGE_YEARS" and span and subject in ("APPLICANT", "REPRESENTATIVE"):
+        if span[0] is not None and span[1] is not None and span[0] > span[1]:
+            return ask_whole(ctx, item, quote, INVERTED)  # 거꾸로 된 범위는 틀 읽기가 틀 전체를 거절함
         return {**base_fields(new(), "AGE", quote), "minAge": as_int(span[0]), "maxAge": as_int(span[1])}
     if attribute == "NATIONALITY_CODE" and op in ("EQ", "IN"):
         codes = value if isinstance(value, list) else [value]

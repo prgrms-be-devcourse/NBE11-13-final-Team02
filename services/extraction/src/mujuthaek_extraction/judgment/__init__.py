@@ -14,6 +14,7 @@ from typing import Any
 from mujuthaek_extraction.judgment.business_space import build_business_space
 from mujuthaek_extraction.judgment.housing import build_housing
 from mujuthaek_extraction.judgment.pages import fill_pages, quote_pages
+from mujuthaek_extraction.judgment.sanity import repair
 from mujuthaek_extraction.judgment.schema import frame_errors
 
 BUILDERS = {"HOUSING": build_housing, "BUSINESS_SPACE": build_business_space}
@@ -40,7 +41,8 @@ def build_judgment(candidate: dict[str, Any], regions: Any = None, *, approved: 
     builder = BUILDERS.get(candidate["input"]["field"])
     if builder is None:
         return None
-    frame = builder(candidate, regions if regions is not None else default_regions(), approved=approved)
+    # 거꾸로 된 범위·빈 글자는 그 조건만 확인 필요 질문으로(값 하나 때문에 틀 전체가 버려지지 않게)
+    frame = repair(builder(candidate, regions if regions is not None else default_regions(), approved=approved))
     if frame is not None and pages:
         fill_pages(frame, quote_pages(candidate, pages))
     if frame is None or frame_errors(frame):

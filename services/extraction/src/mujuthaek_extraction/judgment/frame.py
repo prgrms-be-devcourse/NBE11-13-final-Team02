@@ -24,6 +24,7 @@ from mujuthaek_extraction.judgment.common import (
     reference_date,
     unsure,
 )
+from mujuthaek_extraction.judgment.sanity import INVERTED, as_question
 
 Criterion = dict[str, Any]
 Made = tuple[list[Criterion], list[dict[str, Any]]]
@@ -403,7 +404,8 @@ def bounds(node: dict[str, Any]) -> tuple[float | None, float | None] | None:
 
 
 def merge_age(criteria: list[Criterion]) -> list[Criterion]:
-    """「19세 이상」과 「39세 이하」가 한 항목에 같이 오면(원자 조건 둘) 나이 조건 하나(19~39)로 합칩니다."""
+    """「19세 이상」과 「39세 이하」가 한 항목에 같이 오면(원자 조건 둘) 나이 조건 하나(19~39)로 합칩니다.
+    합친 범위가 거꾸로면(「40세 이상」과 「39세 이하」처럼 서로 맞지 않음) 거꾸로 된 값을 내보내지 않고 원문 질문(확인 필요)으로 둡니다."""
     ages = [c for c in criteria if c["kind"] == "AGE"]
     if len(ages) < 2:
         return criteria
@@ -414,7 +416,8 @@ def merge_age(criteria: list[Criterion]) -> list[Criterion]:
     for other in ages[1:]:
         if other.get("inReview"):
             first["inReview"], first["reviewReason"] = True, other["reviewReason"]
-    return [c for c in criteria if c["kind"] != "AGE" or c is first]
+    merged = as_question(first, INVERTED) if lows and highs and max(lows) > min(highs) else first
+    return [merged if c is first else c for c in criteria if c["kind"] != "AGE" or c is first]
 
 
 ANY_ONE = re.compile(

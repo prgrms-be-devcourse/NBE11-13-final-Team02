@@ -15,6 +15,7 @@ from typing import Any
 from mujuthaek_extraction.judgment.common import STATUS_WORDS, Context, ask_whole, base_fields, status_codes, status_rest, statuses_of
 from mujuthaek_extraction.judgment.frame import Criterion, Made, Spec, as_int, as_number, bounds, build_frame
 from mujuthaek_extraction.judgment.readback import mismatch as readback_mismatch
+from mujuthaek_extraction.judgment.sanity import INVERTED
 
 STANDARDS = (  # 앞에서부터 먼저 맞는 것(「도시근로자 가구원수별 가구당 월평균소득」은 가구원수별)
     (re.compile(r"중위\s*소득"), "MEDIAN_INCOME"),
@@ -33,6 +34,8 @@ def _atom(ctx: Context, item: dict[str, Any], node: dict[str, Any], quote: str |
         if OTHER_PERSON_AGE.search(f"{item.get('originalText') or ''} {quote or ''}"):
             # 「65세 이상의 직계존속을 부양」: 신청자가 아니라 가족의 나이(실측: 신청자 65세 이상으로 들어감, 2026-10-21)
             return ask_whole(ctx, item, quote, "원문의 나이가 신청자가 아닌 가족의 나이일 수 있습니다")
+        if span[0] is not None and span[1] is not None and span[0] > span[1]:
+            return ask_whole(ctx, item, quote, INVERTED)  # 「BETWEEN [39, 19]」: 거꾸로 된 범위는 틀 읽기가 틀 전체를 거절함
         return {**base_fields(ctx.new_id(item["id"]), "AGE", quote), "minAge": as_int(span[0]), "maxAge": as_int(span[1])}
     if attribute == "HOMELESS" and op == "EQ" and value is True and subject in ("APPLICANT", "HOUSEHOLD"):
         return {**base_fields(ctx.new_id(item["id"]), "HOMELESS", quote), "scope": subject, "minYears": None}
@@ -236,6 +239,8 @@ def _absorb(base: list[Criterion], exception: dict[str, Any]) -> bool:
     value = effect["value"]
     if not span or span[0] is None or not isinstance(value, int | float) or value <= income["percent"]:
         return False
+    if span[1] is not None and span[0] > span[1]:
+        return False  # 거꾸로 된 가구원 수 범위는 가산으로 옮기지 않음(예외를 옮기지 못한 것으로 남아 확인 필요)
     sizes = {"factor": "HOUSEHOLD_SIZE", "min": as_int(span[0]), "max": as_int(span[1]), "since": None, "countRule": None}
     add = as_number(value - income["percent"])
     # 예외 원문에 그 가구원 수와 값(기준 비율 또는 가산 %p)이 함께 있어야 확정합니다(리뷰 2026-10-22: 2인 +20%p를 1인 값으로 잘못 뽑아도 통과)
