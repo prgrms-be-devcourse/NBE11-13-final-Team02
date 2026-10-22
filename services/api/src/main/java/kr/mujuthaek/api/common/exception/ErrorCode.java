@@ -9,11 +9,17 @@ import org.springframework.http.HttpStatus;
  */
 public enum ErrorCode {
   VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않아요"),
+  /** dev에 먼저 있던 코드. 다른 모듈(eligibility 등)이 쓰므로 남겨 둬요. */
+  INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않아요"),
   INVALID_CURSOR(HttpStatus.BAD_REQUEST, "목록 위치(cursor)가 올바르지 않아요. 처음부터 다시 받아 주세요"),
   UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요"),
   FORBIDDEN(HttpStatus.FORBIDDEN, "권한이 없어요"),
   CSRF_INVALID(HttpStatus.FORBIDDEN, "요청 확인 값(CSRF)이 없거나 달라요"),
   NOT_FOUND(HttpStatus.NOT_FOUND, "대상을 찾을 수 없어요"),
+  METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "이 주소에서 지원하지 않는 요청 방식이에요"),
+  UNSUPPORTED_MEDIA_TYPE(HttpStatus.UNSUPPORTED_MEDIA_TYPE, "지원하지 않는 요청 본문 형식이에요"),
+  /** 위 코드에 없는 그 밖의 4xx 표준 오류 (예: 406). 응답 status는 실제 상태 코드예요. */
+  REQUEST_NOT_SUPPORTED(HttpStatus.BAD_REQUEST, "처리할 수 없는 요청이에요"),
   CONFLICT(HttpStatus.CONFLICT, "이미 처리된 요청과 겹쳐요"),
   RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 잦아요. 잠시 뒤에 다시 해 주세요"),
   INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 났어요"),

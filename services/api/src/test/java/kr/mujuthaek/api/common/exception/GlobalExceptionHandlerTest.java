@@ -1,9 +1,11 @@
 package kr.mujuthaek.api.common.exception;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 class GlobalExceptionHandlerTest {
@@ -45,6 +48,11 @@ class GlobalExceptionHandlerTest {
         throw new IllegalStateException("판정 실패 Applicant[personalIncomeAnnualWon=32000000]");
       }
       throw new CustomException(ErrorCode.NOTICE_NOT_FOUND);
+    }
+
+    @GetMapping("/api/v1/me")
+    String me(@RequestHeader("X-Session") String session) {
+      return "ok";
     }
   }
 
@@ -116,6 +124,30 @@ class GlobalExceptionHandlerTest {
             .andExpect(jsonPath("$.timestamp").exists())
             .andReturn();
     assertThat(result.getResponse().getContentAsString()).doesNotContain("DB 연결");
+  }
+
+  @Test
+  void springStandardClientErrorsKeepTheirStatusAndHeaders() throws Exception {
+    mvc.perform(delete("/api/v1/notices/01J"))
+        .andExpect(status().isMethodNotAllowed())
+        .andExpect(header().string("Allow", org.hamcrest.Matchers.containsString("GET")))
+        .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON))
+        .andExpect(jsonPath("$.status").value(405))
+        .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"))
+        .andExpect(jsonPath("$.instance").value("/api/v1/notices/01J"))
+        .andExpect(jsonPath("$.timestamp").doesNotExist());
+
+    mvc.perform(
+            post("/api/v1/notices/01J/evaluate")
+                .contentType(MediaType.TEXT_PLAIN)
+                .content("applicant"))
+        .andExpect(status().isUnsupportedMediaType())
+        .andExpect(jsonPath("$.status").value(415))
+        .andExpect(jsonPath("$.code").value("UNSUPPORTED_MEDIA_TYPE"));
+
+    mvc.perform(get("/api/v1/me"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
   }
 
   @Test
