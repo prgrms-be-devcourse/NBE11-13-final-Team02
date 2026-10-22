@@ -228,6 +228,25 @@ class PostgresAreaBaseDataLoaderTest {
   }
 
   @Test
+  void addressEntrance_acceptsUndergroundCode3() throws Exception {
+    // 경남 통영 실제 2줄: 산양일주로 1461-132는 지하여부 3, 산양일주로 46은 0
+    AreaLoadReport r = load(AreaSource.ADDRESS_ENTRANCE, "48", "address_entrance_48.txt", false);
+
+    assertThat(r.rowsRejected()).isZero();
+    assertThat(r.rowsInserted()).isEqualTo(2);
+    assertThat(
+            one(
+                "select road_name||'|'||underground||'|'||bldg_main||'-'||bldg_sub"
+                    + " from area.address_points where address_id = '48220250333301430146100132'"))
+        .isEqualTo("산양일주로|3|1461-132");
+    assertThat(
+            one(
+                "select col_description('area.address_points'::regclass, attnum) from pg_attribute"
+                    + " where attrelid = 'area.address_points'::regclass and attname = 'underground'"))
+        .contains("지하");
+  }
+
+  @Test
   void addressEntrance_deletesOnlyWithinSidoCode() throws Exception {
     load(AreaSource.ADDRESS_ENTRANCE, "26", "address_entrance_26.txt", false);
     AreaLoadReport seoul =
