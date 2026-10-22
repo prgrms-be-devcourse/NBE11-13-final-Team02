@@ -1,0 +1,585 @@
+{
+  "description": "양산사송A-4BL LH희망상가 공공지원형 (사업공간 틀 전체 예시, 기준일 2026-10-12)",
+  "frame": {
+    "schema": "business-space-judgment.v1",
+    "rawPostId": "(양산사송 희망상가 공고의 rawPostId)",
+    "rawVersion": 1,
+    "referenceDate": "2026-10-12",
+    "common": [
+      {
+        "id": "nationality",
+        "kind": "NATIONALITY",
+        "quote": "신청 제한 : 대한민국 국민이 아닌 자, 「민법」상 미성년자, 피성년후견인 또는 피한정후견인, LH공사의 직원 및 그 배우자·부모와 자녀는 신청이 불가하며, 공동명의로 신청하는 것도 불허함",
+        "page": 4,
+        "inReview": false,
+        "reviewReason": null,
+        "countryCodes": [
+          "KR"
+        ]
+      },
+      {
+        "id": "adult",
+        "kind": "AGE",
+        "quote": "신청 제한 : 대한민국 국민이 아닌 자, 「민법」상 미성년자, 피성년후견인 또는 피한정후견인, LH공사의 직원 및 그 배우자·부모와 자녀는 신청이 불가하며, 공동명의로 신청하는 것도 불허함",
+        "page": 4,
+        "inReview": false,
+        "reviewReason": null,
+        "minAge": 19,
+        "maxAge": null
+      },
+      {
+        "id": "restricted",
+        "kind": "EXCLUDED_STATUS",
+        "quote": "신청 제한 : 대한민국 국민이 아닌 자, 「민법」상 미성년자, 피성년후견인 또는 피한정후견인, LH공사의 직원 및 그 배우자·부모와 자녀는 신청이 불가하며, 공동명의로 신청하는 것도 불허함",
+        "page": 4,
+        "inReview": false,
+        "reviewReason": null,
+        "anyOf": [
+          "ADULT_WARD",
+          "LH_EMPLOYEE_FAMILY"
+        ]
+      },
+      {
+        "id": "real-use",
+        "kind": "ASK",
+        "quote": "상가를 실제 사용하고자 하는 개인 또는 법인으로서 청년, 경력단절여성, 사회적기업(예비사회적기업, 사회적협동조합 포함), 보훈대상자, 소상공인에 해당하는 자",
+        "page": 4,
+        "inReview": false,
+        "reviewReason": null,
+        "question": "상가를 직접 사용해 영업할 건가요?",
+        "metWhen": "YES"
+      },
+      {
+        "id": "not-general-tenant",
+        "kind": "ASK",
+        "quote": "일반형 상가 입점자는 공공지원형 상가 입점 신청 불가함",
+        "page": 4,
+        "inReview": false,
+        "reviewReason": null,
+        "question": "LH희망상가 일반형 상가에 입점해 있나요?",
+        "metWhen": "NO"
+      },
+      {
+        "id": "industry-codes",
+        "kind": "INDUSTRY",
+        "quote": "금회 공급물량은 공공지원형으로 슈퍼마켓, 체인화 편의점, 무인점포로 운영되는 업종, 부동산 중개업 업종은 입점이 불가하며",
+        "page": 3,
+        "inReview": false,
+        "reviewReason": null,
+        "mode": "EXCLUDE",
+        "revision": 11,
+        "codes": [
+          "47121",
+          "47122",
+          "68221"
+        ],
+        "maybeCodes": []
+      },
+      {
+        "id": "industry-other",
+        "kind": "ASK",
+        "quote": "금회 공급물량은 공공지원형으로 슈퍼마켓, 체인화 편의점, 무인점포로 운영되는 업종, 부동산 중개업 업종은 입점이 불가하며 … 「건축법」에 규정된 제1종 또는 제2종 근린생활시설에 해당하는 업종만 입점할 수 있으며, 제2종 근린생활시설 중 장의사, 총포 판매소, 단란주점, 안마시술소 등과 오염물 배출 및 소음 발생 업종 등 입점부적합 업종은 입점할 수 없습니다.",
+        "page": 3,
+        "inReview": false,
+        "reviewReason": null,
+        "question": "입점할 업종이 무인점포로 운영하는 업종이거나 장의사·총포판매소·단란주점·안마시술소, 오염물 배출·소음 발생 업종인가요?",
+        "metWhen": "NO"
+      }
+    ],
+    "groups": [
+      {
+        "id": "youth",
+        "name": "청년 (공공지원형Ⅰ, 임대료 감정평가금액의 50%)",
+        "criteria": [
+          {
+            "id": "youth-age",
+            "kind": "AGE",
+            "quote": "「민법」 제158조 의거, 만19세 이상~만39세 이하로, 창업 아이디어를 보유하고 지속적인 활동 의지가 있는 자",
+            "page": 4,
+            "inReview": false,
+            "reviewReason": null,
+            "minAge": 19,
+            "maxAge": 39
+          },
+          {
+            "id": "youth-idea",
+            "kind": "ASK",
+            "quote": "「민법」 제158조 의거, 만19세 이상~만39세 이하로, 창업 아이디어를 보유하고 지속적인 활동 의지가 있는 자",
+            "page": 4,
+            "inReview": false,
+            "reviewReason": null,
+            "question": "창업 아이디어가 있고 꾸준히 활동할 의지가 있나요?",
+            "metWhen": "YES"
+          }
+        ]
+      },
+      {
+        "id": "career-break-woman",
+        "name": "경력단절여성 (공공지원형Ⅰ)",
+        "criteria": [
+          {
+            "id": "career-break",
+            "kind": "STATUS",
+            "quote": "「여성경제활동법」 제2조 의거, 혼인·임신·출산·육아와 가족구성원의 돌봄 등을 이유로 경제활동을 중단하였거나 경제활동을 한 적이 없는 여성 중 창업을 희망하는 여성",
+            "page": 4,
+            "inReview": false,
+            "reviewReason": null,
+            "anyOf": [
+              "CAREER_BREAK_WOMAN"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "social-enterprise",
+        "name": "사회적기업 (공공지원형Ⅰ)",
+        "criteria": [
+          {
+            "id": "social",
+            "kind": "STATUS",
+            "quote": "「사회적기업법」 제2조 및 제7조 의거, 사회적기업 인증을 받은 자ㆍ예비사회적기업으로 지정된 자 또는 「협동조합기본법」 제2조 의거, 사회적협동조합 설립 인가를 받은 자",
+            "page": 4,
+            "inReview": false,
+            "reviewReason": null,
+            "anyOf": [
+              "SOCIAL_ENTERPRISE",
+              "PRE_SOCIAL_ENTERPRISE",
+              "SOCIAL_COOPERATIVE"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "national-merit",
+        "name": "보훈대상자 (공공지원형Ⅰ)",
+        "criteria": [
+          {
+            "id": "merit",
+            "kind": "STATUS",
+            "quote": "「국가보훈기본법」 제3조 의거, 국가보훈대상자로서 국가보훈등록증(구 국가유공자증 등)을 발급받은 자 또는 국가보훈부에서 확인하는 자",
+            "page": 4,
+            "inReview": false,
+            "reviewReason": null,
+            "anyOf": [
+              "NATIONAL_MERIT"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "small-business",
+        "name": "소상공인 (공공지원형Ⅱ, 임대료 감정평가금액의 80%)",
+        "criteria": [
+          {
+            "id": "small-business-paths",
+            "kind": "ANY_OF",
+            "quote": "「소상공인기본법」 제2조 의거, 소상공인(또는 최근 10년 이내 폐업한 자)으로 최근 10년간 영업경력 1년 이상인 자 또는 현재 영업 중인 자",
+            "page": 4,
+            "inReview": false,
+            "reviewReason": null,
+            "options": [
+              {
+                "label": "현재 영업 중인 소상공인",
+                "criteria": [
+                  {
+                    "id": "small-business-status",
+                    "kind": "STATUS",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "anyOf": [
+                      "SMALL_BUSINESS"
+                    ]
+                  },
+                  {
+                    "id": "operating",
+                    "kind": "BUSINESS_REGISTRATION",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "require": "REGISTERED",
+                    "closedWithinYears": null
+                  }
+                ]
+              },
+              {
+                "label": "최근 10년 안에 폐업했고, 최근 10년간 영업경력 1년 이상",
+                "criteria": [
+                  {
+                    "id": "closed-10y",
+                    "kind": "BUSINESS_REGISTRATION",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "require": "CLOSED",
+                    "closedWithinYears": 10
+                  },
+                  {
+                    "id": "career-12m",
+                    "kind": "BUSINESS_CAREER",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "minMonths": 12,
+                    "withinYears": 10
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "preferences": [],
+    "notes": [
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "공동명의로 신청할 수 없어요.",
+        "quote": "공동명의로 신청하는 것도 불허함",
+        "page": 4
+      },
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "제1종·제2종 근린생활시설에 들어가는 업종만 입점할 수 있어요. 신청 전에 관할 지자체에 영업 신청·허가가 되는지 확인하세요.",
+        "quote": "「건축법」에 규정된 제1종 또는 제2종 근린생활시설에 해당하는 업종만 입점할 수 있으며, 제2종 근린생활시설 중 장의사, 총포 판매소, 단란주점, 안마시술소 등과 오염물 배출 및 소음 발생 업종 등 입점부적합 업종은 입점할 수 없습니다.",
+        "page": 3
+      },
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "먼저 신청했거나 계약한 업종, 일반형 입점자의 업종과 같은 업종으로는 계약할 수 없어요.",
+        "quote": "먼저 신청 중이거나 계약한 업종과 동일한 업종으로는 계약할 수 없습니다. • 일반형(실수요자)의 영업업종과 동일업종은 입점이 불가합니다.",
+        "page": 3
+      },
+      {
+        "kind": "OBLIGATION",
+        "groupId": null,
+        "text": "담배소매인 지정(담배권)을 신청할 수 없어요. 받으면 계약이 해지돼요.",
+        "quote": "금회 공급상가에서는 담배권(담배소매인의 지정) 신청이 불가하며, 담배권 취득 시 직권 계약 해지 조치 후 관할 지자체로 통보할 예정입니다.",
+        "page": 3
+      },
+      {
+        "kind": "OBLIGATION",
+        "groupId": null,
+        "text": "공공지원형 입점자는 원칙적으로 업종을 바꿀 수 없어요.",
+        "quote": "공공지원형 입점자의 업종변경은 원칙상 불가합니다.",
+        "page": 3
+      },
+      {
+        "kind": "OBLIGATION",
+        "groupId": null,
+        "text": "제3자에게 전대하면 계약이 해지돼요.",
+        "quote": "금회 공급되는 상가는 제3자에게 전대하는 것이 엄격히 금지되어 있으며",
+        "page": 1
+      },
+      {
+        "kind": "OBLIGATION",
+        "groupId": null,
+        "text": "임차인 잘못으로 계약이 해제·해지되면 2년 동안 LH희망상가(공공지원형)를 신청할 수 없어요.",
+        "quote": "계약이 해제 또는 해지되는 경우 향후 2년간 LH희망상가(공공지원형) 신청자격을 제한함",
+        "page": 7
+      },
+      {
+        "kind": "SELECTION",
+        "groupId": null,
+        "text": "서류를 가지고 LH 경남지역본부에 방문해 선착순으로 신청하고 그날 계약해요.",
+        "quote": "신청방법 : 제출서류 지참하여 선착순 방문신청 및 당일 계약체결",
+        "page": 4
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "A: 만 30세 예비창업자, 한식 일반 음식점업(56111), 창업 아이디어 있음 → 청년으로 지원 가능",
+      "applicant": {
+        "birthDate": "1996-02-01",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [],
+          "industryCode": "56111"
+        },
+        "statuses": [],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO",
+        "youth-idea": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "youth": "MET",
+          "small-business": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "B: 만 45세 소상공인, 체인화 편의점(47122) → 제한 업종이라 지원 불가",
+      "applicant": {
+        "birthDate": "1981-03-01",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [
+            {
+              "openedOn": "2019-05-01"
+            }
+          ],
+          "industryCode": "47122"
+        },
+        "statuses": [
+          "SMALL_BUSINESS"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "industry-codes": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "C: 만 52세, 2015-03-02 개업·2023-06-30 폐업, 커피 전문점 → 폐업 소상공인 길로 지원 가능",
+      "applicant": {
+        "birthDate": "1974-07-07",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [
+            {
+              "openedOn": "2015-03-02",
+              "closedOn": "2023-06-30"
+            }
+          ],
+          "industryCode": "56221"
+        },
+        "statuses": [],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "small-business": "MET"
+        },
+        "criteria": {
+          "closed-10y": "MET",
+          "career-12m": "MET",
+          "operating": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "D: 만 60세 보훈대상자, 업종을 아직 안 정함 → 확인 필요 (업종 코드 필요)",
+      "applicant": {
+        "birthDate": "1966-01-15",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [],
+          "industryCode": null
+        },
+        "statuses": [
+          "NATIONAL_MERIT"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO"
+      },
+      "expect": {
+        "result": "NEEDS_CHECK",
+        "groups": {
+          "national-merit": "UNKNOWN"
+        },
+        "missingInputs": [
+          "business.industryCode"
+        ]
+      }
+    },
+    {
+      "name": "E: LH 직원 가족 → 신청 제한 사유라 지원 불가",
+      "applicant": {
+        "birthDate": "1996-02-01",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [],
+          "industryCode": "56111"
+        },
+        "statuses": [],
+        "restrictions": [
+          "LH_EMPLOYEE_FAMILY"
+        ]
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO",
+        "youth-idea": "YES"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "restricted": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "F: 만 18세 → 미성년자라 지원 불가",
+      "applicant": {
+        "birthDate": "2008-01-01",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [],
+          "industryCode": "56111"
+        },
+        "statuses": [],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO",
+        "youth-idea": "YES"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "adult": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "G: 대한민국 국민이 아님 → 지원 불가",
+      "applicant": {
+        "birthDate": "1996-02-01",
+        "korean": false,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [],
+          "industryCode": "56111"
+        },
+        "statuses": [],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO",
+        "youth-idea": "YES"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "nationality": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "H: 무인점포로 운영하는 업종이라고 답함 → 지원 불가",
+      "applicant": {
+        "birthDate": "1996-02-01",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [],
+          "industryCode": "56111"
+        },
+        "statuses": [],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "YES",
+        "youth-idea": "YES"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "industry-other": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "I: 2016-10-12 폐업 → 폐업은 10년 안이지만 그 뒤 영업경력이 0개월이라 소상공인 길 불충족",
+      "applicant": {
+        "birthDate": "1970-01-01",
+        "korean": true,
+        "business": {
+          "applicantType": "INDIVIDUAL",
+          "history": [
+            {
+              "openedOn": "2010-01-01",
+              "closedOn": "2016-10-12"
+            }
+          ],
+          "industryCode": "56221"
+        },
+        "statuses": [],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "closed-10y": "MET",
+          "career-12m": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "J: 사업 이력을 안 넣은 경력단절여성 → 공통 조건만 맞으면 지원 가능 (사업 이력은 소상공인 길에만 필요)",
+      "applicant": {
+        "birthDate": "1985-05-05",
+        "korean": true,
+        "business": {
+          "industryCode": "56221"
+        },
+        "statuses": [
+          "CAREER_BREAK_WOMAN"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "real-use": "YES",
+        "not-general-tenant": "NO",
+        "industry-other": "NO"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "career-break-woman": "MET",
+          "small-business": "UNKNOWN"
+        }
+      }
+    }
+  ]
+}

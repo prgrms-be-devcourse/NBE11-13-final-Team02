@@ -10,6 +10,10 @@ public enum ErrorCode {
 
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
+
+  // eligibility
+  ELIGIBILITY_FIELD_MISMATCH(HttpStatus.BAD_REQUEST, "판정하려는 분야와 판정 틀의 분야(schema)가 달라요"),
+  ELIGIBILITY_INVALID_FRAME(HttpStatus.BAD_REQUEST, "판정 틀 형식이 올바르지 않아요"),
   ;
 
   private final HttpStatus status;

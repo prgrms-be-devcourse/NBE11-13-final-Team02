@@ -1,0 +1,138 @@
+{
+  "description": "장기전세 전용 85㎡ 초과 1순위 (구성 예시): 가입 2년 + 지역별·면적별 예치기준금액 이상. 문구는 서울시 보도(2020-05-15, SH 장기전세)와 공공주택 특별법 시행규칙 제18조·주택공급에 관한 규칙 제28조·별표 2 기준",
+  "frame": {
+    "schema": "housing-judgment.v1",
+    "rawPostId": "(장기전세 85㎡ 초과 구성 예시)",
+    "rawVersion": 1,
+    "referenceDate": "2026-10-16",
+    "common": [
+      {
+        "id": "homeless",
+        "kind": "HOMELESS",
+        "quote": "무주택세대구성원",
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "scope": "HOUSEHOLD",
+        "minYears": null
+      }
+    ],
+    "groups": [
+      {
+        "id": "rank1",
+        "name": "1순위 (전용 114.92㎡)",
+        "criteria": [
+          {
+            "id": "rank1-savings",
+            "kind": "SAVINGS",
+            "quote": "주택청약종합저축(청약예금)에 가입하여 2년이 경과한 사람으로서 지역별·면적별 청약예치기준금액 이상인 사람",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "minMonths": 24,
+            "minPayments": null,
+            "minBalanceWon": null,
+            "depositAreaM2": 114.92
+          }
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "전용 85㎡ 초과는 청약종합저축 예치금액으로 순위를 정해요.",
+        "quote": "전용 85㎡초과 주택은 청약종합저축 예치금액에 따라 청약순위가 주어진다.",
+        "page": null
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "서울 거주, 예치금 1,000만원 → 서울·부산 135㎡ 이하 칸 1,000만원 충족",
+      "applicant": {
+        "residenceRegionCode": "1165000000",
+        "household": {"homeless": true},
+        "subscription": {"months": 30, "balanceWon": 10000000}
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {"rank1-savings": "MET"},
+        "summaries": {"rank1-savings": "청약통장 가입 24개월 이상, 예치금이 예치기준금액(전용 114.92㎡, 거주지별) 이상"}
+      }
+    },
+    {
+      "name": "서울 거주, 예치금 900만원 → 1,000만원에 모자라 불충족",
+      "applicant": {
+        "residenceRegionCode": "1165000000",
+        "household": {"homeless": true},
+        "subscription": {"months": 30, "balanceWon": 9000000}
+      },
+      "expect": {"result": "NOT_ELIGIBLE", "criteria": {"rank1-savings": "NOT_MET"}}
+    },
+    {
+      "name": "경기 거주, 예치금 400만원 → 그 밖의 지역 135㎡ 이하 칸 400만원 충족 (지역은 주택이 아니라 신청자 거주지)",
+      "applicant": {
+        "residenceRegionCode": "4113500000",
+        "household": {"homeless": true},
+        "subscription": {"months": 30, "balanceWon": 4000000}
+      },
+      "expect": {"result": "ELIGIBLE", "criteria": {"rank1-savings": "MET"}}
+    },
+    {
+      "name": "인천 거주, 예치금 600만원 → 그 밖의 광역시 135㎡ 이하 칸 700만원이라 불충족",
+      "applicant": {
+        "residenceRegionCode": "2823700000",
+        "household": {"homeless": true},
+        "subscription": {"months": 30, "balanceWon": 6000000}
+      },
+      "expect": {"result": "NOT_ELIGIBLE", "criteria": {"rank1-savings": "NOT_MET"}}
+    },
+    {
+      "name": "가입 20개월 → 예치금과 상관없이 불충족",
+      "applicant": {
+        "residenceRegionCode": "1165000000",
+        "household": {"homeless": true},
+        "subscription": {"months": 20, "balanceWon": 20000000}
+      },
+      "expect": {"result": "NOT_ELIGIBLE", "criteria": {"rank1-savings": "NOT_MET"}}
+    },
+    {
+      "name": "거주지 없음 → 확인 필요, 주민등록 주소지를 물어봐요",
+      "applicant": {
+        "household": {"homeless": true},
+        "subscription": {"months": 30, "balanceWon": 20000000}
+      },
+      "expect": {
+        "result": "NEEDS_CHECK",
+        "criteria": {"rank1-savings": "UNKNOWN"},
+        "reasons": {"rank1-savings": "주민등록 거주지가 있어야 예치기준금액을 고를 수 있어요"},
+        "criterionMissing": {"rank1-savings": ["residenceRegionCode"]}
+      }
+    },
+    {
+      "name": "아무것도 넣지 않음 (질문 목록 받기) → 가입 개월·주민등록 주소지·예치금을 한 번에 물어봐요",
+      "applicant": null,
+      "expect": {
+        "result": "NEEDS_CHECK",
+        "criteria": {"homeless": "UNKNOWN", "rank1-savings": "UNKNOWN"},
+        "criterionMissing": {"rank1-savings": ["subscription.months", "residenceRegionCode", "subscription.balanceWon"]},
+        "missingInputs": ["household.homeless", "subscription.months", "residenceRegionCode", "subscription.balanceWon"]
+      }
+    },
+    {
+      "name": "광주 거주, 기준일이 전남광주통합특별시 출범(2026-07-01) 뒤 → 지역 열을 정할 수 없어 확인 필요",
+      "applicant": {
+        "residenceRegionCode": "2914000000",
+        "household": {"homeless": true},
+        "subscription": {"months": 30, "balanceWon": 20000000}
+      },
+      "expect": {
+        "result": "NEEDS_CHECK",
+        "criteria": {"rank1-savings": "UNKNOWN"},
+        "reasons": {"rank1-savings": "거주지 시도가 예치기준금액 표(별표 2)의 어느 지역 열인지 정할 수 없어요 (예: 2026-07-01 출범한 전남광주통합특별시)"},
+        "criterionMissing": {"rank1-savings": []}
+      }
+    }
+  ]
+}

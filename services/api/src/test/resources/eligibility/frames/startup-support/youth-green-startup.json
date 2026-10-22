@@ -1,0 +1,191 @@
+{
+  "description": "2026 청년그린창업 스프링캠프: 예비청년창업자·초기청년창업기업 (기준일 2026-02-09)",
+  "frame": {
+    "schema": "startup-support-judgment.v1",
+    "rawPolicyId": "test",
+    "rawVersion": 1,
+    "referenceDate": "2026-02-09",
+    "common": [
+      {
+        "id": "green-field",
+        "kind": "ASK",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "question": "녹색산업(환경산업·녹색산업) 분야 창업 아이템인가요?",
+        "metWhen": "YES"
+      }
+    ],
+    "groups": [
+      {
+        "id": "pre-youth",
+        "name": "예비청년창업자",
+        "criteria": [
+          {
+            "id": "pre-youth-none",
+            "kind": "BUSINESS_REGISTRATION",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "require": "NOT_REGISTERED"
+          },
+          {
+            "id": "pre-youth-age",
+            "kind": "AGE",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "minAge": null,
+            "maxAge": 39
+          },
+          {
+            "id": "pre-youth-no-closure",
+            "kind": "CLOSURE",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "mode": "NONE",
+            "closedFrom": "2024-01-01",
+            "closedTo": null
+          }
+        ]
+      },
+      {
+        "id": "early-youth",
+        "name": "초기청년창업기업",
+        "criteria": [
+          {
+            "id": "early-youth-registered",
+            "kind": "BUSINESS_REGISTRATION",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "require": "REGISTERED"
+          },
+          {
+            "id": "early-youth-age-window",
+            "kind": "BUSINESS_AGE",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "openedFrom": "2023-02-10",
+            "openedTo": "2026-02-09"
+          },
+          {
+            "id": "early-youth-age",
+            "kind": "AGE",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "minAge": null,
+            "maxAge": 39
+          }
+        ]
+      }
+    ],
+    "preferences": [],
+    "notes": []
+  },
+  "cases": [
+    {
+      "name": "만 30세 예비창업자, 폐업 이력 없음 → 예비청년창업자로 지원 가능",
+      "applicant": {
+        "birthDate": "1995-05-05",
+        "business": {
+          "history": []
+        }
+      },
+      "answers": {
+        "green-field": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "pre-youth": "MET",
+          "early-youth": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "2024-03-01 폐업한 예비창업자 → 2024-01-01 이후 폐업이라 불충족",
+      "applicant": {
+        "birthDate": "1995-05-05",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2021-01-01",
+              "closedOn": "2024-03-01"
+            }
+          ]
+        }
+      },
+      "answers": {
+        "green-field": "YES"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "pre-youth-no-closure": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "2023-02-09 개업 → 범위('23.2.10~) 전날이라 초기청년창업기업 불충족",
+      "applicant": {
+        "birthDate": "1995-05-05",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2023-02-09"
+            }
+          ]
+        }
+      },
+      "answers": {
+        "green-field": "YES"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "early-youth-age-window": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "2023-02-10 개업, 만 35세 → 초기청년창업기업으로 지원 가능",
+      "applicant": {
+        "birthDate": "1990-05-05",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2023-02-10"
+            }
+          ]
+        }
+      },
+      "answers": {
+        "green-field": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "early-youth": "MET"
+        }
+      }
+    }
+  ]
+}

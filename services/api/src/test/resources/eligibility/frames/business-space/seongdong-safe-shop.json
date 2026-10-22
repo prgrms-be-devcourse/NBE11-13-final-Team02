@@ -1,0 +1,174 @@
+{
+  "description": "성동안심상가빌딩: 법인만, 사회적경제조직, 지역 가점 5점 (기준일 2025-09-24)",
+  "frame": {
+    "schema": "business-space-judgment.v1",
+    "rawPostId": "test",
+    "rawVersion": 1,
+    "referenceDate": "2025-09-24",
+    "common": [
+      {
+        "id": "corporation",
+        "kind": "APPLICANT_TYPE",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "only": "CORPORATION"
+      },
+      {
+        "id": "social-economy",
+        "kind": "ANY_OF",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "options": [
+          {
+            "label": "인증·지정받은 사회적경제기업",
+            "criteria": [
+              {
+                "id": "social-economy-status",
+                "kind": "STATUS",
+                "quote": null,
+                "page": null,
+                "inReview": false,
+                "reviewReason": null,
+                "anyOf": [
+                  "SOCIAL_ENTERPRISE",
+                  "PRE_SOCIAL_ENTERPRISE",
+                  "SOCIAL_COOPERATIVE",
+                  "VILLAGE_ENTERPRISE",
+                  "SELF_SUFFICIENCY_ENTERPRISE",
+                  "SOCIAL_VENTURE"
+                ]
+              }
+            ]
+          },
+          {
+            "label": "정관·규약에 사회적 가치 실현을 적은 법인",
+            "criteria": [
+              {
+                "id": "social-value-articles",
+                "kind": "ASK",
+                "quote": null,
+                "page": null,
+                "inReview": false,
+                "reviewReason": null,
+                "question": "정관이나 규약에 사회적 가치 실현을 명확히 적어 둔 법인인가요?",
+                "metWhen": "YES"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "groups": [
+      {
+        "id": "all",
+        "name": "사회적 경제조직",
+        "criteria": []
+      }
+    ],
+    "preferences": [
+      {
+        "id": "seongdong-site",
+        "label": "업체 소재지가 성동구 (가점 5점)",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 5,
+        "criteria": [
+          {
+            "id": "seongdong",
+            "kind": "REGION",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "BUSINESS_SITE",
+            "regionCodes": [
+              "1120000000"
+            ]
+          }
+        ],
+        "quote": null,
+        "page": null
+      }
+    ],
+    "notes": [
+      {
+        "kind": "OBLIGATION",
+        "groupId": null,
+        "text": "입주 뒤 3개월 안에 사업장 소재지를 성동구로 옮기고 증빙을 내야 해요.",
+        "quote": null,
+        "page": null
+      },
+      {
+        "kind": "SELECTION",
+        "groupId": null,
+        "text": "서면·면접 심사 점수를 합쳐 고득점자 순으로 뽑아요.",
+        "quote": null,
+        "page": null
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "사회적기업 인증 법인, 성수동2가 사업장 → 지원 가능 + 성동구 가점 5점",
+      "applicant": {
+        "business": {
+          "applicantType": "CORPORATION",
+          "hasSite": true,
+          "siteRegionCode": "1120011500"
+        },
+        "statuses": [
+          "SOCIAL_ENTERPRISE"
+        ]
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "preferences": {
+          "seongdong-site": "MET"
+        }
+      }
+    },
+    {
+      "name": "개인으로 신청 → 법인만이라 지원 불가",
+      "applicant": {
+        "business": {
+          "applicantType": "INDIVIDUAL"
+        },
+        "statuses": [
+          "SOCIAL_ENTERPRISE"
+        ]
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "corporation": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "인증 없는 법인, 정관에 사회적 가치를 적었다고 답함 → 지원 가능",
+      "applicant": {
+        "business": {
+          "applicantType": "CORPORATION",
+          "hasSite": false
+        },
+        "statuses": []
+      },
+      "answers": {
+        "social-value-articles": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "social-economy": "MET"
+        },
+        "preferences": {
+          "seongdong-site": "NOT_MET"
+        }
+      }
+    }
+  ]
+}

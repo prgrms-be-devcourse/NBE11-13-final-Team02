@@ -1,0 +1,327 @@
+{
+  "description": "2026 예비창업패키지: 기준일이 다른 예비창업자 조건, 최근 폐업 이력, 분야별 대상군 (기준일 2026-02-27)",
+  "frame": {
+    "schema": "startup-support-judgment.v1",
+    "rawPolicyId": "test",
+    "rawVersion": 1,
+    "referenceDate": "2026-02-27",
+    "common": [
+      {
+        "id": "pre-founder",
+        "kind": "ANY_OF",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "options": [
+          {
+            "label": "기준일에 사업자가 아님",
+            "criteria": [
+              {
+                "id": "no-business",
+                "kind": "BUSINESS_REGISTRATION",
+                "quote": null,
+                "page": null,
+                "inReview": false,
+                "reviewReason": null,
+                "asOf": "2026-01-22",
+                "require": "NOT_REGISTERED"
+              }
+            ]
+          },
+          {
+            "label": "부동산임대업만 하는 개인사업자 (예외)",
+            "criteria": [
+              {
+                "id": "rental-only",
+                "kind": "ASK",
+                "quote": null,
+                "page": null,
+                "inReview": false,
+                "reviewReason": null,
+                "asOf": null,
+                "question": "기준일(2026-01-22)에 직원 없이 부동산임대업만 하는 개인사업자이고, 협약 종료 2개월 전까지 다른 업종 법인으로 창업할 수 있나요?",
+                "metWhen": "YES"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "no-recent-closure",
+        "kind": "CLOSURE",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "mode": "NONE",
+        "closedFrom": "2026-01-28",
+        "closedTo": "2026-02-27"
+      },
+      {
+        "id": "same-industry-restart",
+        "kind": "ASK",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "question": "예전에 폐업한 사업과 같은 업종(한국표준산업분류 5자리)으로 창업하려 하고, 폐업한 지 3년(부도·파산은 2년)이 안 됐나요?",
+        "metWhen": "NO"
+      }
+    ],
+    "groups": [
+      {
+        "id": "general",
+        "name": "일반분야",
+        "criteria": []
+      },
+      {
+        "id": "women",
+        "name": "특화분야: 여성",
+        "criteria": [
+          {
+            "id": "woman",
+            "kind": "STATUS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "anyOf": [
+              "WOMAN"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "social-venture",
+        "name": "특화분야: 소셜벤처",
+        "criteria": [
+          {
+            "id": "social-venture-plan",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "사회문제 해결을 목표로 수익을 내는 소셜벤처 기업을 창업하려 하나요?",
+            "metWhen": "YES"
+          }
+        ]
+      }
+    ],
+    "preferences": [
+      {
+        "id": "ai-grad",
+        "label": "인공지능(융합혁신) 대학원 졸업생 (가점 2점)",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 2,
+        "criteria": [
+          {
+            "id": "ai-grad-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "인공지능대학원이나 인공지능융합혁신대학원을 졸업했나요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": null,
+        "page": null
+      },
+      {
+        "id": "contest",
+        "label": "최근 2년 중앙정부 창업경진대회 장관급 이상 수상 (가점 1점)",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 1,
+        "criteria": [
+          {
+            "id": "contest-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "2024-02-27~2026-02-26에 중앙정부 주관 전국 창업경진대회에서 장관급 이상 상을 받았나요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": null,
+        "page": null
+      },
+      {
+        "id": "climate",
+        "label": "기후테크 분야 창업 예정 (가점 1점)",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 1,
+        "criteria": [
+          {
+            "id": "climate-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "기후테크 분야로 창업할 예정인가요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": null,
+        "page": null
+      },
+      {
+        "id": "doc-exempt",
+        "label": "서류평가 면제 대상",
+        "groupId": null,
+        "effect": "OTHER",
+        "points": null,
+        "criteria": [
+          {
+            "id": "doc-exempt-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "2025 도전! K-스타트업 왕중왕전 진출 등 서류평가 면제 대상인가요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": null,
+        "page": null
+      }
+    ],
+    "notes": [
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "가점은 최대 3점까지예요.",
+        "quote": null,
+        "page": null
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "사업자 없음, 폐업 이력 없음 → 일반분야로 지원 가능",
+      "applicant": {
+        "business": {
+          "history": []
+        },
+        "statuses": []
+      },
+      "answers": {
+        "same-industry-restart": "NO"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "general": "MET",
+          "women": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "2026-02-01에 개업 → 예비창업자 기준일(2026-01-22)엔 사업자가 아니라 지원 가능",
+      "applicant": {
+        "business": {
+          "history": [
+            {
+              "openedOn": "2026-02-01"
+            }
+          ]
+        },
+        "statuses": []
+      },
+      "answers": {
+        "same-industry-restart": "NO"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "no-business": "MET"
+        }
+      }
+    },
+    {
+      "name": "2025-06-01 개업해서 영업 중, 부동산임대업 예외 '아니오' → 지원 불가",
+      "applicant": {
+        "business": {
+          "history": [
+            {
+              "openedOn": "2025-06-01"
+            }
+          ]
+        },
+        "statuses": []
+      },
+      "answers": {
+        "same-industry-restart": "NO",
+        "rental-only": "NO"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "pre-founder": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "2026-02-10 폐업 → 최근 1개월 안 폐업이라 지원 불가",
+      "applicant": {
+        "business": {
+          "history": [
+            {
+              "openedOn": "2020-01-01",
+              "closedOn": "2026-02-10"
+            }
+          ]
+        },
+        "statuses": []
+      },
+      "answers": {
+        "same-industry-restart": "NO"
+      },
+      "expect": {
+        "result": "NOT_ELIGIBLE",
+        "criteria": {
+          "no-recent-closure": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "여성 → 여성 분야도 충족",
+      "applicant": {
+        "business": {
+          "history": []
+        },
+        "statuses": [
+          "WOMAN"
+        ]
+      },
+      "answers": {
+        "same-industry-restart": "NO"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "general": "MET",
+          "women": "MET"
+        }
+      }
+    }
+  ]
+}
