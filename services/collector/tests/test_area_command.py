@@ -1,9 +1,16 @@
+"""area-upload 명령. --skip-upload 경로의 실제 S3 동작은 로컬 MinIO로 확인해요 (없으면 건너뜀):
+COLLECTOR_TEST_S3=1 uv run pytest tests/test_area_command.py
+"""
+
 import csv
+import os
 from datetime import date
 from pathlib import Path
 
+import pytest
+
 from mujuthaek_collector.area import command, sources
-from mujuthaek_collector.area.upload import sha256_of
+from mujuthaek_collector.area.upload import sha256_of, upload_once
 from tests.fakes import MemoryFileStore
 
 MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest.csv"
@@ -67,6 +74,54 @@ def test_manifest_records_events_for_files_already_in_s3(tmp_path):
     assert result.recorded == 2
     assert result.problems == ["area/STORES/2026-06-30/stores_gyeonggi.csv: S3의 sha256이 목록과 달라요"]
     assert command.from_manifest(files, outbox, manifest).recorded == 0  # 두 번째는 같은 eventId라 기록 안 함
+
+
+def write_manifest(path: Path, rows: list[list[str]]) -> Path:
+    with path.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["source", "scope", "s3Key", "sha256", "dataDate", "fileName", "rows"])
+        writer.writerows(rows)
+    return path
+
+
+@pytest.mark.skipif(not os.getenv("COLLECTOR_TEST_S3"), reason="COLLECTOR_TEST_S3가 없어요 (로컬 MinIO 테스트)")
+def test_local_minio_skip_upload_records_only_events_and_rejects_a_different_sha(tmp_path):
+    from mujuthaek_collector.config import Settings
+    from mujuthaek_collector.core.file_store import S3FileStore
+
+    settings = Settings.from_env()
+    files = S3FileStore(settings.s3_bucket, settings.s3_endpoint, settings.s3_access_key, settings.s3_secret_key)
+    data_date = date(1999, 1, 1)  # 실제 원천과 키가 겹치지 않는 기준일
+    bus_key = sources.s3_key("BUS_STOP", data_date)
+    store_key = sources.s3_key("STORES", data_date, "제주")
+    bus = write_csv(tmp_path / "bus.csv", 3)
+    store = tmp_path / "store.csv"
+    store.write_text("상가업소번호,상호명\nMA0001,가게\n", encoding="utf-8")
+    try:
+        # 먼저 올려 둠 (메타데이터 source·data-date·sha256)
+        upload_once(files, bus_key, bus, "BUS_STOP", data_date, sha256_of(bus))
+        upload_once(files, store_key, store, "STORES", data_date, sha256_of(store))
+        manifest = write_manifest(
+            tmp_path / "manifest.csv",
+            [
+                ["BUS_STOP", "ALL", bus_key, sha256_of(bus), data_date.isoformat(), "bus.csv", "3"],
+                ["STORES", "제주", store_key, "0" * 64, data_date.isoformat(), "store.csv", "1"],
+            ],
+        )
+        before = {k: files.metadata(k) for k in (bus_key, store_key)}
+        outbox = MemoryOutbox()
+
+        result = command.from_manifest(files, outbox, manifest)
+
+        assert (result.uploaded, result.recorded) == (0, 1)
+        assert result.problems == [f"{store_key}: S3의 sha256이 목록과 달라요"]
+        [event] = outbox.events.values()
+        assert event["payload"]["s3Key"] == bus_key
+        assert event["payload"]["sha256"] == sha256_of(bus)
+        assert {k: files.metadata(k) for k in (bus_key, store_key)} == before  # 올리지 않음
+    finally:
+        files.delete(bus_key)
+        files.delete(store_key)
 
 
 def test_the_manifest_in_the_repo_follows_the_key_rule():
