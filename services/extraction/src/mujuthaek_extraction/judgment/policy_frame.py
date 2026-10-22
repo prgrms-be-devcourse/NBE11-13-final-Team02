@@ -84,6 +84,35 @@ def _has_won(quote: str, won: int | None) -> bool:
     return any(re.search(rf"(?<![\d.]){re.escape(c)}(?![\d])", plain) for c in candidates)
 
 
+# 값의 방향(리뷰 2026-10-22: 「만 40세 이상」을 maxAge 39로, 「3년 이상」을 「3년 이내」로 뽑아도 숫자만 맞아 확정됐음)
+UPPER = re.compile(r"이하|미만|이내|까지|지나지\s*않|되지\s*않|안\s*된|[~∼]")
+LOWER = re.compile(r"이상|초과|부터|넘|경과|[~∼]")
+YEARS_WORDS = {
+    "WITHIN": re.compile(r"이내|이하|까지"),
+    "UNDER": re.compile(r"미만|지나지\s*않|되지\s*않|안\s*된"),
+    "AT_LEAST": re.compile(r"이상|경과|지난"),
+    "OVER": re.compile(r"초과|넘"),
+}
+NO_DIRECTION = "질문 방향(예·아니오 중 어느 답이 충족인지)을 정하지 못했습니다"
+
+
+def region_named(name: str, quote: str) -> bool:
+    """지역 이름이 근거 문장에 있는지: 시도는 앞 두 글자(「대구광역시」↔「대구」), 시군구 이하는 이름 전체(「남구」≠「북구」)."""
+    tokens = [_norm(t) for t in str(name).split() if t.strip()]
+    plain = _norm(quote)
+    return bool(tokens) and tokens[0][:2] in plain and all(t in plain for t in tokens[1:])
+
+
+def _valid_day(value: Any) -> bool:
+    if value is None:
+        return True
+    try:
+        date.fromisoformat(str(value))
+    except ValueError:
+        return False
+    return True
+
+
 def _years_ago(day: date, years: int) -> date:
     try:
         return day.replace(year=day.year - years)
@@ -128,6 +157,8 @@ class _Builder:
         return criterion | {"inReview": bool(reasons), "reviewReason": "; ".join(reasons) or None}
 
     def ask(self, item: dict[str, Any], quote: str, reasons: list[str]) -> dict[str, Any]:
+        if item.get("question") and not item.get("metWhen") and item["kind"] not in EXCLUDING_KINDS:
+            reasons = [*reasons, NO_DIRECTION]  # AI가 쓴 질문의 답 방향을 모름(「신청 제외 대상에 해당하나요?」가 YES로 채워지면 뜻이 뒤집힘)
         met = item.get("metWhen") or ("NO" if item["kind"] in EXCLUDING_KINDS else "YES")
         question = item.get("question") or (f"다음 신청 제외 대상에 해당하나요? 「{quote}」" if met == "NO" else f"다음 조건에 해당하나요? 「{quote}」")
         return self.flag(self.base("ASK", quote) | {"question": question, "metWhen": met}, reasons)
@@ -168,19 +199,20 @@ class _Builder:
             reasons.append("대상군을 정하지 못했습니다")  # 없는 대상군을 가리킨 조건은 공통으로 두되 확인 필요
         if kind == "AGE" and (item["minAge"] is not None or item["maxAge"] is not None):
             seen = _has_number(quote, item["minAge"]) and (_has_number(quote, item["maxAge"]) or _has_number(quote, (item["maxAge"] or 0) + 1))
+            seen = seen and (item["minAge"] is None or bool(LOWER.search(quote))) and (item["maxAge"] is None or bool(UPPER.search(quote)))
             return self.flag(self.base("AGE", quote) | {"minAge": item["minAge"], "maxAge": item["maxAge"]}, reasons + ([] if seen else [VALUE_MISSING]))
         if kind == "REGION" and item["regionNames"] and item["regionBasis"]:
             codes = self.region_codes(item["regionNames"])
             if codes is None:
                 return self.ask(item, quote, reasons + [NO_REGION])
-            seen = all(_norm(n)[:2] in _norm(quote) for n in item["regionNames"])
+            seen = all(region_named(n, quote) for n in item["regionNames"])
             return self.flag(self.base("REGION", quote) | {"basis": item["regionBasis"], "regionCodes": codes}, reasons + ([] if seen else [VALUE_MISSING]))
         if kind in ("PRE_FOUNDER", "REGISTERED"):
             made = self.base("BUSINESS_REGISTRATION", quote) | {"require": "NOT_REGISTERED" if kind == "PRE_FOUNDER" else "REGISTERED"}
             return self.flag(made if self.startup else made | {"closedWithinYears": None}, reasons)
         if kind == "BUSINESS_AGE" and self.startup:
             return self.business_age(item, quote, reasons, reference)
-        if kind == "BUSINESS_AGE" and item["years"] and item["yearsRule"] and not item["question"]:
+        if kind == "BUSINESS_AGE" and _sane_years(item["years"]) and item["yearsRule"] and not item["question"]:
             # 사업공간 틀에는 업력 칸이 「N개월 이상」뿐이라 질문으로. 문장 전체 대신 업력만 묻습니다
             years = f"{item['years']:g}"
             question = {
@@ -189,16 +221,28 @@ class _Builder:
                 "AT_LEAST": f"사업을 시작한 날(법인은 설립등기일)부터 {years}년 이상 지났나요?",
                 "OVER": f"사업을 시작한 날(법인은 설립등기일)부터 {years}년이 넘게 지났나요?",
             }[item["yearsRule"]]
-            seen = [] if _has_number(quote, item["years"]) else [VALUE_MISSING]
-            return self.ask(item | {"question": question, "metWhen": "YES"}, quote, reasons + seen)
+            seen = _has_number(quote, item["years"]) and bool(YEARS_WORDS[item["yearsRule"]].search(quote))
+            return self.ask(item | {"question": question, "metWhen": "YES"}, quote, reasons + ([] if seen else [VALUE_MISSING]))
         if kind in ("NO_RECENT_CLOSURE", "CLOSURE_REQUIRED") and self.startup:
             return self.closure(item, quote, reasons, reference)
-        if kind == "CLOSURE_REQUIRED" and not self.startup and isinstance(item["closedYears"], int | float) and float(item["closedYears"]).is_integer():
+        if kind == "CLOSURE_REQUIRED" and not self.startup and _sane_years(item["closedYears"]):
             seen = _has_number(quote, item["closedYears"])
             made = self.base("BUSINESS_REGISTRATION", quote) | {"require": "CLOSED", "closedWithinYears": int(item["closedYears"])}
             return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
-        if kind == "REVENUE" and self.startup and isinstance(item["revenueYear"], int) and (item["revenueMinWon"] or item["revenueMaxWon"]):
+        if (
+            kind == "REVENUE"
+            and self.startup
+            and isinstance(item["revenueYear"], int)
+            and item["revenueYear"] >= 2000
+            and (item["revenueMinWon"] or item["revenueMaxWon"])
+        ):
+            if any(isinstance(w, int) and w < 0 for w in (item["revenueMinWon"], item["revenueMaxWon"])):
+                return self.ask(item, quote, reasons + [VALUE_MISSING])
             seen = _has_won(quote, item["revenueMinWon"]) and _has_won(quote, item["revenueMaxWon"])
+            seen = seen and (not item["revenueMinWon"] or bool(LOWER.search(quote))) and (not item["revenueMaxWon"] or bool(UPPER.search(quote)))
+            # 「전년도」면 기준일 연도 − 1, 숫자 연도면 근거 문장에 그 연도가 있어야 함
+            prior = "전년도" in quote and reference is not None and item["revenueYear"] == reference.year - 1
+            seen = seen and (prior or str(item["revenueYear"]) in quote or str(item["revenueYear"] % 100) in _numbers(quote))
             made = self.base("REVENUE", quote) | {"year": item["revenueYear"], "minWon": item["revenueMinWon"], "maxWon": item["revenueMaxWon"]}
             return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
         if kind in ("INDUSTRY_EXCLUDE", "INDUSTRY_ONLY") and item["industryCodes"]:
@@ -215,26 +259,31 @@ class _Builder:
 
     def business_age(self, item: dict[str, Any], quote: str, reasons: list[str], reference: date | None) -> dict[str, Any]:
         if item["openedFrom"] or item["openedTo"]:
+            if not (_valid_day(item["openedFrom"]) and _valid_day(item["openedTo"])):
+                return self.ask(item, quote, reasons + [VALUE_MISSING])  # 「2023.10.07」처럼 형식이 틀리면 틀 검사에 걸려 틀 전체가 버려짐
             seen = _has_date(quote, item["openedFrom"]) and _has_date(quote, item["openedTo"])
             made = self.base("BUSINESS_AGE", quote) | {"openedFrom": item["openedFrom"], "openedTo": item["openedTo"]}
             return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
         years, rule = item["years"], item["yearsRule"]
-        if not isinstance(years, int | float) or not float(years).is_integer() or not rule:
+        if not _sane_years(years) or not rule:
             return self.ask(item, quote, reasons)
         if reference is None:
             return self.ask(item, quote, reasons + [NO_REFERENCE])
         opened_from, opened_to = opened_range(reference, int(years), rule)
         made = self.base("BUSINESS_AGE", quote) | {"openedFrom": opened_from, "openedTo": opened_to}
-        return self.flag(made, reasons + ([] if _has_number(quote, years) else [VALUE_MISSING]))
+        seen = _has_number(quote, years) and bool(YEARS_WORDS[rule].search(quote))
+        return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
 
     def closure(self, item: dict[str, Any], quote: str, reasons: list[str], reference: date | None) -> dict[str, Any]:
         mode = "NONE" if item["kind"] == "NO_RECENT_CLOSURE" else "ANY"
         if item["closedFrom"] or item["closedTo"]:
+            if not (_valid_day(item["closedFrom"]) and _valid_day(item["closedTo"])):
+                return self.ask(item, quote, reasons + [VALUE_MISSING])
             seen = _has_date(quote, item["closedFrom"]) and _has_date(quote, item["closedTo"])
             made = self.base("CLOSURE", quote) | {"mode": mode, "closedFrom": item["closedFrom"], "closedTo": item["closedTo"]}
             return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
         years = item["closedYears"]
-        if isinstance(years, int | float) and float(years).is_integer() and reference is not None:
+        if _sane_years(years) and reference is not None:
             made = self.base("CLOSURE", quote) | {"mode": mode, "closedFrom": _years_ago(reference, int(years)).isoformat(), "closedTo": None}
             return self.flag(made, reasons + ([] if _has_number(quote, years) else [VALUE_MISSING]))
         if years is None and mode == "ANY":
@@ -275,7 +324,11 @@ class _Builder:
         group_ids = {key: self.new_id(f"group-{key}") for key in keys}
         common_items = [c for c in self.answer["conditions"] if c["group"] not in keys]
         groups = [
-            {"id": group_ids[key], "name": group["name"], "criteria": self.criteria([c for c in self.answer["conditions"] if c["group"] == key], reference)}
+            {
+                "id": group_ids[key],
+                "name": group["name"].strip() or key,
+                "criteria": self.criteria([c for c in self.answer["conditions"] if c["group"] == key], reference),
+            }
             for key, group in keys.items()
         ] or [{"id": self.new_id("all"), "name": "전체", "criteria": []}]
         common = self.criteria(common_items, reference)
@@ -286,11 +339,13 @@ class _Builder:
             points = item["points"] if item["effect"] == "BONUS_POINTS" and isinstance(item["points"], int | float) and item["points"] > 0 else None
             if item["effect"] == "BONUS_POINTS" and points is None:
                 continue  # 점수 없는 가점은 틀에 담을 수 없어 안내로
+            if points is not None and not _has_number(quote, points):
+                reasons = [*reasons, VALUE_MISSING]  # 근거 문장은 「가점 3점」인데 점수가 다름
             ask = self.flag(self.base("ASK", quote) | {"question": item["question"] or f"다음에 해당하나요? 「{quote}」", "metWhen": "YES"}, reasons)
             preferences.append(
                 {
                     "id": self.new_id("pref"),
-                    "label": item["label"][:80] or quote[:80],
+                    "label": (item["label"].strip() or quote.strip() or "우대")[:80],
                     "groupId": group_ids.get(item["group"]),
                     "effect": item["effect"],
                     "points": points,
@@ -311,6 +366,11 @@ class _Builder:
             if n["text"].strip()
         ]
         return common, groups, preferences, notes
+
+
+def _sane_years(value: Any) -> bool:
+    """1~100년의 정수만(「5000년」은 날짜 계산에서 예외, 0년은 틀 스키마 위반)."""
+    return isinstance(value, int | float) and not isinstance(value, bool) and float(value).is_integer() and 1 <= value <= 100
 
 
 def _nationwide(item: dict[str, Any]) -> bool:

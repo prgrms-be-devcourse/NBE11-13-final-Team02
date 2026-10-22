@@ -10,15 +10,18 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.judgment import build_judgment
-from mujuthaek_extraction.judgment.policy_frame import space_frame, startup_frame
+from mujuthaek_extraction.judgment.policy_frame import region_named, space_frame, startup_frame
 from mujuthaek_extraction.judgment.schema import frame_errors
 from mujuthaek_extraction.judgment.space import build_space
 from mujuthaek_extraction.judgment.startup import build_startup
+
+log = logging.getLogger(__name__)
 
 
 def _issue_targets(candidate: dict[str, Any], *, with_notes: bool = False) -> list[tuple[str, str]]:
@@ -178,7 +181,7 @@ def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = Non
     names, quote = support.get("names") or [], support.get("quote")
     text = re.sub(r"\s+", "", str(policy.get("text") or ""))
     plain = re.sub(r"\s+", "", quote or "")
-    if len(plain) < 2 or plain not in text or not names or not all(re.sub(r"\s+", "", n)[:2] in plain for n in names):
+    if len(plain) < 2 or plain not in text or not names or not all(region_named(n, quote) or n in REGION_GROUPS and n in plain for n in names):
         return None
     if names == ["전국"]:
         return []
@@ -191,11 +194,15 @@ def policy_frame(policy: dict[str, Any], reading: Any, regions: Any) -> dict[str
     startup = policy.get("field") == "STARTUP_SUPPORT"
     if reading is not None and not reading.answer["relevant"]:
         return None
-    candidates = []
     if reading is not None:
-        candidates.append((startup_frame if startup else space_frame)(policy, reading, regions))
-    candidates.append(build_startup(policy) if startup else build_space(policy))
-    return next((f for f in candidates if f is not None and not frame_errors(f)), None)
+        frame = (startup_frame if startup else space_frame)(policy, reading, regions)
+        errors = frame_errors(frame) if frame is not None else []
+        if frame is not None and not errors:
+            return frame
+        if errors:  # 틀 검사에 걸린 AI 틀: 위치만 남기고 구간 칸 규칙으로(값은 남기지 않음)
+            log.warning("정책 AI 판정 틀이 틀 검사에 걸렸습니다", extra={"rawPolicyId": policy.get("rawPolicyId"), "errors": errors[:5]})
+    fallback = build_startup(policy) if startup else build_space(policy)
+    return fallback if fallback is not None and not frame_errors(fallback) else None
 
 
 def _day(value: Any) -> str | None:

@@ -294,3 +294,36 @@ def test_nationwide_region_condition_is_not_a_restriction():
     made = answer([condition("REGION", "모집대상 : 전국 소재 업력 7년 이내 스타트업", regionNames=["전국"], regionBasis="BUSINESS_SITE")])
     frame = startup_frame(tour() | {"field": "STARTUP_SUPPORT", "text": text}, reading(made), REGIONS)
     assert frame_errors(frame) == [] and frame["common"] == []
+
+
+def first_of(conditions, extra_text, regions=REGIONS):
+    frame = startup_frame(tour() | {"field": "STARTUP_SUPPORT", "text": TOUR_TEXT + extra_text}, reading(answer(conditions)), regions)
+    assert frame_errors(frame) == []
+    return frame["common"][0]
+
+
+def test_reviewed_wrong_values_are_held_for_review():
+    # 리뷰 2026-10-22 재현: 시군구가 다른데 시도 두 글자만 맞음 / 방향이 반대인 나이·업력 / 답 방향 없는 질문
+    daegu = RegionCodeTable(
+        [("2700000000", "대구광역시", True), ("2720000000", "대구광역시 남구", True), ("2723000000", "대구광역시 북구", True)], "2026-10-01"
+    )
+    region = first_of(
+        [condition("REGION", "대구광역시 북구 소재 기업", regionNames=["대구광역시 남구"], regionBasis="BUSINESS_SITE")], "대구광역시 북구 소재 기업\n", daegu
+    )
+    assert region["inReview"] and VALUE_MISSING in region["reviewReason"]
+    age = first_of([condition("AGE", "대표자 만 40세 이상", maxAge=39)], "대표자 만 40세 이상\n")
+    assert age["inReview"]
+    years = first_of([condition("BUSINESS_AGE", "공고일 기준 창업 3년 이상 기업", years=3, yearsRule="WITHIN")], "공고일 기준 창업 3년 이상 기업\n")
+    assert years["inReview"]
+    asked = first_of([condition("OTHER", "신청 제외 대상 기업", question="신청 제외 대상에 해당하나요?")], "신청 제외 대상 기업\n")
+    assert asked["inReview"]
+    kept = first_of([condition("AGE", "만 19세 이상 39세 이하", minAge=19, maxAge=39)], "만 19세 이상 39세 이하\n")
+    assert not kept["inReview"]  # 방향이 맞으면 확정
+
+
+def test_values_the_frame_cannot_hold_become_questions_instead_of_dropping_the_frame():
+    # 리뷰 2026-10-22: 형식이 틀린 날짜·터무니없는 연수 하나로 AI 틀 전체가 버려지거나 예외가 났음
+    bad_date = first_of([condition("BUSINESS_AGE", "공고일 기준 창업 7년 이내의 법인사업자 또는 개인사업자", openedFrom="2019.10.07")], "")
+    assert (bad_date["kind"], bad_date["inReview"]) == ("ASK", True)
+    huge = first_of([condition("BUSINESS_AGE", "공고일 기준 창업 7년 이내의 법인사업자 또는 개인사업자", years=5000, yearsRule="WITHIN")], "")
+    assert huge["kind"] == "ASK"
