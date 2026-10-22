@@ -225,6 +225,10 @@ class Processor:
         if not self.settings.db_url or self.settings.model_mode != "auto":
             return None
         key = _claim_key(raw_event)
+        if key is None:  # 정책 수집 이벤트는 rawPolicyId: 비용 장부의 원본 칸에 정책 ID를 적어 정책별 비용을 볼 수 있게(리뷰 2026-10-22)
+            payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+            policy, version = _uuid_or_none(payload.get("rawPolicyId")), payload.get("version")
+            key = (policy, version) if policy and isinstance(version, int) else None
         scope = {"eventId": _uuid_or_none(raw_event.get("eventId")), "rawPostId": key[0] if key else None, "rawVersion": key[1] if key else None}
         return SpendLedger(
             db.connect(self.settings.db_url), daily_usd=self.settings.daily_budget_usd, monthly_usd=self.settings.monthly_budget_usd, scope=scope
