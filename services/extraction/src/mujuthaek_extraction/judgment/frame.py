@@ -12,6 +12,7 @@ from datetime import date
 from typing import Any
 
 from mujuthaek_extraction.judgment.common import (
+    ASIDE,
     BENEFIT_LIST,
     LIMIT_WORDS,
     NOT_REQUIRED,
@@ -81,8 +82,15 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
     notes: list[dict[str, Any]] = []
     limited: list[tuple[dict[str, Any], list[str], list[Criterion]]] = []  # (한정 범위, 대상, 조건)
     open_names: set[str] = set()  # 주택형·단지 한정 없이 쓰인 대상 이름
+    runs = alternative_runs(candidate)
+    followers = {k for members in runs.values() for k in members[1:]}
     for index, item in enumerate(candidate["eligibility"]):
-        made, item_notes = _from_item(ctx, spec, index, item, when)
+        if index in followers:
+            continue  # 머리 문장 항목(목록의 첫 항목)에서 한꺼번에 만들었습니다
+        if index in runs:
+            made, item_notes = _from_alternatives(ctx, spec, runs[index], when)
+        else:
+            made, item_notes = _from_item(ctx, spec, index, item, when)
         targets = [t for t in item["scope"].get("targetGroups") or [] if t in by_name]
         for n in item_notes:
             notes.append({**n, "groupId": by_name[targets[0]]["id"] if len(targets) == 1 else None})
@@ -266,11 +274,146 @@ def _from_item(ctx: Context, spec: Spec, index: int, item: dict[str, Any], when:
         made = [ask(ctx, item, ["조건식을 틀의 조건 종류로 옮길 수 없어 원문을 질문으로 보냅니다"])]
     made, unhandled = _exceptions(ctx, spec, item, made, when)
     unhandled += spec.extra_reasons(item, made)
-    if ANY_ONE.search(quote or "") and expression.get("kind") != "ANY":
+    if (ANY_ONE.search(quote or "") and expression.get("kind") != "ANY") or (LIMITED_TO.search(quote or "") and expression.get("kind") == "ALL"):
         unhandled.append("원문은 「어느 하나」에 해당하면 되는 조건인데 조건식은 모두 갖춰야 하는 조건입니다")
     for criterion in made:
         ctx.flag(criterion, [*reasons, *unhandled])
     return made, []
+
+
+# 「아래 직군 종사자에 한하여 공급」「다음 대상만 신청 가능」: 이어지는 목록 중 하나에 들면 되는 머리 문장(목록이 뒤따를 때만 씁니다)
+LIMITED_TO = re.compile(r"(?:아래|다음)[^.\n]{0,40}?(?:에\s*한하여|에\s*한해|에\s*한함|에\s*한정|만\s*(?:신청|공급|입점|임대))")
+# 「아래 요건을 모두 갖춘 자」「다음 각 호의 요건을 충족하는 자」: 목록을 모두 갖춰야 하는 머리 문장
+ALL_OF = re.compile(r"모두|전부|각\s*호\s*(?:의\s*)?(?:요건|조건|자격)\S*\s*(?:을|를)?\s*(?:갖|충족|만족)")
+# 목록 줄의 머리 표시: 원문 목록 표시(LIST_MARK)와 「-」「•」「1.」「(1)」 같은 줄머리
+FOLLOW_MARK = re.compile(LIST_MARK.pattern + r"|^\s*(?:[-–•·▪◾■□○◦∙ㆍ]|\d{1,2}\s*[.)]|\(\s*\d{1,2}\s*\))\s*\S")
+LIST_GAP = 200  # 앞 목록 줄 근거와 다음 줄 근거 사이 글자 수(원문 위치가 있을 때). 멀면 같은 목록으로 보지 않습니다
+
+
+def lead_kind(text: str) -> tuple[str, int] | None:
+    """목록 머리 문장의 뜻과 그 줄 번호. 「ANY」= 하나만 갖추면 됨, 「UNSURE」= 하나인지 모두인지 함께 적혀 정할 수 없음.
+    모두 갖춰야 하는 머리 문장이거나 머리 문장이 없으면 None(지금처럼 항목마다 따로 둡니다)."""
+    for number, line in enumerate(text.splitlines()):
+        core = ASIDE.sub(" ", line)
+        one = bool(ANY_ONE.search(core) or LIMITED_TO.search(core))
+        if not one:
+            continue
+        return ("UNSURE" if ALL_OF.search(core) else "ANY"), number
+    return None
+
+
+def _own_option(text: str, line: int) -> list[str]:
+    """머리 문장 항목에 같이 적힌 목록 줄(머리 문장 뒤 줄들, 또는 머리 문장 줄의 「:」 뒤)."""
+    lines = text.splitlines()
+    head = lines[line]
+    rest = [head.split(":", 1)[1].strip()] if ":" in head and head.split(":", 1)[1].strip() else []
+    return [*rest, *(s.strip() for s in lines[line + 1 :] if s.strip())]
+
+
+def _scope_key(item: dict[str, Any]) -> tuple[Any, ...]:
+    scope = item.get("scope") or {}
+    return (
+        scope.get("level"),
+        tuple(sorted(scope.get("targetGroups") or [])),
+        tuple(sorted(scope.get("supplyGroupIds") or [])),
+        tuple(sorted(scope.get("locationIds") or [])),
+    )
+
+
+def _span(item: dict[str, Any], places: dict[str, tuple[str, int, int]]) -> tuple[str, int, int] | None:
+    """항목 근거의 원문 위치(같은 원문 안 처음~끝). 위치를 모르면 None."""
+    found = [places[e] for e in item.get("evidenceIds") or [] if e in places]
+    if not found or len({source for source, _, _ in found}) != 1:
+        return None
+    return found[0][0], min(start for _, start, _ in found), max(end for _, _, end in found)
+
+
+def _limit(text: str) -> bool:
+    return bool(LIMIT_WORDS.search(ASIDE.sub(" ", text)))
+
+
+def alternative_runs(candidate: dict[str, Any]) -> dict[int, list[int]]:
+    """AI가 따로 낸 자격 항목 중, 하나만 갖추면 되는 목록(머리 문장 「아래 … 중 하나」「아래 … 에 한하여」 + 목록 줄)인 묶음.
+    머리 문장 항목 번호 → 묶음의 항목 번호들. 보수적으로 찾습니다: 머리 문장 항목 바로 뒤에 이어지고, 목록 표시로 시작하고,
+    적용 범위(대상·주택형·단지)가 같고, 원문 위치를 알면 앞 줄 바로 뒤에 있는 항목만. 신청 제한 목록(「아래 중 하나에 해당하면
+    신청 불가」)은 항목마다 「해당하면 안 됨」으로 따로 묻는 것이 맞으므로 묶지 않습니다(목록 줄이 따로 나오면
+    모두 갖춰야 하는 조건이 되기 때문)."""
+    items = candidate.get("eligibility") or []
+    places = {}
+    for evidence in candidate.get("evidence") or []:
+        locator = evidence.get("locator") or {}
+        if locator.get("kind") == "TEXT_RANGE" and isinstance(locator.get("start"), int) and isinstance(locator.get("end"), int):
+            places[evidence["id"]] = (str(evidence.get("sourceId")), locator["start"], locator["end"])
+    runs: dict[int, list[int]] = {}
+    index = 0
+    while index < len(items):
+        lead = items[index]
+        text = str(lead.get("originalText") or "")
+        if lead_kind(text) is None or _limit(text):
+            index += 1
+            continue
+        members = [index]
+        for nxt in range(index + 1, len(items)):
+            follower = items[nxt]
+            body = str(follower.get("originalText") or "")
+            if not FOLLOW_MARK.match(body) or lead_kind(body) is not None or _limit(body) or _scope_key(follower) != _scope_key(lead):
+                break
+            before, after = _span(items[members[-1]], places), _span(follower, places)
+            if before and after and (before[0] != after[0] or not 0 <= after[1] - before[2] <= LIST_GAP):
+                break
+            members.append(nxt)
+        if len(members) > 1:
+            runs[index] = members
+        index = members[-1] + 1
+    return runs
+
+
+def _from_alternatives(ctx: Context, spec: Spec, members: list[int], when: date) -> Made:
+    """하나만 갖추면 되는 목록 → 조건 하나. 목록 줄마다 틀 조건으로 옮길 수 있으면 ANY_OF, 아니면 목록 전체를 묻는 질문 하나.
+    코드가 원문 모양으로 묶었으므로 어느 쪽이든 확인 필요입니다. 모두 갖춰야 하는 조건(항목마다 따로)으로는 두지 않습니다."""
+    items = [ctx.candidate["eligibility"][k] for k in members]
+    lead = items[0]
+    lead_text = str(lead.get("originalText") or "")
+    kind, line = lead_kind(lead_text) or ("UNSURE", 0)
+    own = _own_option(lead_text, line)
+    reasons = [r for k, item in zip(members, items, strict=True) for r in ctx.review_reasons(k, item)]
+    texts = [lead_text.strip(), *(str(item.get("originalText") or "").strip() for item in items[1:])]
+    quote = "\n".join(texts)
+    if kind == "ANY" and len(own) <= 1:
+        options = []
+        for k, item, label in zip(members, items, [own[0] if own else None, *(t for t in texts[1:])], strict=True):
+            if label is None:
+                continue  # 머리 문장만 있는 항목은 선택지가 아님
+            made, notes = _from_item(ctx, spec, k, item, when)
+            if not made or notes or any(c["kind"] == "ASK" for c in _walk(made)):
+                options = []
+                break
+            options.append({"label": FOLLOW_MARK.sub("", label, count=1).strip()[:80] or label[:80], "criteria": made})
+        if len(options) >= 2:
+            either = {**base_fields(ctx.new_id(f"{lead['id']}-one-of"), "ANY_OF", quote), "options": options}
+            ctx.flag(either, [*reasons, "AI가 원문 목록의 줄을 따로 냈는데 원문은 그중 하나만 갖추면 되는 목록이라 코드가 선택지로 묶었습니다"])
+            return [either], []
+    asked = {
+        **base_fields(ctx.new_id(f"{lead['id']}-one-of"), "ASK", quote),
+        "question": f"다음 중 하나에 해당하나요? 「{quote}」" if kind == "ANY" else f"다음 조건에 해당하나요? 「{quote}」",
+        "metWhen": "YES",
+    }
+    why = (
+        "원문은 목록 중 하나만 갖추면 되는 조건이라 목록 전체를 질문 하나로 묶었습니다"
+        if kind == "ANY"
+        else "원문 목록을 모두 갖춰야 하는지 하나만 갖추면 되는지 코드로 정하지 못해 목록 전체를 질문 하나로 묶었습니다"
+    )
+    ctx.flag(asked, [*reasons, why])
+    return [asked], []
+
+
+def _walk(criteria: list[Criterion]) -> list[Criterion]:
+    out = []
+    for criterion in criteria:
+        out.append(criterion)
+        for option in criterion.get("options") or []:
+            out.extend(_walk(option["criteria"]))
+    return out
 
 
 def _scope_names(candidate: dict[str, Any], scope: dict[str, Any]) -> list[str]:
@@ -508,6 +651,17 @@ def _from_text(ctx: Context, spec: Spec, item: dict[str, Any], reasons: list[str
             extra.append("신분 말고 다른 조건(소득·나이·「등」)이 함께 있어 신분 조건만으로 담을 수 없습니다")
         ctx.flag(status, [*reasons, *extra])
         return [status], []
+    lead = lead_kind(text)
+    if lead and _own_option(text, lead[1]) and not _limit(text):
+        # 머리 문장과 목록 줄을 한 항목에 담은 경우(「아래 … 중 하나」 + 목록): 목록 중 하나에 해당하는지 묻습니다
+        asked = {**base_fields(ctx.new_id(item["id"]), "ASK", item.get("originalText")), "metWhen": "YES"}
+        if lead[0] == "ANY":
+            asked["question"] = f"다음 중 하나에 해당하나요? 「{text}」"
+            ctx.flag(asked, reasons)
+        else:
+            asked["question"] = f"다음 조건에 해당하나요? 「{text}」"
+            ctx.flag(asked, [*reasons, "원문 목록을 모두 갖춰야 하는지 하나만 갖추면 되는지 코드로 정하지 못했습니다"])
+        return [asked], []
     return [ask(ctx, item, reasons)], []
 
 
