@@ -548,7 +548,12 @@ def test_policy_events_get_a_waiting_queue_so_collector_relay_is_not_blocked():
 
     worker.declare(Channel())
     bindings = {(c["queue"], c["routing_key"]) for name, c in calls if name == "queue_bind" and c.get("exchange") == worker.EXCHANGE}
-    assert bindings == {("mujuthaek.raw.collected", "raw.notice.collected"), ("mujuthaek.raw.policy", "raw.policy.collected")}
+    # 판정 틀은 같은 정책 이벤트를 전용 큐로 한 부 더 받습니다(공용 정책 큐는 화면용 추출 담당 몫, 2026-10-22)
+    assert bindings == {
+        ("mujuthaek.raw.collected", "raw.notice.collected"),
+        ("mujuthaek.raw.policy", "raw.policy.collected"),
+        ("mujuthaek.raw.policy.judgment", "raw.policy.collected"),
+    }
     assert ("queue_declare", {"queue": "mujuthaek.raw.policy", "durable": True}) in calls
 
 

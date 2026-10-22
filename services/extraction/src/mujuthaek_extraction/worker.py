@@ -3,6 +3,9 @@
 큐 (팀 이벤트 흐름 문서)
   교환기 mujuthaek.events(topic) ── raw.notice.collected ──▶ 큐 mujuthaek.raw.collected (extraction이 선언)
   처리 실패·형식 오류 메시지는 재시도 없이 mujuthaek.dlx → mujuthaek.raw.collected.dlq
+  교환기 mujuthaek.events ── raw.policy.collected ──▶ 큐 mujuthaek.raw.policy.judgment(우리 전용): 창업지원·사업공간 모집이면 판정 틀을
+  만들어 extraction.completed(judgment)를 아웃박스에 넣습니다. 실패는 mujuthaek.dlx → mujuthaek.raw.policy.judgment.dlq
+  공용 큐 mujuthaek.raw.policy는 정책 화면용 추출(다른 담당) 몫이라 꺼내 가지 않습니다(같은 큐를 함께 꺼내면 메시지를 나눠 가져 양쪽이 일부를 놓침)
   prefetch 1: 한 번에 한 건만 처리합니다(AI 호출이 길어서). 처리는 별도 스레드에서 하고 ack는 연결 스레드로 넘깁니다(pika 하트비트 유지).
   DB 연결은 메시지마다 새로 엽니다. 예전에는 하나를 계속 써서 DB가 한 번 끊기면 이후 메시지가 전부 .dlq로 갔습니다(검토 2026-10-16).
   DB를 못 쓰면 .dlq가 아니라 잠시 뒤 큐로 되돌립니다(자료 문제가 아니라 일시 장애이므로).
@@ -25,13 +28,18 @@ from typing import Any
 
 from mujuthaek_extraction.assemble.regions import RegionCodeTable
 from mujuthaek_extraction.config import Settings
+from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.health import Health
 from mujuthaek_extraction.intake import LocalDirSourceReader
+from mujuthaek_extraction.model import ModelError
 from mujuthaek_extraction.model.call_cache import PostgresCallCache
 from mujuthaek_extraction.model.factory import ModelFactory
+from mujuthaek_extraction.model.fallback import FallbackOnErrorModel
 from mujuthaek_extraction.model.spend import SpendLedger
-from mujuthaek_extraction.pipeline import Outcome, process
+from mujuthaek_extraction.pipeline import EVENT_TYPE, PRODUCER, Outcome, process
+from mujuthaek_extraction.publish import POLICY_FIELDS, policy_completed_payload, policy_frame
 from mujuthaek_extraction.review_api import ReviewService, serve
+from mujuthaek_extraction.rules.policy.reading import read_policy
 from mujuthaek_extraction.s3_reader import S3SourceReader
 from mujuthaek_extraction.store import DuplicateEvent, JobStore
 from mujuthaek_extraction.usage import log_fields
@@ -44,10 +52,13 @@ DLX = "mujuthaek.dlx"
 QUEUE = "mujuthaek.raw.collected"
 DLQ = QUEUE + ".dlq"
 ROUTING_KEY = "raw.notice.collected"
-# 정책·창업지원 원본(raw.policy.collected)은 추출 규칙이 생길 때까지 꺼내 가지 않고 이 큐에 쌓아 둡니다.
-# 받을 큐가 없으면 collector 발행기(mandatory)가 거절당해 같은 묶음의 공고 이벤트까지 막히므로, 받을 곳만 먼저 만듭니다.
+# 정책 원본(raw.policy.collected). 공용 큐는 정책 화면용 추출(다른 담당)이 꺼내 가도록 선언만 유지합니다(받을 큐가 없으면 collector
+# 발행기(mandatory)가 거절당해 같은 묶음의 공고 이벤트까지 막힘). 우리는 같은 이벤트를 전용 큐로 한 부 더 받아 판정 틀만 만듭니다
 POLICY_QUEUE = "mujuthaek.raw.policy"
 POLICY_ROUTING_KEY = "raw.policy.collected"
+JUDGMENT_QUEUE = "mujuthaek.raw.policy.judgment"
+JUDGMENT_DLQ = JUDGMENT_QUEUE + ".dlq"
+COMPLETED_SCHEMA = "events/extraction.completed.v1.json"
 CLAIM_LEASE_SECONDS = 300  # 처리권 기한. 워커가 죽으면 이 시간 뒤 다른 처리가 이어받습니다
 CLAIM_RENEW_SECONDS = 60  # 처리 중 기한을 늘리는 간격(공고 하나가 30분 넘게 걸린 실측이 있어 기한을 계속 늘림)
 CLAIM_BUSY_SECONDS = 30  # 다른 처리가 잡고 있을 때 큐로 되돌리기 전 기다림
@@ -71,6 +82,10 @@ def declare(channel) -> None:
     channel.queue_bind(queue=QUEUE, exchange=EXCHANGE, routing_key=ROUTING_KEY)
     channel.queue_declare(queue=POLICY_QUEUE, durable=True)
     channel.queue_bind(queue=POLICY_QUEUE, exchange=EXCHANGE, routing_key=POLICY_ROUTING_KEY)
+    channel.queue_declare(queue=JUDGMENT_DLQ, durable=True)
+    channel.queue_bind(queue=JUDGMENT_DLQ, exchange=DLX, routing_key=POLICY_ROUTING_KEY)
+    channel.queue_declare(queue=JUDGMENT_QUEUE, durable=True, arguments={"x-dead-letter-exchange": DLX})
+    channel.queue_bind(queue=JUDGMENT_QUEUE, exchange=EXCHANGE, routing_key=POLICY_ROUTING_KEY)
 
 
 class BudgetExhausted(Exception):
@@ -258,6 +273,37 @@ class Processor:
         return job_id
 
 
+def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, regions: Any = None) -> str | None:
+    """정책 수집 이벤트 → 판정 틀(창업지원·사업공간 모집)을 담은 extraction.completed를 아웃박스에 넣고 그 eventId.
+    model이 있으면 AI로 공고 글을 읽고(정책 공고는 PDF 없이 글만 옴), 없거나 읽기에 실패하면 K-Startup 구간 칸 규칙으로 만듭니다.
+    판정 틀이 없는 분야(BENEFIT), 틀·지원 지역을 정하지 못한 정책, 이미 넣은 수집 이벤트면 None.
+    전체 비용 상한에 걸리면 BudgetExhausted(큐로 되돌림), 만든 이벤트가 계약에 맞지 않으면 ValueError(.dlq)."""
+    payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+    if payload.get("field") not in POLICY_FIELDS or store.judged(raw_event):
+        return None
+    reading = None
+    if model is not None:
+        try:
+            reading = read_policy(payload, model)
+        except ModelError as error:
+            if error.code == "GLOBAL_BUDGET":
+                raise BudgetExhausted(str(error)) from error
+            log.warning("정책 글을 AI로 읽지 못해 구간 칸 규칙으로 만듭니다", extra={"code": error.code, "rawPolicyId": payload.get("rawPolicyId")})
+    completed = policy_completed_payload(payload, policy_frame(payload, reading, regions), regions)
+    if completed is None:
+        return None
+    event = {**new_event(EVENT_TYPE, PRODUCER, completed), "traceId": raw_event.get("traceId")}
+    if errors := tools().validate(event, COMPLETED_SCHEMA):
+        raise ValueError(f"정책 판정 이벤트가 계약에 맞지 않습니다: {errors[:3]}")
+    if not store.save_judgment(raw_event, event):
+        return None
+    log.info(
+        "정책 판정 틀 발행 대기",
+        extra={"eventId": event["eventId"], "field": completed["field"], "rawPolicyId": completed["rawPostId"], "ai": reading is not None},
+    )
+    return event["eventId"]
+
+
 @contextmanager
 def store_session(settings: Settings):
     conn = db.connect(settings.db_url)
@@ -337,12 +383,47 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
     def on_message(_channel, method, _properties, body: bytes) -> None:
         threading.Thread(target=work, args=(method.delivery_tag, body), daemon=True).start()
 
+    def judge(delivery_tag: int, body: bytes) -> None:
+        """정책 수집 이벤트 하나: 창업지원이면 판정 틀 이벤트를 넣고 ack, DB 장애면 requeue, 형식 오류·계약 위반이면 .dlq."""
+        decision = "ack"
+        try:
+            raw_event = json.loads(body)
+            if not isinstance(raw_event, dict):
+                raise ValueError("이벤트가 객체가 아닙니다.")
+            ledger = processor.open_ledger(raw_event)
+            try:
+                if ledger is not None and (reason := ledger.room(settings.notice_budget_usd)):
+                    raise BudgetExhausted(reason)
+                models = processor.models.for_notice(ledger=ledger)
+                model = FallbackOnErrorModel(models.primary, models.fallback) if models.fallback is not None else models.primary
+                with store_session(settings) as store:
+                    judge_policy(store, raw_event, model, processor.regions)
+            finally:
+                if ledger is not None:
+                    ledger.close()
+        except BudgetExhausted as reason:
+            log.warning("전체 비용 상한에 닿아 정책 처리를 미룹니다", extra={"reason": str(reason)})
+            time.sleep(BUDGET_WAIT_SECONDS)
+            decision = "requeue"
+        except _db_errors():
+            log.exception("DB를 쓸 수 없어 잠시 뒤 큐로 되돌립니다")
+            time.sleep(DB_RETRY_SECONDS)
+            decision = "requeue"
+        except Exception:
+            log.exception("판정 틀을 만들지 못했습니다. .dlq로 보냅니다")
+            decision = "dlq"
+        connection.add_callback_threadsafe(functools.partial(finish, delivery_tag, decision))
+
+    def on_policy(_channel, method, _properties, body: bytes) -> None:
+        threading.Thread(target=judge, args=(method.delivery_tag, body), daemon=True).start()
+
     def tick() -> None:  # 연결 스레드가 살아 메시지를 받을 수 있는 동안 신호를 보냅니다(AI 처리는 다른 스레드라 막히지 않음)
         if health:
             health.beat("consumer")
         connection.call_later(CONSUMER_BEAT_SECONDS, tick)
 
     channel.basic_consume(queue=QUEUE, on_message_callback=on_message)
+    channel.basic_consume(queue=JUDGMENT_QUEUE, on_message_callback=on_policy)
     log.info("큐 소비 시작", extra={"queue": QUEUE, "model": processor.models.describe()})
     tick()
     channel.start_consuming()
