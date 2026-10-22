@@ -278,3 +278,84 @@ def test_same_policy_event_delivered_ten_times_makes_one_judgment_and_reprocess_
     made = [judge_policy(store, copy.deepcopy(redo), model, REGIONS) for _ in range(10)]
     assert sum(1 for m in made if m) == 1 and len(model.requests) == 2
     assert count(store, "select count(*) from outbox") == 2
+
+
+def spend(store, field, usd, *, settled=True, job_id=None, ago="0 seconds"):
+    store.conn.execute(
+        "insert into extraction_spend (id, run_id, field, job_id, model, reserved_usd, cost_usd, created_at)"
+        " values (%s, %s, %s, %s, 'gpt-6-luna', %s, %s, now() - %s::interval)",
+        (str(uuid.uuid4()), str(uuid.uuid4()), field, job_id, usd if not settled else usd * 2, usd if settled else None, ago),
+    )
+
+
+def test_monthly_costs_are_counted_per_field_and_served_by_the_review_api(store):
+    # 요구 2-10: 분야별 유료 호출 수·비용. 응답 못 받은 호출은 최악 비용, 분야 칸이 없던 옛 줄은 작업 기록의 분야로
+    spend(store, "HOUSING", 0.1)
+    spend(store, "HOUSING", 0.3, settled=False)
+    spend(store, "STARTUP_SUPPORT", 0.05)
+    job_id = store.save(raw_event(field="BUSINESS_SPACE"), Outcome("FAILED", error="x"))
+    spend(store, None, 0.2, job_id=job_id)
+    spend(store, None, 0.01)
+    spend(store, "HOUSING", 9.0, ago="70 days")  # 지난달 이전은 빠짐
+
+    costs = store.monthly_costs(budget_usd=1.0)
+    assert {f["field"]: (f["paidCalls"], f["costUsd"]) for f in costs["fields"]} == {
+        "BUSINESS_SPACE": (1, 0.2),
+        "HOUSING": (2, 0.4),
+        "STARTUP_SUPPORT": (1, 0.05),
+        "UNKNOWN": (1, 0.01),
+    }
+    assert costs["paidCalls"] == 5 and costs["costUsd"] == pytest.approx(0.66) and costs["budgetRatio"] == pytest.approx(0.66)
+    assert store.monthly_costs("2001-01")["fields"] == []
+
+    class Session:
+        def __enter__(self):
+            return store
+
+        def __exit__(self, *exc):
+            return False
+
+    service = ReviewService(lambda: Session(), new_event, 1.0)
+    status, body = service.costs(None)
+    assert status == 200 and body["month"] == costs["month"] and body["budgetUsd"] == 1.0
+    assert service.costs("2026-13")[0] == 400
+
+
+def test_ledger_writes_the_field_and_crossing_80_percent_sends_one_slack_message_per_month(store):
+    # 요구 2-10: 월 상한 80%에서 한 번만. 보낸 기록이 DB에 있어 워커를 다시 시작해도(새 CostAlert) 다시 보내지 않음
+    import psycopg
+
+    from mujuthaek_extraction.cost_alert import CostAlert
+    from mujuthaek_extraction.model.spend import SpendLedger
+
+    schema = store.conn.execute("select current_schema()").fetchone()[0]
+    sent = []
+
+    def ledger(alert):
+        conn = psycopg.connect(DB_URL, autocommit=True)
+        conn.execute(f"set search_path to {schema}")
+        return SpendLedger(conn, daily_usd=10, monthly_usd=1.0, scope={"field": "SPACE_RECRUITMENT"}, alert=alert)
+
+    first = ledger(CostAlert(1.0, sent.append))
+    first.settle(first.reserve("gpt-6-luna", 0.5), 0.7)
+    first.close()  # 70%: 보내지 않음
+    assert sent == [] and store.monthly_costs()["fields"] == [{"field": "SPACE_RECRUITMENT", "paidCalls": 1, "costUsd": 0.7}]
+
+    def failing(text):
+        raise RuntimeError("슬랙 장애")
+
+    second = ledger(CostAlert(1.0, failing))
+    second.settle(second.reserve("gpt-6-luna", 0.1), 0.1)
+    second.close()  # 80%를 넘었지만 전송 실패: 기록을 되돌려 다음에 다시 보냄(추출은 계속)
+    assert count(store, "select count(*) from extraction_alerts") == 0
+
+    third = ledger(CostAlert(1.0, sent.append))
+    third.settle(third.reserve("gpt-6-luna", 0.1), 0.05)
+    third.close()
+    assert len(sent) == 1 and "SPACE_RECRUITMENT" in sent[0] and "85%" in sent[0]
+
+    for alert in (CostAlert(1.0, sent.append), CostAlert(1.0, sent.append)):  # 다시 시작한 워커·다른 워커
+        again = ledger(alert)
+        again.settle(again.reserve("gpt-6-luna", 0.01), 0.01)
+        again.close()
+    assert len(sent) == 1 and count(store, "select count(*) from extraction_alerts") == 1
