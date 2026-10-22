@@ -33,6 +33,19 @@ class AreaMigrationTest {
   }
 
   @Test
+  void dataDateColumnsExplainTheirMeaning() throws Exception {
+    for (String table : new String[] {"area.stores", "area.facilities"}) {
+      assertThat(
+              one(
+                  "select col_description(attrelid, attnum) from pg_attribute"
+                      + " where attrelid = '"
+                      + table
+                      + "'::regclass and attname = 'data_date'"))
+          .contains("마지막으로 바뀐 적재", "area.load_runs.data_date");
+    }
+  }
+
+  @Test
   void industryGroupRulesAreSeeded() throws Exception {
     assertThat(
             one(
