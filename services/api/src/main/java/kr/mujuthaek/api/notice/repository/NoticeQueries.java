@@ -12,7 +12,10 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 
-/** 공개된(현재 버전이 있고 숨기지 않은) 공고 조회. */
+/**
+ * 공개된(현재 버전이 있고 숨기지 않은) 공고 조회. 다른 공고에 합쳐진 공고는 목록에서 빠지고, 그 ID로 상세·이력을 물으면 합친 공고가 나와요(관심 공고·알림 링크가
+ * 끊기지 않게).
+ */
 @Repository
 public class NoticeQueries {
 
@@ -52,7 +55,8 @@ public class NoticeQueries {
             select id, field, title, provider, notice_type, region_code, apply_start, apply_end, posted_on,
                    status, needs_check
             from notice.notices n
-            where current_version > 0 and not hidden and field = :field and status in (:statuses)
+            where current_version > 0 and not hidden and merged_into is null and field = :field
+              and status in (:statuses)
             """);
     if (!f.regionCodes().isEmpty()) {
       // 공고가 걸친 모든 지역(notice_regions)으로 찾아요. 시도(2자리·xx000)면 그 시도의 모든 지역, 시군구면 그 시군구와 그 시군구를 품는
@@ -145,7 +149,8 @@ public class NoticeQueries {
                    n.reviewed, n.updated_at, v.payload::text, n.status, n.needs_check
             from notice.notices n
             join notice.notice_versions v on v.notice_id = n.id and v.version = n.current_version
-            where n.id = :id and n.current_version > 0 and not n.hidden
+            where n.id = coalesce((select m.merged_into from notice.notices m where m.id = :id), :id)
+              and n.current_version > 0 and not n.hidden
             """,
             new MapSqlParameterSource("id", noticeId),
             (rs, i) ->
@@ -182,7 +187,8 @@ public class NoticeQueries {
         """
         select v.version, v.review_status, v.created_at, v.payload::text
         from notice.notice_versions v join notice.notices n on n.id = v.notice_id
-        where v.notice_id = :id and n.current_version > 0 and not n.hidden
+        where v.notice_id = coalesce((select m.merged_into from notice.notices m where m.id = :id), :id)
+          and n.current_version > 0 and not n.hidden
         order by v.version
         """,
         new MapSqlParameterSource("id", noticeId),
