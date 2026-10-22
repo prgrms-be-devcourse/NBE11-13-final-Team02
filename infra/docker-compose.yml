@@ -87,6 +87,9 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       LH_API_KEY: ${LH_API_KEY:-}
+      DATA_GO_KR_SERVICE_KEY: ${DATA_GO_KR_SERVICE_KEY:-}   # 정책 API 인증키 (비우면 정책 출처는 건너뜀)
+      YOUTHCENTER_API_KEY: ${YOUTHCENTER_API_KEY:-}
+      BIZINFO_API_KEY: ${BIZINFO_API_KEY:-}
     ports: ["127.0.0.1:8091:8091"]   # 상태 확인 http://localhost:8091/health
 
 volumes:
