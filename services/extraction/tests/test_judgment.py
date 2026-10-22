@@ -651,3 +651,29 @@ def test_income_readback_cannot_agree_when_the_text_has_a_lower_bound():
 
     income = {"kind": "INCOME", "percent": 70, "quote": "기준중위소득 50% 초과 70% 이하인 가구"}
     assert mismatch(income) is not None  # 하한이 빠진 값을 「같다」고 확정하지 않음
+
+
+def test_readback_does_not_agree_with_waived_homeless_or_excluded_regions():
+    # 리뷰 2026-10-22: 「무주택자가 아니어도 신청 가능」을 무주택 요건과 같다고, 「(김해 거주자는 제외)」의 김해도 맞는 지역으로 봤음
+    from mujuthaek_extraction.assemble.regions import RegionCodeTable
+    from mujuthaek_extraction.judgment.readback import mismatch
+
+    assert mismatch({"kind": "HOMELESS", "quote": "무주택자가 아니어도 신청 가능합니다"}) is not None
+    assert mismatch({"kind": "HOMELESS", "quote": "무주택세대구성원일 것"}) is None
+    regions = RegionCodeTable([("2600000000", "부산광역시", True), ("4800000000", "경상남도", True), ("4825000000", "경상남도 김해시", True)], "2026-10-01")
+    quote = "부산광역시 거주자(경상남도 김해시 거주자는 제외)"
+    assert mismatch({"kind": "RESIDENCE", "quote": quote, "regionCodes": ["4825000000"]}, regions) is not None
+    assert mismatch({"kind": "RESIDENCE", "quote": quote, "regionCodes": ["2600000000"]}, regions) is None
+
+
+def test_merged_duplicate_question_keeps_the_review_mark_and_rank_zero_is_not_a_rank():
+    from mujuthaek_extraction.judgment.frame import rank_of
+
+    text = "신청자는 무주택세대구성원, 소득·자산기준을 충족하고, 다음의 입주자격 구분별 신청자격을 갖추어야합니다."
+    clean, held = item("a", "OTHER", text), item("b", "OTHER", text)
+    frame = build_judgment(
+        candidate([clean, held]) | {"quality": {"reviewIssues": [{"target": "/eligibility/1", "code": "EXCEPTION_SUSPECTED"}], "heldItems": []}}
+    )
+    [made] = frame["common"]
+    assert made["inReview"]  # 둘 중 하나만 검수여도 합친 질문은 확인 필요
+    assert rank_of("0순위 우선공급") is None and rank_of("1순위") == 1

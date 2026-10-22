@@ -26,6 +26,10 @@ AMOUNT = re.compile(r"(?:\d[\d,]*\s*억\s*)?(?:\(\s*)?(?:\d+\s*[천백십]\s*)*(
 # 금액 앞의 항목 이름: 가장 가까운 것이 그 금액의 종류
 LABEL = re.compile(r"(?P<car>자동차|차량)|(?P<asset>총\s*자산|자산)")
 HOMELESS_WORDS = re.compile(r"무주택|주택[^.]{0,15}?소유하(?:지|고\s*있지)\s*(?:않|아니)")
+# 무주택을 요구하지 않는 문장(「무주택자가 아니어도 신청 가능」「주택 소유 여부와 관계없이」, 리뷰 2026-10-22)
+HOMELESS_WAIVED = re.compile(r"아니(?:어|여)도|관계\s*없|무관|불문|따지지\s*않|(?:신청|청약)\s*(?:이\s*)?가능|(?:도|이상도)\s*가능")
+# 지역 이름 뒤에 붙으면 그 지역은 신청 지역이 아님(「경상남도 김해시 거주자는 제외」)
+REGION_EXCLUDED = re.compile(r"^[^,.;]{0,15}?(?:제외|불가|제한|안\s*됩니다)")
 NO_CAR = re.compile(r"(?:자동차|차량)[^.]{0,25}?소유하(?:지|고\s*있지)\s*(?:않|아니)|차량\s*미소유")
 PERCENT_PLAIN = re.compile(r"(\d{1,3}(?:\.\d+)?)\s*(?:%|퍼센트)\s*(이하|이내|미만)")
 LIMIT = re.compile(r"불가|(?:하|되|받)(?:실|을|ㄹ)?\s*수\s*없|할\s*수\s*없|될\s*수\s*없|제외")
@@ -125,11 +129,19 @@ def mismatch(criterion: dict[str, Any], regions: Any = None) -> str | None:
             return unread
         return None if read == {criterion["maxWon"]} else f"원문에서 코드가 읽은 금액({read.pop():,}원)이 AI 값과 다릅니다"
     if kind == "HOMELESS":
+        if HOMELESS_WAIVED.search(text):
+            return "원문이 무주택을 요구하지 않는 문장일 수 있어 AI 값과 대조할 수 없습니다"
         return None if HOMELESS_WORDS.search(text) else "원문 문장에 무주택 표현이 없어 AI 값과 대조할 수 없습니다"
     if kind == "RESIDENCE":
         if regions is None:
             return "지역표가 없어 거주 지역을 대조할 수 없습니다"
-        names = re.findall(r"[가-힣]+(?:특별자치시|특별자치도|특별시|광역시|도|시|군|구)", text)
+        # 괄호 안 부연과 뒤에 「제외·불가」가 붙은 지역은 빼고 모읍니다(리뷰 2026-10-22: 「부산 거주자(김해 거주자는 제외)」의 김해도 맞다고 봄)
+        plain = _without_brackets(text)
+        names = [
+            m.group(0)
+            for m in re.finditer(r"[가-힣]+(?:특별자치시|특별자치도|특별시|광역시|도|시|군|구)", plain)
+            if not REGION_EXCLUDED.match(plain[m.end() :])
+        ]
         codes = {regions.lookup(name).code for name in names} - {None}
         return None if set(criterion.get("regionCodes") or []) <= codes and codes else "원문에서 코드가 읽은 지역이 AI 값과 다릅니다"
     return None

@@ -155,7 +155,7 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
 
 # 대상 이름에서 신분 말고 남아도 되는 말: 순위·목·군·공급 구분·소득 구간
 RANK_WORDS = re.compile(
-    r"\d\s*순위|[가-하]\s*목|[가-하]\s*군|[가-하]\s*[.)]|일반|우선|특별|공급|월\s*평균\s*소득\s*(?:의\s*)?\d+(?:\.\d+)?\s*%\s*(?:이하|이내|미만)?"
+    r"\d\s*순위|[가나다라마바사아자차카타파하]\s*목|[가나다라마바사아자차카타파하]\s*군|[가나다라마바사아자차카타파하]\s*[.)]|일반|우선|특별|공급|월\s*평균\s*소득\s*(?:의\s*)?\d+(?:\.\d+)?\s*%\s*(?:이하|이내|미만)?"
     r"|소득\s*\d+(?:\.\d+)?\s*%\s*(?:이하|이내|미만)?|\d+\s*형|[()\[\]]"
 )
 # 신청 순위: 「1순위」「제2순위」. 「1·2순위」「1~3순위」처럼 숫자가 여럿이면 한 순위로 정할 수 없어요
@@ -169,13 +169,14 @@ def rank_of(name: str) -> int | None:
         if match.group(2):  # 「1·2순위」: 한 대상군에 순위가 여럿
             return None
         found.add(int(match.group(1)))
-    return found.pop() if len(found) == 1 else None
+    rank = found.pop() if len(found) == 1 else None
+    return rank if rank else None  # 「0순위」는 틀의 rank(1 이상)로 담을 수 없음(리뷰 2026-10-22: 틀 전체가 버려졌음)
 
 
 # 원문 목록 표시: ㉮㉯ / ①② / 가. 나. / (가) (나) / ⓐⓑ
 LIST_MARK = re.compile(
     r"^\s*[※*\-•·▪◾■□○◦]?\s*"
-    r"(?:(?P<circled>[㉮-㉻])|(?P<number>[①-⑳])|(?P<letter>[가-하])\s*[.)]|\(\s*(?P<paren>[가-하])\s*\)|(?P<alpha>[ⓐ-ⓩ]))"
+    r"(?:(?P<circled>[㉮-㉻])|(?P<number>[①-⑳])|(?P<letter>[가나다라마바사아자차카타파하])\s*[.)]|\(\s*(?P<paren>[가나다라마바사아자차카타파하])\s*\)|(?P<alpha>[ⓐ-ⓩ]))"
 )
 
 
@@ -206,7 +207,7 @@ def _close(ctx: Context, spec: Spec, criteria: list[Criterion], group_name: str 
     - 자동 판정 종류가 아니면 원문 질문으로 바꿉니다(신분·혼인·청약통장·자녀 등). 확인 필요 표시와 이유는 그대로 둡니다.
     - 자동 판정 종류는 코드가 원문에서 읽은 값과 같아야 확정입니다. 검수자가 승인한 결과는 사람이 값을 확인했으므로 대조하지 않습니다."""
     out: list[Criterion] = []
-    asked: set[str] = set()
+    asked: dict[str, Criterion] = {}
     for criterion in criteria:
         if criterion["kind"] == "ANY_OF":
             for option in criterion["options"]:
@@ -218,9 +219,13 @@ def _close(ctx: Context, spec: Spec, criteria: list[Criterion], group_name: str 
             if reason:
                 ctx.flag(criterion, [reason])
         if criterion["kind"] == "ASK":
-            if criterion["question"] in asked:
-                continue  # 같은 질문(대상 해당 여부 등)은 한 번만
-            asked.add(criterion["question"])
+            kept = asked.get(criterion["question"])
+            if kept is not None:
+                # 같은 질문(대상 해당 여부 등)은 한 번만. 버리는 쪽의 확인 필요 표시는 남기는 쪽에 합칩니다(리뷰 2026-10-22: 표시가 사라졌음)
+                if criterion["inReview"]:
+                    ctx.flag(kept, [r for r in (criterion["reviewReason"] or "").split("; ") if r] or ["같은 질문의 다른 항목이 확인 필요입니다"])
+                continue
+            asked[criterion["question"]] = criterion
         out.append(criterion)
     return out
 
