@@ -181,12 +181,13 @@ public final class PostgresAreaBaseDataLoader {
     }
   }
 
+  /** 데이터와 같은 트랜잭션이라 now()는 트랜잭션 시작 시각이에요. 끝난 시각은 clock_timestamp()로 남겨요. */
   private static void finishRun(Connection conn, AreaLoadReport r) throws SQLException {
     try (PreparedStatement ps =
         conn.prepareStatement(
             "update area.load_runs set status = 'SUCCEEDED', rows_in = ?, rows_skipped = ?, rows_rejected = ?, "
                 + "rows_fixed = ?, rows_inserted = ?, rows_updated = ?, rows_unchanged = ?, rows_deleted = ?, "
-                + "reject_reasons = ?::jsonb, finished_at = now() where id = ?")) {
+                + "reject_reasons = ?::jsonb, finished_at = clock_timestamp() where id = ?")) {
       ps.setInt(1, r.rowsIn());
       ps.setInt(2, r.rowsSkipped());
       ps.setInt(3, r.rowsRejected());
