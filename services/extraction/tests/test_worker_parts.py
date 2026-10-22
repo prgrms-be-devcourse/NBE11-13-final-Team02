@@ -355,6 +355,15 @@ def test_redelivered_event_waits_for_running_one_instead_of_paying_again():
     assert calls == [event["eventId"]] and store.saved == 1
 
 
+def test_same_event_delivered_ten_times_runs_once():
+    # 요구 2-01(DB 없이 도는 판): 같은 이벤트 10번 → 처리 1번. 실제 DB 판은 test_store_postgres
+    calls = []
+    processor, store = bare_processor(lambda raw_event: calls.append(raw_event["eventId"]) or Outcome("COMPLETED")), MemoryStore()
+    for _ in range(10):
+        processor.handle(store, {"eventId": "01929a3e-0000-7000-8000-0000000000ab"})
+    assert len(calls) == 1 and store.saved == 1
+
+
 def test_duplicate_found_at_save_is_skipped_quietly():
     from mujuthaek_extraction.store import DuplicateEvent
 

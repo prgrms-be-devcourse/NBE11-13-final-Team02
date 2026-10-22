@@ -35,18 +35,20 @@ from mujuthaek_extraction.model.factory import NoticeModels
 from mujuthaek_extraction.model.fallback import FallbackOnErrorModel, extract_with_fallback
 from mujuthaek_extraction.publish import completed_payload
 from mujuthaek_extraction.recheck import recheck_problems
+from mujuthaek_extraction.rules import discover
 from mujuthaek_extraction.rules.base import FieldRules
-from mujuthaek_extraction.rules.housing_notice import RULES as HOUSING_RULES
-from mujuthaek_extraction.rules.housing_notice import RULES_V10 as HOUSING_RULES_V10
 from mujuthaek_extraction.usage import MeteredModel, UsageRecorder
 from mujuthaek_extraction.verify import SourceBundle, verify_extraction
 
 log = logging.getLogger(__name__)
 PRODUCER = "extraction"
 EVENT_TYPE = "extraction.completed"
-RULES_BY_FIELD: dict[str, FieldRules] = {"HOUSING": HOUSING_RULES}  # BUSINESS_SPACE·POLICY·STARTUP_SUPPORT 규칙은 아직 없음
-# 추출 방식별 규칙(method.py). legacy는 2026-10-17 이전 방식(표 행 글자만 + 이전 프롬프트)
-RULES_BY_METHOD: dict[str, dict[str, FieldRules]] = {STRUCTURED: RULES_BY_FIELD, LEGACY: {"HOUSING": HOUSING_RULES_V10}}
+# 분야별 규칙은 rules/ 하위 폴더에서 자동으로 모읍니다(FIELD·RULES를 내놓은 폴더만, 요구 2-02). 지금은 HOUSING만 있고
+# BUSINESS_SPACE·STARTUP_SUPPORT는 폴더에 규칙을 넣기 전까지 UNSUPPORTED입니다
+_CURRENT_RULES, _LEGACY_RULES = discover()
+RULES_BY_FIELD: dict[str, FieldRules] = _CURRENT_RULES
+# 추출 방식별 규칙(method.py). legacy는 2026-10-17 이전 방식(표 행 글자만 + 이전 프롬프트, 폴더의 RULES_LEGACY)
+RULES_BY_METHOD: dict[str, dict[str, FieldRules]] = {STRUCTURED: RULES_BY_FIELD, LEGACY: _LEGACY_RULES}
 INTAKE_STATUS = {IntakeStatus.REJECTED: "REJECTED", IntakeStatus.WAITING_SOURCE: "WAITING_SOURCE", IntakeStatus.REVIEW_REQUIRED: "INTAKE_REVIEW"}
 RETRYABLE = {"WAITING_SOURCE", "FAILED"}  # 다시 처리할 수 있는 상태 (processed_events에 넣지 않음)
 
