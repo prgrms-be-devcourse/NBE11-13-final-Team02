@@ -13,7 +13,7 @@ from typing import Any
 
 from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest, StopReason
 
-PROMPT_VERSION = "policy/v2"
+PROMPT_VERSION = "policy/v3"
 CALL_NAME = "policy_reading"
 MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다(수집기가 20만 자까지 줌). 잘렸으면 모든 조건을 확인 필요로
 MAX_OUTPUT_TOKENS = 12000
@@ -138,12 +138,18 @@ CONDITION = {
 OUTPUT_SCHEMA = {
     "type": "object",
     "additionalProperties": False,
-    "required": ["relevant", "announcedOn", "referenceRule", "referenceDate", "groups", "conditions", "preferences", "notes"],
+    "required": ["relevant", "announcedOn", "referenceRule", "referenceDate", "supportRegions", "groups", "conditions", "preferences", "notes"],
     "properties": {
         "relevant": {"type": "boolean"},
         "announcedOn": _dated(),
         "referenceRule": {"type": "string", "enum": ["ANNOUNCEMENT", "EXPLICIT", "NONE"]},
         "referenceDate": _dated(),
+        "supportRegions": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["names", "quote"],
+            "properties": {"names": {"type": "array", "items": {"type": "string"}}, "quote": _nullable("string")},
+        },
         "groups": {
             "type": "array",
             "items": {
@@ -202,6 +208,9 @@ referenceRule / referenceDate: 자격 판단 기준일 문구.
 - 「공고일 기준」「모집공고일 현재」 → ANNOUNCEMENT (referenceDate는 null)
 - 「기준일: '26.1.22.」처럼 다른 날짜가 찍혀 있으면 → EXPLICIT, referenceDate에 그 날짜
 - 기준일 문구가 없으면 → NONE
+
+supportRegions: 이 사업을 지원하는 지역(사업 대상 지역). names는 「부산광역시」「대구광역시 남구」「충청권」처럼 글에 적힌 지역 이름,
+quote는 그 지역이 적힌 문장. 「전국」이라고 적혀 있으면 names ["전국"]. 지역이 적혀 있지 않으면 names 빈 목록·quote null(짐작 금지).
 
 groups: 신청 분야·부문이 나뉘면(예비창업자 / 초기 창업기업, 일반 / 여성 분야, 4인실 / 6인실은 자격이 같으면 나누지 않음) 하나씩. key는 짧은 영문 소문자.
 자격이 나뉘지 않으면 빈 목록.

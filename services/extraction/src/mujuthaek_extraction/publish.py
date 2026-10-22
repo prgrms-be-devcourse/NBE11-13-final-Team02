@@ -132,25 +132,57 @@ def _in_review(criteria: list[dict[str, Any]]) -> bool:
 POLICY_FIELDS = ("STARTUP_SUPPORT", "SPACE_RECRUITMENT")
 
 
-def policy_region_codes(policy: dict[str, Any], regions: Any) -> list[str] | None:
+# 권역 이름 → 시도 이름(지역표로 코드를 찾으므로 통합·개편된 시도도 지역표를 따름)
+REGION_GROUPS = {
+    "수도권": ("서울", "인천", "경기"),
+    "충청권": ("대전", "세종", "충북", "충남"),
+    "호남권": ("광주", "전북", "전남"),
+    "영남권": ("부산", "대구", "울산", "경북", "경남"),
+    "동남권": ("부산", "울산", "경남"),
+    "대경권": ("대구", "경북"),
+    "강원권": ("강원",),
+    "제주권": ("제주",),
+}
+
+
+def _codes_of(names: list[str], regions: Any) -> list[str] | None:
+    """지역 이름(권역 포함) → 시군구 5자리. 하나라도 못 찾으면 None."""
+    if not names or regions is None:
+        return None
+    found = []
+    for name in names:
+        name = re.sub(r"[\[\]()]", "", str(name)).strip()
+        for part in REGION_GROUPS.get(name, (name,)):
+            match = regions.lookup(part)
+            if match.code is None or match.note:
+                return None
+            found.append(match.code[:5])
+    return list(dict.fromkeys(found))
+
+
+def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = None) -> list[str] | None:
     """정책의 지원 지역 → 시군구 5자리 목록(xx000은 시도 전체). 전국이면 빈 목록, 정하지 못하면 None(빈 목록은 전국으로 읽혀 틀림).
-    K-Startup은 지역 코드 없이 이름(「서울」)만 줘서 지역표로 바꿉니다."""
+    수집기 값(코드, 없으면 이름 — K-Startup은 「서울」처럼 이름만, 기업마당은 「충청권」 같은 권역도 줌)을 먼저 쓰고, 수집기가 지역을 모르면
+    AI가 글에서 읽은 지원 지역을 씁니다. AI 값은 근거 문장이 원문에 있고 그 문장에 지역 이름이 있을 때만 씁니다."""
     scope = policy.get("regionScope")
     if scope == "NATIONWIDE":
         return []
     codes = [str(c) for c in policy.get("regionCodes") or [] if re.fullmatch(r"[0-9]{5}", str(c))]
     if codes:
         return list(dict.fromkeys(codes))
-    names = policy.get("regionNames") or []
-    if scope not in ("SIDO", "SIGUNGU") or not names or regions is None:
+    if scope in ("SIDO", "SIGUNGU") and (found := _codes_of(policy.get("regionNames") or [], regions)) is not None:
+        return found
+    if reading is None:
         return None
-    found = []
-    for name in names:
-        match = regions.lookup(name)
-        if match.code is None or match.note:
-            return None
-        found.append(match.code[:5])
-    return list(dict.fromkeys(found))
+    support = reading.answer.get("supportRegions") or {}
+    names, quote = support.get("names") or [], support.get("quote")
+    text = re.sub(r"\s+", "", str(policy.get("text") or ""))
+    plain = re.sub(r"\s+", "", quote or "")
+    if len(plain) < 2 or plain not in text or not names or not all(re.sub(r"\s+", "", n)[:2] in plain for n in names):
+        return None
+    if names == ["전국"]:
+        return []
+    return _codes_of(names, regions)
 
 
 def policy_frame(policy: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
@@ -171,11 +203,11 @@ def _day(value: Any) -> str | None:
     return f"{text[:4]}-{text[4:6]}-{text[6:8]}" if re.fullmatch(r"20\d{6}", text) else None
 
 
-def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | None, regions: Any) -> dict[str, Any] | None:
+def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | None, regions: Any, reading: Any = None) -> dict[str, Any] | None:
     """정책 판정 틀 → extraction.completed payload(판정 요청안 2026-10-22: 틀은 이 이벤트의 judgment, rawPostId는 rawPolicyId).
     상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지원 지역을 정하지 못하면 None(보내지 않음).
     틀에 확인 필요 조건이 하나라도 있으면 IN_REVIEW입니다. 접수 기간은 K-Startup 날짜 칸(규칙)에서만 옮깁니다."""
-    codes = policy_region_codes(policy, regions)
+    codes = policy_region_codes(policy, regions, reading)
     if frame is None or codes is None or policy.get("field") not in POLICY_FIELDS:
         return None
     record = policy.get("record") or {}
