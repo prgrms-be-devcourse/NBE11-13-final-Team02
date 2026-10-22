@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.notice.repository;
 
+import java.sql.Date;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
@@ -90,6 +91,14 @@ public class NoticeQueries {
     if (!f.noticeTypes().isEmpty()) {
       sql.append(" and notice_type in (:types)");
       params.addValue("types", f.noticeTypes());
+    }
+    if (f.applyEndFrom() != null) {
+      sql.append(" and apply_end >= :applyEndFrom");
+      params.addValue("applyEndFrom", Date.valueOf(f.applyEndFrom()));
+    }
+    if (f.applyEndTo() != null) {
+      sql.append(" and apply_end <= :applyEndTo");
+      params.addValue("applyEndTo", Date.valueOf(f.applyEndTo()));
     }
     if (!f.providers().isEmpty()) {
       sql.append(" and provider in (:providers)");

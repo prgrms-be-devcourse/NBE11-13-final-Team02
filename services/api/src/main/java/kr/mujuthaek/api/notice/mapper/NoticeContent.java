@@ -239,6 +239,18 @@ public final class NoticeContent {
         : locations.get(i).path("regionCode");
   }
 
+  /**
+   * 지역 5자리 목록 → 대표 지역 하나 (이벤트 regionCode 규칙과 같음): 하나면 그 코드, 한 시도 안이면 그 시도의 xx000, 여러 시도이거나 없으면
+   * null.
+   */
+  public static String representativeRegion(List<String> codes) {
+    if (codes.isEmpty()) return null;
+    if (codes.size() == 1) return codes.getFirst();
+    Set<String> sido = new TreeSet<>();
+    for (String code : codes) sido.add(code.substring(0, 2));
+    return sido.size() == 1 ? sido.iterator().next() + "000" : null;
+  }
+
   /** 접수 상태 계산용 구간 (원문 일정의 시각·보류 구간까지 반영). */
   public static List<Window> statusWindows(ExtractionEvent event) {
     return NoticeProjection.statusWindows(

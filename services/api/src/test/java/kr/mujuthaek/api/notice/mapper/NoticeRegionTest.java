@@ -214,6 +214,15 @@ class NoticeRegionTest {
   }
 
   @Test
+  void 대표_지역은_한_시군구면_그_코드_한_시도면_시도_코드_여러_시도면_null이다() {
+    assertThat(NoticeContent.representativeRegion(java.util.List.of("11650"))).isEqualTo("11650");
+    assertThat(NoticeContent.representativeRegion(java.util.List.of("11650", "11680")))
+        .isEqualTo("11000");
+    assertThat(NoticeContent.representativeRegion(java.util.List.of("27000", "47000"))).isNull();
+    assertThat(NoticeContent.representativeRegion(java.util.List.of())).isNull();
+  }
+
+  @Test
   void 주택_위치의_시도_단위_코드는_전체_색인이_아니다() {
     ExtractionEvent event = withLocations("11000", "1100000000");
 

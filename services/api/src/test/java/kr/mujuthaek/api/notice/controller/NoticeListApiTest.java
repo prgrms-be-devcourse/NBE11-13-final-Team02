@@ -78,6 +78,34 @@ class NoticeListApiTest {
   }
 
   @Test
+  void filtersByDeadlineRange() throws Exception {
+    UUID early = f.notice(p -> schedule(p, "2026-10-01", "2026-10-25"));
+    UUID mid = f.notice(p -> schedule(p, "2026-10-01", "2026-11-10"));
+    f.notice(p -> schedule(p, "2026-10-01", "2026-12-20"));
+
+    assertThat(deadline("2026-11-01", "2026-11-30")).containsExactly(mid.toString());
+    assertThat(deadline(null, "2026-11-10")).containsExactly(early.toString(), mid.toString());
+    mvc.perform(
+            get("/api/v1/notices")
+                .param("applyEndFrom", "2026-12-01")
+                .param("applyEndTo", "2026-11-01"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+  }
+
+  private List<String> deadline(String from, String to) throws Exception {
+    var request = get("/api/v1/notices").param("providers", f.provider);
+    if (from != null) {
+      request.param("applyEndFrom", from);
+    }
+    if (to != null) {
+      request.param("applyEndTo", to);
+    }
+    String body = mvc.perform(request).andReturn().getResponse().getContentAsString();
+    return JsonPath.read(body, "$.items[*].id");
+  }
+
+  @Test
   void latestSortUsesPostedOn() throws Exception {
     UUID older =
         f.notice(
