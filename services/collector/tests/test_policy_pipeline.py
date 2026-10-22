@@ -7,6 +7,7 @@ from datetime import date
 import httpx
 import pytest
 
+from mujuthaek_collector.core.storage import MAX_ATTEMPTS
 from mujuthaek_collector.errors import BlockedError
 from mujuthaek_collector.sources.policy import gov24, pipeline
 from mujuthaek_collector.sources.policy.base import PolicyItem, build_url
@@ -485,6 +486,27 @@ def test_key_error_blocks_and_hides_key(api, web, policy_store, file_store, poli
     assert blocked.status == "BLOCKED"
 
 
+def test_http_401_blocks_without_failing_policies(api, web, policy_store, file_store, policy_settings):
+    """보조금24는 키 오류를 HTTP 401로 줘요. 정책 FAILED로 쌓으면 3번 뒤엔 키를 고쳐도 다시 열지 않아서, 회차를 멈춰요."""
+    source = Gov24Source(KEY)
+    api.pages[list_url(source, 1)] = s.GOV24_LIST
+    items = source.parse_list(s.GOV24_LIST).items
+    for item in items:
+        for url in detail_urls(source, item):
+            request = httpx.Request("GET", url)
+            api.pages[url] = httpx.HTTPStatusError(f"HTTP 401: {url}", request=request, response=httpx.Response(401, request=request))
+    for _ in range(MAX_ATTEMPTS + 1):
+        result = run(source, api, web, policy_store, file_store, policy_settings)
+        assert result.status == "BLOCKED" and not any(KEY in w for w in result.warnings)
+    assert {(p.status, p.attempts) for p in policy_store.policies.values()} == {("PENDING", 0)}
+
+    for item in items:  # 키를 고치면 밀린 정책을 처리해요
+        detail_url, conditions_url = detail_urls(source, item)
+        api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
+    fixed = run(source, api, web, policy_store, file_store, policy_settings)
+    assert fixed.status == "SUCCESS" and {p.status for p in policy_store.policies.values()} == {"DONE"}
+
+
 def test_broken_detail_marks_only_that_policy_failed(api, web, policy_store, file_store, policy_settings):
     source = central(api, web, detail="<wantedDtl><resultCode>0</resultCode></wantedDtl>")
     result = run(source, api, web, policy_store, file_store, policy_settings)
@@ -499,7 +521,6 @@ def test_detail_limit_leaves_rest_pending(api, web, policy_store, file_store, po
     for item in source.parse_list(s.GOV24_LIST).items:
         detail_url, conditions_url = detail_urls(source, item)
         api.pages[detail_url], api.pages[conditions_url] = s.gov24_detail(item.policy_id), s.gov24_conditions(item.policy_id)
-    web.pages["https://www.gov.kr/portal/rcvfvrSvc/dtlEx/000000465790"] = BlockedError("robots.txt")
     run(source, api, web, policy_store, file_store, replace(policy_settings, detail_limit=1))
     assert sorted(p.status for p in policy_store.policies.values()) == ["DONE", "PENDING"]
 

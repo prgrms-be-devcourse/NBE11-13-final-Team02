@@ -127,7 +127,8 @@ make up                                                                   # 스�
   | `youth` | 항상 (참고 주소의 공고문 1개) | API에 첨부가 없고 원문이 공고 화면 |
   | `bokjiro_local` | API 설명 칸이 700자 미만이거나 '공고문 참조'일 때만 (`WHEN_THIN`) | 설명 칸이 충분한 정책이 많아요 |
   | `bokjiro_central` | 보지 않음 (`NEVER`) | 설명 칸이 길고(중앙값 약 3,400자), 첨부는 수백 쪽 지침서 |
-  | `gov24`, `kstartup` | 없음 | API에 첨부가 없어요 |
+  | `gov24` | 보지 않음 (`NEVER`) | API에 첨부가 없고, 원문(www.gov.kr)은 robots.txt가 막아요 |
+  | `kstartup` | 사업공간 모집만 상세 화면 본문 | API에 첨부가 없어요. 첨부 파일은 robots.txt 금지라 받지 않아요 |
 
   첨부를 보지 않은 정책은 `document_status = NOT_NEEDED`예요. 글자를 뽑은 문서가 1개 생기면 더 받지 않아요 (`MAX_TEXT_DOCS`).
 - AI 입력(`full_text`)에는 API 항목 중 **설명 칸만** 넣어요 (`PolicySource.ai_keys`: 대상·선정기준·지원내용·신청방법·기간·요약·분류). 주소·파일 경로·연락처·서식 목록·근거 법령, 규칙으로 옮기는 코드 칸(온통청년 `zipCd`·직업·학력 코드, 보조금24 `지원조건`)은 빼요. 원본은 `api_raw`와 이벤트 `record`에 그대로 있어요. 버전 비교(`content_hash`)는 전체 항목(`body_text`)으로 해서, 빠진 칸이 바뀌어도 새 버전이 돼요.

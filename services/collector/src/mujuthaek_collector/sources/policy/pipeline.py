@@ -11,7 +11,7 @@ run_policy_source
        → 버전 비교(항목 + 첨부 해시) → S3 원본 → 저장 + raw.policy.collected 이벤트 (한 트랜잭션)
 
 오류 반응
-  API 키·호출 한도 오류(BlockedError)  출처 회차 중단(BLOCKED). 밀린 정책은 다음 회차에 먼저 처리
+  API 키·호출 한도 오류(BlockedError, HTTP 401 포함)  출처 회차 중단(BLOCKED). 밀린 정책은 다음 회차에 먼저 처리
   목록 페이지 실패·응답 모양 다름       목록 읽기를 멈추고 회차는 FAILED. 이미 쌓인 정책(PENDING·FAILED) 처리는 계속해요
   상세 API 실패·응답 모양 다름         그 정책만 FAILED (3번까지 다시 시도)
   원문·첨부 robots 금지·403·429·오류   그 화면·파일만 건너뛰고 정책은 저장. 막힌 도메인은 이번 회차에 다시 요청하지 않아요
