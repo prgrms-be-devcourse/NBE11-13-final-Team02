@@ -8,6 +8,10 @@ import tools.jackson.databind.JsonNode;
 /**
  * 판정용 공고 하나 (판정 담당 요청 「판정을 위한 데이터 가공 요청안」).
  *
+ * <p>사업공간(BUSINESS_SPACE) 목록에는 공고와 함께 사업공간 모집 정책(창업지원 API의 입주기업 모집)도 들어와요. 정책이면 noticeId 자리에 정책
+ * ID(rawPolicyId)가, version 자리에 수집 버전이 와요. 공고 상세 API로는 찾을 수 없어요.
+ *
+ * @param noticeId 공고 ID, 사업공간 모집 정책이면 정책 ID(rawPolicyId)
  * @param version 공고 버전 (정정되면 올라가는 값)
  * @param applyStart 접수 시작일 (모르면 null)
  * @param applyEnd 접수 마감일 (상시거나 모르면 null)

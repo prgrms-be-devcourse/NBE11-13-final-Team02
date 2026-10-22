@@ -418,6 +418,17 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 공고_분야에_정책용_지원_지역이_실려_오면_계약_위반이다() {
+    // Python 계약 검사기와 같은 규칙(리뷰 2026-10-22): regionCodes는 정책(STARTUP_SUPPORT·SPACE_RECRUITMENT)만
+    ObjectNode housing = fixture();
+    ((ObjectNode) housing.path("payload")).putArray("regionCodes").add("11000");
+
+    assertThatThrownBy(() -> ingestion.apply(body(housing)))
+        .isInstanceOf(ExtractionEvent.InvalidEventException.class);
+    assertThat(count("notice.notices")).isZero();
+  }
+
+  @Test
   void 정책_분야인데_판정_틀이나_지원_지역이_없으면_계약_위반이다() {
     ObjectNode missing = policyEvent("SPACE_RECRUITMENT", 2, "2026-10-27", "11000");
     ((ObjectNode) missing.path("payload")).remove("regionCodes");

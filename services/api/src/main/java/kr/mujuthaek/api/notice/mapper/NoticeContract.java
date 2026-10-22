@@ -183,9 +183,14 @@ public final class NoticeContract {
   /** 판정 틀: 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(계약 검사기 judgment_errors와 같게). */
   private static void checkJudgment(JsonNode payload) {
     JsonNode judgment = payload.path("judgment");
-    if (POLICY_FRAME_FIELDS.contains(payload.path("field").asString())
-        && (!judgment.isObject() || !payload.has("regionCodes") || payload.has("notice")))
-      fail("EVENT_POLICY_FRAME_SHAPE", "/payload");
+    boolean policy = POLICY_FRAME_FIELDS.contains(payload.path("field").asString());
+    if (policy
+        && (!judgment.isObject()
+            || !payload.has("regionCodes")
+            || payload.has("notice")
+            || !payload.path("conditions").isEmpty())) fail("EVENT_POLICY_FRAME_SHAPE", "/payload");
+    if (!policy && payload.has("regionCodes"))
+      fail("EVENT_POLICY_FRAME_SHAPE", "/payload/regionCodes");
     if (!judgment.isObject()) return;
     if (!judgment
         .path("schema")
