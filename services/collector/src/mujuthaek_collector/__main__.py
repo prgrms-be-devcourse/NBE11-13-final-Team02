@@ -10,6 +10,10 @@
   python -m mujuthaek_collector cleanup                   보관 기한이 지난 원본 파일 지우기
   python -m mujuthaek_collector save-fixtures dcco        테스트용 화면 저장 (tests/fixtures/dcco/)
   python -m mujuthaek_collector status                    최근 수집 회차 보기
+  python -m mujuthaek_collector area-upload --source BUS_STOP --data-date 2025-10-31 --file … [--scope 강원]
+                                                          생활권·상권 원천 파일을 S3 area/에 올리고 적재 요청 보내기
+  python -m mujuthaek_collector area-upload --manifest area/area_manifest.csv --skip-upload
+                                                          이미 올린 파일 목록으로 적재 요청만 보내기
 
 스케줄 (서울 시간)
   평일 9~18시 매시 5분   모든 출처 수집 (출처는 하나씩 순서대로)
@@ -30,6 +34,7 @@ from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from mujuthaek_collector.area.sources import SOURCES as AREA_SOURCES
 from mujuthaek_collector.config import Settings
 from mujuthaek_collector.core.file_store import S3FileStore
 from mujuthaek_collector.core.http_client import PoliteClient
@@ -233,6 +238,32 @@ def print_status(settings: Settings) -> None:
         print(f"{started:%m-%d %H:%M}  {code:5}  {status:8}  새 {new:3}건  {took:>6}  {error}")
 
 
+def area_upload(args: argparse.Namespace, settings: Settings) -> int:
+    """원천 파일 올리기(또는 목록으로 확인만) → 받는 큐 만들기 → 아웃박스 기록 → 발행. 문제가 있으면 1을 돌려줘요."""
+    from mujuthaek_collector.area import command
+
+    connection = broker.connect(settings.rabbitmq_url)
+    try:
+        command.declare_receiver(connection.channel())
+    finally:
+        connection.close()
+    store = PostgresStore(settings.db_url)
+    files = make_file_store(settings)
+    try:
+        if args.manifest:
+            result = command.from_manifest(files, store.conn, Path(args.manifest))
+        else:
+            data_date = date.fromisoformat(args.data_date)
+            result = command.upload_file(files, store.conn, args.source, data_date, Path(args.file), args.scope)
+    finally:
+        store.close()
+    print(f"올림 {result.uploaded}개, 적재 요청 기록 {result.recorded}건 (같은 파일은 다시 올리거나 기록하지 않아요)")
+    for problem in result.problems:
+        print(f"  - {problem}")
+    print(f"이벤트 발행: {relay(settings)}건")
+    return 1 if result.problems else 0
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 — http.server 규칙
         if self.path != "/health":
@@ -288,7 +319,19 @@ def main(argv: list[str] | None = None) -> None:
     fixtures.add_argument("source", choices=ORDER)
     fixtures.add_argument("--details", type=int, default=3, help="게시판마다 저장할 상세 수")
     commands.add_parser("status", help="최근 수집 회차 보기")
+    area = commands.add_parser("area-upload", help="생활권·상권 원천 파일을 S3 area/에 올리고 적재 요청(area.source.ready) 보내기")
+    area.add_argument("--source", choices=AREA_SOURCES)
+    area.add_argument("--data-date", help="원천 기준일 (YYYY-MM-DD)")
+    area.add_argument("--file", help="원천 파일 (CSV, 지하철은 엑셀도 돼요)")
+    area.add_argument("--scope", help="상가정보의 시도 이름 (강원, 경기, 전남광주 …)")
+    area.add_argument("--manifest", help="이미 올린 파일 목록 CSV (--skip-upload와 같이)")
+    area.add_argument("--skip-upload", action="store_true", help="올리지 않고 S3 sha256 메타데이터만 확인해 적재 요청만 보내기")
     args = parser.parse_args(argv)
+    if args.command == "area-upload":
+        if args.manifest and not args.skip_upload:
+            parser.error("--manifest는 이미 올린 파일 목록이라 --skip-upload와 같이 써요")
+        if not args.manifest and not (args.source and args.data_date and args.file):
+            parser.error("--source, --data-date, --file이 필요해요 (또는 --manifest … --skip-upload)")
 
     platform_logging.setup("collector")
     settings = Settings.from_env()
@@ -315,6 +358,8 @@ def main(argv: list[str] | None = None) -> None:
         save_fixtures(args.source, settings, args.details)
     elif args.command == "status":
         print_status(settings)
+    elif args.command == "area-upload":
+        raise SystemExit(area_upload(args, settings))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,22 @@
+source,scope,s3Key,sha256,dataDate,fileName,rows
+SUBWAY_STATION,ALL,area/SUBWAY_STATION/2026-06-18/subway_station.csv,d723b4b81b9e9ac66668343a7f5785ddb266b4215e1e8c8d2980203670366164,2026-06-18,"subway_station.csv",1137
+BUS_STOP,ALL,area/BUS_STOP/2025-10-31/bus_stop.csv,1db7e5d0cdc541e86a957b7584f2ddf8e4b1d29b02594984a01c5752ac13af06,2025-10-31,"국토교통부_전국 버스정류장 위치정보_20251031.csv",227065
+SCHOOL,ALL,area/SCHOOL/2026-10-01/school.csv,527c6999960537c482f47739ffea59f6edd71a68594e7d9035210607a178cf51,2026-10-01,"전국초중등학교위치표준데이터.csv",12003
+PARK,ALL,area/PARK/2026-09-01/park.csv,8804acdb397695105b6a797d12c6732e5dcad52425364dea8ddb8dbbec310fe9,2026-09-01,"전국도시공원정보표준데이터.csv",18342
+HOSPITAL,ALL,area/HOSPITAL/2026-09-30/hospital.csv,9b81b8dc3304785a2c713182c72b94e7960778c4e07ed32d86f27a0e684142b1,2026-09-30,"1.병원정보서비스(2026.9.).csv",79899
+STORES,강원,area/STORES/2026-06-30/stores_gangwon.csv,6505ddc859141a3c7526f2c3e0aec101afc4d7fdc52bb38a2bd7f54b67f917dd,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_강원_202606.csv",110206
+STORES,경기,area/STORES/2026-06-30/stores_gyeonggi.csv,6f7b3c855ee8f51060e7b5100b1f23e5f1a854b6115665fe6bc3d397b1e68645,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_경기_202606.csv",672680
+STORES,경남,area/STORES/2026-06-30/stores_gyeongnam.csv,35779237cf2b8c032681cfc46f774616172e9c933a2bc53c881b88eacc75a2fd,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_경남_202606.csv",172887
+STORES,경북,area/STORES/2026-06-30/stores_gyeongbuk.csv,b4f110fffa219f74d55f73d9a7a5c0fe4aee0d53894a29f2af47614cfeef04d0,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_경북_202606.csv",144967
+STORES,대구,area/STORES/2026-06-30/stores_daegu.csv,e8b6bd64429c2fc41352cff3b8f6879e566b48994e4d2feacc30e27465a579b0,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_대구_202606.csv",118357
+STORES,대전,area/STORES/2026-06-30/stores_daejeon.csv,dbfb60e11d6f3fe7b0ac66dace20e8fe065318ff1643c50125762053954752af,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_대전_202606.csv",80704
+STORES,부산,area/STORES/2026-06-30/stores_busan.csv,9a2de9bed72f70691e26d55f5fede506d95c5dc521d9154564d1b95f69d7cb19,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_부산_202606.csv",159689
+STORES,서울,area/STORES/2026-06-30/stores_seoul.csv,08d3fd08b37840256cccd4f09bad6fc33133b647cbff05f22f26fc962cf84152,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_서울_202606.csv",554092
+STORES,세종,area/STORES/2026-06-30/stores_sejong.csv,94b9e4668c2b5c1fc55d2331af67fdf2ed4efd7aa5c024996f19db987c130446,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_세종_202606.csv",15816
+STORES,울산,area/STORES/2026-06-30/stores_ulsan.csv,208869175238b587c456cc42646ae1b028cba64d0bb9418ce5e593d79b7b66c1,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_울산_202606.csv",54737
+STORES,인천,area/STORES/2026-06-30/stores_incheon.csv,9198cdf381f7cc6adffe9c91c7856fdad037fbddb442fb49c68f796bf85bc1bc,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_인천_202606.csv",136995
+STORES,전남광주,area/STORES/2026-06-30/stores_jeonnam_gwangju.csv,8819820446e75cf507f636e464cab634d444359975353a92fc015d2e0bf5889a,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_전남광주_202606.csv",175276
+STORES,전북,area/STORES/2026-06-30/stores_jeonbuk.csv,69a9966478302295d1c5c76087d7af4232dcdb52d95f52e6177cb32d1f09c256,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_전북_202606.csv",98749
+STORES,제주,area/STORES/2026-06-30/stores_jeju.csv,16a00292d3cfbc49ada886655ddc6a03f5a18a1797600815e37358ded1f078a1,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_제주_202606.csv",59009
+STORES,충남,area/STORES/2026-06-30/stores_chungnam.csv,5ed98ad165d0bd0de991543a77e9fe699f4785c1c32bc3424bafb3d5fe599053,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_충남_202606.csv",124589
+STORES,충북,area/STORES/2026-06-30/stores_chungbuk.csv,332f7eb18fb44f92d9640af610d99b95871928433b964a9943b500c5c215b868,2026-06-30,"소상공인시장진흥공단_상가(상권)정보_충북_202606.csv",93731

@@ -106,6 +106,7 @@ class MemoryStore:
 @dataclass
 class MemoryFileStore:
     objects: dict[str, bytes] = field(default_factory=dict)
+    metadatas: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def put(self, key, data, content_type):
         self.objects[key] = data
@@ -113,6 +114,15 @@ class MemoryFileStore:
 
     def delete(self, key):
         self.objects.pop(key, None)
+        self.metadatas.pop(key, None)
+
+    def put_file(self, key, path, content_type, metadata):
+        self.objects[key] = path.read_bytes()
+        self.metadatas[key] = dict(metadata)
+        return key
+
+    def metadata(self, key):
+        return self.metadatas.get(key) if key in self.objects else None
 
 
 @dataclass
