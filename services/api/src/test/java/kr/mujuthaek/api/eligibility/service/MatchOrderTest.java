@@ -102,6 +102,6 @@ class MatchOrderTest {
              "referenceDate": "2026-10-16", "common": [], "groups": [%s], "notes": []}"""
                 .formatted(String.join(", ", groups)));
     return new NoticeCandidate(
-        id, 1, id.toString(), null, LocalDate.parse(applyEnd), List.of(), frame);
+        id, false, 1, id.toString(), null, LocalDate.parse(applyEnd), List.of(), frame, null);
   }
 }

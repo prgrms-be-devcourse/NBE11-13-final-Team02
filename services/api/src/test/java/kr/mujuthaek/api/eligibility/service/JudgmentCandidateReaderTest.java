@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.eligibility.mapper.MatchMapper;
+import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
 import kr.mujuthaek.api.eligibility.rule.Field;
 import kr.mujuthaek.api.notice.service.NoticeField;
@@ -24,6 +25,7 @@ class JudgmentCandidateReaderTest {
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
   private static final UUID SHOP = UUID.randomUUID();
+  private static final UUID SPACE_POLICY = UUID.randomUUID();
   private static final UUID PROGRAM = UUID.randomUUID();
   private static final UUID UNKNOWN_REGION = UUID.randomUUID();
 
@@ -41,15 +43,28 @@ class JudgmentCandidateReaderTest {
                 List.of(
                     new NoticeForJudgment(
                         SHOP,
+                        false,
                         3,
                         "행복상가",
                         LocalDate.parse("2026-10-20"),
                         LocalDate.parse("2026-10-30"),
                         List.of("1150010100"),
-                        SHOP_FRAME));
+                        SHOP_FRAME,
+                        "https://example.org/notices/shop"),
+                    new NoticeForJudgment(
+                        SPACE_POLICY,
+                        true,
+                        2,
+                        "창업보육센터 입주기업 모집",
+                        null,
+                        LocalDate.parse("2026-11-03"),
+                        List.of(),
+                        SHOP_FRAME,
+                        "https://example.org/policies/space"));
             case HOUSING ->
                 List.of(
-                    new NoticeForJudgment(UNKNOWN_REGION, 1, "지역을 모르는 공고", null, null, null, null));
+                    new NoticeForJudgment(
+                        UNKNOWN_REGION, false, 1, "지역을 모르는 공고", null, null, null, null, null));
           };
         }
 
@@ -63,24 +78,43 @@ class JudgmentCandidateReaderTest {
                   null,
                   LocalDate.parse("2026-11-05"),
                   List.of(),
-                  STARTUP_FRAME));
+                  STARTUP_FRAME,
+                  "https://example.org/programs/pre-startup"));
         }
       };
 
   private final JudgmentCandidateReader reader = new JudgmentCandidateReader(notices);
 
   @Test
-  void businessSpaceComesFromNoticeList() {
-    assertThat(reader.openNotices(Field.BUSINESS_SPACE))
+  void businessSpaceComesFromNoticeListWithPolicyFlagAndLink() {
+    List<NoticeCandidate> candidates = reader.openNotices(Field.BUSINESS_SPACE);
+
+    assertThat(candidates)
         .containsExactly(
             new NoticeCandidate(
                 SHOP,
+                false,
                 3,
                 "행복상가",
                 LocalDate.parse("2026-10-20"),
                 LocalDate.parse("2026-10-30"),
                 List.of("1150010100"),
-                SHOP_FRAME));
+                SHOP_FRAME,
+                "https://example.org/notices/shop"),
+            new NoticeCandidate(
+                SPACE_POLICY,
+                true,
+                2,
+                "창업보육센터 입주기업 모집",
+                null,
+                LocalDate.parse("2026-11-03"),
+                List.of(),
+                SHOP_FRAME,
+                "https://example.org/policies/space"));
+    // 목록 결과에도 그대로 실려서, 화면은 정책이면 공고 상세 대신 원문 주소로 보내요
+    MatchResult.Item policy = MatchMapper.notReady(candidates.get(1));
+    assertThat(policy.policy()).isTrue();
+    assertThat(policy.detailUrl()).isEqualTo("https://example.org/policies/space");
   }
 
   @Test
@@ -99,12 +133,14 @@ class JudgmentCandidateReaderTest {
         .containsExactly(
             new NoticeCandidate(
                 PROGRAM,
+                true,
                 1,
                 "예비창업패키지",
                 null,
                 LocalDate.parse("2026-11-05"),
                 List.of(),
-                STARTUP_FRAME));
+                STARTUP_FRAME,
+                "https://example.org/programs/pre-startup"));
   }
 
   @Test

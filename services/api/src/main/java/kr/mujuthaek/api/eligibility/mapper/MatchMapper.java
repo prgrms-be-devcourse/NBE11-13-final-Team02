@@ -55,8 +55,10 @@ public final class MatchMapper {
       int openQuestions) {
     return new MatchResult.Item(
         n.noticeId(),
+        n.policy(),
         n.version(),
         n.title(),
+        n.detailUrl(),
         n.regionCodes(),
         n.applyStart(),
         n.applyEnd(),

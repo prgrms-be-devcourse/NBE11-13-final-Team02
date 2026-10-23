@@ -62,56 +62,68 @@ class MatchQueryServiceTest {
           List.of(
               new NoticeCandidate(
                   JEONSE,
+                  false,
                   1,
                   "장기전세주택 85㎡ 초과",
                   LocalDate.parse("2026-10-20"),
                   LocalDate.parse("2026-11-10"),
                   List.of("1165010100"),
-                  frame("housing/long-term-jeonse-85plus")),
+                  frame("housing/long-term-jeonse-85plus"),
+                  "https://example.org/notices/jeonse"),
               new NoticeCandidate(
                   SEORIPUL,
+                  false,
                   2,
                   "서리풀 아트타운",
                   LocalDate.parse("2026-10-20"),
                   LocalDate.parse("2026-10-30"),
                   List.of("1165010800", "1165010700"),
-                  frame("housing/seoripul-artown")),
+                  frame("housing/seoripul-artown"),
+                  null),
               new NoticeCandidate(
                   NO_FRAME,
+                  false,
                   1,
                   "자격 조건 정리 중인 공고",
                   null,
                   LocalDate.parse("2026-10-25"),
                   List.of(),
+                  null,
                   null),
               new NoticeCandidate(
                   BAD_FRAME,
+                  false,
                   1,
                   "틀이 잘못 들어간 공고",
                   null,
                   null,
                   List.of("2600000000"),
-                  JSON.readTree("{\"schema\": \"business-space-judgment.v1\"}")));
+                  JSON.readTree("{\"schema\": \"business-space-judgment.v1\"}"),
+                  null));
       List<NoticeCandidate> businessSpace =
           List.of(
               new NoticeCandidate(
                   SEONGDONG,
+                  false,
                   1,
                   "성동 안심상가",
                   null,
                   LocalDate.parse("2026-11-01"),
                   List.of("1120011500"),
-                  frame("business-space/seongdong-safe-shop")));
+                  frame("business-space/seongdong-safe-shop"),
+                  null));
       List<NoticeCandidate> startupSupport =
           List.of(
               new NoticeCandidate(
                   GVC,
+                  true,
                   1,
                   "K-Startup 글로벌 진출",
                   null,
                   LocalDate.parse("2026-11-05"),
                   List.of(),
-                  frame("startup-support/kstartup-gvc")));
+                  frame("startup-support/kstartup-gvc"),
+                  "https://example.org/programs/gvc"));
       return field ->
           switch (field) {
             case HOUSING -> housing;
@@ -170,6 +182,10 @@ class MatchQueryServiceTest {
             applicant("{\"business\": {\"history\": [{\"openedOn\": \"2023-10-17\"}]}}"));
     assertThat(eligible.field()).isEqualTo("STARTUP_SUPPORT");
     assertThat(eligible.items().getFirst().noticeId()).isEqualTo(GVC);
+    // 창업지원 사업은 정책이라 상세 대신 원문 주소로 보내요
+    assertThat(eligible.items().getFirst().policy()).isTrue();
+    assertThat(eligible.items().getFirst().detailUrl())
+        .isEqualTo("https://example.org/programs/gvc");
     assertThat(eligible.items().getFirst().status()).isEqualTo(Eligibility.ELIGIBLE);
     assertThat(eligible.items().getFirst().regionCodes()).isEmpty();
 
@@ -198,6 +214,8 @@ class MatchQueryServiceTest {
     MatchResult.Item jeonse = result.items().get(0);
     assertThat(jeonse.status()).isEqualTo(Eligibility.ELIGIBLE);
     assertThat(jeonse.title()).isEqualTo("장기전세주택 85㎡ 초과");
+    assertThat(jeonse.policy()).isFalse();
+    assertThat(jeonse.detailUrl()).isEqualTo("https://example.org/notices/jeonse");
     assertThat(jeonse.version()).isEqualTo(1);
     assertThat(jeonse.regionCodes()).containsExactly("1165010100");
     assertThat(jeonse.applyStart()).isEqualTo(LocalDate.parse("2026-10-20"));
