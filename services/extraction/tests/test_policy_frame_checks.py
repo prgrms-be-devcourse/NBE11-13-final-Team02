@@ -282,6 +282,6 @@ def test_age_review_reason_names_the_real_cause():
 
 
 def test_prompt_version_and_rules_for_quotes_regions_and_preferences():
-    assert PROMPT_VERSION == "policy/v7"
+    assert PROMPT_VERSION == "policy/v8"
     for rule in ("spaceLocation", "이어진 한 구간", "입주 뒤 이전 의무", "예비창업자(사업자 등록 전)", "preferences에 넣습니다"):
         assert rule in SYSTEM

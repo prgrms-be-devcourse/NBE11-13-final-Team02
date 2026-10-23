@@ -9,6 +9,7 @@ from test_policy_frame_checks import REGIONS, frame_of
 from test_policy_judgment import TOUR_TEXT, FakeStore, answer, condition, reading, tour
 
 from mujuthaek_extraction.judgment.policy_frame import (
+    AGE_FLAG_CONFLICT,
     EVALUATIVE,
     INTENT_REGION,
     JUDGING_DATE_NOTE,
@@ -123,7 +124,7 @@ def test_worker_logs_why_a_policy_was_not_sent(caplog):
 
 
 def test_prompt_v7_reads_criteria_sentences_and_target_cases_as_conditions_and_groups():
-    assert PROMPT_VERSION == "policy/v7"
+    assert PROMPT_VERSION == "policy/v8"
     for rule in ("소득·자산 기준 적용", "「예비창업자의 경우 …」「법인인 경우 …」", "두고자 하는", "질문만 읽고 답할 수 있게", "대상군을 이름으로 지목할 때만"):
         assert rule in SYSTEM
 
@@ -279,7 +280,9 @@ def test_youth_center_age_fields_make_one_held_age_and_no_limit_makes_none():
     [age] = frame_of(ai_ages, lines + "- 15일 이내 사업자 등록\n", record=record)["common"]
     assert (age["minAge"], age["maxAge"], age["inReview"]) == (15, 39, True) and META_ONLY in age["reviewReason"]
     assert age["quote"] == lines.strip()  # 최소·최대 두 줄 그대로
-    assert frame_of(ai_ages, lines, record=record | {"sprtTrgtAgeLmtYn": "N"})["common"] == []
+    # 제한 여부가 「제한 없음」(N)인데 나이 값이 있으면 버리지 않고 확인 필요 나이로(사용자 결정 2026-10-23, 4차)
+    [loose] = frame_of(ai_ages, lines, record=record | {"sprtTrgtAgeLmtYn": "N"})["common"]
+    assert (loose["minAge"], loose["maxAge"], loose["inReview"]) == (15, 39, True) and AGE_FLAG_CONFLICT in loose["reviewReason"]
 
 
 def test_labels_are_cut_outside_brackets():
@@ -335,4 +338,5 @@ def test_group_name_used_as_part_of_another_name_does_not_pin_the_exclusion_to_t
     pre = condition("PRE_FOUNDER", "사업자 등록 전인 개인", group="pre")
     stay = condition("OTHER", "다른 기창업자 지원센터에 2년간 입주한 이력이 있는 기업", group="biz", question="다른 지원센터에 2년간 입주했나요?", metWhen="NO")
     made = frame_of([pre, stay], text, groups=GROUPS)
-    assert [c["question"] for c in made["common"]] == ["다른 지원센터에 2년간 입주했나요?"] and made["groups"][1]["criteria"] == []
+    assert [c["question"] for c in made["common"]] == ["다른 지원센터에 2년간 입주했나요?"]
+    assert [(c["question"], c["inReview"]) for c in made["groups"][1]["criteria"]] == [("기창업자에 해당하나요?", True)]  # 비게 된 대상군(4차)

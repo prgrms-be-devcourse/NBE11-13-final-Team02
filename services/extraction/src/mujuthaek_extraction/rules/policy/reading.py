@@ -30,7 +30,10 @@ from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest
 # - 신청자 지역(REGION)은 지금 사는 곳·지금 사업장이 있는 곳만. 「…에 사업장을 두고자 하는」「이전 가능한」「입주 후 전입」은 OBLIGATION
 # - 질문은 그 질문만 읽고 답할 수 있게: 「모집분야」「제외 업종」처럼 다른 곳을 가리키면 목록을 질문에 넣음
 # - 우대는 문장이 대상군을 지목할 때만 group, 아니면 null
-PROMPT_VERSION = "policy/v7"
+# policy/v8 (2026-10-23 사업공간 4차 채점 뒤):
+# - 「신청일 기준」「신청일 현재」「접수일 기준」은 referenceRule APPLICATION(신청하는 날이 사람마다 달라 코드가 대신 정한 날짜를 쓰고
+#   기준일에 기대는 조건은 확인 필요). v7 답·녹화의 NONE·ANNOUNCEMENT·EXPLICIT도 그대로 읽힘
+PROMPT_VERSION = "policy/v8"
 CALL_NAME = "policy_reading"
 MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다(수집기가 20만 자까지 줌). 잘렸으면 모든 조건을 확인 필요로
 MAX_OUTPUT_TOKENS = 12000
@@ -161,7 +164,7 @@ OUTPUT_SCHEMA = {
     "properties": {
         "relevant": {"type": "boolean"},
         "announcedOn": _dated(),
-        "referenceRule": {"type": "string", "enum": ["ANNOUNCEMENT", "EXPLICIT", "NONE"]},
+        "referenceRule": {"type": "string", "enum": ["ANNOUNCEMENT", "EXPLICIT", "APPLICATION", "NONE"]},
         "referenceDate": _dated(),
         "supportRegions": {
             "type": "object",
@@ -235,6 +238,7 @@ announcedOn: 공고 게시일(모집공고일). 본문 끝·머리의 「2026년
 referenceRule / referenceDate: 자격 판단 기준일 문구.
 - 「공고일 기준」「모집공고일 현재」 → ANNOUNCEMENT (referenceDate는 null)
 - 「기준일: '26.1.22.」처럼 다른 날짜가 찍혀 있으면 → EXPLICIT, referenceDate에 그 날짜
+- 「신청일 기준」「신청일 현재」「접수일 기준」처럼 신청하는 날이 기준이면 → APPLICATION (referenceDate는 null)
 - 기준일 문구가 없으면 → NONE
 
 지역은 세 가지를 구분합니다.
