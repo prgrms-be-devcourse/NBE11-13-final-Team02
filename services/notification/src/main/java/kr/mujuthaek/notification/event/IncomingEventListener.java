@@ -1,6 +1,8 @@
 package kr.mujuthaek.notification.event;
 
+import java.time.Instant;
 import java.util.UUID;
+import kr.mujuthaek.notification.delivery.email.VerificationMailer;
 import kr.mujuthaek.notification.notification.NotificationRequest;
 import kr.mujuthaek.notification.notification.NotificationService;
 import kr.mujuthaek.notification.notification.UserDataCleaner;
@@ -30,16 +32,19 @@ public class IncomingEventListener {
   private final JsonMapper json;
   private final JdbcClient jdbc;
   private final NotificationService notifications;
+  private final VerificationMailer verificationMailer;
   private final UserDataCleaner cleaner;
 
   public IncomingEventListener(
       JsonMapper json,
       JdbcClient jdbc,
       NotificationService notifications,
+      VerificationMailer verificationMailer,
       UserDataCleaner cleaner) {
     this.json = json;
     this.jdbc = jdbc;
     this.notifications = notifications;
+    this.verificationMailer = verificationMailer;
     this.cleaner = cleaner;
   }
 
@@ -61,11 +66,15 @@ public class IncomingEventListener {
     switch (event.eventType()) {
       case "notification.requested" -> {
         int created = notifications.handle(payload(event, NotificationRequest.class));
-        log.info("알림 요청 처리: eventId={}, 새 알림={}", event.eventId(), created);
+        log.info("알림 요청 처리: eventId={}, 새 발송 줄={}", event.eventId(), created);
+      }
+      case "email.verification.requested" -> {
+        VerificationRequested v = payload(event, VerificationRequested.class);
+        verificationMailer.send(v.userId(), v.email(), v.code(), v.expiresAt());
       }
       case "user.withdrawn" -> {
         cleaner.delete(payload(event, Withdrawn.class).userId());
-        log.info("탈퇴 회원 알림 데이터 지움: eventId={}", event.eventId());
+        log.info("탈퇴 회원 발송 기록 지움: eventId={}", event.eventId());
       }
       default ->
           log.warn("모르는 이벤트라 건너뜀: eventId={}, eventType={}", event.eventId(), event.eventType());
@@ -84,6 +93,9 @@ public class IncomingEventListener {
       }
       if (value instanceof Withdrawn withdrawn && withdrawn.userId() == null) {
         throw new IllegalArgumentException("userId가 없어요");
+      }
+      if (value instanceof VerificationRequested v) {
+        v.validate();
       }
       return value;
     } catch (JacksonException | IllegalArgumentException e) {
@@ -109,4 +121,15 @@ public class IncomingEventListener {
   private record Envelope(UUID eventId, String eventType, JsonNode payload) {}
 
   private record Withdrawn(UUID userId) {}
+
+  private record VerificationRequested(UUID userId, String email, String code, Instant expiresAt) {
+    void validate() {
+      if (userId == null || email == null || email.isBlank() || expiresAt == null) {
+        throw new IllegalArgumentException("userId·email·expiresAt이 없어요");
+      }
+      if (code == null || !code.matches("\\d{6}")) {
+        throw new IllegalArgumentException("code는 6자리 숫자예요");
+      }
+    }
+  }
 }

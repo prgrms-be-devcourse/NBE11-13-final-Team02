@@ -1,19 +1,8 @@
 package kr.mujuthaek.notification.notification;
 
-/** 알림이 가리키는 대상이 들어 있는 api 테이블 (notifications.target_type). */
+/** 알림이 가리키는 대상이 들어 있는 api 테이블. 발송에는 쓰지 않고 요청이 계약에 맞는지 확인할 때만 봐요. */
 public enum TargetType {
-  NOTICE("공고"), // notices
-  BENEFIT("지원 사업"), // benefits
-  SPACE_RECRUITMENT("사업공간 모집"); // space_recruitments
-
-  private final String label;
-
-  TargetType(String label) {
-    this.label = label;
-  }
-
-  /** 알림 문구에 쓰는 이름 */
-  public String label() {
-    return label;
-  }
+  NOTICE, // notices
+  BENEFIT, // benefits
+  SPACE_RECRUITMENT // space_recruitments
 }

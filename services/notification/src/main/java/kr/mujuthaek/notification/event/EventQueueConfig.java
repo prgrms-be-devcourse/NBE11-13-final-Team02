@@ -27,10 +27,11 @@ public class EventQueueConfig {
   static final String DEAD_ROUTING_KEY = "notification.dead";
 
   /**
-   * 받는 이벤트 (contracts/schemas/notification-events.draft.md). 둘 다 api가 보내요. 대상자는 api가 정해서 보내고, 알림
-   * 서버는 보내기만 해요.
+   * 받는 이벤트 (contracts/schemas/notification-events.draft.md). 모두 api가 보내요. 받을 사람·주소·문구는 api가 정해서
+   * 보내고, 알림 서버는 보내기만 해요.
    */
-  static final List<String> ROUTING_KEYS = List.of("notification.requested", "user.withdrawn");
+  static final List<String> ROUTING_KEYS =
+      List.of("notification.requested", "email.verification.requested", "user.withdrawn");
 
   @Bean
   Declarables notificationQueues() {

@@ -4,10 +4,11 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
@@ -15,10 +16,11 @@ import kr.mujuthaek.notification.TestcontainersConfiguration;
 import kr.mujuthaek.notification.delivery.email.EmailMessage;
 import kr.mujuthaek.notification.delivery.email.EmailSender;
 import kr.mujuthaek.notification.notification.NotificationRequest;
+import kr.mujuthaek.notification.notification.NotificationRequest.Recipient;
 import kr.mujuthaek.notification.notification.NotificationService;
 import kr.mujuthaek.notification.notification.NotificationType;
 import kr.mujuthaek.notification.notification.TargetType;
-import kr.mujuthaek.notification.settings.NotificationSettings;
+import kr.mujuthaek.notification.notification.UserDataCleaner;
 import kr.mujuthaek.notification.support.TimeConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,12 +39,14 @@ import org.springframework.transaction.support.TransactionTemplate;
  */
 @SpringBootTest(properties = "notification.delivery.poll-enabled=false")
 @Import({TestcontainersConfiguration.class, DeliveryFlowTest.Fakes.class})
-class DeliveryFlowTest {
+public class DeliveryFlowTest {
 
   static final UUID USER = UUID.fromString("0192b6f0-0000-7000-8000-0000000000a1");
+  static final Recipient EMAIL_ONLY = new Recipient(USER, "me@example.com", false);
 
   @Autowired NotificationService service;
   @Autowired DeliveryWorker worker;
+  @Autowired UserDataCleaner cleaner;
   @Autowired TransactionTemplate tx;
   @Autowired JdbcClient jdbc;
   @Autowired MutableClock clock;
@@ -51,52 +55,40 @@ class DeliveryFlowTest {
 
   @BeforeEach
   void setUp() {
-    jdbc.sql("delete from notifications").update();
-    jdbc.sql("delete from notification_settings").update();
-    jdbc.sql("delete from email_addresses").update();
+    jdbc.sql("delete from deliveries").update();
     email.sent.clear();
     email.failure.set(null);
     push.sent.clear();
+    push.devices.clear();
     clock.set("2026-10-23T10:00");
-    jdbc.sql(
-            """
-            insert into notification_settings (user_id, email_enabled) values (:u, true);
-            insert into email_addresses (user_id, email, consent_version, consented_at, verified_at,
-                                         unsubscribe_token_hash)
-            values (:u, 'me@example.com', 'v1', now(), now(), 'hash-a1')
-            """)
-        .param("u", USER)
-        .update();
   }
 
   @Test
-  void immediateNotificationIsSentOnce() {
-    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", List.of(USER));
-    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", List.of(USER)); // 같은 알림 다시
+  void immediateNotificationIsSentOnceAndAddressIsCleared() {
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", EMAIL_ONLY);
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", EMAIL_ONLY); // 같은 알림 다시
 
     worker.runOnce();
 
     assertThat(email.sent).hasSize(1);
     assertThat(email.sent.getFirst().to()).isEqualTo("me@example.com");
-    assertThat(email.sent.getFirst().subject()).isEqualTo("[무주택자들] 정정: 강동구 행복주택");
+    assertThat(email.sent.getFirst().subject()).isEqualTo("[무주택자들] 제목 NOTICE:X:CORRECTED:2");
     assertThat(status(Channel.EMAIL)).containsExactly("SENT");
+    assertThat(jdbc.sql("select address from deliveries").query(String.class).optional())
+        .isEmpty(); // 보낸 뒤에는 주소를 남기지 않아요
   }
 
   @Test
-  void userWithoutSettingsOnlyGetsInboxEntry() {
-    UUID other = UUID.randomUUID();
-    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", List.of(other));
+  void recipientWithoutAddressGetsNoDelivery() {
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", new Recipient(USER, null, false));
 
-    assertThat(jdbc.sql("select count(*) from notifications where user_id = :u").param("u", other))
-        .extracting(s -> s.query(Long.class).single())
-        .isEqualTo(1L);
     assertThat(jdbc.sql("select count(*) from deliveries").query(Long.class).single()).isZero();
   }
 
   @Test
   void newNoticesAreBundledIntoOneEmailAtSixPm() {
-    request(NotificationType.NEW_NOTICE, "NOTICE:A:NEW", List.of(USER));
-    request(NotificationType.NEW_NOTICE, "NOTICE:B:NEW", List.of(USER));
+    request(NotificationType.NEW_NOTICE, "NOTICE:A:NEW", EMAIL_ONLY);
+    request(NotificationType.NEW_NOTICE, "NOTICE:B:NEW", EMAIL_ONLY);
 
     worker.runOnce();
     assertThat(email.sent).isEmpty(); // 10시: 아직 묶음 시각 전
@@ -110,9 +102,11 @@ class DeliveryFlowTest {
 
   @Test
   void quietHoursPostponeUntilEight() {
-    jdbc.sql("update notification_settings set quiet_enabled = true").update();
     clock.set("2026-10-23T23:00");
-    request(NotificationType.DEADLINE_D1, "NOTICE:X:D1:2026-10-24", List.of(USER));
+    request(
+        NotificationType.DEADLINE_D1,
+        "NOTICE:X:D1:2026-10-24",
+        new Recipient(USER, "me@example.com", true));
 
     worker.runOnce();
     assertThat(email.sent).isEmpty();
@@ -125,7 +119,7 @@ class DeliveryFlowTest {
   @Test
   void temporaryFailureIsRetriedAndPermanentFailureStops() {
     email.failure.set(new DeliveryException("SES_TooManyRequests", false));
-    request(NotificationType.DEADLINE_D3, "NOTICE:X:D3:2026-10-26", List.of(USER));
+    request(NotificationType.DEADLINE_D3, "NOTICE:X:D3:2026-10-26", EMAIL_ONLY);
 
     worker.runOnce();
     assertThat(status(Channel.EMAIL)).containsExactly("PENDING");
@@ -139,48 +133,39 @@ class DeliveryFlowTest {
   }
 
   @Test
-  void turningEmailOffBeforeSendingSkipsIt() {
-    request(NotificationType.FOLLOW_UP, "NOTICE:X:FOLLOW_UP:P1", List.of(USER));
-    jdbc.sql("update notification_settings set email_enabled = false").update();
+  void withdrawnUserLosesPendingDeliveries() {
+    request(NotificationType.NEW_NOTICE, "NOTICE:A:NEW", EMAIL_ONLY);
 
+    tx.executeWithoutResult(s -> cleaner.delete(USER));
+
+    clock.set("2026-10-23T18:00");
     worker.runOnce();
-
     assertThat(email.sent).isEmpty();
-    assertThat(status(Channel.EMAIL)).containsExactly("SKIPPED");
   }
 
   @Test
   void addedChannelGetsItsOwnDeliveryWithoutDigest() {
-    jdbc.sql("update notification_settings set push_enabled = true").update();
-    request(NotificationType.NEW_NOTICE, "NOTICE:A:NEW", List.of(USER));
+    push.devices.addAll(List.of("device-1", "device-2"));
+    request(NotificationType.NEW_NOTICE, "NOTICE:A:NEW", EMAIL_ONLY);
 
     worker.runOnce();
 
-    assertThat(push.sent).hasSize(1); // 푸시는 묶지 않아서 바로
+    assertThat(push.sent).containsExactly("device-1", "device-2"); // 푸시는 묶지 않아서 기기마다 바로
     assertThat(email.sent).isEmpty(); // 이메일은 18시 묶음
-    assertThat(status(Channel.PUSH)).containsExactly("SENT");
+    assertThat(status(Channel.PUSH)).containsExactly("SENT"); // 회원 1명·채널 1개 = 발송 줄 1개
   }
 
-  private void request(NotificationType type, String dedupKey, List<UUID> userIds) {
+  private void request(NotificationType type, String dedupKey, Recipient recipient) {
     UUID targetId = UUID.randomUUID();
     NotificationRequest request =
         new NotificationRequest(
             type,
             dedupKey,
-            userIds,
-            new NotificationRequest.Target(
-                TargetType.NOTICE,
-                targetId,
-                "강동구 행복주택",
-                "SH",
-                LocalDate.of(2026, 11, 6),
-                "/notices/" + targetId),
-            type == NotificationType.CORRECTED
-                ? new NotificationRequest.Correction(List.of("schedules"))
-                : null,
-            type == NotificationType.FOLLOW_UP
-                ? new NotificationRequest.FollowUp("당첨자 발표", LocalDate.of(2026, 12, 1))
-                : null);
+            new NotificationRequest.Target(TargetType.NOTICE, targetId),
+            "제목 " + dedupKey,
+            "본문",
+            "/notices/" + targetId,
+            List.of(recipient));
     tx.executeWithoutResult(s -> service.handle(request));
   }
 
@@ -191,8 +176,9 @@ class DeliveryFlowTest {
         .list();
   }
 
+  /** 다른 테스트도 같은 설정을 써서 테스트 컨텍스트(컨테이너)를 하나만 띄워요 */
   @TestConfiguration(proxyBeanMethods = false)
-  static class Fakes {
+  public static class Fakes {
 
     @Bean
     @Primary
@@ -235,8 +221,8 @@ class DeliveryFlowTest {
     }
   }
 
-  static class RecordingEmailSender implements EmailSender {
-    final List<EmailMessage> sent = new CopyOnWriteArrayList<>();
+  public static class RecordingEmailSender implements EmailSender {
+    public final List<EmailMessage> sent = new CopyOnWriteArrayList<>();
     final AtomicReference<DeliveryException> failure = new AtomicReference<>();
 
     @Override
@@ -249,9 +235,13 @@ class DeliveryFlowTest {
     }
   }
 
-  /** 웹 푸시 자리. 실제 PushChannel도 이 모양으로 구현하면 돼요 */
+  /**
+   * 웹 푸시 자리. 실제 PushChannel은 요청의 recipients[]에 api가 넣어 준 구독 기기 목록을 꺼내고, 기기마다 web-push로 보내요. 이 가짜는
+   * 모든 회원이 {@link #devices}에 구독했다고 쳐요
+   */
   static class FakePushChannel implements NotificationChannel {
-    final List<OutgoingNotification> sent = new CopyOnWriteArrayList<>();
+    final List<String> devices = new ArrayList<>();
+    final List<String> sent = new CopyOnWriteArrayList<>();
 
     @Override
     public Channel channel() {
@@ -259,8 +249,8 @@ class DeliveryFlowTest {
     }
 
     @Override
-    public boolean canDeliver(UUID userId, NotificationSettings settings) {
-      return settings.pushEnabled();
+    public Optional<String> address(Recipient recipient) {
+      return devices.isEmpty() ? Optional.empty() : Optional.of(String.join(",", devices));
     }
 
     @Override
@@ -269,8 +259,8 @@ class DeliveryFlowTest {
     }
 
     @Override
-    public String send(UUID userId, List<OutgoingNotification> notifications) {
-      sent.addAll(notifications);
+    public String send(String address, List<OutgoingNotification> notifications) {
+      sent.addAll(List.of(address.split(","))); // 기기마다 보내요
       return "push-" + sent.size();
     }
   }

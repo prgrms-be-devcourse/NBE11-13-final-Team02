@@ -29,7 +29,7 @@ class IncomingEventListenerTest {
   @BeforeEach
   void clear() {
     jdbc.sql("delete from processed_events").update();
-    jdbc.sql("delete from notifications").update();
+    jdbc.sql("delete from deliveries").update();
     while (rabbit.receive(EventQueueConfig.DLQ) != null) {} // 다른 테스트가 남긴 실패 메시지
   }
 
@@ -54,7 +54,7 @@ class IncomingEventListenerTest {
         """
         {"eventId":"%s","eventType":"notification.requested","payload":{"type":"NEW_NOTICE"}}
         """
-            .formatted(eventId)); // userIds·target 없음
+            .formatted(eventId)); // recipients·target 없음
 
     assertThat(receiveDead()).isNotNull();
     assertThat(processed(eventId)).isZero();
@@ -95,11 +95,11 @@ class IncomingEventListenerTest {
     return """
         {"eventId":"%s","eventType":"%s","schemaVersion":1,"occurredAt":"2026-10-22T00:00:00Z",
          "producer":"api","payload":{"type":"DEADLINE_D1","dedupKey":"NOTICE:%s:D1:2026-11-06",
-         "userIds":["%s"],"target":{"type":"NOTICE","id":"%s","title":"강동구 행복주택",
-         "provider":"SH","applyEnd":"2026-11-06","linkPath":"/notices/%s"},
-         "correction":null,"followUp":null}}
+         "target":{"type":"NOTICE","id":"%s"},"title":"내일 마감: 강동구 행복주택",
+         "body":"관심 공고 접수가 내일(11월 6일) 마감돼요.","linkPath":"/notices/%s",
+         "recipients":[{"userId":"%s","email":null,"quietEnabled":false}]}}
         """
-        .formatted(eventId, eventType, eventId, UUID.randomUUID(), eventId, eventId);
+        .formatted(eventId, eventType, eventId, eventId, eventId, UUID.randomUUID());
   }
 
   private static void await(Supplier<Boolean> condition) throws InterruptedException {

@@ -9,7 +9,7 @@ import kr.mujuthaek.notification.notification.NotificationType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/** deliveries 읽기·쓰기. 상태는 PENDING → SENT / FAILED / SKIPPED / CANCELLED 예요. */
+/** deliveries 읽기·쓰기. 상태는 PENDING → SENT / FAILED 예요. 끝나면 받을 곳(address)을 지워요. */
 @Repository
 public class DeliveryRepository {
 
@@ -19,17 +19,43 @@ public class DeliveryRepository {
     this.jdbc = jdbc;
   }
 
-  /** 보낼 시각이 지난 발송 줄 + 알림 내용. 서버가 여러 대여도 같은 줄을 두 번 가져가지 않게 잠가요 (트랜잭션 안에서 불러요) */
+  /** 같은 회원·같은 알림·같은 채널 줄이 이미 있으면(같은 요청이 다시 옴) 넣지 않고 false */
+  public boolean insert(NewDelivery d) {
+    return jdbc.sql(
+                """
+                insert into deliveries (id, user_id, channel, address, type, dedup_key, title, body,
+                                        link_path, digest, quiet, scheduled_at)
+                values (:id, :userId, :channel, :address, :type, :dedupKey, :title, :body,
+                        :linkPath, :digest, :quiet, :at)
+                on conflict (dedup_key, channel) do nothing
+                """)
+            .param("id", d.id())
+            .param("userId", d.userId())
+            .param("channel", d.channel().name())
+            .param("address", d.address())
+            .param("type", d.type().name())
+            .param("dedupKey", d.dedupKey())
+            .param("title", d.title())
+            .param("body", d.body())
+            .param("linkPath", d.linkPath())
+            .param("digest", d.digest())
+            .param("quiet", d.quiet())
+            .param("at", at(d.scheduledAt()))
+            .update()
+        == 1;
+  }
+
+  /** 보낼 시각이 지난 줄. 서버가 여러 대여도 같은 줄을 두 번 가져가지 않게 잠가요 (트랜잭션 안에서 불러요) */
   public List<DueDelivery> lockDue(Instant now, int limit) {
     return jdbc.sql(
             """
-            select d.id, d.channel, d.digest, d.scheduled_at, d.attempts,
-                   n.id as notification_id, n.user_id, n.type, n.title, n.body, n.link_path
-              from deliveries d join notifications n on n.id = d.notification_id
-             where d.status = 'PENDING' and d.scheduled_at <= :now
-             order by d.scheduled_at, n.user_id
+            select id, user_id, channel, address, type, title, body, link_path, digest, quiet,
+                   scheduled_at, attempts
+              from deliveries
+             where status = 'PENDING' and scheduled_at <= :now
+             order by scheduled_at, user_id
              limit :limit
-               for update of d skip locked
+               for update skip locked
             """)
         .param("now", at(now))
         .param("limit", limit)
@@ -37,13 +63,14 @@ public class DeliveryRepository {
             (rs, i) ->
                 new DueDelivery(
                     rs.getObject("id", UUID.class),
+                    rs.getObject("user_id", UUID.class),
                     Channel.valueOf(rs.getString("channel")),
+                    rs.getString("address"),
                     rs.getBoolean("digest"),
+                    rs.getBoolean("quiet"),
                     rs.getObject("scheduled_at", OffsetDateTime.class).toInstant(),
                     rs.getInt("attempts"),
-                    rs.getObject("user_id", UUID.class),
                     new OutgoingNotification(
-                        rs.getObject("notification_id", UUID.class),
                         NotificationType.valueOf(rs.getString("type")),
                         rs.getString("title"),
                         rs.getString("body"),
@@ -51,26 +78,12 @@ public class DeliveryRepository {
         .list();
   }
 
-  public void insert(UUID id, UUID notificationId, Channel channel, boolean digest, Instant at) {
-    jdbc.sql(
-            """
-            insert into deliveries (id, notification_id, channel, digest, scheduled_at)
-            values (:id, :notificationId, :channel, :digest, :at)
-            """)
-        .param("id", id)
-        .param("notificationId", notificationId)
-        .param("channel", channel.name())
-        .param("digest", digest)
-        .param("at", at(at))
-        .update();
-  }
-
   public void markSent(List<UUID> ids, String providerMessageId, Instant now) {
     jdbc.sql(
             """
             update deliveries
                set status = 'SENT', attempts = attempts + 1, provider_message_id = :messageId,
-                   sent_at = :now, last_error = null
+                   sent_at = :now, last_error = null, address = null
              where id in (:ids)
             """)
         .param("ids", ids)
@@ -91,17 +104,16 @@ public class DeliveryRepository {
         .update();
   }
 
-  /** 시도하고 실패했으면 FAILED(attempts + 1), 시도하지 않고 멈췄으면 SKIPPED */
-  public void markFinished(List<UUID> ids, String status, String error, boolean attempted) {
+  /** 다시 보내도 안 되거나 재시도를 다 썼어요. {@code attempted}면 이번에 보내 봤어요 */
+  public void markFailed(List<UUID> ids, String error, boolean attempted) {
     jdbc.sql(
             """
             update deliveries
-               set status = :status, last_error = :error,
+               set status = 'FAILED', last_error = :error, address = null,
                    attempts = attempts + case when :attempted then 1 else 0 end
              where id in (:ids)
             """)
         .param("ids", ids)
-        .param("status", status)
         .param("error", error)
         .param("attempted", attempted)
         .update();
@@ -118,13 +130,30 @@ public class DeliveryRepository {
     return instant.atOffset(ZoneOffset.UTC);
   }
 
+  /** 새로 만들 발송 줄 */
+  public record NewDelivery(
+      UUID id,
+      UUID userId,
+      Channel channel,
+      String address,
+      NotificationType type,
+      String dedupKey,
+      String title,
+      String body,
+      String linkPath,
+      boolean digest,
+      boolean quiet,
+      Instant scheduledAt) {}
+
   /** 보낼 차례가 된 발송 줄 1개 */
   public record DueDelivery(
       UUID id,
+      UUID userId,
       Channel channel,
+      String address,
       boolean digest,
+      boolean quiet,
       Instant scheduledAt,
       int attempts,
-      UUID userId,
       OutgoingNotification notification) {}
 }

@@ -1,10 +1,10 @@
-# 회원 관심 데이터 테이블 (초안 v0)
+# 회원 관심 데이터·알림 설정 테이블 (초안 v0)
 
-회원이 고른 관심 공고·관심 조건·약관 동의를 저장하는 api 테이블이에요. **알림 대상자는 api `notification` 모듈이 이 테이블로 찾아요** (user 모듈 service 조회 메서드). 알림 서버(`services/notification`)에는 복사본을 보내지 않고, 찾은 대상을 `notification.requested`로 보내요 (2026-10-23 결정).
+회원이 고른 관심 공고·관심 조건·약관 동의, **알림 받을 이메일·알림 설정**을 저장하는 api 테이블이에요. **알림 대상자와 받을 주소는 api가 이 테이블로 정해요** (user 모듈 service 조회 메서드). 알림 서버(`services/notification`)에는 복사본을 두지 않고, 정한 대상·주소·문구를 `notification.requested`로 보내요 (2026-10-23 B안).
 
 - 저장하는 곳: api DB, 스키마 `account`, 모듈 `user` (담당자3)
-- 보내는 이벤트: `user.withdrawn`만 ([notification-events.draft.md](notification-events.draft.md) 3장). 관심 조건·관심 공고가 바뀌어도 이벤트를 보내지 않아요
-- 알림 설정·알림 받을 이메일은 여기 두지 않아요. 알림 서버만 쓰는 데이터라 알림 서버 DB에 둬요 ([notification-tables.draft.md](notification-tables.draft.md))
+- 보내는 이벤트: `user.withdrawn`, `email.verification.requested` ([notification-events.draft.md](notification-events.draft.md) 3·4장). 관심 조건·관심 공고·알림 설정이 바뀌어도 이벤트를 보내지 않아요 (다음 알림 요청에 반영돼요)
+- PWA는 이메일 등록·인증, 알림 설정도 api로 불러요. 알림 서버는 화면과 만나지 않아요
 - 상태: **초안**이에요. 확정하면 api 마이그레이션 `V<yyyyMMddHHmm>__user_preferences.sql`로 옮겨요
 
 ## 1. 지금 있는 테이블 (#54 소셜 로그인, 바꾸지 않아요)
@@ -26,7 +26,9 @@ account.users (있음)
  ├─ housing_interests   주거 공고 관심 조건 (1줄)
  ├─ business_interests  사업공간·창업지원 관심 조건 (1줄)
  ├─ support_interests   주거·이주 지원 정책 관심 조건 (1줄)
- └─ consents            약관 동의 이력 (여러 줄)
+ ├─ consents            약관 동의 이력 (여러 줄)
+ ├─ notification_emails 알림 받을 이메일·인증·수신 동의 (1줄)
+ └─ notification_settings 알림 종류·채널 켜기·끄기, 조용한 시간 (1줄)
 ```
 
 한 회원에게 여러 개가 있으면 따로 줄을 두고(favorites, consents), 한 회원에게 하나뿐인 조건 묶음은 배열 칸으로 한 줄에 둬요(*_interests).
@@ -104,7 +106,56 @@ account.users (있음)
 | `created_at` | timestamptz | ✅ | |
 
 - 지금 가입 흐름(첫 소셜 로그인 = 가입)에 동의 단계가 없어요. 첫 로그인 뒤 "약관 동의" 화면을 거치게 하고, 동의 전에는 관심 저장 API를 막아요.
-- 이메일 수집·알림 수신 동의는 이메일을 입력하는 알림 서버 화면에서 받아 알림 서버에 저장해요 (`notification-tables.draft.md`의 `email_addresses.consent_version`). 그래야 api ↔ 알림 서버 동의 이벤트가 필요 없어요.
+- 이메일 수집·알림 수신 동의는 이메일을 입력하는 화면에서 받아 `notification_emails.consent_version`에 저장해요 (2-6).
+
+### 2-6. `notification_emails` (알림 받을 이메일)
+
+소셜 로그인 이메일과 따로 받아요 (카카오는 이메일을 안 줄 수 있고, 알림은 다른 주소로 받고 싶을 수 있어요). SES는 반송이 많으면 계정을 정지해서 **인증한 주소에만** 보내요.
+
+| 칸 | 모양 | 필수 | 뜻 |
+| --- | --- | --- | --- |
+| `user_id` | uuid | ✅ PK | `users.id` (cascade). 회원당 1개 |
+| `email` | text | ✅ | 알림 받을 주소 |
+| `consent_version` | text | ✅ | 이메일 수집·알림 수신 동의 문구 버전 (예: `email-v1`) |
+| `consented_at` | timestamptz | ✅ | |
+| `verify_code_hash` | text \| null | | 6자리 코드의 SHA-256. 원문은 메일(`email.verification.requested`)에만 |
+| `verify_expires_at` | timestamptz \| null | | 10분 |
+| `verify_attempts` | int | ✅ 기본 0 | 5번 틀리면 코드 무효 |
+| `verify_sent_at` | timestamptz \| null | | 다시 보내기는 1분에 1번 |
+| `verified_at` | timestamptz \| null | | 인증 전에는 알림 요청에 주소를 넣지 않아요 |
+| `status` | text | ✅ 기본 `ACTIVE` | `ACTIVE` · `BOUNCED`(없는 주소) · `COMPLAINED`(스팸 신고). 알림 서버의 `email.bounced`로 바뀌어요 |
+| `updated_at` | timestamptz | ✅ | |
+
+- 주소를 바꾸면 `verified_at`·`status`를 지우고 다시 인증해요
+- 이메일 주소는 로그에 남기지 않아요 (user_id만)
+
+### 2-7. `notification_settings` (알림 설정)
+
+| 칸 | 모양 | 기본 | 뜻 |
+| --- | --- | --- | --- |
+| `user_id` | uuid PK | | `users.id` (cascade) |
+| `email_enabled` | boolean | false | 이메일로 받기. 인증된 주소가 있어야 켤 수 있어요 (아니면 409) |
+| `push_enabled` | boolean | false | 웹 푸시 (다음 단계) |
+| `new_notice` | boolean | true | `NEW_NOTICE` |
+| `new_support` | boolean | true | `NEW_SUPPORT` |
+| `deadline` | boolean | true | `DEADLINE_D3`·`D1` |
+| `correction` | boolean | true | `CORRECTED` |
+| `follow_up` | boolean | true | `FOLLOW_UP` |
+| `quiet_enabled` | boolean | false | 22:00~08:00 알림을 08:00에 |
+| `updated_at` | timestamptz | now() | |
+
+줄이 없는 회원은 기본값으로 봐요 (이메일 끔 → 알림함에만).
+
+### 2-8. API (user 모듈, PWA가 불러요)
+
+| API | 하는 일 |
+| --- | --- |
+| `PUT /api/users/me/notification-email` `{ email, consentVersion }` | 저장 + 코드 만들기(해시 저장) + 아웃박스에 `email.verification.requested` |
+| `POST /api/users/me/notification-email/verify` `{ code }` | 맞으면 `verified_at`, `email_enabled = true` |
+| `GET /api/users/me/notification-email` | 가린 주소(`xo***@gmail.com`), 인증 여부, 상태 |
+| `GET`·`PUT /api/users/me/notification-settings` | 설정 조회·변경 |
+
+알림함 API(`GET /api/notifications`, 읽음 처리)는 api `notification` 모듈에 둬요.
 
 ## 3. 마이그레이션 초안
 
@@ -158,6 +209,33 @@ create table account.consents (
     created_at timestamptz not null default now()
 );
 create index consents_user_idx on account.consents (user_id, kind, created_at desc);
+
+create table account.notification_emails (
+    user_id           uuid        primary key references account.users (id) on delete cascade,
+    email             text        not null,
+    consent_version   varchar(20) not null,
+    consented_at      timestamptz not null,
+    verify_code_hash  text,                                -- 6자리 코드의 SHA-256
+    verify_expires_at timestamptz,
+    verify_attempts   int         not null default 0,      -- 5번 틀리면 무효
+    verify_sent_at    timestamptz,                         -- 다시 보내기 1분에 1번
+    verified_at       timestamptz,
+    status            varchar(20) not null default 'ACTIVE' check (status in ('ACTIVE', 'BOUNCED', 'COMPLAINED')),
+    updated_at        timestamptz not null default now()
+);
+
+create table account.notification_settings (
+    user_id       uuid        primary key references account.users (id) on delete cascade,
+    email_enabled boolean     not null default false,
+    push_enabled  boolean     not null default false,
+    new_notice    boolean     not null default true,
+    new_support   boolean     not null default true,
+    deadline      boolean     not null default true,
+    correction    boolean     not null default true,
+    follow_up     boolean     not null default true,
+    quiet_enabled boolean     not null default false,
+    updated_at    timestamptz not null default now()
+);
 ```
 
 배열 칸 값 검사(코드 모양, 허용 값)는 DB check 대신 요청 DTO 검증에서 해요. 값 목록이 바뀔 때 마이그레이션을 새로 만들지 않으려고요.
@@ -172,12 +250,13 @@ user 모듈이 아래 조회 메서드를 내줘요. api `notification` 모듈�
 | `findBusinessInterested(regionCodes, nationwide, industries, startupStages)` | `business_interests` | 새 사업공간 공고·창업지원·사업공간 모집 |
 | `findSupportInterested(regionScope, regionCodes, supportKinds)` | `support_interests` | 새 지원 정책 |
 | `findFavoritedBy(targetType, targetId)` | `favorites` | 정정·후속 안내·마감 D-3·D-1 |
+| `findNotificationContacts(userIds, type)` | `notification_settings`, `notification_emails` | 요청 만들 때. 회원마다 `{userId, email \| null, quietEnabled}`. `email`은 이메일 켬 + 그 종류 켬 + 인증됨 + ACTIVE일 때만 |
 
 - 결과는 회원 ID 목록이에요. api가 500명씩 나눠 보내요
 - 약관 동의(`TERMS`·`PRIVACY`)를 하지 않은 회원은 결과에서 빼요
 - 지역 검색이 빨라야 해서 관심 조건 세 테이블의 `region_codes`에 GIN 인덱스를 둬요 (3장)
 
-탈퇴하면 api user 모듈이 `user.withdrawn`을 아웃박스에 적어 알림 서버에 알려요 (`UserWithdrawn` 내부 이벤트를 그대로 밖으로).
+탈퇴하면 api user 모듈이 `user.withdrawn`을 아웃박스에 적어 알림 서버에 알려요 (`UserWithdrawn` 내부 이벤트를 그대로 밖으로). 이메일·설정은 `users` cascade로 같이 지워져요.
 
 ## 5. 결정 (2026-10-23)
 
@@ -187,3 +266,4 @@ user 모듈이 아래 조회 메서드를 내줘요. api `notification` 모듈�
 | 약관 동의 전 | 공고 둘러보기는 허용, 관심 저장·관심 조건·알림 설정 API만 막아요 (403 + "약관 동의가 필요해요") |
 | 주거 관심 지역 시도 전체(`xx000`) | 그 시도 안 모든 시군구 공고를 보내요 |
 | 대상자 찾기 | api `notification` 모듈이 이 테이블로 찾아요 (알림 서버에 복사본 없음) |
+| 알림 이메일·설정 위치 | api user 모듈 (B안). PWA는 api만 불러요 |

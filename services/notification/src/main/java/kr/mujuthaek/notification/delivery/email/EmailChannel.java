@@ -1,24 +1,22 @@
 package kr.mujuthaek.notification.delivery.email;
 
 import java.util.List;
-import java.util.UUID;
+import java.util.Optional;
 import kr.mujuthaek.notification.delivery.Channel;
 import kr.mujuthaek.notification.delivery.DeliveryException;
 import kr.mujuthaek.notification.delivery.NotificationChannel;
 import kr.mujuthaek.notification.delivery.OutgoingNotification;
-import kr.mujuthaek.notification.settings.NotificationSettings;
+import kr.mujuthaek.notification.notification.NotificationRequest;
 import org.springframework.stereotype.Component;
 
-/** 이메일 채널. 받을 곳은 email_addresses의 인증된 주소이고, 새 공고·새 정책은 하루 두 번 묶어 1통으로 보내요. */
+/** 이메일 채널. 받을 곳은 요청의 recipients[].email이고, 새 공고·새 정책은 하루 두 번 묶어 1통으로 보내요. */
 @Component
 class EmailChannel implements NotificationChannel {
 
-  private final EmailAddressRepository addresses;
   private final EmailSender sender;
   private final MailProperties properties;
 
-  EmailChannel(EmailAddressRepository addresses, EmailSender sender, MailProperties properties) {
-    this.addresses = addresses;
+  EmailChannel(EmailSender sender, MailProperties properties) {
     this.sender = sender;
     this.properties = properties;
   }
@@ -29,8 +27,8 @@ class EmailChannel implements NotificationChannel {
   }
 
   @Override
-  public boolean canDeliver(UUID userId, NotificationSettings settings) {
-    return settings.emailEnabled() && addresses.findDeliverable(userId).isPresent();
+  public Optional<String> address(NotificationRequest.Recipient recipient) {
+    return Optional.ofNullable(recipient.email()).filter(email -> !email.isBlank());
   }
 
   @Override
@@ -39,13 +37,9 @@ class EmailChannel implements NotificationChannel {
   }
 
   @Override
-  public String send(UUID userId, List<OutgoingNotification> notifications)
+  public String send(String address, List<OutgoingNotification> notifications)
       throws DeliveryException {
-    String to =
-        addresses
-            .findDeliverable(userId)
-            .orElseThrow(() -> new DeliveryException("NO_ADDRESS", true));
-    return sender.send(new EmailMessage(to, subject(notifications), text(notifications)));
+    return sender.send(new EmailMessage(address, subject(notifications), text(notifications)));
   }
 
   private static String subject(List<OutgoingNotification> notifications) {
