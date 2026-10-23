@@ -151,6 +151,69 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 상세의_조건_일정_가격에_근거_원문과_쪽을_붙이고_보류한_조건의_근거는_비운다() {
+    ObjectNode event = fixture();
+    // 실제 결과의 근거는 모두 글자 범위(TEXT_RANGE)라 쪽이 없어요. 쪽을 보려고 조건 근거 하나를 첨부 PDF 쪽 근거로 바꿔요
+    for (JsonNode e : event.path("payload").path("notice").path("evidence")) {
+      if (e.path("id").asString().equals("ev-22")) {
+        ((ObjectNode) e).put("sourceId", "file-1");
+        ((ObjectNode) e)
+            .putObject("locator")
+            .put("kind", "PDF_PAGE")
+            .put("page", 3)
+            .put("printedPage", "- 2 -");
+      }
+    }
+    ingestion.apply(body(event));
+
+    UUID id = onlyNotice();
+    NoticeDetailResponse detail = query.detail(id);
+    NoticeDetailResponse.Condition arts = condition(detail, "eligibility-arts-proof");
+    assertThat(arts.evidence())
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.quote()).startsWith("가.「문화예술진흥법」에 따른 문화예술 분야에 종사하며");
+              assertThat(e.page()).isEqualTo(3);
+              assertThat(e.printedPage()).isEqualTo("- 2 -");
+              assertThat(e.documentName()).isEqualTo("311521_1.pdf");
+            });
+    // 글자 범위 근거는 쪽 없이 인용과 문서 이름만
+    assertThat(condition(detail, "eligibility-age").evidence())
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.quote()).isNotBlank();
+              assertThat(e.page()).isNull();
+              assertThat(e.documentName()).isEqualTo("첨부 PDF에서 읽은 글자 (쪽·표 구분)");
+            });
+    // 보류한 조건(/eligibility/4)은 확인 필요로 두고 근거를 보여 주지 않아요
+    NoticeDetailResponse.Condition held =
+        condition(detail, "eligibility-income-assets-alternative");
+    assertThat(held.inReview()).isTrue();
+    assertThat(held.evidence()).isEmpty();
+
+    assertThat(detail.schedules())
+        .filteredOn(s -> "schedule-announcement".equals(s.id()))
+        .singleElement()
+        .satisfies(
+            s ->
+                assertThat(s.evidence())
+                    .singleElement()
+                    .satisfies(e -> assertThat(e.quote()).contains("모집공고", "10.30.")));
+    assertThat(detail.schedules()).allSatisfy(s -> assertThat(s.evidence()).isNotEmpty());
+
+    // 보증금·월임대료가 같은 표 행을 근거로 하면 한 번만
+    assertThat(query.units(id, null, null, null).items().getFirst().evidence())
+        .singleElement()
+        .satisfies(e -> assertThat(e.quote()).contains("31,600,000", "411,700"));
+  }
+
+  private static NoticeDetailResponse.Condition condition(NoticeDetailResponse detail, String id) {
+    return detail.conditions().stream().filter(c -> id.equals(c.id())).findFirst().orElseThrow();
+  }
+
+  @Test
   void 같은_이벤트를_두_번_받아도_공고와_버전은_하나다() {
     ObjectNode event = fixture();
     ingestion.apply(body(event));
