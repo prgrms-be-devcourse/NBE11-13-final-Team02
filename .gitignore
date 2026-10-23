@@ -20,6 +20,8 @@ __pycache__/
 !.env.example
 *.pem
 *.csv
+# 법정동코드 테스트 자료 (저장소 원본에서 뗀 줄)
+!services/api/src/test/resources/common/*.csv
 .aws/
 # 구조 변경 스크립트 백업
 _backup_*/

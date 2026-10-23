@@ -2,20 +2,35 @@ package kr.mujuthaek.api.common.region;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.StringReader;
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
 import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Date;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 법정동코드 전체자료로 common.regions를 채워요. 같은 파일을 다시 넣어도 결과가 같아요(코드 기준으로 덮어씀).
+ *
+ * <p>원본은 저장소의 법정동코드표(services/extraction/data/legal-dong-codes, 빌드 때 리소스 common/regions/로 복사)예요. 파일
+ * 이름의 날짜(legal_dong_20260929.csv)가 기준일이에요. 따로 받은 파일(탭 구분, CP949)도 경로로 넣을 수 있어요.
  *
  * <p>폐지된 코드는 지우지 않고 valid = false로 두고, 같은 시도(짧은 이름 기준) 안에 이름이 같은 유효한 코드가 있으면 그 코드를 replaced_by로
  * 이어요. 예: 강원도 춘천시(42110, 폐지) → 강원특별자치도 춘천시(51110).
@@ -25,6 +40,8 @@ public class RegionLoader {
 
   private static final Logger log = LoggerFactory.getLogger(RegionLoader.class);
   static final Charset CP949 = Charset.forName("MS949");
+  static final String BUNDLED = "classpath*:common/regions/legal_dong_*.csv";
+  private static final Pattern BUNDLED_DATE = Pattern.compile("legal_dong_(\\d{8})\\.csv$");
 
   private final JdbcTemplate jdbc;
 
@@ -37,8 +54,37 @@ public class RegionLoader {
    */
   @Transactional
   public int load(Path file, LocalDate baseDate) throws IOException {
+    return load(decode(Files.readAllBytes(file)), baseDate);
+  }
+
+  /** 빌드에 들어간 저장소 법정동코드표 중 가장 최근 것. */
+  public static Bundled bundled() throws IOException {
+    Resource latest =
+        Arrays.stream(new PathMatchingResourcePatternResolver().getResources(BUNDLED))
+            .filter(r -> r.getFilename() != null && BUNDLED_DATE.matcher(r.getFilename()).find())
+            .max(Comparator.comparing(Resource::getFilename))
+            .orElseThrow(() -> new IllegalStateException("법정동코드표 리소스가 없어요: " + BUNDLED));
+    Matcher date = BUNDLED_DATE.matcher(latest.getFilename());
+    date.find();
+    String text = new String(latest.getContentAsByteArray(), StandardCharsets.UTF_8);
+    return new Bundled(
+        latest.getFilename(),
+        LocalDate.parse(date.group(1), DateTimeFormatter.BASIC_ISO_DATE),
+        text);
+  }
+
+  /** 저장소 법정동코드표 한 판. */
+  public record Bundled(String fileName, LocalDate baseDate, String text) {}
+
+  @Transactional
+  public int loadBundled() throws IOException {
+    Bundled bundled = bundled();
+    return load(bundled.text(), bundled.baseDate());
+  }
+
+  private int load(String text, LocalDate baseDate) throws IOException {
     List<RegionCodeFile.Row> rows;
-    try (BufferedReader reader = Files.newBufferedReader(file, CP949)) {
+    try (BufferedReader reader = new BufferedReader(new StringReader(text))) {
       rows = RegionCodeFile.read(reader);
     }
     // 시도부터 넣어야 시군구의 상위 코드가 맞아요
@@ -47,6 +93,21 @@ public class RegionLoader {
     linkReplacements();
     log.info("지역 코드 적재: 시도·시군구 {}개 (기준일 {})", rows.size(), baseDate);
     return rows.size();
+  }
+
+  /** UTF-8로 읽히면 UTF-8(저장소 원본), 아니면 CP949(행정표준코드관리시스템에서 받은 파일). */
+  static String decode(byte[] bytes) {
+    try {
+      return StandardCharsets.UTF_8
+          .newDecoder()
+          .onMalformedInput(CodingErrorAction.REPORT)
+          .onUnmappableCharacter(CodingErrorAction.REPORT)
+          .decode(ByteBuffer.wrap(bytes))
+          .toString()
+          .replace("\uFEFF", "");
+    } catch (CharacterCodingException e) {
+      return new String(bytes, CP949);
+    }
   }
 
   private void upsert(RegionCodeFile.Row r, LocalDate baseDate) {
