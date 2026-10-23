@@ -16,6 +16,13 @@ AI는 중간 형식으로 답하고 이 모듈이 틀의 칸으로 옮깁니다.
   본사·지점 같은 기업 형태) 그 공통 조건은 확인 필요. 예비창업자에게만 해당하는 제외 문장이 다른 신청자에게도 걸려 있거나,
   한 대상군의 제외 문장이 다른 대상군 이름을 말하면 확인 필요
 - 길 이름·질문에 내부 코드(NO_RECENT_CLOSURE 같은)를 쓰지 않음. 틀에 없는 유형 코드는 한국어 이름으로 묻는 질문 하나로
+- 답 방향: 제외 문장(근거에 제외·불가·결격 같은 낱말이 있거나 원문에서 「제외대상」 같은 제외 머리말 아래)으로 만든 질문이 「예」면
+  충족이고 부정 질문(「…하지 않나요?」)이 아니면 확인 필요. 같은 근거 문장의 제외 조건과 방향이 엇갈려도 확인 필요. 뒤집지는 않음
+- 질문이 둘로 이어져 있으면(물음표 둘) 첫 질문만 남기고 확인 필요. 예외 문장은 「이 예외로 신청할 수 있으면 '예/아니오'」로 한 방향만
+- 같은 근거 문장의 조건이 여럿이면 예외 표시는 예외 문장이 말하는 조건(업력·체납 등)에만. 어느 것도 말하지 않으면 모두에
+- 첨부·별도 공고문을 가리키는 근거(「공고문 4page 참조」「별첨」), 자격 자체를 되묻는 말(「입점자격을 충족하는」)·범위 없는 말(「각종」
+  「기타 법령」), AI가 정의 없음(defined false)으로 읽은 분야·유형 질문은 확인 필요
+- 같은 자리의 같은 질문(근거·질문·방향이 모두 같음)은 한 번만
 """
 
 from __future__ import annotations
@@ -58,6 +65,12 @@ YEAR_COUNT = "「N년차」는 「N년 이내」와 경계가 달라(만 N년째
 PLACEMENT = "예비창업자(사업자 아님) 대상이 있는데 이 공통 조건은 이미 사업 중인 기업을 전제합니다(대상군 배치 확인 필요)"
 SCOPE = "예비창업자에게만 해당할 수 있는 문장인데 다른 신청자에게도 걸려 있습니다(대상군 배치 확인 필요)"
 OTHER_GROUP = "근거 문장이 다른 대상군도 말합니다(대상군 범위 확인 필요)"
+DIRECTION = "제외 문장으로 만든 질문인데 「예」가 충족으로 되어 있습니다(답 방향 확인 필요)"
+DIRECTION_CONFLICT = "같은 근거 문장으로 만든 제외 조건과 답 방향이 반대입니다(답 방향 확인 필요)"
+MERGED_QUESTION = "질문 두 개가 하나로 합쳐져 있어 첫 질문만 남겼습니다"
+ATTACHED = "근거가 첨부·별도 공고문을 가리켜 본문만으로는 범위를 알 수 없습니다"
+UNDEFINED = "질문이 기대는 분야·유형·자격의 범위가 본문에 정의되어 있지 않습니다"
+COMMON_EXCLUSION = "대상군을 지목하지 않은 제외 단락의 문장인데 한 대상군에만 걸려 있습니다(대상군 배치 확인 필요)"
 
 # 질문·길 이름에 쓰는 한국어 이름(내부 코드를 그대로 보여 주지 않음)
 STATUS_NAMES = {
@@ -269,6 +282,108 @@ def exception_clause(quote: str | None, text: str) -> str | None:
     return None
 
 
+# 예외 단서가 무엇을 풀어 주는지: 같은 근거 문장으로 조건을 여러 개 만들었을 때 예외 표시는 그 예외가 말하는 조건에만 붙입니다
+# (리뷰 2026-10-23: 「창업 7년 미만 기업(단, 업력 3년 초과는 문의)」의 예외가 같은 문장의 사업자 조건에도 번졌음).
+# 예외가 어느 조건도 말하지 않으면 모두에 붙입니다(안전 쪽)
+_EXCEPTION_TOPICS = {
+    "AGE": re.compile(r"세|나이|연령"),
+    "REGION": re.compile(r"거주|주소|주민\s*등록|소재|지역"),
+    "PRE_FOUNDER": re.compile(r"예비|사업자\s*등록|미등록"),
+    "REGISTERED": re.compile(r"사업자\s*등록|개업|법인\s*설립|개인\s*사업자|법인\s*사업자"),
+    "BUSINESS_AGE": re.compile(r"업력|\d+\s*년|개업일|설립일|창업\s*후"),
+    "NO_RECENT_CLOSURE": re.compile(r"폐업|재창업"),
+    "CLOSURE_REQUIRED": re.compile(r"폐업|재창업"),
+    "REVENUE": re.compile(r"매출"),
+    "INDUSTRY_EXCLUDE": re.compile(r"업종|업태"),
+    "INDUSTRY_ONLY": re.compile(r"업종|업태"),
+    "EXCLUDED_STATUS": re.compile(r"체납|세금|납부|채무|신용|회생|파산|워크아웃|휴업|폐업|제재|참여\s*제한|환수|체불|배제"),
+}
+
+
+def _exception_topic(item: dict[str, Any], clause: str) -> bool:
+    """예외 문장(예외 단서부터 뒤, 근거 문장 앞부분은 빼고)이 이 조건의 대상을 말하는지."""
+    found = _EXCEPTION_TOPICS.get(item["kind"])
+    marker = _EXCEPTION.search(clause)
+    return bool(found and found.search(clause[marker.start() :] if marker else clause))
+
+
+# 제외 문장: 근거 문장 안의 제외 낱말, 또는 원문에서 그 문장이 「제외대상」「신청 제외 대상:」 같은 제외 머리말 아래에 있음
+# (리뷰 2026-10-23: 「신청일 현재 휴업 또는 폐업인 창업기업」(제외대상 단락)이 「폐업 상태인가요?」 + 「예」면 충족으로 확정됐음)
+_EXCLUDE_WORDS = re.compile(
+    r"제외(?!\s*하지\s*않)|불가|결격|부적격|금지|(?:신청|지원|입주|참여|선정)\s*(?:을|이)?\s*(?:할\s*수\s*)?없|"
+    r"(?:신청|지원|입주|참여)\s*(?:이\s*)?제한(?!\s*(?:이\s*)?없)"
+)
+_HEAD_MARKS = re.compile(r"^[\s\d.)\]】□■○●◦•▶▷◆◇\-*※\[(【<>ㆍ·‧]*(?:[가-하][.)]\s*)?")
+_HEAD_NOUN = re.compile(r"(?:대상|자격|요건|조건|사유|사항|내용|기준|업종)$")
+_HEAD_EXCLUDE = re.compile(r"제외|제한|불가|결격")
+_HEAD_BARE = re.compile(r"(?:신청|지원|모집|입주|참여|응모|선정)?(?:제외|제한|불가)")  # 「모집 제외」처럼 명사 없이 끝나는 제외 머리말
+_LOOK_BACK = 15  # 머리말을 찾는 줄 수
+
+
+def _heading(text: str) -> str | None:
+    """머리말이면 "EXCLUDE"(제외 머리말)·"OTHER"(신청 대상 같은 다른 머리말), 아니면 None. 「신청 제외 대상: …」처럼 쌍점 앞 머리말도 봅니다."""
+    body = _HEAD_MARKS.sub("", unicodedata.normalize("NFKC", text)).strip()
+    head = _norm(re.split(r"[:：]", body, maxsplit=1)[0])
+    if _HEAD_BARE.fullmatch(head):
+        return "EXCLUDE"
+    if not head or len(head) > 14 or not _HEAD_NOUN.search(head):
+        return None
+    return "EXCLUDE" if _HEAD_EXCLUDE.search(head) else "OTHER"
+
+
+def exclusion_heading(quote: str | None, text: str) -> str | None:
+    """근거 문장이 원문에서 제외 머리말 아래에 있으면 그 머리말(가장 가까운 머리말이 제외 머리말일 때만). 여러 곳에 있으면 한 곳이라도."""
+    target = _norm(quote or "")
+    if len(target) < 4:
+        return None
+    lines = (text or "").splitlines()
+    for n, line in enumerate(lines):
+        flat = _norm(unicodedata.normalize("NFKC", line))
+        at = flat.find(target)
+        if at < 0:
+            continue
+        # 같은 줄 근거 앞(「신청 제외 대상: ‧ …」)부터, 그다음 위 줄들
+        before = [flat[:at], *(_norm(unicodedata.normalize("NFKC", lines[k])) for k in range(n - 1, max(-1, n - 1 - _LOOK_BACK), -1))]
+        for candidate in before:
+            kind = _heading(candidate) if candidate else None
+            if kind == "EXCLUDE":
+                return re.split(r"[:：]", _HEAD_MARKS.sub("", candidate), maxsplit=1)[0]
+            if kind == "OTHER":
+                break
+    return None
+
+
+def excluding_quote(quote: str | None, text: str) -> bool:
+    """제외 문장인지: 근거 문장에 제외 낱말이 있거나 제외 머리말 아래에 있음."""
+    return bool(_EXCLUDE_WORDS.search(unicodedata.normalize("NFKC", quote or ""))) or exclusion_heading(quote, text) is not None
+
+
+# 「…하지 않나요?」「…이 없나요?」「…이 아닌가요?」처럼 부정으로 묻는 질문은 「예」가 충족이어도 방향이 맞습니다
+_NEGATED = re.compile(r"(?:않|아니|아닌|없)[가-힣\s]{0,8}[?？]?\s*$")
+
+
+def _negated(question: str | None) -> bool:
+    return bool(_NEGATED.search(unicodedata.normalize("NFKC", question or "").strip()))
+
+
+# 첨부·별도 공고문을 가리키는 근거, 자격 자체를 되묻거나 범위가 정해지지 않은 말(리뷰 2026-10-23: 「신산업 창업 분야(공고문 4page 참조)」
+# 「입점자격을 충족하는 기업」「각종 법적 제재」가 확정됐음 — 사용자가 본문만으로 답할 수 없음)
+_ATTACHED = re.compile(
+    r"(?:공고문|붙임|첨부|별첨|별지|별표)\s*(?:\d+\s*)?(?:page|p\.?|쪽|페이지)?\s*(?:참조|참고|확인)|"
+    r"\d+\s*(?:page|p\.?|쪽|페이지)\s*(?:참조|참고)|첨부\s*(?:파일|문서|공고)|별첨|붙임\s*\d"
+)
+_VAGUE = re.compile(r"(?:자격|요건|기준)\s*(?:을|에)?\s*(?:충족|부합|해당)|각종|기타\s*(?:관계\s*)?법령")
+_MEMBERSHIP_KINDS = {"OTHER", "STATUS", "INDUSTRY_ONLY", "INDUSTRY_EXCLUDE"}
+
+
+def _quote_lines(quote: str | None, text: str) -> str:
+    """근거 문장이 들어 있는 원문 줄들(근거 밖 같은 줄의 「(공고문 4page 참조)」까지 보려고)."""
+    target = _norm(quote or "")
+    if len(target) < 4:
+        return ""
+    return "\n".join(line for line in (text or "").splitlines() if target in _norm(line))
+
+
 # K-Startup 목록 정보: API 항목 줄(「대상 연령: …」)과 원문 화면 머리 칸(「대상연령」 다음 줄). 신청 대상 내용(aply_trgt_ctnt)은 본문입니다
 META_FIELDS = ("biz_trgt_age", "biz_enyy", "aply_trgt")
 _META_LINE = re.compile(r"^\s*(대상\s*연령|창업\s*기간|신청\s*대상)\s*[:：]\s*(.+)$")
@@ -393,6 +508,11 @@ class _Builder:
 
     def ask(self, item: dict[str, Any], quote: str, reasons: list[str]) -> dict[str, Any]:
         item = item | {"question": (item.get("question") or "").strip() or None}  # 공백뿐인 질문은 틀 읽기가 거절함
+        if item["question"] and len(re.findall(r"[?？]", item["question"])) >= 2:
+            # 「…체납 중인가요? 단, … 예외에 해당하면 신청할 수 있나요?」: 두 질문의 답 방향이 달라 한 답으로 읽을 수 없음(리뷰 2026-10-23).
+            # 첫 질문만 남기고 예외는 아래 criterion()이 원문 예외 문장과 답 방향을 붙임
+            item = item | {"question": re.split(r"(?<=[?？])", item["question"], maxsplit=1)[0].strip()}
+            reasons = [*reasons, MERGED_QUESTION]
         if item.get("question") and not item.get("metWhen") and item["kind"] not in EXCLUDING_KINDS:
             reasons = [*reasons, NO_DIRECTION]  # AI가 쓴 질문의 답 방향을 모름(「신청 제외 대상에 해당하나요?」가 YES로 채워지면 뜻이 뒤집힘)
         met = item.get("metWhen") or ("NO" if item["kind"] in EXCLUDING_KINDS else "YES")
@@ -425,18 +545,34 @@ class _Builder:
             codes.append(match.code)
         return list(dict.fromkeys(codes)) or None
 
-    def criterion(self, item: dict[str, Any], reference: date | None) -> dict[str, Any]:
-        """AI 조건 하나 → 틀 조건 하나. 근거가 목록 정보에만 있거나, 본문 나이가 목록 정보와 다르거나, 예외 단서가 있으면 확인 필요."""
+    def criterion(self, item: dict[str, Any], reference: date | None, *, exception: bool = True) -> dict[str, Any]:
+        """AI 조건 하나 → 틀 조건 하나. 근거가 목록 정보에만 있거나, 본문 나이가 목록 정보와 다르거나, 예외 단서가 있거나(exception이
+        False면 같은 문장의 다른 조건이 그 예외를 가져감), 제외 문장인데 「예」가 충족이거나, 첨부·미정의 용어에 기대면 확인 필요."""
         made = self._criterion(item, reference)
         reasons = []
         if self.meta.only(item["quote"]):
             reasons.append(META_ONLY)
         elif made["kind"] == "AGE" and (ages := self.meta.age_range()) is not None and ages != (made["minAge"], made["maxAge"]):
             reasons.append(META_CONFLICT)
-        if (clause := exception_clause(item["quote"], self.text)) is not None:
+        if (
+            made["kind"] == "ASK"
+            and made["metWhen"] == "YES"
+            and not _negated(made["question"])
+            and (item["kind"] in EXCLUDING_KINDS or excluding_quote(item["quote"], self.text))
+        ):
+            reasons.append(DIRECTION)  # 뒤집지 않음: 질문이 정말 제외 상태를 묻는지 코드가 알 수 없음
+        if item["kind"] in _MEMBERSHIP_KINDS and made["kind"] != "INDUSTRY":
+            said = f"{item.get('question') or ''}\n{item['quote']}\n{_quote_lines(item['quote'], self.text)}"
+            if _ATTACHED.search(unicodedata.normalize("NFKC", said)):
+                reasons.append(ATTACHED)
+            if _VAGUE.search(unicodedata.normalize("NFKC", f"{item.get('question') or ''}\n{item['quote']}")) or item.get("defined") is False:
+                reasons.append(UNDEFINED)
+        if exception and (clause := exception_clause(item["quote"], self.text)) is not None:
             reasons.append(EXCEPTION)
             if made["kind"] == "ASK":
-                made = made | {"question": f"{made['question']} (공고의 예외: 「{clause}」)"}
+                # 답 방향을 한쪽으로: 예외로 신청할 수 있는 사람이 어느 답을 해야 하는지 질문의 충족 방향에 맞춰 적음(리뷰 2026-10-23)
+                answer = "아니오" if made["metWhen"] == "NO" else "예"
+                made = made | {"question": f"{made['question']} (공고의 예외: 「{clause}」 — 이 예외로 신청할 수 있으면 '{answer}')"}
         return self.flag(made, reasons) if reasons else made
 
     def _criterion(self, item: dict[str, Any], reference: date | None) -> dict[str, Any]:
@@ -569,6 +705,11 @@ class _Builder:
         made: list[dict[str, Any]] = []
         bundles: dict[str, list[dict[str, Any]]] = {}
         items = _without_echo(items)
+        unexcepted = self.exception_bystanders(items)
+
+        def convert(item: dict[str, Any]) -> dict[str, Any]:
+            return self.criterion(item, reference, exception=id(item) not in unexcepted)
+
         for item in items:
             if _nationwide(item) and not item["anyOf"]:
                 continue  # 「전국 소재」 지역 조건은 제한이 아님(실측 2026-10-22 서초: 지역 코드로 못 바꿔 의미 없는 확인 필요 질문이 됨)
@@ -578,7 +719,7 @@ class _Builder:
                     made.append({"_bundle": item["anyOf"]})
                 bundles[item["anyOf"]].append(item)
             else:
-                made.append(self.criterion(item, reference))
+                made.append(convert(item))
         out = []
         for entry in made:
             if "_bundle" not in entry:
@@ -588,10 +729,25 @@ class _Builder:
             for n, member in enumerate(bundles[entry["_bundle"]]):
                 paths.setdefault(member.get("option") or f"_{n}", []).append(member)
             if len(paths) == 1:
-                out.extend(self.criterion(m, reference) for m in next(iter(paths.values())))
+                out.extend(convert(m) for m in next(iter(paths.values())))
                 continue
-            options = [{"label": _path_label(path, n), "criteria": [self.criterion(m, reference) for m in path]} for n, path in enumerate(paths.values(), 1)]
+            options = [{"label": _path_label(path, n), "criteria": [convert(m) for m in path]} for n, path in enumerate(paths.values(), 1)]
             out.append(self.base("ANY_OF", None) | {"options": options})
+        return _without_repeats(out)
+
+    def exception_bystanders(self, items: list[dict[str, Any]]) -> set[int]:
+        """같은 근거 문장으로 만든 조건이 여럿이고 예외 단서가 그중 일부 조건만 말하면, 나머지 조건(id)은 예외 표시를 받지 않습니다."""
+        shared: dict[str, list[dict[str, Any]]] = {}
+        for item in items:
+            if len(_norm(item["quote"])) >= 4:
+                shared.setdefault(_norm(item["quote"]), []).append(item)
+        out: set[int] = set()
+        for same in shared.values():
+            if len(same) < 2 or (clause := exception_clause(same[0]["quote"], self.text)) is None:
+                continue
+            owners = {id(i) for i in same if _exception_topic(i, clause)}
+            if owners:
+                out |= {id(i) for i in same if id(i) not in owners}
         return out
 
     def build(self, reference: date | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -606,7 +762,7 @@ class _Builder:
             }
             for key, group in keys.items()
         ] or [{"id": self.new_id("all"), "name": "전체", "criteria": []}]
-        common = check_placement(self.criteria(common_items, reference), groups, self.text)
+        common = check_directions(check_placement(self.criteria(common_items, reference), groups, self.text), groups, self.text)
         if self.truncated:
             # 뒷부분에 자격 조건이 있을 수 있음(리뷰 2026-10-22: 조건 0개면 자동 통과로 나갔음)
             question = "공고 글이 길어 뒷부분을 읽지 못했습니다. 원문의 나머지 신청 자격도 갖추었나요?"
@@ -687,6 +843,54 @@ def _without_echo(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [i for i in items if not (echo(i) and (i["group"], i["anyOf"], i["option"], _norm(i["quote"])) in split)]
 
 
+def _without_repeats(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """같은 자리에서 근거 문장·질문·답 방향이 모두 같은 질문은 한 번만 둡니다(같은 내용을 두 번 묻지 않게)."""
+    seen: set[tuple[str, str, str]] = set()
+    out = []
+    for criterion in criteria:
+        if criterion["kind"] == "ASK":
+            key = (_norm(criterion.get("quote") or ""), _norm(criterion["question"]), criterion["metWhen"])
+            if key in seen:
+                continue
+            seen.add(key)
+        out.append(criterion)
+    return out
+
+
+def _every(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [x for c in criteria for x in [c, *_every([i for o in c.get("options") or [] for i in o["criteria"]])]]
+
+
+def _coded_exclusion(criterion: dict[str, Any], text: str) -> bool:
+    """제외로 읽은 조건: 제외 유형·폐업 이력 없음·제외 업종, 또는 제외 문장으로 만든 「예」면 탈락 질문. 「직장보험 가입자가 아닌 자」처럼
+    자격 문장 안의 부정 조건으로 만든 「예」면 탈락 질문은 제외가 아님(같은 문장의 다른 자격 질문과 방향이 달라도 맞음)."""
+    if criterion["kind"] == "ASK":
+        return criterion.get("metWhen") == "NO" and excluding_quote(criterion.get("quote"), text)
+    return _excluding(criterion)
+
+
+def check_directions(common: list[dict[str, Any]], groups: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """같은 근거 문장으로 제외 조건을 만들었는데 그 문장의 다른 질문은 「예」가 충족(부정 질문이 아님)이면 답 방향이 엇갈린 것이라
+    확인 필요로 둡니다(뒤집지 않음). groups는 제자리에서 고치고 공통을 돌려줍니다."""
+    every = _every([*common, *(c for g in groups for c in g["criteria"])])
+    excluded = {_norm(c.get("quote") or "") for c in every if _coded_exclusion(c, text)}
+    excluded.discard("")
+
+    def fix(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        out = []
+        for c in criteria:
+            if c.get("options"):
+                c = c | {"options": [o | {"criteria": fix(o["criteria"])} for o in c["options"]]}
+            if c["kind"] == "ASK" and c["metWhen"] == "YES" and not _negated(c["question"]) and _norm(c.get("quote") or "") in excluded:
+                c = _Builder.flag(c, [DIRECTION_CONFLICT])
+            out.append(c)
+        return out
+
+    for group in groups:
+        group["criteria"] = fix(group["criteria"])
+    return fix(common)
+
+
 # 대상군 배치 검사(리뷰 2026-10-23: 「본사·연구소·지점·졸업기업 중 하나」가 공통에 있어 예비창업자 길이 늘 떨어졌고,
 # 예비창업자에게만 해당하는 폐업 단서가 법인 길에도 걸렸음)
 _BUSINESS_WORDS = re.compile(r"본사|본점|지점|연구소|졸업\s*기업|법인\s*사업자|개인\s*사업자|업력|매출|영위|기\s*창업|창업\s*기업|사업\s*개시|설립\s*등기")
@@ -737,9 +941,17 @@ def _excluding(criterion: dict[str, Any]) -> bool:
     )
 
 
+# 「예비창업자 또는 1인 창조기업으로 …」「예비~창업 7년 이내」처럼 예비창업자와 다른 신청자를 함께 지목한 문장(리뷰 2026-10-23: 예비창업자
+# 전용으로 보고 공통 조건을 확인 필요로 둔 오경보)
+_PRE_FOUNDER_AND_OTHERS = re.compile(r"예비\s*(?:창업자?|창업\s*기업)?\s*(?:또는|및|이나|와|과|[,·ㆍ/~∼])\s*\S|\S\s*(?:또는|및|이나|[,·ㆍ/])\s*예비\s*창업")
+
+
 def _pre_founder_only(criterion: dict[str, Any]) -> bool:
-    """예비창업자에게만 해당할 수 있는 문장(「예비창업자의 경우 …」「창업 예정」)으로 만든 제외·질문 조건인지."""
+    """예비창업자에게만 해당할 수 있는 문장(「예비창업자의 경우 …」「창업 예정」)으로 만든 제외·질문 조건인지. 예비창업자와 다른 신청자를
+    함께 지목한 문장(「예비창업자 또는 X」)은 「…의 경우」로 범위를 좁히지 않았으면 예비창업자 전용이 아닙니다."""
     text = _text_of(criterion)
+    if _PRE_FOUNDER_AND_OTHERS.search(text) and not _PRE_FOUNDER_SCOPE.search(text):
+        return False
     if _excluding(criterion):
         return bool(_PRE_FOUNDER_WORDS.search(text))
     return criterion["kind"] == "ASK" and bool(_PRE_FOUNDER_SCOPE.search(text))
@@ -749,11 +961,25 @@ def _pre_founder_group(group: dict[str, Any]) -> bool:
     return bool(_PRE_FOUNDER_GROUP.search(group["name"])) or any(_not_registered(c) for c in group["criteria"])
 
 
+_GROUP_WORDS = re.compile(r"예비|기\s*창업|창업\s*기업|초기|도약|성장|재창업|법인|개인\s*사업자|분야|트랙|부문|유형")
+
+
+def _common_exclusion(criterion: dict[str, Any], text: str, group_names: list[str]) -> bool:
+    """제외 조건의 근거가 대상군을 지목하지 않는 제외 머리말 아래에 있고, 문장 자체도 대상군(이름·대상군 낱말)을 지목하지 않는지."""
+    heading = exclusion_heading(criterion.get("quote"), text)
+    if heading is None or _GROUP_WORDS.search(heading) or any(n in _norm(heading) for n in group_names if len(n) >= 2):
+        return False
+    quote = _norm(criterion.get("quote") or "")
+    return not any(n in quote for n in group_names if len(n) >= 2) and not _GROUP_WORDS.search(criterion.get("quote") or "")
+
+
 def check_placement(common: list[dict[str, Any]], groups: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
     """조립한 틀의 대상군 배치를 검사해 확신이 없는 조건을 확인 필요로 둡니다(옮기지 않음). groups는 제자리에서 고치고 공통을 돌려줍니다.
     - 예비창업자 길이 있는데 공통 조건이 사업 중인 기업을 전제하면 확인 필요
     - 예비창업자에게만 해당할 수 있는 제외·질문이 다른 신청자도 받는 자리(공통·섞인 대상군)에 있으면 확인 필요
-    - 대상군이 둘 이상일 때 한 대상군의 제외 문장(또는 그 예외 문장)이 다른 대상군 이름을 말하면 확인 필요"""
+    - 대상군이 둘 이상일 때 한 대상군의 제외 문장(또는 그 예외 문장)이 다른 대상군 이름을 말하면 확인 필요
+    - 대상군이 둘 이상일 때 한 대상군에 걸린 제외 조건이 원문의 공통 제외 단락(머리말이 대상군을 지목하지 않음) 문장이고 문장도 대상군을
+      지목하지 않으면 확인 필요. 공통으로 옮기지는 않음(그 단락이 한 대상군 안의 소제목일 수 있어 코드가 확신할 수 없음)"""
     pre_founder = _pre_founder_path(common) or any(_pre_founder_group(g) or _pre_founder_path(g["criteria"]) for g in groups)
     every_group_pre = bool(groups) and all(_pre_founder_group(g) for g in groups)
     checked = []
@@ -777,6 +1003,8 @@ def check_placement(common: list[dict[str, Any]], groups: list[dict[str, Any]], 
                 said = _norm(f"{criterion.get('quote') or ''} {exception_clause(criterion.get('quote'), text) or ''}")
                 if any(n in said for n in others):
                     reasons.append(OTHER_GROUP)
+                if len(groups) >= 2 and _common_exclusion(criterion, text, list(names.values())):
+                    reasons.append(COMMON_EXCLUSION)
             fixed.append(_Builder.flag(criterion, reasons) if reasons else criterion)
         group["criteria"] = fixed
     return checked
