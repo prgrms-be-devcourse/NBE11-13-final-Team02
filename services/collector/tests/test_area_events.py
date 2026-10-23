@@ -18,6 +18,17 @@ def test_event_follows_the_contract():
     validate_event(ready_event("BUS_STOP", "ALL", "area/BUS_STOP/2025-10-31/bus_stop.csv", SHA, date(2025, 10, 31)))
 
 
+def test_boundary_event_follows_the_contract_and_its_file_name_is_fixed():
+    sha = "8033c0936030653bbcc77077370034e84dc0c7e87c642d6e5fe2bc4ae38ae34c"
+    event = ready_event("REGION_BOUNDARY_SIG", "ALL", "area/REGION_BOUNDARY_SIG/2026-09-30/boundary_sig.csv", sha, date(2026, 9, 30), "boundary_sig.csv", 256)
+    validate_event(event)
+    # contracts/examples/area.source.ready.boundary.json의 eventId와 같아야 해요
+    assert event["eventId"] == "f66e2851-938c-5910-a73a-b12cfade1956"
+    event["payload"]["s3Key"] = "area/REGION_BOUNDARY_SIG/2026-09-30/boundary_emd.csv"
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
 def test_event_id_is_fixed_by_source_scope_and_fingerprint():
     # contracts/examples/area.source.ready.json의 eventId와 같아야 해요 (같은 규칙)
     assert stores_event()["eventId"] == "1591c7fa-581b-5e5a-9ffe-2d28b6300247"

@@ -214,6 +214,8 @@ def area_upload(args: argparse.Namespace, settings: Settings) -> int:
     finally:
         store.close()
     print(f"올림 {result.uploaded}개, 적재 요청 기록 {result.recorded}건 (같은 파일은 다시 올리거나 기록하지 않아요)")
+    if result.archived:
+        print(f"보관만 하는 원본 {result.archived}줄은 적재 대상이 아니라 건너뛰었어요")
     for problem in result.problems:
         print(f"  - {problem}")
     print(f"이벤트 발행: {relay(settings)}건")
