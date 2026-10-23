@@ -33,6 +33,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
+from mujuthaek_extraction.assemble.regions import SIDO_ALIASES
 from mujuthaek_extraction.judgment.sanity import INVERTED, repair
 from mujuthaek_extraction.judgment.startup import AGE_BANDS
 
@@ -228,11 +229,32 @@ YEARS_WORDS = {
 NO_DIRECTION = "질문 방향(예·아니오 중 어느 답이 충족인지)을 정하지 못했습니다"
 
 
+# 시도 정식 이름 ↔ 약칭 대응(지역표의 약칭 SIDO_ALIASES에서 만듦). 앞 두 글자 비교는 「충청남도」↔「충남」을 놓쳐 공간 위치를 잃었음
+# (리뷰 2026-10-23). 「광주」는 경기도 광주시와 구별할 수 없어 광주광역시의 약칭으로 쓰지 않습니다(지역표와 같은 이유).
+_SIDO_SAME: dict[str, set[str]] = {}
+for _alias, _full in SIDO_ALIASES.items():
+    _SIDO_SAME.setdefault(_full, {_full}).add(_alias)
+_SIDO_SAME.setdefault("광주광역시", {"광주광역시"})
+SIDO_NAMES: dict[str, set[str]] = {name: same for same in _SIDO_SAME.values() for name in same}
+
+
+def _place_named(token: str, plain: str) -> bool:
+    """시군구 이하 이름 하나가 근거 문장에 있는지: 이름 전체(「남구」≠「북구」), 시·군은 끝 글자를 뗀 이름도(「고양시」↔「고양」, 두 글자 이상)."""
+    if token in plain:
+        return True
+    return token[-1] in "시군" and len(token) >= 3 and token[:-1] in plain
+
+
 def region_named(name: str, quote: str) -> bool:
-    """지역 이름이 근거 문장에 있는지: 시도는 앞 두 글자(「대구광역시」↔「대구」), 시군구 이하는 이름 전체(「남구」≠「북구」)."""
+    """지역 이름이 근거 문장에 있는지: 시도는 정식 이름·약칭 어느 쪽이든(「충청남도」↔「충남」, 「서울특별시」↔「서울시」↔「서울」),
+    시군구 이하는 이름 전체(시·군은 끝 글자를 뗀 이름도)."""
     tokens = [_norm(t) for t in str(name).split() if t.strip()]
     plain = _norm(quote)
-    return bool(tokens) and tokens[0][:2] in plain and all(t in plain for t in tokens[1:])
+    if not tokens:
+        return False
+    if tokens[0] in SIDO_NAMES:
+        return any(same in plain for same in SIDO_NAMES[tokens[0]]) and all(_place_named(t, plain) for t in tokens[1:])
+    return all(_place_named(t, plain) for t in tokens)
 
 
 def _year_count(quote: str, years: Any) -> bool:
