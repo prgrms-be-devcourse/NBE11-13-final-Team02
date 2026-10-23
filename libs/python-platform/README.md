@@ -41,7 +41,8 @@ outbox.relay_once(conn, channel)  # 발행기 (5초마다)
 ```python
 from mujuthaek_platform.slack import SlackError, SlackNotifier
 
-notifier = SlackNotifier.from_env("SLACK_WEBHOOK_URL")  # 서비스 전용 이름을 먼저 쓰려면 ("COLLECTOR_SLACK_WEBHOOK_URL", "SLACK_WEBHOOK_URL")
+# 서비스 전용 이름을 먼저 쓰려면 ("COLLECTOR_SLACK_WEBHOOK_URL", "SLACK_WEBHOOK_URL")
+notifier = SlackNotifier.from_env("SLACK_WEBHOOK_URL")
 try:
     notifier.send("[collector] 수집 실패가 이어져요")
 except SlackError:
