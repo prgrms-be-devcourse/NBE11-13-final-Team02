@@ -83,15 +83,19 @@ public class RegionLoader {
   }
 
   private int load(String text, LocalDate baseDate) throws IOException {
-    List<RegionCodeFile.Row> rows;
+    List<RegionCodeFile.Entry> entries;
     try (BufferedReader reader = new BufferedReader(new StringReader(text))) {
-      rows = RegionCodeFile.read(reader);
+      entries = RegionCodeFile.entries(reader);
     }
+    List<RegionCodeFile.Row> rows = RegionCodeFile.rows(entries);
     // 시도부터 넣어야 시군구의 상위 코드가 맞아요
     rows.stream().filter(r -> r.level().equals("SIDO")).forEach(r -> upsert(r, baseDate));
     rows.stream().filter(r -> r.level().equals("SIGUNGU")).forEach(r -> upsert(r, baseDate));
     linkReplacements();
-    log.info("지역 코드 적재: 시도·시군구 {}개 (기준일 {})", rows.size(), baseDate);
+    List<RegionCodeChanges.Change> changes = RegionCodeChanges.compute(entries);
+    saveChanges(changes, baseDate);
+    log.info(
+        "지역 코드 적재: 시도·시군구 {}개, 예전 → 지금 코드 {}개 (기준일 {})", rows.size(), changes.size(), baseDate);
     return rows.size();
   }
 
@@ -128,6 +132,36 @@ public class RegionLoader {
         r.shortName(),
         r.valid(),
         Date.valueOf(baseDate));
+  }
+
+  /** 예전 → 지금 코드 대응표를 새로 채우고, 새 코드가 하나로 정해지는 시도·시군구는 replaced_by로도 이어요. */
+  private void saveChanges(List<RegionCodeChanges.Change> changes, LocalDate baseDate) {
+    jdbc.update("delete from common.region_code_changes");
+    jdbc.batchUpdate(
+        "insert into common.region_code_changes (old_code, new_code, base_date) values (?, ?, ?)",
+        changes,
+        1000,
+        (ps, c) -> {
+          ps.setString(1, c.oldCode());
+          ps.setString(2, c.newCode());
+          ps.setDate(3, Date.valueOf(baseDate));
+        });
+    // 10자리 → common.regions 코드: 시도 2자리(XX00000000), 시군구 5자리(XXXXX00000)
+    jdbc.update(
+        """
+        with one as (
+          select old_code, min(new_code) as new_code from common.region_code_changes
+          where old_code like '%00000' group by old_code having count(*) = 1
+        ), short as (
+          select case when old_code like '%00000000' then left(old_code, 2) else left(old_code, 5) end as old,
+                 case when new_code like '%00000000' then left(new_code, 2) else left(new_code, 5) end as new
+          from one
+        )
+        update common.regions r set replaced_by = s.new
+        from short s
+        where r.code = s.old and not r.valid
+          and exists (select 1 from common.regions n where n.code = s.new and n.valid)
+        """);
   }
 
   private void linkReplacements() {
