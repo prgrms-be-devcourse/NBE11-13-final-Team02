@@ -32,18 +32,18 @@ public final class LoanMapper {
     Long mine = loan == null ? null : loan.applicantAnnualIncomeWon();
     Long net = loan == null ? null : loan.netAssetWon();
     if (income != null) {
-      checkWon(income, "applicant.loan.annualIncomeWon");
+      checkWon(income, "profile.loan.annualIncomeWon");
     }
     if (mine != null) {
-      checkWon(mine, "applicant.loan.applicantAnnualIncomeWon");
+      checkWon(mine, "profile.loan.applicantAnnualIncomeWon");
       check(
           income == null || mine <= income,
-          "applicant.loan.applicantAnnualIncomeWon",
+          "profile.loan.applicantAnnualIncomeWon",
           "부부합산 연소득보다 클 수 없어요");
     }
     check(
         net == null || (net >= -MAX_WON && net <= MAX_WON),
-        "applicant.loan.netAssetWon",
+        "profile.loan.netAssetWon",
         "-1,000조 원 이상 1,000조 원 이하여야 해요");
     Applicant.Household household = applicant.household();
     return new Borrower(
