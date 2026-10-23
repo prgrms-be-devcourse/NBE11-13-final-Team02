@@ -206,6 +206,22 @@ class NoticeContractTest(unittest.TestCase):
         self.notice["evidence"][0]["locator"].update(start=10, end=5)
         self.assert_invalid("EMPTY_TEXT_RANGE")
 
+    def test_text_range_may_carry_pdf_page(self):
+        # 쪽 표시가 있는 PDF 글자의 근거는 글자 범위에 쪽 번호를 함께 실을 수 있습니다(선택)
+        self.notice["evidence"][0]["locator"].update(page=3, printedPage="1")
+        self.assert_valid()
+        self.notice["evidence"][0]["locator"].update(printedPage=None)
+        self.assert_valid()
+        self.notice["evidence"][0]["locator"].pop("printedPage")
+        self.assert_valid()
+
+    def test_text_range_page_must_be_positive_and_within_document(self):
+        self.notice["evidence"][0]["locator"].update(page=0)
+        self.assert_error("SCHEMA", "/evidence/0/locator", "oneOf")
+        self.notice["evidence"][0]["locator"].update(page=11)
+        self.notice["documents"][0].update(pageCount=10)
+        self.assert_invalid("PAGE_OUT_OF_RANGE")
+
     def test_document_and_locator_types_must_match(self):
         self.notice["documents"][0]["kind"] = "PDF"
         self.assert_invalid("LOCATOR_SOURCE_CONFLICT")

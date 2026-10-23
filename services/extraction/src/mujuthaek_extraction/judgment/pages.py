@@ -39,6 +39,21 @@ def evidence_pages(candidate: dict[str, Any], texts: dict[str, str]) -> dict[str
     return pages
 
 
+def attach_locator_pages(candidate: dict[str, Any], pages: dict[str, int], source_id: str) -> None:
+    """근거 위치(글자 범위)에 PDF 쪽 번호를 함께 싣습니다(그 자리에서 바꿈, 공고 상세 API의 쪽수 표시, 요구 2-07).
+    쪽 표시가 있는 PDF 글자 원문(source_id) 근거만 받고, 쪽을 정하지 못한 근거(그림 판독 묶음 안·첨부 머리말)와
+    다른 원문(수집 글자·호별 표) 근거는 쪽 칸을 넣지 않습니다. 인쇄된 쪽 번호는 알 수 없어 넣지 않습니다."""
+    for evidence in candidate.get("evidence") or []:
+        locator = evidence.get("locator") or {}
+        if locator.get("kind") != "TEXT_RANGE" or evidence.get("sourceId") != source_id:
+            continue
+        page = pages.get(evidence.get("id"))
+        if page is None:
+            locator.pop("page", None)  # 예전 값이 남아 다른 쪽을 가리키지 않게 합니다
+        else:
+            locator["page"] = page
+
+
 def quote_pages(candidate: dict[str, Any], pages: dict[str, int]) -> dict[str, int]:
     """원문 문장 → 쪽 번호. 판정 틀 조건·안내의 quote는 자격 항목·예외·선정 규칙의 원문 문장이라, 그 항목의 근거 중 첫 쪽을 씁니다."""
     out: dict[str, int] = {}
