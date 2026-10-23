@@ -10,3 +10,7 @@ max_line_length = 120
 
 [*.{yml,yaml,json,md,toml}]
 indent_size = 2
+
+# 법정동코드 샘플은 원본 파일과 같은 CP949예요
+[services/api/src/test/resources/common/region_codes_sample.txt]
+charset = unset
