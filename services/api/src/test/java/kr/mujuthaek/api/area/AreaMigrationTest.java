@@ -18,7 +18,7 @@ class AreaMigrationTest {
                     + " where table_schema = 'area'"))
         .isEqualTo(
             "address_points,facilities,industry_group_rules,load_runs,location_metrics,"
-                + "location_scores,notice_locations,score_rules,score_weights,stores");
+                + "location_scores,notice_locations,region_boundaries,score_rules,score_weights,stores");
   }
 
   @Test
@@ -73,7 +73,10 @@ class AreaMigrationTest {
 
   @Test
   void dataDateColumnsExplainTheirMeaning() throws Exception {
-    for (String table : new String[] {"area.stores", "area.facilities", "area.address_points"}) {
+    for (String table :
+        new String[] {
+          "area.stores", "area.facilities", "area.address_points", "area.region_boundaries"
+        }) {
       assertThat(
               one(
                   "select col_description(attrelid, attnum) from pg_attribute"
@@ -82,6 +85,23 @@ class AreaMigrationTest {
                       + "'::regclass and attname = 'data_date'"))
           .contains("마지막으로 바뀐 적재", "area.load_runs.data_date");
     }
+  }
+
+  @Test
+  void boundaryWktIsTransformedFromUtmkAndBadWktIsNull() throws Exception {
+    // 청운동 경계 첫 점 근처(UTM-K) → 북위 37.59, 동경 126.98 부근
+    assertThat(
+            one(
+                "select round(st_y(st_centroid(g))::numeric, 2) || ',' || round(st_x(st_centroid(g))::numeric, 2)"
+                    + " || ',' || geometrytype(g) from (select area.boundary_from_utmk_wkt("
+                    + "'POLYGON((953700 1954605, 953800 1954605, 953800 1954705, 953700 1954705, 953700 1954605))') g) s"))
+        .isEqualTo("37.59,126.98,MULTIPOLYGON");
+    assertThat(one("select area.boundary_from_utmk_wkt('POLYGON((1 2, oops))') is null"))
+        .isEqualTo("t");
+    assertThat(
+            one(
+                "select area.boundary_from_utmk_wkt('LINESTRING(953700 1954605, 953800 1954605)') is null"))
+        .isEqualTo("t");
   }
 
   @Test
