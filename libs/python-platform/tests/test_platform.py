@@ -150,6 +150,22 @@ def test_contract_rejects_invalid_payload(payload):
         validate_event(sample_event(**payload))
 
 
+def completed_example():
+    return json.loads((events_dir().parent / "examples" / "extraction.completed.json").read_text(encoding="utf-8"))
+
+
+def test_contract_resolves_references_to_other_schema_files():
+    """extraction.completed는 schemas/의 다른 파일을 $id로 가리켜요. 참조를 못 풀면 Unresolvable로 멈췄어요."""
+    validate_event(completed_example())
+
+
+def test_contract_checks_values_inside_referenced_schemas():
+    event = completed_example()
+    event["payload"]["conditions"][0]["category"] = "NOT_A_CATEGORY"  # eligibility.v1.json의 category 목록에 없음
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
 def area_ready_example():
     return json.loads((events_dir().parent / "examples" / "area.source.ready.json").read_text(encoding="utf-8"))
 
