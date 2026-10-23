@@ -357,8 +357,27 @@ def test_duplicate_ids_are_renamed_and_one_day_fixed_schedule_gets_its_end():
     result = assemble([part], source_for("housing", data))
     schedules = result.candidate["schedules"]
     assert [s["id"] for s in schedules] == [first["id"], f"{first['id']}.2"]
-    assert schedules[1]["endsAt"] == schedules[1]["startsAt"]
+    # 시작이 시각(MINUTE)이면 끝으로 복사하지 않습니다(「10:00 이후」가 「10:00~10:00」으로 보임). 끝은 원문에 없음으로
+    assert first["startsAt"]["precision"] == "MINUTE"
+    assert (schedules[1]["endsAt"], schedules[1]["endStatus"]) == (None, "NOT_IN_SOURCE")
     assert ("AI_OUTPUT_ID_RENAMED", "/schedules") in {(i["code"], i["target"]) for i in result.issues}
+    # 날짜(DAY)만 있는 하루짜리 일정은 시작값을 끝으로 씁니다
+    day = {"precision": "DAY", "value": first["startsAt"]["value"][:10]}
+    part["schedules"][-1] = {**copy.deepcopy(first), "id": "one-day", "startsAt": day, "endStatus": "FIXED", "endsAt": None}
+    one_day = assemble([part], source_for("housing", data)).candidate["schedules"][-1]
+    assert (one_day["endsAt"], one_day["endStatus"]) == (day, "FIXED")
+
+
+def test_code_part_review_issue_points_to_its_supply_group():
+    # 공급표를 옮긴 코드 조각이 남긴 검수 이슈(나누지 못한 두 금액 칸)는 그 공급 묶음 자리로 갑니다(형식 오류로 조각을 버리지 않음)
+    data = example("housing")
+    part = copy.deepcopy(ai_part(data))
+    group_id = part["supplyGroups"][-1]["id"]
+    part["_reviewIssues"] = [{"supplyGroupId": group_id, "code": "SUPPLY_PRICE_MISSING", "description": "두 금액 칸을 나누지 못했습니다"}]
+    result = assemble([part], source_for("housing", data))
+    found = {(i["code"], i["target"]) for i in result.issues}
+    assert ("SUPPLY_PRICE_MISSING", f"/supplyGroups/{len(part['supplyGroups']) - 1}") in found
+    assert not any(code == "AI_OUTPUT_INVALID" for code, _ in found)
 
 
 def test_strict_mode_fillers_are_cleared_instead_of_dropping_rows():

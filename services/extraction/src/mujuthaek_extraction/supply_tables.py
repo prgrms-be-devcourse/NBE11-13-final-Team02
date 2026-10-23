@@ -21,6 +21,7 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Any
 
+from mujuthaek_extraction.assemble.ai_output import CODE_ISSUES
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 from mujuthaek_extraction.intake.pdf_reader import NUMERIC_VALUE
 from mujuthaek_extraction.model.base import ModelRequest
@@ -30,8 +31,9 @@ CALL_NAME = "supply_tables"
 # 출력 한도: 실측 최대 2,422(인천 4358, 시도 17건). 표 수에 따라 늘어 1.3배보다 조금 넉넉히 둡니다(이전 16,000).
 # 잘리면 열 의미 없이 이전 방식(구조 호출이 공급까지)으로 돌아갑니다. 설정 EXTRACTION_MAX_OUTPUT_TOKENS의 supply_tables로 바꿀 수 있습니다
 MAX_OUTPUT_TOKENS = 4_000
+# v6(2026-10-23): 보증금을 내린 전환안·무보증금 월세 열은 CONVERSION_DEPOSIT_DOWN, 적용 대상이 적혀 있으면 targetGroup.
 # v5(2026-10-20): 표마다 절 제목. v4: 주소 칸 ADDRESS. v3: 행마다 다른 요금안 칸 PLAN_NAME. v2: 첨부 엑셀 공급주택목록 표, 공고문 요약표와 중복 방지 안내
-PROMPT_VERSION = "supply_tables/v5"
+PROMPT_VERSION = "supply_tables/v6"
 # 옵션 가격표의 절 제목(가장 안쪽 제목). 본 가격표 제목에도 「발코니 확장비 별도」가 붙으므로 주택가격·공급금액·별도가 있으면 아님
 # (실측 2026-10-20 LH 대전대동2 「5. 발코니 확장 및 추가선택품목 › ■ 발코니 확장 안내」 표를 AI가 공급표로 답해 확장비 계약금·잔금 32개가
 #  59A 등의 계약금·잔금으로 자동 게시됨. 수집 공고 72건의 후보 표 182개 중 이 규칙에 맞는 것은 옵션 표 3개뿐)
@@ -121,7 +123,8 @@ INSTRUCTIONS = """# 이번 호출에서 할 일 (supply_tables)
     수량 열이 공급 유형별(일반공급·우선공급·특별공급 등)로 나뉘면 targetGroup에 그 유형 이름
   - PRICE 금액 — priceKind(보증금 DEPOSIT·월임대료 MONTHLY_RENT·분양가 SALE_PRICE·계약금 CONTRACT_PAYMENT·잔금 BALANCE·그 밖 OTHER),
     unit(열 제목·표 위의 [단위] 표시), plan(요금안 이름: 기본, 보증금 최대 전환 등 — 같은 요금안의 보증금·월세는 같은 이름),
-    priceStage(기본 STANDARD, 보증금을 올리거나 내린 전환안 CONVERSION_DEPOSIT_UP, 지원 전(당초) BEFORE_SUPPORT, 지원 후(반값 등) AFTER_SUPPORT),
+    priceStage(기본 STANDARD, 보증금을 올린 전환안 CONVERSION_DEPOSIT_UP, 보증금을 내린 전환안 CONVERSION_DEPOSIT_DOWN, 지원 전(당초) BEFORE_SUPPORT,
+    지원 후(반값 등) AFTER_SUPPORT),
     targetGroup(이 열이 특정 순위·계층에만 해당하면 그 이름, 예: 1순위·수급자 등)
   - CONVERSION_LIMIT 전환 가능 보증금 한도·증감액 칸(「(+)5,000」「(-)16,000」). 가격이 아닙니다. 프로그램이 이 칸의 부호로 보증금 증액·감액 전환안을 나눕니다
   - PLAN_NAME 같은 주택형·층의 가격이 행마다 다른 안으로 나뉠 때 그 안 이름 칸(「구분」 열의 기본형·마이너스옵션 등). 가격 열이 아닙니다
@@ -129,6 +132,8 @@ INSTRUCTIONS = """# 이번 호출에서 할 일 (supply_tables)
 - 표마다 하나씩, table에는 아래 「표 번호」 값만 씁니다(예: "3-1". 「표」 글자·쪽 번호는 붙이지 않음).
 - 수량·가격이 표 여러 개에 나뉘어 있으면(호수 표와 임대료 표) 표마다 답합니다. 프로그램이 같은 단지·같은 면적 묶음에 가격을 붙입니다.
 - 전환안 열은 priceStage를 반드시 적습니다. 한 행에 증액·감액이 「(+)」「(-)」 칸으로 나뉘면 그 칸을 CONVERSION_LIMIT로 넣습니다.
+- 보증금 없이 월세만 내는 요금안 열(「무보증금 월세」「무보증 전환 임대료」)은 보증금을 내린 전환안이라 priceStage CONVERSION_DEPOSIT_DOWN입니다.
+  공고문이 그 요금안의 적용 대상을 정해 두었으면(「적용 대상자」「○○만 해당」) targetGroup에 그 대상 이름을 적습니다(STANDARD로 두지 않음).
 - 첨부 엑셀 공급주택목록(표 번호 「엑셀1」 등)이 있으면 호실·주택별 공급은 그 엑셀 표로 답합니다. 같은 주택을 주택형·지역별로 다시 센
   공고문 요약표는 role OTHER로 둡니다(같은 공급이 두 번 들어가지 않게)."""
 
@@ -492,6 +497,8 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
             if c["meaning"] == "CONVERSION_LIMIT" and c.get("priceKind") and not LIMIT_WORDS.search(table.columns[c["column"] - 1]):
                 c["meaning"] = "PRICE"
         limit_column = next((c["column"] - 1 for c in columns if c["meaning"] == "CONVERSION_LIMIT"), None)
+        # 같은 가격 열을 증액·감액 안으로 두 번 답한 경우(두 금액이 한 칸): 답마다 그 방향의 금액만 씁니다
+        mapped_twice = Counter((c["column"], c.get("priceKind")) for c in columns if c["meaning"] == "PRICE")
         first_price = min((c["column"] for c in columns if c["meaning"] == "PRICE"), default=0)
         for c in columns:  # 종류를 비운 수량 열은 열 제목으로 정합니다(실측: 인천 「호수」 열을 COUNT로만 답해 대상 주택 수가 모두 빠짐)
             if c["meaning"] != "COUNT":
@@ -646,11 +653,17 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     base_stage = _stage_words(f"{table.columns[c]} {base_plan}") or base_stage
                 amounts = AMOUNT_IN_CELL.findall(value) if SPACED_AMOUNTS.search(value) else [value]  # 범위(「1,000~2,000」)는 한 값
                 if len(amounts) > 1:
-                    # 한 칸에 금액 두 개: 전환 칸이고 한도 칸에 (+)와 (-)가 함께 있으면 위가 증액·아래가 감액(실측: LH 포항 행복주택
-                    # 「(+) - (-) 10,000」 | 「12,614 2,614」). 그 밖에는 어느 안의 값인지 몰라 넣지 않습니다(빠진 가격으로 검수)
-                    if not (base_stage.startswith("CONVERSION") and len(amounts) == 2 and "(+)" in sign and "(-)" in sign.replace("−", "-")):
+                    # 한 칸에 금액 두 개: 전환 칸이고 한도 칸에 증액·감액 표시가 둘 다 있으면 한도 칸에 적힌 순서대로 나눕니다
+                    # (실측: LH 포항 행복주택 「(+) - (-) 10,000」 | 「12,614 2,614」. 화살표 「↑ … ↓ …」·「증액 … 감액 …」도 같은 표시).
+                    # 그 밖에는 어느 안의 값인지 몰라 넣지 않고, 조용히 버리지 않도록 검수 이슈로 남깁니다(그 묶음 보류)
+                    order = _sign_order(sign)
+                    if not (base_stage.startswith("CONVERSION") and len(amounts) == 2 and order is not None):
+                        current.setdefault("_unsplit", []).append(f"{table.columns[c] or column.get('plan') or '가격'} 칸 「{value}」")
                         continue
-                    cells = [(amounts[0], "(+)"), (amounts[1], "(-)")]
+                    cells = list(zip(amounts, order, strict=True))
+                    if mapped_twice[(column["column"], column.get("priceKind"))] > 1 and base_stage in ("CONVERSION_DEPOSIT_UP", "CONVERSION_DEPOSIT_DOWN"):
+                        down_wanted = base_stage == "CONVERSION_DEPOSIT_DOWN"
+                        cells = [cell for cell in cells if (cell[1] == "(-)") == down_wanted]
                 else:
                     cells = [(value, sign)]
                 for cell_value, cell_sign in cells:
@@ -670,14 +683,28 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
     for count, cell in pending_pools:  # 병합된 한 칸의 수량을 여러 묶음이 쓰면 함께 쓰는 모집 물량입니다(합산하지 않음)
         if len(shared.get(cell, ())) > 1:
             count["allocationPoolId"] = f"pool-t{_slug(cell[0])}-c{cell[1]}-{cell[2].lower()}"
+    issues = []
     for group in groups:
         group.pop("_plans")
+        cells = group.pop("_unsplit", None)
+        if cells:
+            name = group.get("unitLabel") or group.get("housingTypeCode") or group["id"]
+            issues.append(
+                {
+                    "supplyGroupId": group["id"],
+                    "code": UNSPLIT_ISSUE,
+                    "description": f"「{name}」 {', '.join(cells[:3])}에 금액이 둘인데 어느 요금안(보증금 증액·감액)의 값인지 정하지 못해 넣지 않았습니다. "
+                    "원문 확인이 필요합니다",
+                }
+            )
     part: dict[str, Any] = {
         "quotes": quotes,
         "supplyGroups": groups,
         "missingFields": [],
         "coverage": {"supplyGroups": {"status": "EXTRACTED", "reason": None}},
     }
+    if issues:
+        part[ISSUES_KEY] = issues
     locations = _address_locations(groups)
     if locations:
         part["locations"] = locations
@@ -716,6 +743,19 @@ AMOUNT_IN_CELL = re.compile(r"\d[\d,]*(?:\.\d+)?")
 LIMIT_WORDS = re.compile(r"한도|가능\s*금|전환\s*금")
 TYPE_CODE_AREA = re.compile(r"\s*0*(\d{1,3}\.\d{2})\d{2}[A-Z]")  # LH 주택형 코드: 전용면적(소수 넷째 자리까지) + 형 문자
 SPACED_AMOUNTS = re.compile(r"\d[\d,.]*\s+\d")  # 공백으로 떨어진 두 금액(위아래 두 줄이 한 칸)
+# 전환 한도 칸의 증액·감액 표시(2026-10-23). 「(+)」「(-)」만 보던 것을 화살표·낱말까지 넓혔습니다(「↑ 2,000 ↓ 1,000」「증액 2,000 감액 1,000」.
+# 예전엔 이런 한도 칸 옆의 두 금액 칸을 조용히 버렸음). 맨 「-」은 금액 앞에 붙을 때만 감액 표시입니다(「(+) - (-) 10,000」의 가운데 「-」는 빈 값)
+SIGN_MARK = re.compile(r"(?P<up>\(\s*\+\s*\)|\+|[↑▲△]|증액|상향)|(?P<down>\(\s*[-−–]\s*\)|[-−–](?=\s*\d)|[↓▼▽]|감액|하향)")
+UNSPLIT_ISSUE = "SUPPLY_PRICE_MISSING"  # 못 나눈 두 금액 칸: 금액 빈칸과 같은 검수 이슈(그 묶음 보류, AI 재확인 안 함)
+ISSUES_KEY = CODE_ISSUES  # 코드 조각이 결합기에 넘기는 검수 이슈(공급 묶음 id로 가리킴). 계약 칸이 아니라 결합기가 꺼내 씁니다
+
+
+def _sign_order(sign: str) -> list[str] | None:
+    """한도 칸에 증액·감액 표시가 둘 다 있으면 적힌 순서대로 [「(+)」, 「(-)」](또는 반대), 아니면 None."""
+    marks = [("(+)" if m["up"] else "(-)") for m in SIGN_MARK.finditer(sign or "")]
+    if "(+)" not in marks or "(-)" not in marks:
+        return None
+    return ["(+)", "(-)"] if marks.index("(+)") < marks.index("(-)") else ["(-)", "(+)"]
 
 
 def _borrow_keys(entries: list[dict[str, Any]], by_label: dict[str, Table]) -> None:
@@ -805,6 +845,8 @@ def _sign(row: list[str], limit_column: int | None) -> str:
 # 「보증금 감액 시 월임대료」 같은 열이 증액안으로, 「감액」이라고만 적힌 열(「전환」 낱말 없음)은 기본(STANDARD)으로 게시될 수 있었습니다
 DEPOSIT_DOWN_WORDS = re.compile(
     r"보증금\s*(?:을|를)?\s*(?:감액|하향|인하|낮)|(?:감액|하향)\s*(?:전환|시|형|안)|전환\s*\(?\s*(?:감액|하향)|최소\s*보증금|보증금\s*최소"
+    # 보증금 없이 월세만 내는 안(「무보증금 월세」「무보증전환 임대료」)도 보증금을 내린 전환안입니다(2026-10-23: STANDARD로 답해 기본 요금처럼 보였음)
+    r"|무\s*보증"
 )
 DEPOSIT_UP_WORDS = re.compile(
     r"보증금\s*(?:을|를)?\s*(?:증액|상향|인상|올)|(?:증액|상향)\s*(?:전환|시|형|안)|전환\s*\(?\s*(?:증액|상향)|최대\s*보증금|보증금\s*최대"
@@ -919,6 +961,8 @@ def _attach_price_tables(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     }
                 )
             target["quoteRefs"] = list(dict.fromkeys([*target["quoteRefs"], *group["quoteRefs"]]))
+            if group.get("_unsplit"):
+                target.setdefault("_unsplit", []).extend(group["_unsplit"])
     return kept
 
 

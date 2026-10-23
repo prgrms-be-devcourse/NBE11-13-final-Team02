@@ -305,7 +305,8 @@ def _supply_from_tables(rules: FieldRules, material: ExtractionMaterial, first: 
     part = supply_tables.build_part(tables, mapping, material.text_document_id)
     if part is None:
         return None
-    check = {k: v for k, v in part.items() if k != "locations"}  # 주소 위치는 구조 호출 조각으로 옮겨 그쪽에서 검사합니다
+    # 주소 위치는 구조 호출 조각으로 옮겨 그쪽에서 검사하고, 코드가 남긴 검수 이슈는 결합기가 꺼내 씁니다(계약 칸 아님)
+    check = {k: v for k, v in part.items() if k not in ("locations", supply_tables.ISSUES_KEY)}
     check["supplyGroups"] = [{k: v for k, v in g.items() if k != "_complex"} for g in part["supplyGroups"]]
     if schema_errors(check, call_schema(("supplyGroups",), document_ids(material))) is not None:
         return None

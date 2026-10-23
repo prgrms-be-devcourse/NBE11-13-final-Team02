@@ -172,11 +172,14 @@ class _Assembler:
     def merge(self) -> None:
         validator = Draft202012Validator(ai_output.schema(), format_checker=FormatChecker())
         failed = {"status": "FAILED", "reason": "AI 응답 형식이 맞지 않습니다."}
+        code_issues: list[dict[str, Any]] = []
         for number, part in enumerate(self.parts):
             if not isinstance(part, dict):
                 self.issue([], "AI_OUTPUT_INVALID", f"{number}번째 응답이 객체가 아닙니다.")
                 continue
-            part = self.salvage(number, self.repair(number, copy.deepcopy(part)), validator)
+            part = copy.deepcopy(part)
+            code_issues += [i for i in part.pop(ai_output.CODE_ISSUES, None) or [] if isinstance(i, dict)]
+            part = self.salvage(number, self.repair(number, part), validator)
             broken: set[str] = set()
             for error in validator.iter_errors(part):
                 top = error.absolute_path[0] if error.absolute_path else None
@@ -224,12 +227,20 @@ class _Assembler:
                         )
                         continue
                     self.missing.append(copy.deepcopy(entry))
+        # 코드 조각의 검수 이슈: 가리키는 공급 묶음 자리로(묶음을 못 찾으면 공급 섹션)
+        groups = self.sections.get("supplyGroups")
+        positions = {g.get("id"): i for i, g in enumerate(groups) if isinstance(g, dict)} if isinstance(groups, list) else {}
+        for entry in code_issues:
+            at = positions.get(entry.get("supplyGroupId"))
+            self.issue(["supplyGroups", at] if at is not None else ["supplyGroups"], str(entry.get("code")), str(entry.get("description")))
 
     def repair(self, number: int, part: dict[str, Any]) -> dict[str, Any]:
         """뜻이 분명한 형식 실수를 고쳐 항목이 빠지지 않게 합니다(실측 2026-10-17 OpenAI dcco-24788).
         - 같은 응답 안에서 id가 겹치면(가점표 행마다 같은 id) 뒤 항목에 「.2」「.3」을 붙입니다. 예전에는 DUPLICATE_ID로 7행이 빠졌습니다.
           다른 항목이 id로 가리키는 섹션(공급 묶음·위치)은 고치지 않습니다.
-        - 하루짜리 일정(공고일·발표일)을 endStatus FIXED로 적고 endsAt을 비우면 시작값을 종료값으로 씁니다. 예전에는 형식 오류로 빠졌습니다."""
+        - 하루짜리 일정(공고일·발표일)을 endStatus FIXED로 적고 endsAt을 비우면 시작값을 종료값으로 씁니다. 예전에는 형식 오류로 빠졌습니다.
+          시작이 시각(MINUTE)·월(MONTH)이면 복사하지 않고 끝을 「원문에 없음」(NOT_IN_SOURCE)으로 둡니다: 「14:00 이후 발표」가
+          「14:00~14:00」으로 보였습니다(2026-10-23). 날짜(DAY)만 있는 하루짜리 일정만 시작값을 끝으로 씁니다."""
         for section in ("schedules", "selectionRules", "requiredDocuments", "guidance", "eligibility"):
             items = part.get(section)
             if not isinstance(items, list):
@@ -250,7 +261,10 @@ class _Assembler:
                     item["id"] = new_id
         for item in part.get("schedules") or []:
             if isinstance(item, dict) and item.get("endStatus") == "FIXED" and item.get("endsAt") is None and isinstance(item.get("startsAt"), dict):
-                item["endsAt"] = copy.deepcopy(item["startsAt"])
+                if item["startsAt"].get("precision") == "DAY":
+                    item["endsAt"] = copy.deepcopy(item["startsAt"])
+                elif item.get("endCondition") is None:  # 시각(MINUTE)·월(MONTH)
+                    item["endStatus"] = "NOT_IN_SOURCE"
         fix_format_slips(part)  # 엄격 모드가 채운 빈 사유·추첨 순서 번호 등(slips.py). 예전엔 가점표 12행이 형식 오류로 빠졌습니다
         # 소득 기준 연도가 항목 원문에 「전년도」「당해연도」처럼 공고일 기준으로만 있으면 버전에 그 원문 표현을 적습니다. 연도·버전이 둘 다 비면
         # 계약 검사(INCOMPLETE_INCOME_BENCHMARK)에 걸려 소득 조건이 통째로 빠졌습니다(실측 2026-10-17 dcco-24788).
@@ -709,7 +723,8 @@ class _Assembler:
         if candidate is not None:
             candidate["quality"]["reviewIssues"] = issues
             # 일정 접수 방법·장소·시각과 서류 묶음을 근거로 확인하고 같은 서류를 합칩니다(details.py). 합칠 때 위의 이슈 위치도 맞춥니다
-            self.notes.extend(check_details(candidate))
+            material = self.source.material
+            self.notes.extend(check_details(candidate, material.text, material.text_document_id))
             result.contract_errors = tools().validate(candidate, "schemas/extracted-notice.v1.json")
         return result
 

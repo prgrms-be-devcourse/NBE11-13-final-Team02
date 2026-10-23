@@ -124,7 +124,7 @@ def test_unverified_values_are_cleared_not_guessed():
     assert result.contract_errors == []
     kept = result.candidate["schedules"][-1]
     assert kept["channels"] == ["ONSITE"]
-    assert kept["places"] == [{"name": None, "address": None, "detail": "101호"}]
+    assert kept["places"] == []  # 이름·주소가 지워져 층·호만 남은 장소는 뺍니다(어디인지 알 수 없음)
     assert kept["dailyHours"] == [] and kept["breaks"] == [{"start": "12:00", "end": "13:00"}]
     assert kept["excludedDays"] == [] and kept["timeNote"] is None
     assert kept["endsAt"] == {"precision": "DAY", "value": "2026-10-06"}  # 근거에 없는 시각은 날짜만 남깁니다
@@ -239,3 +239,77 @@ def test_old_stored_candidate_is_upgraded_for_approval():
     assert tools().validate(upgraded, "schemas/extracted-notice.v1.json") == []
     assert upgraded["schedules"][0]["channels"] == ["ONLINE"] and upgraded["notice"]["applicationChannels"] == ["ONLINE"]
     assert upgrade_stored(copy.deepcopy(upgraded)) == upgraded
+
+
+ROW = "| 가상 재학증명서 | · 가상 재학증명서 - 다음 학기 입학 예정자는 입학증명서 | O | 해당 대학 | 1부 |"
+LINE = "가상 졸업증명서를 냅니다. 발급은 해당 학교에서 합니다."
+PLACE_LINE = "서류 제출처: 가상공사 가상지사 (충청남도 가상시 가상읍 가상로 32, 2층)"
+PLACE_ROW = "| 접수처 | 가상공사 나래지사 | 가상시 나래로 7 | 3층 |"
+
+
+def assembled_with(schedules=(), documents=()):
+    """표 행·글 줄이 섞인 합성 원문 조각을 붙여 결합합니다."""
+    data = example("housing")
+    source = source_for("housing", data)
+    extra = "\n".join(["[표 9-1]", "| 서류 | 설명 | 온라인 | 발급처 | 부수 |", ROW, LINE, PLACE_LINE, "[표 9-2]", PLACE_ROW])
+    material = dataclasses.replace(source.material, text=source.material.text + "\n" + extra)
+    part = copy.deepcopy(ai_part(data))
+    part["quotes"] += [
+        {"ref": "cell", "documentId": "text1", "text": "· 가상 재학증명서 - 다음 학기 입학 예정자는 입학증명서"},
+        {"ref": "line", "documentId": "text1", "text": "가상 졸업증명서를 냅니다."},
+        {"ref": "place", "documentId": "text1", "text": PLACE_LINE},
+        {"ref": "place-cell", "documentId": "text1", "text": "가상공사 나래지사"},
+    ]
+    part["schedules"] += list(schedules)
+    part["requiredDocuments"] += list(documents)
+    return assemble([part], dataclasses.replace(source, material=material))
+
+
+def test_issuer_and_copies_are_found_in_the_whole_table_row_of_the_quote():
+    documents = [
+        document(id="school", name="가상 재학증명서", copies=1, issuer="해당 대학", quoteRefs=["cell"]),  # 같은 행의 발급처·부수 칸
+        document(id="wrong", name="가상 입학증명서", copies=2, issuer="다른 기관", quoteRefs=["cell"]),  # 행에 없는 값
+        document(id="grad", name="가상 졸업증명서", copies=None, issuer="해당 학교", quoteRefs=["line"]),  # 표 행이 아닌 글 줄은 인용문만
+    ]
+    result = assembled_with(documents=documents)
+    by_id = {d["id"]: d for d in result.candidate["requiredDocuments"]}
+    assert (by_id["school"]["copies"], by_id["school"]["issuer"]) == (1, "해당 대학")
+    assert (by_id["wrong"]["copies"], by_id["wrong"]["issuer"]) == (None, None)
+    assert by_id["grad"]["issuer"] is None
+
+
+def test_place_address_matches_full_and_short_province_names_and_table_row():
+    places = [
+        {"name": "가상공사 가상지사", "address": "충남 가상시 가상읍 가상로 32", "detail": "2층"},  # 원문은 「충청남도」
+        {"name": None, "address": "충남 가상시 가상읍 가상로 33", "detail": "2층"},  # 번지가 다름 → 주소가 지워져 장소가 빠짐
+    ]
+    row_place = [{"name": "가상공사 나래지사", "address": "가상시 나래로 7", "detail": "3층"}]  # 인용은 이름 칸만, 주소는 같은 행
+    schedules = [
+        visit_schedule(id="mail-place", places=places, quoteRefs=["place"], dailyHours=[], breaks=[], excludedDays=[], timeNote=None),
+        visit_schedule(id="row-place", places=row_place, quoteRefs=["place-cell"], dailyHours=[], breaks=[], excludedDays=[], timeNote=None),
+    ]
+    for schedule in schedules:
+        schedule.update(startsAt={"precision": "DAY", "value": "2026-10-05"}, endsAt={"precision": "DAY", "value": "2026-10-06"})
+    result = assembled_with(schedules=schedules)
+    by_id = {s["id"]: s for s in result.candidate["schedules"]}
+    assert by_id["mail-place"]["places"] == [places[0]]
+    assert by_id["row-place"]["places"] == row_place
+
+
+def test_merged_documents_keep_copies_and_issuer_written_on_one_side():
+    other = {**document()["scope"], "targetGroups": ["신혼부부"], "description": "신혼부부예요."}
+    documents = [document(), document(id="resident-2", scope=other, appliesTo="신혼부부", copies=None, issuer=None)]
+    result, _ = assembled(documents=documents)
+    merged = next(d for d in result.candidate["requiredDocuments"] if d["id"] == "resident")
+    assert (merged["copies"], merged["issuer"]) == (2, "주민센터")
+    assert "resident-2" not in {d["id"] for d in result.candidate["requiredDocuments"]}
+
+
+def test_notice_channels_come_from_contract_schedules_when_there_is_no_application():
+    schedules = [
+        {"kinds": ["ANNOUNCEMENT"], "channels": ["ONLINE"]},
+        {"kinds": ["CONTRACT"], "channels": ["ONSITE"]},
+    ]
+    assert tools().application_channels({"schedules": schedules}) == ["ONSITE"]  # 선착순 계약 공고
+    schedules.append({"kinds": ["APPLICATION"], "channels": ["MAIL"]})
+    assert tools().application_channels({"schedules": schedules}) == ["MAIL"]  # 신청 일정이 있으면 그것만

@@ -2,13 +2,17 @@
 
 AI가 적은 값은 그 항목의 근거 인용문(원문 글자)에서 확인될 때만 둡니다. 틀린 값보다 빈 값이 낫습니다.
 - 접수 장소(places)·이메일(applicationEmail)·발급 기관(issuer): 근거에 그대로 있는 글자만(공백·표 칸 구분자는 무시). 아니면 null
+  접수 장소·발급 기관·제출 부수는 인용문이 걸친 원문 **표 행 전체**(같은 행의 다른 칸)에서 찾습니다(2026-10-23: 설명 칸만 인용하고
+  같은 행의 발급처 칸을 인용하지 않아 맞는 발급처가 지워졌음). 표 행이 아닌 글 줄은 인용문만 봅니다. 글자 그대로 있어야 하는 것은 같습니다.
+  주소는 시도 이름의 정식 이름·약칭을 같게 봅니다(「충청남도」↔「충남」, regions.SIDO_NAMES)
+- 이름·주소가 모두 비는 장소는 뺍니다(층·호만 남은 장소는 어디인지 알 수 없음)
 - 접수 시각(dailyHours·breaks)·시각 설명(timeNote)·시작/끝 시각(startsAt·endsAt의 MINUTE): 근거에 그 시각이 있어야 합니다.
   아니면 칸을 비우고(시작/끝은 날짜만 남김) 표시 메모를 남깁니다
 - 제외 요일(excludedDays): 근거에 그 요일 낱말이 있어야 합니다
 - 신청 방법(channels): 근거에 그 방법의 낱말이 막는 말(불가·제외 등) 없이 있어야 합니다. AI가 비워 두었으면 신청·서류 제출 일정만
   근거 낱말로 정합니다(인터넷·온라인·홈페이지→ONLINE, 방문·현장·창구→ONSITE, 이메일→EMAIL, 우편·등기 우편→MAIL, 팩스→FAX)
 - 제출 부수(copies): 근거에 「1부」「2통」처럼 그 수가 있어야 합니다
-- 같은 이름·같은 묶음·같은 제출 시점의 서류는 하나로 합칩니다(근거·대상 범위를 합침)
+- 같은 이름·같은 묶음·같은 제출 시점의 서류는 하나로 합칩니다(근거·대상 범위를 합침). 부수·발급 기관은 둘 다 값이 있고 다를 때만 비웁니다
 - 공고 전체 신청 방법(notice.applicationChannels)은 계약 검사기와 같은 규칙으로 프로그램이 계산합니다
 
 지운 값의 메모 위치: 일정은 섹션(/schedules)을 가리킵니다. 일정 항목을 가리키는 메모는 그 일정을 접수 기간(applicationWindows)에서
@@ -22,6 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from mujuthaek_extraction.assemble.quotes import normalize
+from mujuthaek_extraction.assemble.regions import SIDO_NAMES
 from mujuthaek_extraction.contracts import tools
 
 CLEARED = "DETAIL_UNVERIFIED_CLEARED"
@@ -127,18 +132,61 @@ def _contains(text: str, value: Any) -> bool:
     return isinstance(value, str) and bool(normalize(value)) and normalize(value) in normalize(text)
 
 
+# 시도 이름(긴 것부터): 주소 앞머리의 시도를 찾아 정식 이름·약칭을 바꿔 봅니다
+_SIDO_PREFIXES = sorted(SIDO_NAMES, key=len, reverse=True)
+TABLE_AIDS = ("  [열 제목] ", "  ↳ ")  # 구조 방식이 표에 덧붙이는 줄(verify.consistency와 같음)
+
+
+def _address_found(text: str, address: Any) -> bool:
+    """주소가 근거에 그대로 있는지. 시도 이름은 정식 이름·약칭 어느 쪽이든 같게 봅니다(「충남 아산시 …」 ↔ 「충청남도 아산시 …」).
+    시도 뒤의 시군구·도로명·번지는 글자 그대로 있어야 합니다."""
+    if _contains(text, address):
+        return True
+    if not isinstance(address, str):
+        return False
+    plain, haystack = normalize(address), normalize(text)
+    sido = next((name for name in _SIDO_PREFIXES if plain.startswith(normalize(name))), None)
+    if sido is None or len(plain) <= len(normalize(sido)):
+        return False
+    rest = plain[len(normalize(sido)) :]
+    return any(normalize(same) + rest in haystack for same in SIDO_NAMES[sido] if same != sido)
+
+
+def table_rows(text: str, start: int, end: int) -> str | None:
+    """원문 [start, end) 범위가 걸친 줄들이 모두 표 행(| 줄, 표 읽기 도움 줄 포함)이면 그 줄들 전체, 아니면 None."""
+    if not 0 <= start < end <= len(text):
+        return None
+    first = text.rfind("\n", 0, start) + 1
+    last = text.find("\n", end - 1)
+    lines = text[first : len(text) if last < 0 else last]
+    rows = [line for line in lines.split("\n") if line.strip()]
+    if not rows or not all(line.lstrip().startswith("|") or line.startswith(TABLE_AIDS) for line in rows):
+        return None
+    return lines
+
+
 def _evidence_texts(candidate: dict[str, Any]) -> dict[str, str]:
     return {e["id"]: e["quote"] for e in candidate.get("evidence") or []}
 
 
 class _Checker:
-    def __init__(self, candidate: dict[str, Any]):
+    def __init__(self, candidate: dict[str, Any], text: str | None = None, text_source: str | None = None):
         self.candidate = candidate
         self.quotes = _evidence_texts(candidate)
+        # 근거 id → 인용문이 걸친 원문 표 행 전체(표 행이 아니거나 원문을 모르면 인용문)
+        self.rows: dict[str, str] = {}
+        for evidence in candidate.get("evidence") or []:
+            locator = evidence.get("locator") or {}
+            expanded = None
+            if text is not None and evidence.get("sourceId") == text_source and locator.get("kind") == "TEXT_RANGE":
+                expanded = table_rows(text, int(locator.get("start", -1)), int(locator.get("end", -1)))
+            self.rows[evidence["id"]] = expanded if expanded is not None else evidence["quote"]
         self.notes: list[str] = []
 
-    def cited(self, item: dict[str, Any]) -> str:
-        return "\n".join(self.quotes.get(i, "") for i in item.get("evidenceIds") or [])
+    def cited(self, item: dict[str, Any], rows: bool = False) -> str:
+        """항목의 근거 글. rows=True면 인용문이 걸친 원문 표 행 전체(같은 행의 다른 칸까지)."""
+        source = self.rows if rows else self.quotes
+        return "\n".join(source.get(i, "") for i in item.get("evidenceIds") or [])
 
     def clear(self, target: str, label: str, what: str) -> None:
         # 후보의 검수 이슈 목록에 바로 넣습니다. 서류를 합칠 때(_remove_merged) 위치가 함께 맞춰집니다
@@ -152,7 +200,7 @@ class _Checker:
             text = self.cited(schedule)
             label = f"{schedule.get('rawLabel') or schedule.get('id')}({schedule.get('id')})"
             self.channels(schedule, text, label)
-            self.places(schedule, text, label)
+            self.places(schedule, self.cited(schedule, rows=True), label)
             self.email(schedule, text, label)
             self.hours(schedule, text, label)
             self.days(schedule, text, label)
@@ -173,13 +221,20 @@ class _Checker:
     def places(self, schedule: dict[str, Any], text: str, label: str) -> None:
         kept = []
         for place in schedule.get("places") or []:
-            cleared = [key for key in ("name", "address", "detail") if place.get(key) is not None and not _contains(text, place[key])]
+            cleared = [
+                key
+                for key in ("name", "address", "detail")
+                if place.get(key) is not None and not (_address_found(text, place[key]) if key == "address" else _contains(text, place[key]))
+            ]
             for key in cleared:
                 place[key] = None
             if cleared:
                 self.clear("/schedules", label, f"접수 장소의 {'·'.join(cleared)}를")
-            if any(place.get(key) is not None for key in ("name", "address", "detail")):
+            # 이름·주소가 둘 다 없으면 층·호(detail)만으로는 어디인지 알 수 없어 장소를 뺍니다
+            if place.get("name") is not None or place.get("address") is not None:
                 kept.append(place)
+            elif place.get("detail") is not None:
+                self.notes.append(f"/schedules {label}: 이름·주소 없이 층·호만 남은 접수 장소를 뺐어요({place['detail']})")
         schedule["places"] = kept
 
     def email(self, schedule: dict[str, Any], text: str, label: str) -> None:
@@ -233,7 +288,7 @@ class _Checker:
     # 서류
     def documents(self) -> None:
         for d, document in enumerate(self.candidate.get("requiredDocuments") or []):
-            text = self.cited(document)
+            text = self.cited(document, rows=True)
             label = str(document.get("name") or document.get("id"))
             copies = document.get("copies")
             if copies is not None and copies not in {int(m[1]) for m in COPIES.finditer(text)}:
@@ -289,6 +344,14 @@ def _merge_scope(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _keep_one(a: Any, b: Any) -> Any:
+    if a is None:
+        return b
+    if b is None or a == b:
+        return a
+    return None
+
+
 def _merge_document(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | None:
     scope = _merge_scope(a["scope"], b["scope"])
     if scope is None:
@@ -298,8 +361,9 @@ def _merge_document(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | No
         "scope": scope,
         "appliesTo": _join(a["appliesTo"], b["appliesTo"], ", "),
         "description": _join(a.get("description"), b.get("description"), " / "),
-        "copies": a.get("copies") if a.get("copies") == b.get("copies") else None,
-        "issuer": a.get("issuer") if a.get("issuer") == b.get("issuer") else None,
+        # 부수·발급 기관은 둘 다 값이 있고 다를 때만 비웁니다(한쪽만 원문에 적힌 같은 서류의 값은 남김)
+        "copies": _keep_one(a.get("copies"), b.get("copies")),
+        "issuer": _keep_one(a.get("issuer"), b.get("issuer")),
         "evidenceIds": list(dict.fromkeys([*a["evidenceIds"], *b["evidenceIds"]])),
     }
 
@@ -342,10 +406,11 @@ def refresh_application_channels(candidate: dict[str, Any]) -> None:
             return  # 형식이 깨진 후보는 계약 검사가 따로 알립니다
 
 
-def check_details(candidate: dict[str, Any]) -> list[str]:
+def check_details(candidate: dict[str, Any], text: str | None = None, text_source: str | None = None) -> list[str]:
     """결합한 후보의 일정·서류 세부 값을 근거로 확인하고(그 자리에서 고침) 공고 전체 신청 방법을 계산합니다.
+    text·text_source: 원문 글과 그 문서 id(근거 위치 TEXT_RANGE가 가리키는 글). 주면 장소·발급 기관·부수를 인용문이 걸친 표 행 전체에서 찾습니다.
     지운 값은 후보의 검수 이슈(quality.reviewIssues, 검증기가 표시 메모로 옮김)에 넣고, 작업 메모를 돌려줍니다."""
-    checker = _Checker(candidate)
+    checker = _Checker(candidate, text, text_source)
     checker.schedules()
     checker.documents()
     refresh_application_channels(candidate)
