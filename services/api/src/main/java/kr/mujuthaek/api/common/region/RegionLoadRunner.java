@@ -9,7 +9,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 /**
- * 지역 코드는 해마다 몇 번 바뀌어서 파일을 받을 때 한 번 넣어요. 파일 경로를 주고 api를 띄우면 적재해요.
+ * 저장소 법정동코드표는 뜰 때 알아서 넣어요(RegionStartupLoader). 저장소에 아직 없는 판을 먼저 넣어 보고 싶을 때만, 파일 경로를 주고 api를 띄우면 그
+ * 파일로 적재해요(탭·쉼표, UTF-8·CP949 모두).
  *
  * <pre>
  * ./gradlew bootRun --args='--mujuthaek.regions.load-file=/path/법정동코드 전체자료.txt --mujuthaek.regions.base-date=2026-07-01'
