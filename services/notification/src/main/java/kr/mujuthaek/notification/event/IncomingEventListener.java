@@ -24,9 +24,6 @@ public class IncomingEventListener {
 
   private static final Logger log = LoggerFactory.getLogger(IncomingEventListener.class);
 
-  /** 받는 봉투 버전. 바뀌면 새 버전을 받는 코드를 같이 넣어요. */
-  static final int SCHEMA_VERSION = 1;
-
   private final JsonMapper json;
   private final JdbcClient jdbc;
 
@@ -50,8 +47,7 @@ public class IncomingEventListener {
       log.debug("이미 처리한 이벤트: eventId={}, eventType={}", event.eventId(), event.eventType());
       return;
     }
-    // 다음 단계: notification.requested면 발송 줄을 만들고, email.verification.requested면 인증 메일을 보내고,
-    // user.withdrawn이면 그 회원의 발송 기록을 지워요
+    // 다음 단계: notification.requested면 userIds마다 알림·발송을 만들고, user.withdrawn이면 그 회원 데이터를 지워요
     log.info("이벤트 받음: eventId={}, eventType={}", event.eventId(), event.eventType());
   }
 
@@ -62,21 +58,6 @@ public class IncomingEventListener {
       String eventType = root.path("eventType").asString();
       if (eventType.isBlank()) {
         throw new IllegalArgumentException("eventType이 없어요");
-      }
-      // 모르는 종류·버전을 처리했다고 기록하면 모양이 다른 이벤트가 조용히 사라져요. 실패 큐로 보내서 사람이 보게 해요
-      if (!EventQueueConfig.ROUTING_KEYS.contains(eventType)) {
-        throw new IllegalArgumentException("받지 않는 이벤트 종류예요: " + eventType);
-      }
-      int schemaVersion = root.path("schemaVersion").asInt(0);
-      if (schemaVersion != SCHEMA_VERSION) {
-        throw new IllegalArgumentException(
-            "받을 수 없는 봉투 버전이에요: "
-                + eventType
-                + " v"
-                + schemaVersion
-                + " (기대: v"
-                + SCHEMA_VERSION
-                + ")");
       }
       return new Envelope(eventId, eventType);
     } catch (JacksonException | IllegalArgumentException e) {
