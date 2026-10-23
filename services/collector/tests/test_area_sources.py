@@ -24,6 +24,12 @@ def test_address_entrance_keys_use_the_file_sido_code():
     assert sources.headerless("ADDRESS_ENTRANCE") and not sources.headerless("STORES")
 
 
+def test_region_boundary_keys():
+    assert sources.s3_key("REGION_BOUNDARY_SIG", date(2026, 9, 30)) == "area/REGION_BOUNDARY_SIG/2026-09-30/boundary_sig.csv"
+    assert sources.s3_key("REGION_BOUNDARY_EMD", date(2026, 9, 30), "ALL") == "area/REGION_BOUNDARY_EMD/2026-09-30/boundary_emd.csv"
+    assert "REGION_BOUNDARY_RAW" not in sources.SOURCES
+
+
 @pytest.mark.parametrize(
     "source,scope",
     [
@@ -34,6 +40,8 @@ def test_address_entrance_keys_use_the_file_sido_code():
         ("STORES", None),  # 상가는 시도가 있어야 해요
         ("STORES", "광주"),  # 광주는 전남과 한 파일(전남광주)
         ("BUS_STOP", "서울"),  # 시설은 ALL만
+        ("REGION_BOUNDARY_SIG", "11"),  # 경계는 전국 파일 하나라 ALL만
+        ("REGION_BOUNDARY_RAW", "ALL"),  # 원본 zip은 보관만
     ],
 )
 def test_rejects_unknown_source_or_scope(source, scope):
@@ -42,10 +50,13 @@ def test_rejects_unknown_source_or_scope(source, scope):
 
 
 def test_keys_match_the_area_source_ready_contract():
-    # contracts/events/area.source.ready.v1.json의 s3Key 패턴과 같아야 api가 받아요
+    # contracts/events/area.source.ready.v1.json의 s3Key 패턴과 같아야 api가 받아요 (계약 파일에서 바로 읽음)
+    import json
     import re
+    from pathlib import Path
 
-    pattern = re.compile(r"^area/(SUBWAY_STATION|BUS_STOP|SCHOOL|PARK|HOSPITAL|STORES|ADDRESS_ENTRANCE)/\d{4}-\d{2}-\d{2}/[a-z0-9_]+\.(csv|txt)$")
+    schema = json.loads((Path(__file__).resolve().parents[3] / "contracts" / "events" / "area.source.ready.v1.json").read_text(encoding="utf-8"))
+    pattern = re.compile(schema["$defs"]["payload"]["properties"]["s3Key"]["pattern"])
     keys = [sources.s3_key(s, date(2026, 6, 30)) for s in sources.FILE_NAMES]
     keys += [sources.s3_key("STORES", date(2026, 6, 30), sido) for sido in sources.STORES_SCOPES]
     keys += [sources.s3_key("ADDRESS_ENTRANCE", date(2026, 9, 30), code) for code in sources.ADDRESS_SCOPES]
