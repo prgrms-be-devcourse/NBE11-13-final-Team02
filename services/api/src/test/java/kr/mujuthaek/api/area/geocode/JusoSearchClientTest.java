@@ -10,7 +10,10 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
+import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import kr.mujuthaek.api.area.geocode.SearchOutcome.Failed;
@@ -36,12 +39,30 @@ class JusoSearchClientTest {
   private MockRestServiceServer server;
 
   private JusoSearchClient client(String key) {
+    return client(key, 10000);
+  }
+
+  private JusoSearchClient client(String key, int perDay) {
     var builder = RestClient.builder();
     server = MockRestServiceServer.bindTo(builder).build();
     return new JusoSearchClient(
-        new JusoSearchProperties(URL, key, 5, 10000, 2, Duration.ofSeconds(1)),
+        new JusoSearchProperties(URL, key, 5, perDay, 2, Duration.ofSeconds(1)),
         builder,
-        sleeps::add);
+        sleeps::add,
+        Clock.fixed(Instant.parse("2026-10-23T01:00:00Z"), ZoneOffset.UTC));
+  }
+
+  @Test
+  void dailyLimitStopsCallsAndCountsRetries() {
+    var client = client(KEY, 2);
+    server
+        .expect(times(2), requestTo(URL))
+        .andRespond(withSuccess(error("-999", "시스템 에러"), MediaType.APPLICATION_JSON));
+
+    // 첫 시도 + 재시도 1번으로 하루 한도 2를 다 써서 세 번째는 부르지 않아요
+    assertThat(client.search("초량상로 1-2")).isEqualTo(new Failed(Reason.RATE_LIMITED, null));
+    assertThat(client.search("초량상로 1-2")).isEqualTo(new Failed(Reason.RATE_LIMITED, null));
+    server.verify();
   }
 
   @Test
