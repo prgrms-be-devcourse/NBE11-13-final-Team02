@@ -7,6 +7,15 @@ AI는 중간 형식으로 답하고 이 모듈이 틀의 칸으로 옮깁니다.
 - 업력 날짜 범위는 공고가 찍은 날짜가 있으면 그대로, 연수만 있으면 기준일에서 틀 문서 규칙대로 계산(기준일이 없으면 질문)
 - 틀에 칸이 없는 조건(사업공간 틀의 업력 상한·매출 등)은 근거 문장을 묻는 질문(ASK)
 - 최소가 최대보다 큰 나이·매출, 시작일이 끝일보다 뒤인 개업일·폐업일은 근거 문장을 묻는 질문(확인 필요). 틀 읽기가 틀 전체를 거절함
+- 근거 문장이나 바로 뒤 주석 줄에 예외 단서(「다만」「단,」「…의 경우 신청 가능」「예외」)가 있으면 확인 필요(틀에 예외 칸이 없음).
+  질문(ASK)이면 질문 끝에 그 예외 문장을 붙임
+- K-Startup 목록 정보(대상 연령·창업 기간·신청 대상 칸)에만 있고 본문에 없는 근거로 만든 조건은 확인 필요.
+  본문 나이와 목록 정보 「대상 연령」이 다르면 확인 필요
+- 「N년차 이하」는 「N년 이내」와 경계가 달라(만 N년째를 넣는지) 업력 값을 확정하지 않음
+- 대상군 배치 검사(조립 뒤): 예비창업자(사업자 아님) 길이 있는데 공통 조건이 이미 사업 중인 기업을 전제하면(업력·사업자·매출·
+  본사·지점 같은 기업 형태) 그 공통 조건은 확인 필요. 예비창업자에게만 해당하는 제외 문장이 다른 신청자에게도 걸려 있거나,
+  한 대상군의 제외 문장이 다른 대상군 이름을 말하면 확인 필요
+- 길 이름·질문에 내부 코드(NO_RECENT_CLOSURE 같은)를 쓰지 않음. 틀에 없는 유형 코드는 한국어 이름으로 묻는 질문 하나로
 """
 
 from __future__ import annotations
@@ -18,6 +27,7 @@ from decimal import Decimal
 from typing import Any
 
 from mujuthaek_extraction.judgment.sanity import INVERTED, repair
+from mujuthaek_extraction.judgment.startup import AGE_BANDS
 
 STARTUP_STATUS = {"SME", "WOMAN", "SMALL_BUSINESS", "VENTURE_COMPANY", "SOCIAL_VENTURE", "DISABLED", "ONE_PERSON_CREATIVE", "STUDENT"}
 STARTUP_EXCLUDED = {"CREDIT_DELINQUENT", "TAX_ARREARS", "CLAWBACK_UNPAID", "PROGRAM_SANCTION", "BUSINESS_SUSPENDED", "WAGE_ARREARS", "SUBSIDY_EXCLUDED"}
@@ -40,6 +50,59 @@ VALUE_MISSING = "값이 근거 문장에 없습니다(AI가 값을 바꿨을 수
 TRUNCATED = "공고 글이 길어 앞부분만 읽었습니다"
 NO_REFERENCE = "기준일을 정하지 못해 연수를 개업일 범위로 바꿀 수 없습니다"
 NO_REGION = "지역 이름을 법정동 코드로 바꾸지 못했습니다"
+RANGE_PART = "근거 문장이 범위이거나 구간이 여럿인데 한쪽 경계만 읽었습니다"
+EXCEPTION = "근거 문장이나 바로 뒤 문장에 예외 단서(다만·단·…의 경우 신청 가능)가 있습니다"
+META_ONLY = "본문에 없고 목록 정보(대상 연령·창업 기간·신청 대상 칸)에만 있습니다"
+META_CONFLICT = "본문 나이와 목록 정보(대상 연령 칸)의 나이가 다릅니다"
+YEAR_COUNT = "「N년차」는 「N년 이내」와 경계가 달라(만 N년째를 넣는지) 원문 확인이 필요합니다"
+PLACEMENT = "예비창업자(사업자 아님) 대상이 있는데 이 공통 조건은 이미 사업 중인 기업을 전제합니다(대상군 배치 확인 필요)"
+SCOPE = "예비창업자에게만 해당할 수 있는 문장인데 다른 신청자에게도 걸려 있습니다(대상군 배치 확인 필요)"
+OTHER_GROUP = "근거 문장이 다른 대상군도 말합니다(대상군 범위 확인 필요)"
+
+# 질문·길 이름에 쓰는 한국어 이름(내부 코드를 그대로 보여 주지 않음)
+STATUS_NAMES = {
+    "SME": "중소기업",
+    "WOMAN": "여성(여성 대표·여성기업)",
+    "SMALL_BUSINESS": "소상공인",
+    "VENTURE_COMPANY": "벤처기업",
+    "SOCIAL_VENTURE": "소셜벤처",
+    "DISABLED": "장애인(장애인 대표·장애인기업)",
+    "ONE_PERSON_CREATIVE": "1인 창조기업",
+    "STUDENT": "대학생·대학원생",
+    "SOCIAL_ENTERPRISE": "사회적기업",
+    "PRE_SOCIAL_ENTERPRISE": "예비사회적기업",
+    "SOCIAL_COOPERATIVE": "사회적협동조합",
+    "VILLAGE_ENTERPRISE": "마을기업",
+    "SELF_SUFFICIENCY_ENTERPRISE": "자활기업",
+    "CAREER_BREAK_WOMAN": "경력단절여성",
+    "NATIONAL_MERIT": "국가유공자",
+}
+EXCLUDED_NAMES = {
+    "CREDIT_DELINQUENT": "채무불이행",
+    "TAX_ARREARS": "국세·지방세 체납",
+    "CLAWBACK_UNPAID": "환수금 미반환",
+    "PROGRAM_SANCTION": "정부·창업지원사업 참여제한 제재",
+    "BUSINESS_SUSPENDED": "휴업",
+    "WAGE_ARREARS": "임금 체불 명단",
+    "SUBSIDY_EXCLUDED": "보조사업 수행 배제",
+}
+KIND_NAMES = {
+    "AGE": "나이",
+    "REGION": "지역",
+    "PRE_FOUNDER": "예비창업자",
+    "REGISTERED": "사업자",
+    "BUSINESS_AGE": "업력",
+    "NO_RECENT_CLOSURE": "최근 폐업 이력 없음",
+    "CLOSURE_REQUIRED": "폐업 경험",
+    "REVENUE": "매출",
+    "INDUSTRY_EXCLUDE": "제외 업종 아님",
+    "INDUSTRY_ONLY": "대상 업종",
+    "STATUS": "유형",
+    "EXCLUDED_STATUS": "제외 대상 아님",
+    "OTHER": "기타 조건",
+}
+# 사업 중인 기업이어야 갖출 수 있는 유형(사람에게 붙는 여성·장애인·대학생·경력단절여성·국가유공자는 빼고)
+BUSINESS_STATUS = set(STATUS_NAMES) - {"WOMAN", "DISABLED", "STUDENT", "CAREER_BREAK_WOMAN", "NATIONAL_MERIT"}
 
 
 def _norm(text: str) -> str:
@@ -159,6 +222,116 @@ def region_named(name: str, quote: str) -> bool:
     return bool(tokens) and tokens[0][:2] in plain and all(t in plain for t in tokens[1:])
 
 
+def _year_count(quote: str, years: Any) -> bool:
+    """「7년차 이하」「7년 차」처럼 햇수를 차수로 적었는지. 「N년 이내」(만 N년째 포함)와 경계가 달라 확정하지 않습니다."""
+    if not _sane_years(years):
+        return False
+    return bool(re.search(rf"(?<!\d){int(years)}\s*년\s*차", unicodedata.normalize("NFKC", quote or "")))
+
+
+# 예외 단서: 근거 문장 안이나 바로 뒤 주석 줄(※·*·다만·단,)에 있으면 그 조건은 예외가 있음(리뷰 2026-10-23: 틀에 예외 칸이 없어
+# 「체납자 제외(다만 분납 중이면 신청 가능)」가 예외 없이 확정됐음)
+_EXCEPTION = re.compile(
+    r"다만|(?:^|[\s(※*＊,·\-])단\s*[,:：]|예외|제외하지\s*않|경우(?:에는|에도|는|도)?[^\n]{0,40}?(?:신청|지원|입주|참여)\s*(?:이\s*|도\s*)?가능"
+)
+_ANNOTATION = re.compile(r"^(?:※|\*|＊|\(?\s*다만|\(?\s*단\s*[,:：]|\(?\s*예외)")
+_BULLET = re.compile(r"^[\s\-·•⁃ㆍ∙◦▪○●□■◇◆>→]+")
+
+
+def _clip(text: str, size: int = 120) -> str:
+    text = re.sub(r"\s+", " ", text).strip()
+    return text if len(text) <= size else text[: size - 1] + "…"
+
+
+def exception_clause(quote: str | None, text: str) -> str | None:
+    """근거 문장의 예외 단서: 근거 문장 안, 같은 줄의 근거 뒤, 바로 다음 주석 줄 순서로 찾아 그 문장을 돌려줍니다. 없으면 None."""
+    if not quote:
+        return None
+    plain = unicodedata.normalize("NFKC", quote)
+    if found := _EXCEPTION.search(plain):
+        return _clip(plain[max(0, found.start() - 30) :] if found.start() > 30 else plain)
+    target = _norm(quote)
+    if len(target) < 4:
+        return None
+    lines = [unicodedata.normalize("NFKC", line) for line in (text or "").splitlines()]
+    for n, line in enumerate(lines):
+        flat = _norm(line)
+        at = flat.find(target)
+        if at < 0:
+            continue
+        rest = flat[at + len(target) :]
+        if re.search(r"다만|예외|제외하지않|^\(?단[,:：]", rest):
+            return _clip(line)
+        following = next((other.strip() for other in lines[n + 1 :] if other.strip()), "")
+        bare = _BULLET.sub("", following)
+        if following and (_ANNOTATION.match(following) or _ANNOTATION.match(bare)) and _EXCEPTION.search(following):
+            return _clip(bare or following)
+    return None
+
+
+# K-Startup 목록 정보: API 항목 줄(「대상 연령: …」)과 원문 화면 머리 칸(「대상연령」 다음 줄). 신청 대상 내용(aply_trgt_ctnt)은 본문입니다
+META_FIELDS = ("biz_trgt_age", "biz_enyy", "aply_trgt")
+_META_LINE = re.compile(r"^\s*(대상\s*연령|창업\s*기간|신청\s*대상)\s*[:：]\s*(.+)$")
+_META_LABEL = re.compile(r"^\s*(?:대상\s*연령|창업\s*기간|신청\s*대상|대상)\s*[:：]?\s*")
+_META_HEADS = {"대상연령", "창업기간", "대상"}
+
+
+class Meta:
+    """정책 글의 K-Startup 목록 정보와 그것을 뺀 본문. 목록 칸이 없는 출처(기업마당 등)면 비어 있습니다."""
+
+    def __init__(self, text: str, record: dict[str, Any] | None):
+        record = record or {}
+        self.values: list[str] = [str(record[f]) for f in META_FIELDS if isinstance(record.get(f), str) and record[f].strip()]
+        self.ages: list[str] = [str(record["biz_trgt_age"])] if isinstance(record.get("biz_trgt_age"), str) else []
+        if not self.values:
+            self.body = text or ""
+            return
+        body: list[str] = []
+        head = None
+        for line in (text or "").splitlines():
+            if head is not None:
+                self.values.append(line)
+                if head == "대상연령":
+                    self.ages.append(line)
+                head = None
+                continue
+            if found := _META_LINE.match(line):
+                self.values.append(found.group(2))
+                if _norm(found.group(1)) == "대상연령":
+                    self.ages.append(found.group(2))
+                continue
+            if _norm(line) in _META_HEADS:
+                head = _norm(line)
+                continue
+            body.append(line)
+        self.body = "\n".join(body)
+
+    def only(self, quote: str | None) -> bool:
+        """근거 문장이 목록 정보 값 안에만 있고 본문에는 없는지."""
+        if not self.values or not quote:
+            return False
+        target = _norm(_META_LABEL.sub("", unicodedata.normalize("NFKC", quote)))
+        return len(target) >= 2 and any(target in _norm(v) for v in self.values) and target not in _norm(self.body)
+
+    def age_range(self) -> tuple[int | None, int | None] | None:
+        """목록 정보 「대상 연령」 구간을 합친 (최소, 최대). 칸이 없거나, 모르는 값이거나, 세 구간 모두(제한 없음)거나, 끊긴 구간이면 None."""
+        ranges = set()
+        for raw in self.ages:
+            bands = [re.sub(r"\s+", " ", b).strip() for b in raw.split(",") if b.strip()]
+            if not bands or any(b not in AGE_BANDS for b in bands):
+                return None
+            ranges.add(tuple(sorted(bands, key=lambda b: AGE_BANDS[b][0] or 0)))
+        if len(ranges) != 1:
+            return None
+        bands = list(ranges.pop())
+        if len(bands) == len(AGE_BANDS):
+            return None
+        spans = [AGE_BANDS[b] for b in bands]
+        if any((low[1] or 0) + 1 != (high[0] or 0) for low, high in zip(spans, spans[1:], strict=False)):
+            return None
+        return spans[0][0], spans[-1][1]
+
+
 def _valid_day(value: Any) -> bool:
     if value is None:
         return True
@@ -194,9 +367,10 @@ def opened_range(reference: date, years: int, rule: str) -> tuple[str | None, st
 
 
 class _Builder:
-    def __init__(self, reading: Any, text: str, regions: Any, *, startup: bool):
+    def __init__(self, reading: Any, text: str, regions: Any, *, startup: bool, record: dict[str, Any] | None = None):
         self.answer, self.text, self.regions, self.startup = reading.answer, text, regions, startup
         self.truncated = reading.truncated
+        self.meta = Meta(text, record)
         self.used: set[str] = set()
         self.keys = {g["key"] for g in self.answer["groups"]}
 
@@ -252,6 +426,20 @@ class _Builder:
         return list(dict.fromkeys(codes)) or None
 
     def criterion(self, item: dict[str, Any], reference: date | None) -> dict[str, Any]:
+        """AI 조건 하나 → 틀 조건 하나. 근거가 목록 정보에만 있거나, 본문 나이가 목록 정보와 다르거나, 예외 단서가 있으면 확인 필요."""
+        made = self._criterion(item, reference)
+        reasons = []
+        if self.meta.only(item["quote"]):
+            reasons.append(META_ONLY)
+        elif made["kind"] == "AGE" and (ages := self.meta.age_range()) is not None and ages != (made["minAge"], made["maxAge"]):
+            reasons.append(META_CONFLICT)
+        if (clause := exception_clause(item["quote"], self.text)) is not None:
+            reasons.append(EXCEPTION)
+            if made["kind"] == "ASK":
+                made = made | {"question": f"{made['question']} (공고의 예외: 「{clause}」)"}
+        return self.flag(made, reasons) if reasons else made
+
+    def _criterion(self, item: dict[str, Any], reference: date | None) -> dict[str, Any]:
         """AI 조건 하나 → 틀 조건 하나(못 담으면 질문)."""
         quote, kind = item["quote"], item["kind"]
         reasons = [] if _quoted(quote, self.text) else [QUOTE_MISSING]
@@ -264,8 +452,11 @@ class _Builder:
                 return self.ask(item, quote, reasons + [INVERTED])
             seen = _has_number(quote, item["minAge"]) and (_has_number(quote, item["maxAge"]) or _has_number(quote, (item["maxAge"] or 0) + 1))
             seen = seen and (item["minAge"] is None or bool(LOWER.search(quote))) and (item["maxAge"] is None or bool(UPPER.search(quote)))
-            seen = seen and not _age_half_range(quote, item["minAge"], item["maxAge"])
-            return self.flag(self.base("AGE", quote) | {"minAge": item["minAge"], "maxAge": item["maxAge"]}, reasons + ([] if seen else [VALUE_MISSING]))
+            if seen and _age_half_range(quote, item["minAge"], item["maxAge"]):
+                reasons = [*reasons, RANGE_PART]  # 값은 근거 문장에 있지만 범위·여러 구간 중 한쪽만 읽음(리뷰 2026-10-23: 사유가 「값이 없음」으로 나갔음)
+            elif not seen:
+                reasons = [*reasons, VALUE_MISSING]
+            return self.flag(self.base("AGE", quote) | {"minAge": item["minAge"], "maxAge": item["maxAge"]}, reasons)
         if kind == "REGION" and item["regionNames"] and item["regionBasis"]:
             codes = self.region_codes(item["regionNames"])
             if codes is None:
@@ -287,7 +478,8 @@ class _Builder:
                 "OVER": f"사업을 시작한 날(법인은 설립등기일)부터 {years}년이 넘게 지났나요?",
             }[item["yearsRule"]]
             seen = _has_number(quote, item["years"]) and bool(YEARS_WORDS[item["yearsRule"]].search(quote))
-            return self.ask(item | {"question": question, "metWhen": "YES"}, quote, reasons + ([] if seen else [VALUE_MISSING]))
+            reasons = reasons + ([] if seen else [VALUE_MISSING]) + ([YEAR_COUNT] if _year_count(quote, item["years"]) else [])
+            return self.ask(item | {"question": question, "metWhen": "YES"}, quote, reasons)
         if kind in ("NO_RECENT_CLOSURE", "CLOSURE_REQUIRED") and self.startup:
             return self.closure(item, quote, reasons, reference)
         if kind == "CLOSURE_REQUIRED" and not self.startup and _sane_years(item["closedYears"]):
@@ -307,7 +499,8 @@ class _Builder:
                 return self.ask(item, quote, reasons + [INVERTED])
             seen = _has_won(quote, item["revenueMinWon"]) and _has_won(quote, item["revenueMaxWon"])
             seen = seen and (not item["revenueMinWon"] or bool(LOWER.search(quote))) and (not item["revenueMaxWon"] or bool(UPPER.search(quote)))
-            seen = seen and not _won_half_range(quote, item["revenueMinWon"] or None, item["revenueMaxWon"] or None)
+            if seen and _won_half_range(quote, item["revenueMinWon"] or None, item["revenueMaxWon"] or None):
+                reasons = [*reasons, RANGE_PART]
             # 「전년도」면 기준일 연도 − 1, 숫자 연도면 근거 문장에 그 연도가 있어야 함
             prior = "전년도" in quote and reference is not None and item["revenueYear"] == reference.year - 1
             seen = seen and (prior or str(item["revenueYear"]) in quote or str(item["revenueYear"] % 100) in _numbers(quote))
@@ -323,6 +516,15 @@ class _Builder:
             codes = list(dict.fromkeys(item["statusCodes" if kind == "STATUS" else "excludedCodes"]))
             if all(c in allowed for c in codes):
                 return self.flag(self.base(kind, quote) | {"anyOf": codes}, reasons)
+            if not (item["question"] or "").strip():
+                # 틀에 없는 코드가 섞임: 문장 통째 질문 대신 코드의 한국어 이름으로 묻는 질문 하나(리뷰 2026-10-23: 통째 질문이 같은 문장으로
+                # 이미 만든 조건·다른 길과 겹쳤음)
+                names = ", ".join((STATUS_NAMES if kind == "STATUS" else EXCLUDED_NAMES)[c] for c in codes)
+                if kind == "STATUS":
+                    question = f"{names}에 해당하나요?" if len(codes) == 1 else f"다음 중 하나에 해당하나요? {names}"
+                    return self.ask(item | {"question": question, "metWhen": "YES"}, quote, reasons)
+                question = f"다음 신청 제외 대상({names})에 해당하나요?" if len(codes) == 1 else f"다음 신청 제외 대상 중 하나에 해당하나요? {names}"
+                return self.ask(item | {"question": question, "metWhen": "NO"}, quote, reasons)
         return self.ask(item, quote, reasons)
 
     def business_age(self, item: dict[str, Any], quote: str, reasons: list[str], reference: date | None) -> dict[str, Any]:
@@ -342,7 +544,7 @@ class _Builder:
         opened_from, opened_to = opened_range(reference, int(years), rule)
         made = self.base("BUSINESS_AGE", quote) | {"openedFrom": opened_from, "openedTo": opened_to}
         seen = _has_number(quote, years) and bool(YEARS_WORDS[rule].search(quote))
-        return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]))
+        return self.flag(made, reasons + ([] if seen else [VALUE_MISSING]) + ([YEAR_COUNT] if _year_count(quote, years) else []))
 
     def closure(self, item: dict[str, Any], quote: str, reasons: list[str], reference: date | None) -> dict[str, Any]:
         mode = "NONE" if item["kind"] == "NO_RECENT_CLOSURE" else "ANY"
@@ -366,6 +568,7 @@ class _Builder:
         """같은 anyOf 묶음은 ANY_OF 하나로, 그 안에서 같은 option끼리는 한 길(모두 갖춰야 함). 길이 하나뿐이면 그 조건들 그대로."""
         made: list[dict[str, Any]] = []
         bundles: dict[str, list[dict[str, Any]]] = {}
+        items = _without_echo(items)
         for item in items:
             if _nationwide(item) and not item["anyOf"]:
                 continue  # 「전국 소재」 지역 조건은 제한이 아님(실측 2026-10-22 서초: 지역 코드로 못 바꿔 의미 없는 확인 필요 질문이 됨)
@@ -403,7 +606,7 @@ class _Builder:
             }
             for key, group in keys.items()
         ] or [{"id": self.new_id("all"), "name": "전체", "criteria": []}]
-        common = self.criteria(common_items, reference)
+        common = check_placement(self.criteria(common_items, reference), groups, self.text)
         if self.truncated:
             # 뒷부분에 자격 조건이 있을 수 있음(리뷰 2026-10-22: 조건 0개면 자동 통과로 나갔음)
             question = "공고 글이 길어 뒷부분을 읽지 못했습니다. 원문의 나머지 신청 자격도 갖추었나요?"
@@ -456,22 +659,134 @@ def _nationwide(item: dict[str, Any]) -> bool:
 
 
 def _path_label(path: list[dict[str, Any]], number: int) -> str:
-    """길 이름: 조건 종류를 이어 붙인 짧은 이름(근거 문장은 길마다 같을 수 있어 쓰지 않음)."""
-    names = {"BUSINESS_AGE": "업력", "AGE": "나이", "REGION": "지역", "PRE_FOUNDER": "예비창업자", "REGISTERED": "사업자", "STATUS": "유형"}
+    """길 이름: 조건 종류를 이어 붙인 짧은 이름(근거 문장은 길마다 같을 수 있어 쓰지 않음). 내부 코드는 보여 주지 않습니다
+    (리뷰 2026-10-23: 「예비창업자 + NO_RECENT_CLOSURE」가 그대로 나갔음)."""
     parts = []
     for item in path:
-        if item["kind"] == "BUSINESS_AGE" and item["years"]:
+        kind = item["kind"]
+        question = (item.get("question") or "").strip()
+        if kind == "BUSINESS_AGE" and _sane_years(item.get("years")):
             parts.append(f"업력 {item['years']:g}년")
+        elif kind == "STATUS" and item.get("statusCodes"):
+            parts.append("/".join(STATUS_NAMES.get(c, "유형") for c in item["statusCodes"]))
+        elif kind == "OTHER" and question:
+            parts.append(question[:20])
         else:
-            parts.append(names.get(item["kind"], (item.get("question") or item["kind"])[:20]))
+            parts.append(KIND_NAMES.get(kind, "조건"))
     return f"{number}번째 길: " + " + ".join(dict.fromkeys(parts))
+
+
+def _without_echo(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """질문 없는 기타 조건(OTHER)이 같은 길에서 같은 근거 문장으로 이미 나눈 조건과 겹치면 뺍니다. 빼지 않으면 문장 통째 질문이 되어
+    나눠 만든 조건을 사용자가 두 번 답합니다(리뷰 2026-10-23)."""
+
+    def echo(item: dict[str, Any]) -> bool:
+        return item["kind"] == "OTHER" and not (item.get("question") or "").strip()
+
+    split = {(i["group"], i["anyOf"], i["option"], _norm(i["quote"])) for i in items if not echo(i) and _norm(i["quote"])}
+    return [i for i in items if not (echo(i) and (i["group"], i["anyOf"], i["option"], _norm(i["quote"])) in split)]
+
+
+# 대상군 배치 검사(리뷰 2026-10-23: 「본사·연구소·지점·졸업기업 중 하나」가 공통에 있어 예비창업자 길이 늘 떨어졌고,
+# 예비창업자에게만 해당하는 폐업 단서가 법인 길에도 걸렸음)
+_BUSINESS_WORDS = re.compile(r"본사|본점|지점|연구소|졸업\s*기업|법인\s*사업자|개인\s*사업자|업력|매출|영위|기\s*창업|창업\s*기업|사업\s*개시|설립\s*등기")
+_PRE_FOUNDER_WORDS = re.compile(r"예비\s*창업|창업\s*예정|창업\s*준비|사업자\s*등록\s*(?:전|예정|이\s*없|을\s*하지\s*않)")
+_PRE_FOUNDER_SCOPE = re.compile(r"예비\s*창업자?\s*(?:의|는|은)?\s*경우|창업\s*예정")
+_PRE_FOUNDER_GROUP = re.compile(r"예비(?!\s*사회적)")
+
+
+def _text_of(criterion: dict[str, Any]) -> str:
+    return f"{criterion.get('question') or ''} {criterion.get('quote') or ''}"
+
+
+def _not_registered(criterion: dict[str, Any]) -> bool:
+    return criterion["kind"] == "BUSINESS_REGISTRATION" and criterion.get("require") == "NOT_REGISTERED"
+
+
+def _pre_founder_path(criteria: list[dict[str, Any]]) -> bool:
+    """예비창업자(사업자 아님) 길이 있는지: 사업자 아님 조건이 바로 있거나 택1의 한 길에 있음."""
+    return any(_not_registered(c) or any(_pre_founder_path(o["criteria"]) for o in c.get("options") or []) for c in criteria)
+
+
+def _presumes_business(criterion: dict[str, Any]) -> bool:
+    """이미 사업 중인 기업이어야 갖출 수 있는 조건인지(업력·사업자·매출·영업 경력, 기업 유형, 본사·지점 같은 기업 형태를 묻는 질문)."""
+    kind = criterion["kind"]
+    if kind in ("BUSINESS_AGE", "REVENUE", "BUSINESS_CAREER"):
+        return True
+    if kind == "BUSINESS_REGISTRATION":
+        return criterion.get("require") == "REGISTERED"
+    if kind == "STATUS":
+        return bool(criterion.get("anyOf")) and set(criterion["anyOf"]) <= BUSINESS_STATUS
+    if kind == "INDUSTRY":
+        return criterion.get("mode") == "ONLY" and "영위" in (criterion.get("quote") or "")
+    if kind == "ASK":
+        text = _text_of(criterion)
+        return criterion.get("metWhen") == "YES" and bool(_BUSINESS_WORDS.search(text)) and not _PRE_FOUNDER_WORDS.search(text)
+    if kind == "ANY_OF":
+        return all(any(_presumes_business(c) for c in o["criteria"]) for o in criterion.get("options") or [])
+    return False
+
+
+def _excluding(criterion: dict[str, Any]) -> bool:
+    kind = criterion["kind"]
+    return (
+        kind == "EXCLUDED_STATUS"
+        or (kind == "ASK" and criterion.get("metWhen") == "NO")
+        or (kind == "CLOSURE" and criterion.get("mode") == "NONE")
+        or (kind == "INDUSTRY" and criterion.get("mode") == "EXCLUDE")
+    )
+
+
+def _pre_founder_only(criterion: dict[str, Any]) -> bool:
+    """예비창업자에게만 해당할 수 있는 문장(「예비창업자의 경우 …」「창업 예정」)으로 만든 제외·질문 조건인지."""
+    text = _text_of(criterion)
+    if _excluding(criterion):
+        return bool(_PRE_FOUNDER_WORDS.search(text))
+    return criterion["kind"] == "ASK" and bool(_PRE_FOUNDER_SCOPE.search(text))
+
+
+def _pre_founder_group(group: dict[str, Any]) -> bool:
+    return bool(_PRE_FOUNDER_GROUP.search(group["name"])) or any(_not_registered(c) for c in group["criteria"])
+
+
+def check_placement(common: list[dict[str, Any]], groups: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """조립한 틀의 대상군 배치를 검사해 확신이 없는 조건을 확인 필요로 둡니다(옮기지 않음). groups는 제자리에서 고치고 공통을 돌려줍니다.
+    - 예비창업자 길이 있는데 공통 조건이 사업 중인 기업을 전제하면 확인 필요
+    - 예비창업자에게만 해당할 수 있는 제외·질문이 다른 신청자도 받는 자리(공통·섞인 대상군)에 있으면 확인 필요
+    - 대상군이 둘 이상일 때 한 대상군의 제외 문장(또는 그 예외 문장)이 다른 대상군 이름을 말하면 확인 필요"""
+    pre_founder = _pre_founder_path(common) or any(_pre_founder_group(g) or _pre_founder_path(g["criteria"]) for g in groups)
+    every_group_pre = bool(groups) and all(_pre_founder_group(g) for g in groups)
+    checked = []
+    for criterion in common:
+        reasons = []
+        if pre_founder and _presumes_business(criterion) and not _pre_founder_path([criterion]):
+            reasons.append(PLACEMENT)
+        if not every_group_pre and _pre_founder_only(criterion):
+            reasons.append(SCOPE)
+        checked.append(_Builder.flag(criterion, reasons) if reasons else criterion)
+    names = {g["id"]: _norm(g["name"]) for g in groups}
+    for group in groups:
+        own = names[group["id"]]
+        others = [n for gid, n in names.items() if gid != group["id"] and len(n) >= 2 and n not in own and own not in n]
+        fixed = []
+        for criterion in group["criteria"]:
+            reasons = []
+            if not _pre_founder_group(group) and _pre_founder_only(criterion):
+                reasons.append(SCOPE)
+            if _excluding(criterion):
+                said = _norm(f"{criterion.get('quote') or ''} {exception_clause(criterion.get('quote'), text) or ''}")
+                if any(n in said for n in others):
+                    reasons.append(OTHER_GROUP)
+            fixed.append(_Builder.flag(criterion, reasons) if reasons else criterion)
+        group["criteria"] = fixed
+    return checked
 
 
 def startup_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
     """AI 읽기 → 창업지원 틀. 창업 지원이 아니라고 읽었으면 None."""
     if not reading.answer["relevant"]:
         return None
-    builder = _Builder(reading, str(payload.get("text") or ""), regions, startup=True)
+    builder = _Builder(reading, str(payload.get("text") or ""), regions, startup=True, record=payload.get("record"))
     reference = builder.reference()
     common, groups, preferences, notes = builder.build(reference)
     return repair(
@@ -492,7 +807,7 @@ def space_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[str
     """AI 읽기 → 사업공간 틀. 사업공간 틀은 기준일이 필수라, 기준일·공고일을 근거와 함께 읽지 못했으면 None."""
     if not reading.answer["relevant"]:
         return None
-    builder = _Builder(reading, str(payload.get("text") or ""), regions, startup=False)
+    builder = _Builder(reading, str(payload.get("text") or ""), regions, startup=False, record=payload.get("record"))
     reference = builder.reference()
     if reference is None and reading.answer["referenceRule"] != "EXPLICIT":
         reference = builder.announced()  # 「공고일 기준」이나 문구 없음: 공고일. 찍힌 기준일을 확인하지 못했으면 공고일로 바꾸지 않음(리뷰 2026-10-22)

@@ -13,7 +13,12 @@ from typing import Any
 
 from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest, StopReason
 
-PROMPT_VERSION = "policy/v4"
+# policy/v5 (2026-10-23 사업공간 10건 채점 뒤):
+# - spaceLocation(입주 공간 소재지)을 따로 받음(선택 칸이라 v4 답·녹화도 그대로 읽힘). 지원 지역·신청자 지역 제한·입주 뒤 이전 의무를 구분
+# - quote는 원문의 연속된 한 구간만(머리말과 항목을 잇지 않음)
+# - 공통 조건에 넣기 전에 모든 대상군(특히 예비창업자)이 갖출 수 있는지 확인, 예외 단서는 질문에 넣음
+# - 자격 목록 안의 우대·가점 문장은 preferences로
+PROMPT_VERSION = "policy/v5"
 CALL_NAME = "policy_reading"
 MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다(수집기가 20만 자까지 줌). 잘렸으면 모든 조건을 확인 필요로
 MAX_OUTPUT_TOKENS = 12000
@@ -150,6 +155,13 @@ OUTPUT_SCHEMA = {
             "required": ["names", "quote"],
             "properties": {"names": {"type": "array", "items": {"type": "string"}}, "quote": _nullable("string")},
         },
+        # 선택 칸(v5): 필수로 두면 v4 답·녹화가 형식 검사에 걸림. 엄격 모드에서는 null 허용 필수 칸이 됨(strict_schema)
+        "spaceLocation": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["names", "quote"],
+            "properties": {"names": {"type": "array", "items": {"type": "string"}}, "quote": _nullable("string")},
+        },
         "groups": {
             "type": "array",
             "items": {
@@ -198,6 +210,8 @@ SYSTEM = """당신은 한국 창업지원·사업공간 모집 공고에서 신�
 공통 규칙
 - 글에 없는 내용은 만들지 않습니다. 모르면 null이나 빈 목록으로 둡니다.
 - 모든 항목의 quote에는 그 내용이 적힌 문장을 공고 글에서 글자 그대로 복사합니다(줄임·요약·고침 금지). 한 줄을 넘지 않게 필요한 부분만 복사합니다.
+- quote는 원문에서 이어진 한 구간입니다. 제목 줄과 그 아래 항목, 떨어진 두 줄을 이어 붙이거나 「:」 등으로 합쳐 만들지 않습니다
+  (「입주기업」 줄 아래 「- 창업 3년 이내 기업」이 있으면 quote는 「창업 3년 이내 기업」).
 - 날짜는 YYYY-MM-DD로 씁니다. 금액은 원 단위 정수입니다(10억원 → 1000000000).
 - 같은 내용을 여러 번 쓰지 않습니다. API 항목 줄과 원문 화면 본문에 같은 조건이 있으면 한 번만 씁니다.
 
@@ -209,8 +223,14 @@ referenceRule / referenceDate: 자격 판단 기준일 문구.
 - 「기준일: '26.1.22.」처럼 다른 날짜가 찍혀 있으면 → EXPLICIT, referenceDate에 그 날짜
 - 기준일 문구가 없으면 → NONE
 
-supportRegions: 이 사업을 지원하는 지역(사업 대상 지역). names는 「부산광역시」「대구광역시 남구」「충청권」처럼 글에 적힌 지역 이름,
-quote는 그 지역이 적힌 문장. 「전국」이라고 적혀 있으면 names ["전국"]. 지역이 적혀 있지 않으면 names 빈 목록·quote null(짐작 금지).
+지역은 세 가지를 구분합니다.
+1) supportRegions: 이 사업을 지원하는 지역(사업 대상 지역). names는 「부산광역시」「대구광역시 남구」「충청권」처럼 글에 적힌 지역 이름,
+   quote는 그 지역이 적힌 문장. 「전국」이라고 적혀 있으면 names ["전국"]. 지역이 적혀 있지 않으면 names 빈 목록·quote null(짐작 금지).
+   입주 공간·센터의 주소, 주관 기관이 있는 곳, 입주 뒤 옮겨야 할 주소는 지원 지역이 아닙니다.
+2) spaceLocation: 사업공간 모집이면 입주할 공간(센터·건물)이 있는 곳. names는 「경기도 화성시」「충청북도 청주시 흥덕구」처럼 글에 적힌
+   공간 주소의 시도·시군구 이름, quote는 그 주소가 적힌 문장. 공간 주소가 없거나 사업공간 모집이 아니면 names 빈 목록·quote null.
+3) 신청자 지역 제한(거주지·사업장 소재지가 그 지역이어야 신청 가능)은 conditions의 REGION입니다. 공간 소재지나
+   「입주 후 본점(사업장)을 센터 주소로 이전」 같은 입주 뒤 이전 의무는 지역 제한이 아니라 notes(OBLIGATION)입니다.
 
 groups: 신청 분야·부문이 나뉘면(예비창업자 / 초기 창업기업, 일반 / 여성 분야, 4인실 / 6인실은 자격이 같으면 나누지 않음) 하나씩. key는 짧은 영문 소문자.
 자격이 나뉘지 않으면 빈 목록.
@@ -222,6 +242,11 @@ conditions: 신청 자격 조건 하나씩. group은 그 조건이 속한 groups
   (anyOf "a", option "2") 신산업 분야. 여러 길이 아니면 anyOf·option 모두 null.
   모집 대상이 쉼표·「및」·「또는」으로 서로 다른 대상을 나열하면(「7년 이내 스타트업, 「벤처기업법」에 따른 벤처기업」) 그 대상 하나하나가
   다른 길입니다. 나열된 대상 하나만의 조건을 모든 신청자에게 거는 공통 조건으로 두지 않습니다.
+- group을 null(공통)로 두기 전에 모든 대상군, 특히 예비창업자(사업자 등록 전)가 그 조건을 갖출 수 있는지 확인합니다. 업력·매출·
+  사업자 등록·본사·지점·연구소·졸업기업처럼 이미 사업 중인 기업만 갖출 수 있는 조건은 그 대상군(기창업자 등)에 넣습니다.
+  「예비창업자의 경우 …」처럼 한 대상군에만 해당한다고 적힌 문장은 그 대상군에 넣습니다.
+- 조건 문장에 예외 단서(「다만 …은 신청 가능」「단, …」「…의 경우 신청 가능」)가 붙어 있으면 그 조건은 OTHER로 두고, question에
+  예외를 넣어 묻습니다(예: 「국세·지방세를 체납 중인가요? 분납을 성실히 하고 있으면 '아니오'」). 예외를 빼고 코드로만 담지 않습니다.
 - kind별로 채울 칸(나머지는 null·빈 목록):
   AGE: minAge, maxAge (만 나이, 「만 39세 이하」→ maxAge 39, 「만 40세 미만」→ maxAge 39)
   REGION: regionNames(「서울특별시」「대구광역시 남구」처럼 지역 이름),
@@ -246,6 +271,7 @@ conditions: 신청 자격 조건 하나씩. group은 그 조건이 속한 groups
   지금 갖춰야 하는 자격이 아니라 notes(OBLIGATION)입니다. 질문으로 만들면 아직 하지 않은 사람이 떨어집니다.
 
 preferences: 가점·우선 선정·서류평가 면제. 자격이 아닙니다. question은 「예」면 우대에 해당하는 질문. 점수가 적혀 있으면 points.
+신청 자격 목록 안에 섞여 있어도 「우대」「가점」「우선 선정」 문장은 conditions가 아니라 preferences에 넣습니다.
 notes: 판정하지 않고 보여 줄 문장(신청 방법·중복 신청 금지 RULE, 선정 의무 OBLIGATION, 평가 절차 SELECTION, 그 밖의 OTHER)."""
 
 
