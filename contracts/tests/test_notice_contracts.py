@@ -776,5 +776,75 @@ class NoticeContractTest(unittest.TestCase):
         group["counts"][1]["value"] = 42
         self.assertTrue(any("ALLOCATION_POOL_CONFLICT" in e for e in contract.validate(data, "schemas/extracted-notice.v1.json")))
 
+    def policy_event(self, field="STARTUP_SUPPORT", status="AUTO_PASSED"):
+        """정책 판정 틀만 실은 이벤트(창업지원·사업공간 모집): 상세·조건·보류 없이 틀·지역·원문 주소·상시 모집 여부."""
+        event = copy.deepcopy(self.event)
+        payload = event["payload"]
+        for key in ("notice", "heldItems"):
+            payload.pop(key, None)
+        startup = field == "STARTUP_SUPPORT"
+        payload.update(
+            field=field,
+            reviewStatus=status,
+            conditions=[],
+            applicationWindows=[],
+            regionCode=None,
+            regionCodes=[] if startup else ["11000"],
+            schedule={"applyStartOn": "2026-10-07", "applyEndOn": None},
+            detailUrl="https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do?pbancSn=1",
+            applyAlways=True,
+        )
+        payload["judgment"] = {
+            "schema": "startup-support-judgment.v1" if startup else "business-space-judgment.v1",
+            "rawPolicyId" if startup else "rawPostId": payload["rawPostId"],
+            "rawVersion": payload["rawVersion"],
+            "referenceDate": None if startup else "2026-10-07",
+            "common": [],
+            "groups": [{"id": "all", "name": "전체", "criteria": []}],
+            "preferences": [],
+            "notes": [],
+        }
+        return event
+
+    def test_policy_event_carries_detail_url_and_apply_always_only_for_policies(self):
+        # 리뷰 2026-10-23: 판정 목록의 정책은 공고 상세 API로 찾을 수 없어 원문 주소가, 마감일 없는 정책은 상시인지가 필요함
+        for field in ("STARTUP_SUPPORT", "SPACE_RECRUITMENT"):
+            event = self.policy_event(field)
+            self.assert_valid(event, EVENT)
+            event["payload"]["detailUrl"] = None  # 원문 주소를 모르면 null
+            self.assert_valid(event, EVENT)
+            for key in ("detailUrl", "applyAlways"):
+                missing = self.policy_event(field)
+                del missing["payload"][key]
+                self.assert_error("EVENT_POLICY_FRAME_SHAPE", "/payload", value=missing, schema=EVENT)
+        private = self.policy_event()
+        private["payload"]["detailUrl"] = "https://example.go.kr/view?serviceKey=abc"
+        self.assert_error("PRIVATE_URL", "/payload/detailUrl", value=private, schema=EVENT)
+        for key, value in (("detailUrl", None), ("applyAlways", False)):
+            housing = copy.deepcopy(self.event)
+            housing["payload"][key] = value
+            self.assert_error("EVENT_POLICY_FRAME_SHAPE", f"/payload/{key}", value=housing, schema=EVENT)
+
+    def test_policy_review_status_is_decided_by_the_whole_frame_without_held_items(self):
+        # 사용자 결정 2026-10-23: 일부 조건만 확인 필요면 PARTIALLY_PASSED(보류 목록 없이 조건마다 inReview), 틀 전체를 못 믿으면 IN_REVIEW
+        criterion = {"kind": "BUSINESS_REGISTRATION", "id": "c1", "quote": "사업자등록을 한 자", "page": None, "inReview": True,
+                     "reviewReason": "확인 필요", "asOf": None, "require": "REGISTERED"}
+        for status in ("PARTIALLY_PASSED", "IN_REVIEW"):
+            event = self.policy_event(status=status)
+            event["payload"]["judgment"]["common"] = [criterion]
+            self.assert_valid(event, EVENT)
+        auto = self.policy_event()
+        auto["payload"]["judgment"]["common"] = [criterion]
+        self.assert_error("EVENT_POLICY_REVIEW_STATUS", "/payload/reviewStatus", value=auto, schema=EVENT)
+        held = self.policy_event(status="PARTIALLY_PASSED")
+        held["payload"]["heldItems"] = [{"target": "/schedules/0", "extent": "ITEM", "codes": ["X"], "description": "확인 필요"}]
+        self.assert_error("EVENT_POLICY_FRAME_SHAPE", "/payload", value=held, schema=EVENT)
+        # 공고는 그대로 PARTIALLY_PASSED에 보류 목록이 있어야 함
+        notice = copy.deepcopy(self.event)
+        notice["payload"]["reviewStatus"] = "PARTIALLY_PASSED"
+        notice["payload"].pop("heldItems", None)
+        self.assert_error("SCHEMA", "/payload", "required", value=notice, schema=EVENT)
+
+
 if __name__ == "__main__":
     unittest.main()

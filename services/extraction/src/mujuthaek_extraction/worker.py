@@ -39,7 +39,7 @@ from mujuthaek_extraction.model.factory import ModelFactory
 from mujuthaek_extraction.model.fallback import FallbackOnErrorModel
 from mujuthaek_extraction.model.spend import SpendLedger
 from mujuthaek_extraction.pipeline import EVENT_TYPE, PRODUCER, Outcome, process
-from mujuthaek_extraction.publish import POLICY_FIELDS, not_sent_reason, policy_completed_payload, policy_frame_with_reason
+from mujuthaek_extraction.publish import POLICY_FIELDS, not_sent_reason, policy_completed_payload, policy_frame_detail
 from mujuthaek_extraction.review_api import ReviewService, serve
 from mujuthaek_extraction.rules.policy.reading import read_policy
 from mujuthaek_extraction.s3_reader import S3SourceReader
@@ -363,7 +363,7 @@ class Processor:
 
 def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, regions: Any = None) -> str | None:
     """정책 수집 이벤트 → 판정 틀(창업지원·사업공간 모집)을 담은 extraction.completed를 아웃박스에 넣고 그 eventId.
-    model이 있으면 AI로 공고 글을 읽고(정책 공고는 PDF 없이 글만 옴), 없거나 읽기에 실패하면 K-Startup 구간 칸 규칙으로 만듭니다.
+    model이 있으면 AI로 공고 글을 읽고(정책 공고는 PDF 없이 글만 옴), 없거나 읽기에 실패하면 K-Startup 구간 칸 규칙으로 만듭니다(그 틀은 IN_REVIEW).
     판정 틀이 없는 분야(BENEFIT), 틀·지원 지역을 정하지 못한 정책, 이미 넣은 수집 이벤트면 None.
     전체 비용 상한에 걸리면 BudgetExhausted(큐로 되돌림), AI 일시 실패(로컬 AI 연결 실패 포함)면 AiUnavailable(큐로 되돌림),
     AI 영구 실패 뒤 구간 칸 규칙으로도 보낼 것을 만들지 못하면 AiFailed(.dlq), 만든 이벤트가 계약에 맞지 않으면 ValueError(.dlq)."""
@@ -382,8 +382,8 @@ def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, 
                 raise AiUnavailable(error.code or "transient") from error
             failed = error.code or "unknown"
             log.warning("정책 글을 AI로 읽지 못해 구간 칸 규칙으로 만듭니다", extra={"code": error.code, "rawPolicyId": payload.get("rawPolicyId")})
-    frame, frame_reason = policy_frame_with_reason(payload, reading, regions)
-    completed = policy_completed_payload(payload, frame, regions, reading)
+    frame, frame_reason, by_rules = policy_frame_detail(payload, reading, regions)
+    completed = policy_completed_payload(payload, frame, regions, reading, by_rules=by_rules)
     if completed is None:
         if failed is not None:  # AI가 읽지 못해 못 만든 것: 조용히 ack하면 기록이 남지 않음(리뷰 2026-10-22)
             raise AiFailed(failed)
@@ -398,7 +398,13 @@ def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, 
         return None
     log.info(
         "정책 판정 틀 발행 대기",
-        extra={"eventId": event["eventId"], "field": completed["field"], "rawPolicyId": completed["rawPostId"], "ai": reading is not None},
+        extra={
+            "eventId": event["eventId"],
+            "field": completed["field"],
+            "rawPolicyId": completed["rawPostId"],
+            "ai": not by_rules,
+            "reviewStatus": completed["reviewStatus"],
+        },
     )
     return event["eventId"]
 
