@@ -198,10 +198,10 @@ public class DeliveryFlowTest {
     }
   }
 
-  static class MutableClock extends Clock {
+  public static class MutableClock extends Clock {
     private final AtomicReference<Instant> now = new AtomicReference<>(Instant.now());
 
-    void set(String seoulLocalDateTime) {
+    public void set(String seoulLocalDateTime) {
       now.set(ZonedDateTime.parse(seoulLocalDateTime + ":00+09:00[Asia/Seoul]").toInstant());
     }
 

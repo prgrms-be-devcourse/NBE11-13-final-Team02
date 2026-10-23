@@ -11,7 +11,7 @@
 
 ```
 deliveries         채널별 발송 1건 = 1줄. 보낼 곳·문구·보낼 시각·재시도·결과
-processed_events   받은 이벤트 장부 (같은 이벤트 두 번 처리 방지)
+processed_events   받은 이벤트 장부 (같은 이벤트 두 번 처리 방지). 90일 지나면 deliveries와 같이 지워요
 ```
 
 ## 2. `deliveries`
@@ -51,7 +51,7 @@ processed_events   받은 이벤트 장부 (같은 이벤트 두 번 처리 방�
 
 **지우기**
 - `user.withdrawn`: 그 회원의 줄을 모두 지워요 (안 보낸 줄 포함)
-- 90일 지난 줄은 매일 새벽 지워요 (다음 단계)
+- 90일 지난 줄은 매일 04:00(Asia/Seoul)에 1,000줄씩 나눠 지워요. 아직 안 보낸 줄(PENDING)은 남겨요 (`DeliveryPurgeJob`)
 
 ## 3. 인증 코드 메일
 
