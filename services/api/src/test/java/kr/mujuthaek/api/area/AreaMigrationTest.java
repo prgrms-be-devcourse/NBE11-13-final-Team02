@@ -20,6 +20,17 @@ class AreaMigrationTest {
   }
 
   @Test
+  void createsPartialSpatialIndexesForMetrics() throws Exception {
+    assertThat(
+            one(
+                "select count(*) from pg_indexes where schemaname = 'area'"
+                    + " and indexname in ('facilities_subway_gix', 'facilities_bus_gix',"
+                    + " 'facilities_school_gix', 'facilities_park_gix', 'facilities_hosp2_gix',"
+                    + " 'facilities_clinic_gix', 'stores_conv_gix', 'stores_mart_gix')"))
+        .isEqualTo("8");
+  }
+
+  @Test
   void uuidV7FunctionMakesVersion7Ids() throws Exception {
     assertThat(one("select substring(area.uuid_v7()::text, 15, 1)")).isEqualTo("7");
   }
