@@ -641,6 +641,9 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     continue  # 같은 묶음의 위 행에서 세로로 이어진 값: 이미 넣음
                 base_plan = f"{row_plan} {column['plan']}" if row_plan and column.get("plan") else row_plan or column.get("plan") or "기본"
                 base_stage = column.get("priceStage") or _guess_stage(column, base_plan, limit_column, first_price, sign)
+                if base_stage in ("STANDARD", "CONVERSION_DEPOSIT_UP", "CONVERSION_DEPOSIT_DOWN"):
+                    # 열 제목·요금안 이름이 보증금을 올리는지 내리는지 말하면 그 방향을 씁니다(아래 부호 칸이 있으면 부호가 우선)
+                    base_stage = _stage_words(f"{table.columns[c]} {base_plan}") or base_stage
                 amounts = AMOUNT_IN_CELL.findall(value) if SPACED_AMOUNTS.search(value) else [value]  # 범위(「1,000~2,000」)는 한 값
                 if len(amounts) > 1:
                     # 한 칸에 금액 두 개: 전환 칸이고 한도 칸에 (+)와 (-)가 함께 있으면 위가 증액·아래가 감액(실측: LH 포항 행복주택
@@ -796,6 +799,24 @@ def _sign(row: list[str], limit_column: int | None) -> str:
     if limit_column is not None and limit_column < len(row):
         return row[limit_column].strip()
     return next((v.strip() for v in row if v and SIGN_CELL.fullmatch(v.strip())), "")
+
+
+# 전환 방향 낱말(2026-10-23 전환 보증금 점검). 예전엔 priceStage를 비워 답한 전환 열을 이름에 「전환」만 보고 모두 증액(UP)으로 두어,
+# 「보증금 감액 시 월임대료」 같은 열이 증액안으로, 「감액」이라고만 적힌 열(「전환」 낱말 없음)은 기본(STANDARD)으로 게시될 수 있었습니다
+DEPOSIT_DOWN_WORDS = re.compile(
+    r"보증금\s*(?:을|를)?\s*(?:감액|하향|인하|낮)|(?:감액|하향)\s*(?:전환|시|형|안)|전환\s*\(?\s*(?:감액|하향)|최소\s*보증금|보증금\s*최소"
+)
+DEPOSIT_UP_WORDS = re.compile(
+    r"보증금\s*(?:을|를)?\s*(?:증액|상향|인상|올)|(?:증액|상향)\s*(?:전환|시|형|안)|전환\s*\(?\s*(?:증액|상향)|최대\s*보증금|보증금\s*최대"
+)
+
+
+def _stage_words(text: str) -> str | None:
+    """열 제목·요금안 이름이 말하는 전환 방향. 두 방향 낱말이 함께 있으면(「보증금 증액·감액」) 정하지 않습니다(None)."""
+    down, up = bool(DEPOSIT_DOWN_WORDS.search(text)), bool(DEPOSIT_UP_WORDS.search(text))
+    if down == up:
+        return None
+    return "CONVERSION_DEPOSIT_DOWN" if down else "CONVERSION_DEPOSIT_UP"
 
 
 def _guess_stage(column: dict[str, Any], plan: str, limit_column: int | None, first_price: int, sign: str) -> str:

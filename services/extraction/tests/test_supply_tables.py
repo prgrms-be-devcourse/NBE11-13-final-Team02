@@ -598,3 +598,39 @@ def test_large_unit_list_spreadsheet_rows_are_all_copied_by_code():
     assert [p["sourceAmount"] for p in groups[-1]["prices"]] == ["1000300"]
     quotes = {q["ref"]: q["text"] for q in part["quotes"]}
     assert all(quotes[ref] in intake.material.text for g in groups for ref in g["quoteRefs"])  # 근거가 원문 행 그대로
+
+
+def test_conversion_direction_comes_from_column_and_plan_words():
+    # 전환 보증금 점검(2026-10-23): 열 의미 답이 전환안의 방향을 비워 두거나(「전환」만 보고 모두 증액으로 봄) 기본안으로 적어도,
+    # 열 제목·요금안 이름의 「보증금 증액·감액」으로 방향을 정합니다. 부호 칸이 없는 표
+    head = ("형", "임대보증금", "월임대료", "보증금 증액 시 보증금", "보증금 증액 시 월임대료", "보증금 감액 시 보증금", "보증금 감액 시 월임대료")
+    rows = (head, ("26A", "20,000", "300,000", "40,000", "200,000", "10,000", "350,000"))
+    table = st.Table("8-1", 8, "임대조건", head, rows, (tuple(range(7)), tuple(range(7, 14))))
+    columns = [
+        column(1, "HOUSING_TYPE"),
+        column(2, "PRICE", pk="DEPOSIT", unit="천원", plan="기본", stage="STANDARD"),
+        column(3, "PRICE", pk="MONTHLY_RENT", unit="원", plan="기본", stage="STANDARD"),
+        column(4, "PRICE", pk="DEPOSIT", unit="천원", plan="증액 전환"),
+        column(5, "PRICE", pk="MONTHLY_RENT", unit="원", plan="증액 전환"),
+        column(6, "PRICE", pk="DEPOSIT", unit="천원", plan="감액", stage="STANDARD"),
+        column(7, "PRICE", pk="MONTHLY_RENT", unit="원", plan="감액", stage="CONVERSION_DEPOSIT_UP"),
+    ]
+    mapping = {"tables": [{"table": "8-1", "role": "SUPPLY", "rowUnit": "HOUSING_TYPE", "complex": None, "columns": columns}]}
+    [group] = st.build_part([table], mapping, "pdf-text")["supplyGroups"]
+    assert [(p["sourceAmount"], p["priceStage"]) for p in group["prices"]] == [
+        ("20,000", "STANDARD"),
+        ("300,000", "STANDARD"),
+        ("40,000", "CONVERSION_DEPOSIT_UP"),
+        ("200,000", "CONVERSION_DEPOSIT_UP"),
+        ("10,000", "CONVERSION_DEPOSIT_DOWN"),
+        ("350,000", "CONVERSION_DEPOSIT_DOWN"),
+    ]
+    plans = {p["priceStage"]: p["pricePlanId"] for p in group["prices"]}
+    assert len(set(plans.values())) == 3  # 기본·증액·감액은 서로 다른 요금안
+
+
+def test_conversion_direction_words():
+    assert st._stage_words("보증금 감액 시 월임대료") == "CONVERSION_DEPOSIT_DOWN"
+    assert st._stage_words("전환(증액) 보증금") == "CONVERSION_DEPOSIT_UP"
+    assert st._stage_words("최대 전환") is None  # 방향 낱말 없음: 부호 칸·답을 따름
+    assert st._stage_words("보증금 증액·감액 전환 한도") is None
