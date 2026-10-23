@@ -166,6 +166,31 @@ def test_contract_checks_values_inside_referenced_schemas():
         validate_event(event)
 
 
+def area_ready_example():
+    return json.loads((events_dir().parent / "examples" / "area.source.ready.json").read_text(encoding="utf-8"))
+
+
+def test_area_source_ready_example_passes():
+    validate_event(area_ready_example())
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"scope": "ALL"},  # 상가는 시도 이름이 있어야 해요
+        {"source": "BUS_STOP"},  # 시설은 ALL만
+        {"s3Key": "raw/STORES/2026-06-30/stores_gangwon.csv"},  # area/ 경로만
+        {"s3Key": "area/STORES/2026-06-30/상가_강원.csv"},  # 영문 파일 이름만
+        {"sha256": "AB" * 32},
+    ],
+)
+def test_area_source_ready_rejects_invalid_payload(payload):
+    event = area_ready_example()
+    event["payload"].update(payload)
+    with pytest.raises(ValidationError):
+        validate_event(event)
+
+
 def test_json_log_includes_extra_fields():
     record = logging.LogRecord("collector", logging.INFO, __file__, 1, "수집 끝", None, None)
     record.source, record.new = "dcco", 3
