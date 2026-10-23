@@ -123,6 +123,27 @@ public final class NoticeProjection {
     return false;
   }
 
+  /** 신청 방법의 정해진 순서 (계약 notice-common applicationChannel, 2026-10-23). */
+  public static final List<String> CHANNELS = List.of("ONLINE", "ONSITE", "EMAIL", "MAIL", "FAX");
+
+  /** 정해진 신청 방법만 정해진 순서로. 2026-10-23 이전 저장본의 자유 글자(「인터넷」 등)는 빼요. */
+  public static List<String> channels(JsonNode values) {
+    Set<String> found = new java.util.HashSet<>();
+    for (JsonNode v : values) found.add(v.asString(""));
+    return CHANNELS.stream().filter(found::contains).toList();
+  }
+
+  /**
+   * 공고 전체 신청 방법의 정답 (계약 application_channels와 같은 규칙): 신청(APPLICATION) 일정들의 channels를 합쳐 정해진 순서로. 보류
+   * 여부와 상관없이 모든 신청 일정을 봐요.
+   */
+  public static List<String> applicationChannels(JsonNode detail) {
+    Set<String> found = new java.util.HashSet<>();
+    for (JsonNode s : detail.path("schedules"))
+      if (application(s)) found.addAll(channels(s.path("channels")));
+    return CHANNELS.stream().filter(found::contains).toList();
+  }
+
   private static boolean application(JsonNode item) {
     for (JsonNode kind : item.path("kinds")) if ("APPLICATION".equals(kind.asString())) return true;
     return false;

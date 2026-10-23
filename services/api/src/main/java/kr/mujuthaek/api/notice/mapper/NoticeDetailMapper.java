@@ -12,15 +12,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.ApplicationEmail;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.AreaSummary;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Condition;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Evidence;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FileLink;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FollowUp;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.HeldItem;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Place;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.RequiredDocument;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Schedule;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Site;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Summary;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.TimeRange;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.UnitType;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import tools.jackson.databind.JsonNode;
@@ -60,6 +64,7 @@ public final class NoticeDetailMapper {
         sites(detail),
         unitTypes,
         conditions(payload, detail),
+        requiredDocuments(detail),
         files(detail),
         heldItems(detail),
         areaSummaries,
@@ -92,7 +97,19 @@ public final class NoticeDetailMapper {
             : strings(detail.path("notice").path("targetGroups")),
         total,
         min,
-        max);
+        max,
+        applicationChannels(detail));
+  }
+
+  /**
+   * 공고 전체 신청 방법. 추출이 계산해 보낸 값(notice.applicationChannels)을 쓰고, 그 칸이 없는 이전 저장본은 신청 일정에서 같은 규칙으로
+   * 계산해요.
+   */
+  static List<String> applicationChannels(JsonNode detail) {
+    JsonNode given = detail.path("notice").path("applicationChannels");
+    return given.isArray()
+        ? NoticeProjection.channels(given)
+        : NoticeProjection.applicationChannels(detail);
   }
 
   /** 후속 안내 한 건. schedules는 후속 안내 글의 일정(상세의 schedules와 같은 모양)이에요. */
@@ -125,9 +142,74 @@ public final class NoticeDetailMapper {
               ends,
               text(s.path("description")),
               text(s.path("applicationUrl")),
+              NoticeProjection.channels(s.path("channels")),
+              places(s.path("places")),
+              email(s.path("applicationEmail")),
+              times(s.path("dailyHours")),
+              times(s.path("breaks")),
+              strings(s.path("excludedDays")),
+              text(s.path("timeNote")),
               within(today, starts, ends),
               cite(evidence, s.path("evidenceIds"))));
     }
+    return out;
+  }
+
+  private static List<Place> places(JsonNode array) {
+    List<Place> out = new ArrayList<>();
+    for (JsonNode p : array) {
+      out.add(new Place(text(p.path("name")), text(p.path("address")), text(p.path("detail"))));
+    }
+    return out;
+  }
+
+  private static ApplicationEmail email(JsonNode node) {
+    return node.isObject() && text(node.path("address")) != null
+        ? new ApplicationEmail(text(node.path("address")), text(node.path("subjectFormat")))
+        : null;
+  }
+
+  private static List<TimeRange> times(JsonNode array) {
+    List<TimeRange> out = new ArrayList<>();
+    for (JsonNode t : array) {
+      out.add(new TimeRange(text(t.path("start")), text(t.path("end"))));
+    }
+    return out;
+  }
+
+  /** 서류 묶음 순서 (공통 → 해당자 → 본인 방문 → 배우자 대리 → 그 밖의 대리 → 묶음 없음). */
+  private static final List<String> DOCUMENT_GROUPS =
+      List.of("COMMON", "CONDITIONAL", "DIRECT", "PROXY_SPOUSE", "PROXY_OTHER");
+
+  /** 제출 서류. 보류한 서류(/requiredDocuments/{i})는 빼고, 서류 묶음 순서로 놓아요 (같은 묶음 안은 원문 순서). */
+  static List<RequiredDocument> requiredDocuments(JsonNode detail) {
+    Map<String, Evidence> evidence = evidence(detail);
+    List<RequiredDocument> out = new ArrayList<>();
+    JsonNode all = detail.path("requiredDocuments");
+    for (int i = 0; i < all.size(); i++) {
+      if (held(detail, "/requiredDocuments/" + i)) {
+        continue;
+      }
+      JsonNode d = all.get(i);
+      out.add(
+          new RequiredDocument(
+              text(d.path("id")),
+              text(d.path("name")),
+              text(d.path("group")),
+              text(d.path("appliesTo")),
+              text(d.path("submissionTime")),
+              d.path("copies").isInt() ? d.path("copies").asInt() : null,
+              text(d.path("issuer")),
+              text(d.path("description")),
+              strings(d.path("scope").path("targetGroups")),
+              cite(evidence, d.path("evidenceIds"))));
+    }
+    out.sort(
+        java.util.Comparator.comparingInt(
+            d -> {
+              int order = d.group() == null ? -1 : DOCUMENT_GROUPS.indexOf(d.group());
+              return order < 0 ? DOCUMENT_GROUPS.size() : order;
+            }));
     return out;
   }
 

@@ -128,6 +128,24 @@ final class NoticeIntegrity {
             && !n.path("endsAt").isNull()
             && bound(n.path("startsAt"), false).isAfter(bound(n.path("endsAt"), true)))
           fail("REVERSED_SCHEDULE", p);
+        // 하루 안의 시각 구간(HH:MM)은 글자 비교가 곧 시각 비교예요 (계약 TIME_RANGE_REVERSED, 2026-10-23)
+        for (String key : List.of("dailyHours", "breaks")) {
+          JsonNode spans = n.path(key);
+          for (int i = 0; i < spans.size(); i++)
+            if (spans
+                    .get(i)
+                    .path("start")
+                    .asString("")
+                    .compareTo(spans.get(i).path("end").asString(""))
+                >= 0) fail("TIME_RANGE_REVERSED", p + "/" + key + "/" + i);
+        }
+        JsonNode places = n.path("places");
+        for (int i = 0; i < places.size(); i++) {
+          JsonNode place = places.get(i);
+          if (place.path("name").isNull()
+              && place.path("address").isNull()
+              && place.path("detail").isNull()) fail("EMPTY_PLACE", p + "/places/" + i);
+        }
       }
       for (var pair :
           Map.of("exclusiveAreaSqm", "exclusiveAreaRange", "amountKrw", "amountRangeKrw")
@@ -297,6 +315,11 @@ final class NoticeIntegrity {
     if (!data.path("notice").path("field").isNull()
         && !data.path("notice").path("field").equals(data.path("input").path("field")))
       fail("INPUT_FIELD_MISMATCH", "/input/field");
+    // 공고 전체 신청 방법은 신청 일정에서 계산한 값과 같아야 해요 (계약 APPLICATION_CHANNELS_CONFLICT, 2026-10-23)
+    List<String> given = new ArrayList<>();
+    data.path("notice").path("applicationChannels").forEach(c -> given.add(c.asString()));
+    if (!given.equals(NoticeProjection.applicationChannels(data)))
+      fail("APPLICATION_CHANNELS_CONFLICT", "/notice/applicationChannels");
   }
 
   private void quality() {

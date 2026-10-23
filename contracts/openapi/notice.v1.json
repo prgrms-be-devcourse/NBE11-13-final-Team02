@@ -626,6 +626,7 @@
           "sites",
           "unitTypes",
           "conditions",
+          "requiredDocuments",
           "files",
           "heldItems",
           "areaSummaries",
@@ -669,6 +670,13 @@
               "$ref": "#/components/schemas/Condition"
             },
             "description": "대상별 자격 조건과 근거 원문. 판정은 eligibility API로"
+          },
+          "requiredDocuments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            },
+            "description": "제출 서류 (서류 묶음 순서: 공통·해당자·본인 방문·배우자 대리·그 밖의 대리·묶음 없음, 같은 묶음 안은 원문 순서). 보류한 서류는 빠짐"
           },
           "files": {
             "type": "array",
@@ -851,7 +859,8 @@
           "targetGroups",
           "supplyTotal",
           "exclusiveM2Min",
-          "exclusiveM2Max"
+          "exclusiveM2Max",
+          "applicationChannels"
         ],
         "properties": {
           "summaryText": {
@@ -888,6 +897,13 @@
               "null"
             ],
             "description": "전용면적 최대 (㎡)"
+          },
+          "applicationChannels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplicationChannel"
+            },
+            "description": "공고 전체 신청 방법 (신청 일정들의 방법을 합친 것, 정해진 순서)"
           }
         }
       },
@@ -901,6 +917,13 @@
           "endsAt",
           "description",
           "applicationUrl",
+          "channels",
+          "places",
+          "applicationEmail",
+          "dailyHours",
+          "breaks",
+          "excludedDays",
+          "timeNote",
           "current",
           "evidence"
         ],
@@ -923,7 +946,7 @@
             "items": {
               "type": "string"
             },
-            "description": "일정 종류 (APPLICATION, DOCUMENT_SUBMISSION, WINNER_ANNOUNCEMENT, CONTRACT, MOVE_IN 등)"
+            "description": "일정 종류 (APPLICATION, VIEWING(주택 열람·방문 예약), DOCUMENT_SUBMISSION, WINNER_ANNOUNCEMENT, CONTRACT, MOVE_IN 등)"
           },
           "startsAt": {
             "type": [
@@ -951,6 +974,69 @@
               "null"
             ],
             "description": "신청 주소"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplicationChannel"
+            },
+            "description": "신청·제출 방법 (이전 저장본의 자유 글자는 빠짐)"
+          },
+          "places": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SchedulePlace"
+            },
+            "description": "방문 접수 장소"
+          },
+          "applicationEmail": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ApplicationEmail"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "이메일 접수 (없으면 null)"
+          },
+          "dailyHours": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimeRange"
+            },
+            "description": "접수하는 날의 접수 시각"
+          },
+          "breaks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimeRange"
+            },
+            "description": "접수하지 않는 시각 (점심시간 등)"
+          },
+          "excludedDays": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "MON",
+                "TUE",
+                "WED",
+                "THU",
+                "FRI",
+                "SAT",
+                "SUN",
+                "HOLIDAY"
+              ]
+            },
+            "description": "접수하지 않는 요일·공휴일(HOLIDAY)"
+          },
+          "timeNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "시각에 붙은 조건 설명"
           },
           "current": {
             "type": "boolean",
@@ -1450,6 +1536,185 @@
             "type": "string",
             "format": "date-time",
             "description": "이 버전을 받은 시각 (+09:00)"
+          }
+        }
+      },
+      "ApplicationChannel": {
+        "type": "string",
+        "enum": [
+          "ONLINE",
+          "ONSITE",
+          "EMAIL",
+          "MAIL",
+          "FAX"
+        ],
+        "description": "신청·제출 방법: ONLINE(인터넷·온라인·홈페이지·모바일), ONSITE(방문·현장·창구), EMAIL(이메일), MAIL(우편·등기), FAX(팩스)"
+      },
+      "SchedulePlace": {
+        "type": "object",
+        "required": [
+          "name",
+          "address",
+          "detail"
+        ],
+        "description": "방문 접수 장소. 원문에 그대로 있는 글자만 주고, 모르는 칸은 null이에요",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "접수처 이름"
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "주소"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "층·호실·창구"
+          }
+        }
+      },
+      "ApplicationEmail": {
+        "type": "object",
+        "required": [
+          "address",
+          "subjectFormat"
+        ],
+        "description": "이메일 접수 주소",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "접수 이메일 주소"
+          },
+          "subjectFormat": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문이 정한 메일 제목 형식"
+          }
+        }
+      },
+      "TimeRange": {
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "description": "하루 안의 시각 구간 (한국 시각)",
+        "properties": {
+          "start": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "HH:MM"
+          },
+          "end": {
+            "type": "string",
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+            "description": "HH:MM"
+          }
+        }
+      },
+      "RequiredDocument": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "group",
+          "appliesTo",
+          "submissionTime",
+          "copies",
+          "issuer",
+          "description",
+          "targetGroups",
+          "evidence"
+        ],
+        "description": "제출 서류",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "서류 이름"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "COMMON",
+              "CONDITIONAL",
+              "DIRECT",
+              "PROXY_SPOUSE",
+              "PROXY_OTHER",
+              null
+            ],
+            "description": "서류 묶음: COMMON(신청자 모두), CONDITIONAL(해당자만), DIRECT(본인 방문 신청), PROXY_SPOUSE(배우자 대리 신청), PROXY_OTHER(그 밖의 대리 신청). 원문이 나누지 않았으면 null"
+          },
+          "appliesTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "내는 사람 (원문 표현)"
+          },
+          "submissionTime": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "내는 때 (원문 표현)"
+          },
+          "copies": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "제출 부수 (원문에 있을 때만)"
+          },
+          "issuer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "발급 기관 (원문에 있을 때만)"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "대상 계층 (비면 모든 계층)"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 서류의 근거 원문"
           }
         }
       }

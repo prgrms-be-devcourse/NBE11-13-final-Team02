@@ -357,6 +357,9 @@
         "evidenceIds": [
           "ev-1",
           "ev-2"
+        ],
+        "applicationChannels": [
+          "EMAIL"
         ]
       },
       "locations": [
@@ -391,9 +394,7 @@
         {
           "applicationMode": "NOT_APPLICABLE",
           "applicationUrl": null,
-          "channels": [
-            "서초구"
-          ],
+          "channels": [],
           "description": "모집공고 기간입니다.",
           "endCondition": null,
           "endStatus": "FIXED",
@@ -422,13 +423,19 @@
           },
           "evidenceIds": [
             "ev-5"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         },
         {
           "applicationMode": "FIXED_PERIOD",
           "applicationUrl": null,
           "channels": [
-            "이메일"
+            "EMAIL"
           ],
           "description": "서초구 이메일로 접수하며, 17:00까지 접수된 신청을 받습니다.",
           "endCondition": null,
@@ -458,13 +465,19 @@
           },
           "evidenceIds": [
             "ev-6"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         },
         {
           "applicationMode": "NOT_APPLICABLE",
           "applicationUrl": null,
           "channels": [
-            "사전 전화문의 후 방문"
+            "ONSITE"
           ],
           "description": "사전 예약 후 방문해 주십시오. 점심시간(12:00~13:00)은 제외하며, 일정은 변경될 수 있습니다.",
           "endCondition": null,
@@ -497,7 +510,13 @@
           },
           "evidenceIds": [
             "ev-7"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         },
         {
           "applicationMode": "NOT_APPLICABLE",
@@ -527,13 +546,19 @@
           "startsAt": null,
           "evidenceIds": [
             "ev-8"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         },
         {
           "applicationMode": "NOT_APPLICABLE",
           "applicationUrl": null,
           "channels": [
-            "서초구청 홈페이지 게시"
+            "ONLINE"
           ],
           "description": "당첨자(예비자) 발표 예정일입니다. 최종 입주자에게는 개별 연락합니다.",
           "endCondition": null,
@@ -564,13 +589,19 @@
           "evidenceIds": [
             "ev-9",
             "ev-10"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         },
         {
           "applicationMode": "NOT_APPLICABLE",
           "applicationUrl": null,
           "channels": [
-            "전자계약 및 방문계약"
+            "ONSITE"
           ],
           "description": "계약은 10:00~16:00에 진행되며, 점심시간(12:00~13:00)은 제외됩니다.",
           "endCondition": null,
@@ -600,7 +631,13 @@
           },
           "evidenceIds": [
             "ev-11"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         },
         {
           "applicationMode": "NOT_APPLICABLE",
@@ -631,7 +668,13 @@
           },
           "evidenceIds": [
             "ev-12"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         },
         {
           "applicationMode": "NOT_APPLICABLE",
@@ -666,7 +709,13 @@
           "evidenceIds": [
             "ev-13",
             "ev-14"
-          ]
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
         }
       ],
       "supplyGroups": [
@@ -2601,7 +2650,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-43"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "신청자 전원",
@@ -2620,7 +2672,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-44"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "신청자 전원",
@@ -2639,7 +2694,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-45"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "신청자 전원",
@@ -2658,7 +2716,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-45"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "배우자 주소가 분리된 경우",
@@ -2677,7 +2738,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-46"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "신청자 전원 및 세대원 전원",
@@ -2696,7 +2760,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-47"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "신청자 전원",
@@ -2715,7 +2782,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-48"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "신청자 전원",
@@ -2734,7 +2804,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-49"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "소득을 추가로 입증하도록 요청받은 경우",
@@ -2753,7 +2826,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-50"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "본인이 계약을 체결하는 경우",
@@ -2772,7 +2848,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-51"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "본인이 계약을 체결하는 경우",
@@ -2791,7 +2870,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-51"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "본인이 계약을 체결하는 경우",
@@ -2810,7 +2892,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-51"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "대리인이 계약하는 경우",
@@ -2829,7 +2914,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-52"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "대리인이 계약하는 경우",
@@ -2848,7 +2936,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-52"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "대리인이 계약하는 경우",
@@ -2867,7 +2958,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-52"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "대리인이 계약하는 경우",
@@ -2886,7 +2980,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-52"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "대리인이 계약하는 경우",
@@ -2905,7 +3002,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-52"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "입주 전",
@@ -2924,7 +3024,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-53"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "종전 거주 주택에서 주택도시기금 대출을 받은 경우",
@@ -2943,7 +3046,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-54"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "자산 보유 사실 확인서에 임차보증금을 신고한 경우",
@@ -2962,7 +3068,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-55"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "분양권을 보유한 경우",
@@ -2981,7 +3090,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-56"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "분양권을 보유한 경우",
@@ -3000,7 +3112,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-56"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "비상장주식을 보유한 경우",
@@ -3019,7 +3134,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-57"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "비상장주식을 보유한 경우",
@@ -3038,7 +3156,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-57"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "출자금 또는 출자지분을 보유한 경우",
@@ -3057,7 +3178,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-58"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "부채로 임대보증금을 신고한 경우",
@@ -3076,7 +3200,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-59"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         },
         {
           "appliesTo": "장기카드대출(카드론)이 있는 경우",
@@ -3095,7 +3222,10 @@
           "submissionTime": null,
           "evidenceIds": [
             "ev-60"
-          ]
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
         }
       ],
       "guidance": [
