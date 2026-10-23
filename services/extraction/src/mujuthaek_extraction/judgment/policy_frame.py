@@ -22,14 +22,26 @@ AI는 중간 형식으로 답하고 이 모듈이 틀의 칸으로 옮깁니다.
 - 같은 근거 문장의 조건이 여럿이면 예외 표시는 예외 문장이 말하는 조건(업력·체납 등)에만. 어느 것도 말하지 않으면 모두에
 - 첨부·별도 공고문을 가리키는 근거(「공고문 4page 참조」「별첨」), 자격 자체를 되묻는 말(「입점자격을 충족하는」)·범위 없는 말(「각종」
   「기타 법령」), AI가 정의 없음(defined false)으로 읽은 분야·유형 질문은 확인 필요
-- 같은 자리의 같은 질문(근거·질문·방향이 모두 같음)은 한 번만
+- 같은 자리의 같은 질문(근거·질문·방향이 모두 같음)은 한 번만. 같은 근거 문장의 제외 유형(EXCLUDED_STATUS)은 하나로 합침
+- 사업공간: 원문에 공고일·기준일이 없으면(AI가 적은 날짜·찍힌 기준일을 확인하지 못한 경우는 빼고) 판정일을 기준일로 쓰고 그 사실을 안내(OTHER)로
+  남김. 나이·업력·폐업 기간처럼 기준일에 기대는 조건은 모두 확인 필요(사용자 결정 2026-10-23, 선택 B)
+- 신청자 지역(REGION)의 근거 문장이 앞으로 둘·옮길 곳(「두고자」「이전 가능」「입주 후」「전입 예정」)이면 지역 요건으로 확정하지
+  않음: 택1 길이 아니면 입주 뒤 의무 안내(OBLIGATION)로 옮기고, 택1 길 안이거나 「전입」「이전」만 있으면 확인 필요
+- 대상군이 둘 이상이고 한 대상군에 걸린 제외 조건이 대상군을 지목하지 않는 제외 단락의 문장이면 공통으로 옮김(업력·연수 제외는
+  그 대상군에 남김, 택1 길 안이면 옮기지 않고 확인 필요)
+- 범위 정의는 규칙으로: 법령 조항으로만 정한 범위, 자격 쪽 「… 등」 열린 목록, 「우수한」「유망한」 같은 심사 판단 말은 확인 필요.
+  제외 쪽은 예시 목록(「유흥업 등」)이 있으면 확정(AI의 defined false도 제외 쪽 예시 목록이 있으면 따르지 않음)
+- 질문이 「모집분야」「제외 업종」처럼 다른 곳을 가리키면 근거 문장의 목록을 질문에 붙임. 대상군을 지목하지 않는 우대는 공통
+- 목록 정보에만 있는 나이: AI가 목록 칸으로 만든 나이는 버리고, 본문 나이가 없으면 목록 정보 구간(K-Startup 대상 연령,
+  온통청년 지원 대상 최소·최대 연령)으로 확인 필요 나이 하나를 공통에 둠(공고마다 다르게 나오던 것을 하나로)
 """
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
@@ -72,6 +84,13 @@ MERGED_QUESTION = "질문 두 개가 하나로 합쳐져 있어 첫 질문만 �
 ATTACHED = "근거가 첨부·별도 공고문을 가리켜 본문만으로는 범위를 알 수 없습니다"
 UNDEFINED = "질문이 기대는 분야·유형·자격의 범위가 본문에 정의되어 있지 않습니다"
 COMMON_EXCLUSION = "대상군을 지목하지 않은 제외 단락의 문장인데 한 대상군에만 걸려 있습니다(대상군 배치 확인 필요)"
+NO_REFERENCE_DATE = "기준일 없음: 원문에 공고일·기준일이 없어 판정일을 기준일로 썼고, 이 조건은 기준일에 따라 달라집니다"
+JUDGING_DATE_NOTE = "원문에 공고일·기준일이 없어 판정일을 기준일로 썼습니다"
+INTENT_REGION = "입주 뒤 의무일 수 있음: 근거 문장이 지금 있는 곳이 아니라 앞으로 둘·옮길 곳을 말합니다"
+LAW_SCOPE = "범위가 법령 조항으로만 정해져 있어 본문만으로는 답할 수 없습니다"
+OPEN_LIST = "자격 쪽 목록이 「… 등」으로 열려 있어 목록에 없는 분야가 해당하는지 알 수 없습니다"
+INCOME_RULE = "소득·자산 기준이 있다고만 적혀 있어 금액을 알 수 없습니다(안내 문장에서 조건으로 옮김)"
+EVALUATIVE = "「우수한」「유망한」처럼 심사에서 판단할 말이라 신청자가 스스로 답할 수 없습니다"
 
 # 질문·길 이름에 쓰는 한국어 이름(내부 코드를 그대로 보여 주지 않음)
 STATUS_NAMES = {
@@ -278,6 +297,61 @@ def _clip(text: str, size: int = 120) -> str:
     return text if len(text) <= size else text[: size - 1] + "…"
 
 
+def _short(text: str, size: int) -> str:
+    """보여 줄 글을 size 글자 안으로: 괄호 중간에서 끊지 않고, 목록이면 구분 기호에서 끊고 「…」를 붙입니다
+    (리뷰 2026-10-23: 길 이름이 「…정보통신(IT」에서 잘렸음)."""
+    text = re.sub(r"\s+", " ", text or "").strip()
+    if len(text) <= size:
+        return text
+    cut = text[:size]
+    if cut.count("(") > cut.count(")") and cut.rfind("(") >= 4:
+        cut = cut[: cut.rfind("(")]
+    at = max(cut.rfind(","), cut.rfind("·"), cut.rfind("ㆍ"), cut.rfind(" "))
+    if at >= size // 2:
+        cut = cut[:at]
+    return cut.rstrip(" ,·ㆍ/(") + "…"
+
+
+def _list_of(quote: str | None) -> str | None:
+    """근거 문장 안의 나열(괄호 안 목록, 쌍점 뒤 목록, 문장 자체가 목록) 하나. 없으면 None."""
+    text = _BULLET.sub("", unicodedata.normalize("NFKC", quote or "")).strip()
+    for found in re.finditer(r"\(([^()]{4,})\)", text):
+        if _LIST_SEP.search(found.group(1)):
+            return found.group(1).strip()
+    parts = re.split(r"[:：]", text, maxsplit=1)
+    if len(parts) == 2 and _LIST_SEP.search(parts[1]):
+        return parts[1].strip()
+    return text if len(_LIST_SEP.findall(text)) >= 2 else None
+
+
+def _continued(quote: str | None, text: str) -> str:
+    """근거 문장 + 원문에서 근거 문장이 줄 끝에서 끝나고 바로 다음 줄이 괄호로 시작하면 그 줄(「… 제외 업종」 다음 줄
+    「(숙박 및 음식점업, 금융 및 보험업 등)」). 목록이 다음 줄로 넘어간 경우만 봅니다."""
+    target = _norm(quote or "")
+    if len(target) < 4:
+        return quote or ""
+    lines = (text or "").splitlines()
+    for n, line in enumerate(lines[:-1]):
+        flat = _norm(unicodedata.normalize("NFKC", line))
+        if flat.endswith(target) and lines[n + 1].strip().startswith(("(", "（")):
+            return f"{quote} {lines[n + 1].strip()}"
+    return quote or ""
+
+
+def with_list(question: str, quote: str | None) -> str:
+    """「모집분야에 해당하나요?」처럼 다른 곳을 가리키는 질문이면 근거 문장의 목록을 질문 뒤에 붙입니다(질문만 읽고 답할 수 있게).
+    목록의 첫 항목이 이미 질문에 있으면 그대로."""
+    if not _REFERS.search(question or ""):
+        return question
+    items = _list_of(quote)
+    if not items:
+        return question
+    first = _norm(_LIST_SEP.split(items)[0])
+    if not first or first in _norm(question):
+        return question
+    return f"{question.rstrip()} (원문 목록: {_short(items, 70)})"
+
+
 def exception_clause(quote: str | None, text: str) -> str | None:
     """근거 문장의 예외 단서: 근거 문장 안, 같은 줄의 근거 뒤, 바로 다음 주석 줄 순서로 찾아 그 문장을 돌려줍니다. 없으면 None."""
     if not quote:
@@ -397,6 +471,26 @@ _ATTACHED = re.compile(
 _VAGUE = re.compile(r"(?:자격|요건|기준)\s*(?:을|에)?\s*(?:충족|부합|해당)|각종|기타\s*(?:관계\s*)?법령")
 _MEMBERSHIP_KINDS = {"OTHER", "STATUS", "INDUSTRY_ONLY", "INDUSTRY_EXCLUDE"}
 
+# 범위 정의를 AI 표시(defined)만이 아니라 규칙으로(리뷰 2026-10-23: 같은 공해 업종 질문이 공고마다 확정·확인 필요로 갈렸고,
+# 법령 참조·「… 등」 열린 목록 질문은 확정됐음)
+# 법령 조항으로 정한 범위: 「…법에 따른」「…법 시행령에 명기된」「시행령 제4조의」
+_LAW = re.compile(
+    r"(?:법|법률|시행령|시행규칙|고시)\s*[」』]?\s*(?:제\s*\d+\s*조(?:\s*제\s*\d+\s*항)?\s*(?:의|에)?|에\s*(?:따른|따라|의한|명기된|규정된|정한|해당)|"
+    r"에서\s*(?:정한|정하는|규정한|규정하는))"
+)
+# 예시 목록: 구분 기호로 나열하거나 「… 등」으로 예를 듦(「등록」「등급」은 아님)
+_LIST_SEP = re.compile(r"[,，·ㆍ、/]")
+_EXAMPLES = re.compile(r"[,，·ㆍ、/]|[가-힣A-Za-z)]\s*등(?:의|을|를|과|이|에)?(?![가-힣])")
+# 열린 목록: 구분 기호로 나열하고 「등」으로 끝남(「AI, 전기전자, 콘텐츠 등」)
+_OPEN_LIST = re.compile(r"[,，·ㆍ、/][^,，·ㆍ、/\n]{1,30}?\s*등(?:의|을|를|과|이|에)?(?![가-힣])")
+# 심사에서 판단할 말
+_EVALUATIVE = re.compile(
+    r"우수(?:한|하)|유망(?:한|하)|역량\s*(?:이\s*)?(?:있|갖춘|을\s*갖춘)|경쟁력\s*(?:이\s*)?(?:있|갖춘|을\s*갖춘)|혁신적|(?<!부)적합(?:한|하다)|탁월|뛰어난|"
+    r"가능성\s*(?:이\s*)?(?:높|있|큰)"
+)
+# 질문이 다른 곳(목록)을 가리킴
+_REFERS = re.compile(r"(?:모집|지원|대상|해당|제외|입주)\s*(?:분야|업종|업태)|아래|다음\s*(?:분야|업종|항목)|위\s*(?:의\s*)?(?:분야|업종)")
+
 
 def _quote_lines(quote: str | None, text: str) -> str:
     """근거 문장이 들어 있는 원문 줄들(근거 밖 같은 줄의 「(공고문 4page 참조)」까지 보려고)."""
@@ -408,7 +502,8 @@ def _quote_lines(quote: str | None, text: str) -> str:
 
 # K-Startup 목록 정보: API 항목 줄(「대상 연령: …」)과 원문 화면 머리 칸(「대상연령」 다음 줄). 신청 대상 내용(aply_trgt_ctnt)은 본문입니다
 META_FIELDS = ("biz_trgt_age", "biz_enyy", "aply_trgt")
-_META_LINE = re.compile(r"^\s*(대상\s*연령|창업\s*기간|신청\s*대상)\s*[:：]\s*(.+)$")
+YOUTH_AGE_FIELDS = ("sprtTrgtMinAge", "sprtTrgtMaxAge")  # 온통청년 목록 정보(지원 대상 최소·최대 연령, 제한 여부 sprtTrgtAgeLmtYn)
+_META_LINE = re.compile(r"^\s*(대상\s*연령|창업\s*기간|신청\s*대상|지원\s*대상\s*최소\s*연령|지원\s*대상\s*최대\s*연령)\s*[:：]\s*(.+)$")
 _META_LABEL = re.compile(r"^\s*(?:대상\s*연령|창업\s*기간|신청\s*대상|대상)\s*[:：]?\s*")
 _META_HEADS = {"대상연령", "창업기간", "대상"}
 
@@ -420,6 +515,12 @@ class Meta:
         record = record or {}
         self.values: list[str] = [str(record[f]) for f in META_FIELDS if isinstance(record.get(f), str) and record[f].strip()]
         self.ages: list[str] = [str(record["biz_trgt_age"])] if isinstance(record.get("biz_trgt_age"), str) else []
+        self.youth: tuple[int | None, int | None] | None = None
+        self.age_lines: list[str] = []  # 목록 정보 나이 줄(원문 그대로)
+        self.lines: list[str] = []  # 본문에서 뺀 목록 정보 줄
+        if any(f in record for f in YOUTH_AGE_FIELDS):
+            self.values += [str(record[f]) for f in YOUTH_AGE_FIELDS if str(record.get(f) or "").strip()]
+            self.youth = _youth_ages(record)
         if not self.values:
             self.body = text or ""
             return
@@ -427,13 +528,18 @@ class Meta:
         head = None
         for line in (text or "").splitlines():
             if head is not None:
+                self.lines.append(line)
                 self.values.append(line)
                 if head == "대상연령":
                     self.ages.append(line)
+                    self.age_lines.append(line.strip())
                 head = None
                 continue
             if found := _META_LINE.match(line):
+                self.lines.append(line)
                 self.values.append(found.group(2))
+                if "연령" in found.group(1):
+                    self.age_lines.append(line.strip())
                 if _norm(found.group(1)) == "대상연령":
                     self.ages.append(found.group(2))
                 continue
@@ -447,11 +553,18 @@ class Meta:
         """근거 문장이 목록 정보 값 안에만 있고 본문에는 없는지."""
         if not self.values or not quote:
             return False
+        body = _norm(self.body)
+        whole = _norm(unicodedata.normalize("NFKC", quote))
+        if len(whole) >= 4 and whole not in body and any(whole in _norm(line) for line in self.lines):
+            return True  # 목록 줄 통째(「지원 대상 최소 연령: 15」): 값이 짧은 숫자라 본문의 다른 숫자와 헷갈리지 않게
         target = _norm(_META_LABEL.sub("", unicodedata.normalize("NFKC", quote)))
         return len(target) >= 2 and any(target in _norm(v) for v in self.values) and target not in _norm(self.body)
 
     def age_range(self) -> tuple[int | None, int | None] | None:
-        """목록 정보 「대상 연령」 구간을 합친 (최소, 최대). 칸이 없거나, 모르는 값이거나, 세 구간 모두(제한 없음)거나, 끊긴 구간이면 None."""
+        """목록 정보 「대상 연령」 구간을 합친 (최소, 최대). 칸이 없거나, 모르는 값이거나, 세 구간 모두(제한 없음)거나, 끊긴 구간이면 None.
+        온통청년은 지원 대상 최소·최대 연령(제한 여부가 Y일 때만)."""
+        if self.youth is not None:
+            return self.youth
         ranges = set()
         for raw in self.ages:
             bands = [re.sub(r"\s+", " ", b).strip() for b in raw.split(",") if b.strip()]
@@ -467,6 +580,22 @@ class Meta:
         if any((low[1] or 0) + 1 != (high[0] or 0) for low, high in zip(spans, spans[1:], strict=False)):
             return None
         return spans[0][0], spans[-1][1]
+
+
+def _youth_ages(record: dict[str, Any]) -> tuple[int | None, int | None] | None:
+    """온통청년 지원 대상 최소·최대 연령: 제한 여부(sprtTrgtAgeLmtYn)가 Y이고 숫자일 때만. 0은 제한 없음."""
+    if str(record.get("sprtTrgtAgeLmtYn") or "").strip().upper() != "Y":
+        return None
+    ages = []
+    for field in YOUTH_AGE_FIELDS:
+        raw = str(record.get(field) or "").strip()
+        if raw and not raw.isdigit():
+            return None
+        ages.append(int(raw) if raw and int(raw) > 0 else None)
+    low, high = ages
+    if (low is None and high is None) or (low is not None and high is not None and low > high):
+        return None
+    return low, high
 
 
 def _valid_day(value: Any) -> bool:
@@ -510,6 +639,7 @@ class _Builder:
         self.meta = Meta(text, record)
         self.used: set[str] = set()
         self.keys = {g["key"] for g in self.answer["groups"]}
+        self.judging_date = False  # 사업공간: 원문에 공고일·기준일이 없어 판정일을 기준일로 씀
 
     def new_id(self, base: str) -> str:
         name, n = base, 1
@@ -587,8 +717,11 @@ class _Builder:
             said = f"{item.get('question') or ''}\n{item['quote']}\n{_quote_lines(item['quote'], self.text)}"
             if _ATTACHED.search(unicodedata.normalize("NFKC", said)):
                 reasons.append(ATTACHED)
-            if _VAGUE.search(unicodedata.normalize("NFKC", f"{item.get('question') or ''}\n{item['quote']}")) or item.get("defined") is False:
-                reasons.append(UNDEFINED)
+            reasons += _scope_reasons(item, made, _continued(item["quote"], self.text))
+        if self.judging_date and _date_dependent(item, made):
+            reasons.append(NO_REFERENCE_DATE)
+        if made["kind"] == "ASK":
+            made = made | {"question": with_list(made["question"], _continued(item["quote"], self.text))}
         if exception and (clause := exception_clause(item["quote"], self.text)) is not None:
             reasons.append(EXCEPTION)
             if made["kind"] == "ASK":
@@ -615,12 +748,16 @@ class _Builder:
             elif not seen:
                 reasons = [*reasons, VALUE_MISSING]
             return self.flag(self.base("AGE", quote) | {"minAge": item["minAge"], "maxAge": item["maxAge"]}, reasons)
+        if kind == "REGION" and moving_place(quote):
+            reasons = [*reasons, INTENT_REGION]  # 앞으로 둘·옮길 곳은 지금의 지역 요건으로 확정하지 않음(리뷰 2026-10-23)
         if kind == "REGION" and item["regionNames"] and item["regionBasis"]:
             codes = self.region_codes(item["regionNames"])
             if codes is None:
                 return self.ask(item, quote, reasons + [NO_REGION])
-            seen = all(region_named(n, quote) for n in item["regionNames"])
-            return self.flag(self.base("REGION", quote) | {"basis": item["regionBasis"], "regionCodes": codes}, reasons + ([] if seen else [VALUE_MISSING]))
+            missing = [t for n in item["regionNames"] for t in str(n).split() if not region_named(t, quote)]
+            if missing:  # 사유에 빠진 이름을 적음(「경기도」를 AI가 더했는지 원문에서 바로 볼 수 있게)
+                reasons = [*reasons, f"{VALUE_MISSING}: 근거 문장에 「{', '.join(missing)}」이 없습니다"]
+            return self.flag(self.base("REGION", quote) | {"basis": item["regionBasis"], "regionCodes": codes}, reasons)
         if kind in ("PRE_FOUNDER", "REGISTERED"):
             made = self.base("BUSINESS_REGISTRATION", quote) | {"require": "NOT_REGISTERED" if kind == "PRE_FOUNDER" else "REGISTERED"}
             return self.flag(made if self.startup else made | {"closedWithinYears": None}, reasons)
@@ -755,7 +892,7 @@ class _Builder:
                 continue
             options = [{"label": _path_label(path, n), "criteria": [convert(m) for m in path]} for n, path in enumerate(paths.values(), 1)]
             out.append(self.base("ANY_OF", None) | {"options": options})
-        return _without_repeats(out)
+        return _without_repeats(_merge_exclusions(out))
 
     def exception_bystanders(self, items: list[dict[str, Any]]) -> set[int]:
         """같은 근거 문장으로 만든 조건이 여럿이고 예외 단서가 그중 일부 조건만 말하면, 나머지 조건(id)은 예외 표시를 받지 않습니다."""
@@ -775,16 +912,40 @@ class _Builder:
     def build(self, reference: date | None) -> tuple[list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         keys = {g["key"]: g for g in self.answer["groups"]}
         group_ids = {key: self.new_id(f"group-{key}") for key in keys}
-        common_items = [c for c in self.answer["conditions"] if c["group"] not in keys]
+        conditions, moved_notes = [], []
+        for c in self.answer["conditions"]:
+            if c["kind"] == "AGE" and self.meta.only(c["quote"]):
+                continue  # 목록 정보에만 있는 나이는 아래에서 목록 정보 구간으로 한 번만(공고마다 다르게 나오지 않게)
+            if c["kind"] == "REGION" and not c["anyOf"] and not _nationwide(c) and future_place(c["quote"]):
+                # 앞으로 둘·옮길 곳(「사업장을 두고자 하는」「입주 후 전입」)은 지금의 지역 요건이 아님: 입주 뒤 의무 안내로
+                moved_notes.append(
+                    {
+                        "kind": "OBLIGATION",
+                        "groupId": group_ids.get(c["group"]),
+                        "text": f"입주 뒤 의무일 수 있어 신청 자격(지금 있는 곳)으로 보지 않았습니다: {_clip(c['quote'])}",
+                        "quote": c["quote"] if _quoted(c["quote"], self.text) else None,
+                        "page": None,
+                    }
+                )
+                continue
+            conditions.append(c)
+        common_items = [c for c in conditions if c["group"] not in keys]
         groups = [
             {
                 "id": group_ids[key],
                 "name": group["name"].strip() or key,
-                "criteria": self.criteria([c for c in self.answer["conditions"] if c["group"] == key], reference),
+                "criteria": self.criteria([c for c in conditions if c["group"] == key], reference),
             }
             for key, group in keys.items()
         ] or [{"id": self.new_id("all"), "name": "전체", "criteria": []}]
-        common = check_directions(check_placement(self.criteria(common_items, reference), groups, self.text), groups, self.text)
+        common = self.criteria(common_items, reference)
+        if (ages := self.meta.age_range()) is not None and not any(c["kind"] == "AGE" for c in _every([*common, *(c for g in groups for c in g["criteria"])])):
+            youth = [line for line in self.meta.age_lines if "지원" in line]  # 온통청년은 최소·최대 두 줄, K-Startup은 첫 줄 하나
+            quote = "\n".join(youth) if self.meta.youth is not None and youth else (self.meta.age_lines or [None])[0]
+            age = self.base("AGE", quote) | {"minAge": ages[0], "maxAge": ages[1]}
+            common.insert(0, self.flag(age, [META_ONLY, *([NO_REFERENCE_DATE] if self.judging_date else [])]))
+        common += self.criteria_from_notes(common)
+        common = check_directions(check_placement(common, groups, self.text), groups, self.text)
         if self.truncated:
             # 뒷부분에 자격 조건이 있을 수 있음(리뷰 2026-10-22: 조건 0개면 자동 통과로 나갔음)
             question = "공고 글이 길어 뒷부분을 읽지 못했습니다. 원문의 나머지 신청 자격도 갖추었나요?"
@@ -803,8 +964,8 @@ class _Builder:
             preferences.append(
                 {
                     "id": self.new_id("pref"),
-                    "label": (item["label"].strip() or quote.strip() or "우대")[:80],
-                    "groupId": group_ids.get(item["group"]),
+                    "label": _short(item["label"].strip() or quote.strip() or "우대", 80),
+                    "groupId": self.preference_group(item, keys, group_ids),
                     "effect": item["effect"],
                     "points": points,
                     "criteria": [ask],
@@ -822,8 +983,132 @@ class _Builder:
             }
             for n in self.answer["notes"]
             if n["text"].strip()
-        ]
-        return common, groups, preferences, notes
+        ] + moved_notes
+        return common, groups, _merged_preferences(preferences), notes
+
+    def criteria_from_notes(self, common: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """안내(notes)에만 적힌 소득·자산 기준(「소득·자산 기준 적용」 「2025년 기준 적용」)은 금액을 몰라도 자격 기준이 있다는 뜻이라
+        확인 필요 질문 하나로 공통에 둡니다(안내는 그대로). 이미 소득·자산을 묻는 조건이 있거나 「기준 없음」이면 두지 않습니다
+        (리뷰 2026-10-23: 소득·자산 기준이 안내로만 들어가 중요 누락이 될 뻔했음)."""
+        asked = any(_INCOME.search(_text_of(c)) for c in _every(common))
+        asked = asked or any(_INCOME.search(f"{c.get('question') or ''} {c['quote']}") for c in self.answer["conditions"])
+        for note in self.answer["notes"]:
+            said = unicodedata.normalize("NFKC", f"{note['text']} {note['quote']}")
+            if asked or not _INCOME_RULE.search(said) or _NO_RULE.search(said):
+                continue
+            quote = note["quote"] if _quoted(note["quote"], self.text) else None
+            question = "공고에 적힌 소득·자산 기준을 충족하나요?"
+            return [self.flag(self.base("ASK", quote) | {"question": question, "metWhen": "YES"}, [INCOME_RULE])]
+        return []
+
+    @staticmethod
+    def preference_group(item: dict[str, Any], keys: dict[str, Any], group_ids: dict[str, str]) -> str | None:
+        """우대가 걸릴 대상군: 우대 문장(이름·근거·질문)이 그 대상군 이름이나 대상군 낱말을 말할 때만. 아니면 공통(null)
+        (리뷰 2026-10-23: 「본교 재학생·졸업생 창업기업」 우대가 근거 없이 기창업 대상군에만 걸렸음)."""
+        key = item["group"]
+        if key not in group_ids:
+            return None
+        name = _norm(keys[key]["name"])
+        said = _norm(f"{item['label']} {item['quote']} {item.get('question') or ''}")
+        if len(name) >= 2 and name in said:
+            return group_ids[key]
+        return group_ids[key] if any(w in name and w in said for w in _PREFERENCE_GROUP_WORDS) else None
+
+
+# 소득·자산 기준이 있다는 문장(안내에만 있을 때 조건으로)
+_INCOME = re.compile(r"소득|자산|재산")
+_INCOME_RULE = re.compile(r"(?:소득|자산|재산)[^\n]{0,12}?기준")
+_NO_RULE = re.compile(r"기준\s*(?:이\s*)?(?:없|무관|미적용|적용\s*(?:하지\s*)?않)|제한\s*(?:이\s*)?없")
+
+_PREFERENCE_GROUP_WORDS = ("예비", "기창업", "재창업", "초기", "도약", "성장", "법인", "개인사업자", "대학생", "청년", "여성")
+
+# 앞으로 둘·옮길 곳: 사업장·주소를 「두고자」「이전하고자」, 「입주 후」「선정 후」, 「전입 예정」(이 말이 있으면 지역 요건이 아니라 의무)
+_FUTURE_PLACE = re.compile(
+    r"(?:사업장|본점|본사|주소지?|소재지|사무실|사업자\s*등록)[^\n]{0,8}?(?:두고자|두려는|두고\s*싶|이전하고자|이전하려는|이전\s*(?:가능|예정|할)|"
+    r"옮기고자|옮기려는|옮길|등록할\s*(?:예정|수)|등록\s*예정)|(?:입주|선정|협약|계약)\s*(?:후|뒤|이후|시)|전입\s*(?:예정|할|가능)|이전\s*(?:예정|가능)"
+)
+# 「전입」「이전」만: 지금의 요건일 수도 있어(「전입일로부터 6개월 이상 거주」) 옮기지 않고 확인 필요
+_MOVE_PLACE = re.compile(r"전입|이전")
+
+
+def future_place(quote: str | None) -> bool:
+    """근거 문장이 앞으로 둘·옮길 곳을 말하는지(지금의 거주·소재 요건이 아님)."""
+    return bool(_FUTURE_PLACE.search(unicodedata.normalize("NFKC", quote or "")))
+
+
+def moving_place(quote: str | None) -> bool:
+    """근거 문장에 앞으로 둘·옮길 곳이나 전입·이전 말이 있는지(지역 요건으로 확정하지 않음)."""
+    plain = unicodedata.normalize("NFKC", quote or "")
+    return future_place(plain) or bool(_MOVE_PLACE.search(plain))
+
+
+def _exclusion_side(item: dict[str, Any], made: dict[str, Any]) -> bool:
+    return (made["kind"] == "ASK" and made.get("metWhen") == "NO") or item["kind"] in EXCLUDING_KINDS
+
+
+def _scope_reasons(item: dict[str, Any], made: dict[str, Any], context: str) -> list[str]:
+    """질문이 기대는 범위가 본문에 정해져 있는지 규칙으로: 범위 없는 말(「각종」「자격을 충족」), 법령 조항으로만 정한 범위,
+    자격 쪽 「… 등」 열린 목록, 심사 판단 말은 확인 필요. 제외 쪽에 예시 목록(「유흥업 등」「소음·진동 등」)이 있으면 법령 참조나
+    AI의 정의 없음(defined false)으로 잡지 않습니다(예시로 답할 수 있음). 법령·목록·심사 규칙은 질문(ASK)에만.
+    context는 근거 문장(바로 다음 줄의 괄호 목록까지, _continued)."""
+    asked = unicodedata.normalize("NFKC", f"{item.get('question') or ''}\n{item['quote']}")
+    quote = _BULLET.sub("", unicodedata.normalize("NFKC", context or ""))  # 머리 글머리표(「·」)는 목록 구분 기호가 아님
+    exclusion = _exclusion_side(item, made)
+    examples = exclusion and bool(_EXAMPLES.search(quote))
+    reasons = []
+    if _VAGUE.search(asked) or (item.get("defined") is False and not examples):
+        reasons.append(UNDEFINED)
+    if made["kind"] != "ASK":
+        return reasons
+    # 법령·심사 판단은 신청자가 답할 질문에 있을 때만(근거 문장이 법령을 이유로 들어도 질문이 구체적이면 답할 수 있음).
+    # 질문이 「제외 업종」처럼 다른 곳을 가리키면 근거 문장의 법령이 범위
+    question = unicodedata.normalize("NFKC", made.get("question") or "")
+    if (_LAW.search(question) or (_REFERS.search(question) and _LAW.search(quote))) and not examples:
+        reasons.append(LAW_SCOPE)
+    if not exclusion and _OPEN_LIST.search(quote):
+        reasons.append(OPEN_LIST)
+    if not exclusion and _EVALUATIVE.search(question):
+        reasons.append(EVALUATIVE)
+    return reasons
+
+
+_DATE_ITEM_KINDS = {"AGE", "BUSINESS_AGE", "NO_RECENT_CLOSURE", "CLOSURE_REQUIRED", "REVENUE"}
+
+
+def _date_dependent(item: dict[str, Any], made: dict[str, Any]) -> bool:
+    """기준일에 따라 답이 달라지는 조건인지(나이·업력·폐업 기간·매출 연도, 영업 경력, 폐업 N년 이내)."""
+    return item["kind"] in _DATE_ITEM_KINDS or made["kind"] in ("AGE", "BUSINESS_CAREER", "CLOSURE") or made.get("closedWithinYears") is not None
+
+
+def _merge_exclusions(criteria: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """같은 자리에서 같은 근거 문장으로 만든 제외 유형(EXCLUDED_STATUS)은 하나로 합칩니다(하나라도 해당하면 제외라 뜻이 같음).
+    확인 필요 여부·사유가 다르면 합치지 않습니다."""
+    first: dict[tuple[str, bool, str | None], dict[str, Any]] = {}
+    out = []
+    for criterion in criteria:
+        if criterion["kind"] == "EXCLUDED_STATUS" and _norm(criterion.get("quote") or ""):
+            key = (_norm(criterion["quote"]), criterion["inReview"], criterion["reviewReason"])
+            if key in first:
+                kept = first[key]
+                kept["anyOf"] = list(dict.fromkeys([*kept["anyOf"], *criterion["anyOf"]]))
+                continue
+            first[key] = criterion
+        out.append(criterion)
+    return out
+
+
+def _merged_preferences(preferences: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """같은 근거 문장·같은 효과·같은 대상군·같은 질문·같은 점수의 우대는 한 번만."""
+    seen: set[tuple[Any, ...]] = set()
+    out = []
+    for preference in preferences:
+        ask = preference["criteria"][0]
+        key = (_norm(preference.get("quote") or ""), preference["effect"], preference["groupId"], _norm(ask.get("question") or ""), preference["points"])
+        if key[0] and key in seen:
+            continue
+        seen.add(key)
+        out.append(preference)
+    return out
 
 
 def _sane_years(value: Any) -> bool:
@@ -848,7 +1133,7 @@ def _path_label(path: list[dict[str, Any]], number: int) -> str:
         elif kind == "STATUS" and item.get("statusCodes"):
             parts.append("/".join(STATUS_NAMES.get(c, "유형") for c in item["statusCodes"]))
         elif kind == "OTHER" and question:
-            parts.append(question[:20])
+            parts.append(_short(question, 24))
         else:
             parts.append(KIND_NAMES.get(kind, "조건"))
     return f"{number}번째 길: " + " + ".join(dict.fromkeys(parts))
@@ -991,8 +1276,20 @@ def _common_exclusion(criterion: dict[str, Any], text: str, group_names: list[st
     heading = exclusion_heading(criterion.get("quote"), text)
     if heading is None or _GROUP_WORDS.search(heading) or any(n in _norm(heading) for n in group_names if len(n) >= 2):
         return False
-    quote = _norm(criterion.get("quote") or "")
-    return not any(n in quote for n in group_names if len(n) >= 2) and not _GROUP_WORDS.search(criterion.get("quote") or "")
+    quote = _without_term_names(_norm(criterion.get("quote") or ""), group_names)
+    return not any(n in quote for n in group_names if len(n) >= 2) and not _GROUP_WORDS.search(quote)
+
+
+# 대상군 이름 뒤에 이 말이 붙으면 그 대상군을 지목한 것이 아니라 다른 것의 이름(「1인 창조기업 지원센터」「1인창조기업 제외 업종」)
+_TERM_AFTER_NAME = "(?=지원센터|센터|제외업종|지원사업|업종|법)"
+
+
+def _without_term_names(quote: str, group_names: list[str]) -> str:
+    """공백을 뺀 근거 문장에서 대상군 이름이 다른 것의 이름 앞부분으로만 쓰인 곳을 지웁니다(대상군을 지목한 것이 아님)."""
+    for name in group_names:
+        if len(name) >= 2:
+            quote = re.sub(re.escape(name) + _TERM_AFTER_NAME, "", quote)
+    return quote
 
 
 def check_placement(common: list[dict[str, Any]], groups: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
@@ -1001,7 +1298,9 @@ def check_placement(common: list[dict[str, Any]], groups: list[dict[str, Any]], 
     - 예비창업자에게만 해당할 수 있는 제외·질문이 다른 신청자도 받는 자리(공통·섞인 대상군)에 있으면 확인 필요
     - 대상군이 둘 이상일 때 한 대상군의 제외 문장(또는 그 예외 문장)이 다른 대상군 이름을 말하면 확인 필요
     - 대상군이 둘 이상일 때 한 대상군에 걸린 제외 조건이 원문의 공통 제외 단락(머리말이 대상군을 지목하지 않음) 문장이고 문장도 대상군을
-      지목하지 않으면 확인 필요. 공통으로 옮기지는 않음(그 단락이 한 대상군 안의 소제목일 수 있어 코드가 확신할 수 없음)"""
+      지목하지 않으면 공통으로 옮김(리뷰 2026-10-23 3차: 확인 필요로만 두면 다른 대상군 신청자에게 그 제외가 걸리지 않았음).
+      업력·연수 제외(「업력 7년 초과 기업」)와 예비창업자 전용 문장은 그 대상군에 남기고, 택1 길 안에 있으면 옮기지 않고 확인 필요"""
+    common = _moved_common_exclusions(common, groups, text)
     pre_founder = _pre_founder_path(common) or any(_pre_founder_group(g) or _pre_founder_path(g["criteria"]) for g in groups)
     every_group_pre = bool(groups) and all(_pre_founder_group(g) for g in groups)
     checked = []
@@ -1025,11 +1324,55 @@ def check_placement(common: list[dict[str, Any]], groups: list[dict[str, Any]], 
                 said = _norm(f"{criterion.get('quote') or ''} {exception_clause(criterion.get('quote'), text) or ''}")
                 if any(n in said for n in others):
                     reasons.append(OTHER_GROUP)
-                if len(groups) >= 2 and _common_exclusion(criterion, text, list(names.values())):
-                    reasons.append(COMMON_EXCLUSION)
+            if criterion.get("options") and len(groups) >= 2:
+                options = [o | {"criteria": _held_in_option(o["criteria"], text, list(names.values()))} for o in criterion["options"]]
+                criterion = criterion | {"options": options}
             fixed.append(_Builder.flag(criterion, reasons) if reasons else criterion)
         group["criteria"] = fixed
     return checked
+
+
+# 업력·연수로 거르는 제외(기창업자에게만 뜻이 있음): 대상군에 남김
+# 「2년간 입주한 이력」처럼 업력이 아닌 기간은 빼고, 연수에 방향 말(초과·이상·이내·미만·넘·경과)이 붙은 것만
+_PERIOD_WORDS = re.compile(r"업력|창업\s*(?:후|한\s*지)|설립|개업|사업\s*개시|\d+\s*년\s*(?:이\s*|을\s*|가\s*)?(?:초과|이상|이내|미만|넘|경과|지난|지나지|차)")
+
+
+def _period_exclusion(criterion: dict[str, Any]) -> bool:
+    return criterion["kind"] in ("BUSINESS_CAREER", "BUSINESS_AGE") or bool(_PERIOD_WORDS.search(_text_of(criterion)))
+
+
+def _movable_exclusion(criterion: dict[str, Any], text: str, group_names: list[str]) -> bool:
+    return _excluding(criterion) and _common_exclusion(criterion, text, group_names) and not _period_exclusion(criterion) and not _pre_founder_only(criterion)
+
+
+def _same_key(criterion: dict[str, Any]) -> str:
+    return json.dumps({k: v for k, v in criterion.items() if k != "id"}, ensure_ascii=False, sort_keys=True)
+
+
+def _moved_common_exclusions(common: list[dict[str, Any]], groups: list[dict[str, Any]], text: str) -> list[dict[str, Any]]:
+    """대상군이 둘 이상일 때 대상군을 지목하지 않는 공통 제외 단락의 제외 조건을 대상군에서 공통으로 옮깁니다(같은 것은 한 번만).
+    groups는 제자리에서 고치고 새 공통을 돌려줍니다."""
+    if len(groups) < 2:
+        return common
+    names = [_norm(g["name"]) for g in groups]
+    moved = []
+    for group in groups:
+        kept = []
+        for criterion in group["criteria"]:
+            (moved if _movable_exclusion(criterion, text, names) else kept).append(criterion)
+        group["criteria"] = kept
+    seen = {_same_key(c) for c in common}
+    out = list(common)
+    for criterion in moved:
+        if _same_key(criterion) not in seen:
+            seen.add(_same_key(criterion))
+            out.append(criterion)
+    return out
+
+
+def _held_in_option(criteria: list[dict[str, Any]], text: str, group_names: list[str]) -> list[dict[str, Any]]:
+    """택1 길 안의 공통 제외 단락 문장: 길을 바꾸면 뜻이 달라질 수 있어 옮기지 않고 확인 필요."""
+    return [_Builder.flag(c, [COMMON_EXCLUSION]) if _movable_exclusion(c, text, group_names) else c for c in criteria]
 
 
 def startup_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
@@ -1053,17 +1396,42 @@ def startup_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[s
     )
 
 
-def space_frame(payload: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
-    """AI 읽기 → 사업공간 틀. 사업공간 틀은 기준일이 필수라, 기준일·공고일을 근거와 함께 읽지 못했으면 None."""
+KST = timezone(timedelta(hours=9))  # 한국은 일광 절약 시간이 없어 고정 시차
+
+
+def uses_judging_date(frame: dict[str, Any] | None) -> bool:
+    """판정일을 기준일로 쓴 틀인지(안내 문장으로 표시). 이런 틀은 검수 전 자동 통과로 내보내지 않습니다."""
+    return bool(frame) and any(n["kind"] == "OTHER" and n["text"].startswith(JUDGING_DATE_NOTE) for n in frame.get("notes") or [])
+
+
+def judging_day() -> date:
+    """판정일: 처리하는 순간의 한국 날짜."""
+    return datetime.now(KST).date()
+
+
+def space_frame(payload: dict[str, Any], reading: Any, regions: Any, *, today: date | None = None) -> dict[str, Any] | None:
+    """AI 읽기 → 사업공간 틀. 사업공간 틀은 기준일이 필수입니다.
+    - 기준일·공고일을 근거와 함께 읽었으면 그 날
+    - 원문에 공고일·기준일이 없으면(온통청년처럼 공고일 칸이 없는 출처) 판정일(today, 기본은 지금 한국 날짜)을 기준일로 쓰고, 그 사실을
+      안내(OTHER)로 남기며, 기준일에 기대는 조건(나이·업력·폐업 기간 등)은 모두 확인 필요(사용자 결정 2026-10-23, 선택 B)
+    - 찍힌 기준일(EXPLICIT)이 있다거나 AI가 공고일·기준일 날짜를 적었는데 근거 문장으로 확인하지 못했으면 None: 원문에 날짜가 있을
+      가능성이 높아 판정일로 바꾸면 틀린 값이 됨(보내지 않음, 지금과 같음)"""
     if not reading.answer["relevant"]:
         return None
     builder = _Builder(reading, str(payload.get("text") or ""), regions, startup=False, record=payload.get("record"))
     reference = builder.reference()
     if reference is None and reading.answer["referenceRule"] != "EXPLICIT":
         reference = builder.announced()  # 「공고일 기준」이나 문구 없음: 공고일. 찍힌 기준일을 확인하지 못했으면 공고일로 바꾸지 않음(리뷰 2026-10-22)
-    if reference is None:
+    claimed = any((reading.answer.get(k) or {}).get("date") for k in ("announcedOn", "referenceDate"))
+    if reference is None and (reading.answer["referenceRule"] == "EXPLICIT" or claimed):
         return None
+    if reference is None:
+        reference = today or judging_day()
+        builder.judging_date = True
     common, groups, preferences, notes = builder.build(reference)
+    if builder.judging_date:
+        text = f"{JUDGING_DATE_NOTE}({reference.isoformat()}). 나이·업력·폐업 기간처럼 기준일에 따라 달라지는 조건은 확인이 필요합니다."
+        notes.append({"kind": "OTHER", "groupId": None, "text": text, "quote": None, "page": None})
     return repair(
         {
             "schema": "business-space-judgment.v1",

@@ -95,11 +95,19 @@ def test_same_question_from_the_same_quote_is_asked_once():
 # 2. 제외 단락 항목의 대상군 배치
 
 
-def test_exclusion_item_from_a_common_paragraph_attached_to_one_group_is_held():
+def test_exclusion_item_from_a_common_paragraph_attached_to_one_group_moves_to_common():
+    # 3차(리뷰 2026-10-23): 확인 필요로만 두면 다른 대상군 신청자에게 그 제외가 걸리지 않아 공통으로 옮김
     text = "사업자 등록 전인 개인\n창업 5년 이내 기업\n지원 제외 대상\n- 이 센터를 졸업한 이력이 있는 회사\n"
     item = condition("OTHER", "이 센터를 졸업한 이력이 있는 회사", group="biz", question="이 센터를 졸업했나요?", metWhen="NO")
     pre = condition("PRE_FOUNDER", "사업자 등록 전인 개인", group="pre")
-    [held] = frame_of([pre, item], text, groups=TWO_GROUPS)["groups"][1]["criteria"]
+    made = frame_of([pre, item], text, groups=TWO_GROUPS)
+    assert made["groups"][1]["criteria"] == []
+    [moved] = made["common"]
+    assert (moved["question"], moved["metWhen"], moved["inReview"]) == ("이 센터를 졸업했나요?", "NO", False)
+    # 택1 길 안이면 옮기지 않고 확인 필요
+    paths = [item | {"anyOf": "a", "option": "1"}, condition("REGISTERED", "창업 5년 이내 기업", group="biz", anyOf="a", option="2")]
+    [either] = frame_of([pre, *paths], text, groups=TWO_GROUPS)["groups"][1]["criteria"]
+    held = either["options"][0]["criteria"][0]
     assert held["inReview"] and COMMON_EXCLUSION in held["reviewReason"]
     # 머리말이나 문장이 대상군을 지목하면 그대로
     scoped = text.replace("지원 제외 대상", "기창업자 제외 대상")

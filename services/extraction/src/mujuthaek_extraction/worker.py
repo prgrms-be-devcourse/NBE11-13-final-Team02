@@ -39,7 +39,7 @@ from mujuthaek_extraction.model.factory import ModelFactory
 from mujuthaek_extraction.model.fallback import FallbackOnErrorModel
 from mujuthaek_extraction.model.spend import SpendLedger
 from mujuthaek_extraction.pipeline import EVENT_TYPE, PRODUCER, Outcome, process
-from mujuthaek_extraction.publish import POLICY_FIELDS, policy_completed_payload, policy_frame
+from mujuthaek_extraction.publish import POLICY_FIELDS, not_sent_reason, policy_completed_payload, policy_frame_with_reason
 from mujuthaek_extraction.review_api import ReviewService, serve
 from mujuthaek_extraction.rules.policy.reading import read_policy
 from mujuthaek_extraction.s3_reader import S3SourceReader
@@ -382,10 +382,14 @@ def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, 
                 raise AiUnavailable(error.code or "transient") from error
             failed = error.code or "unknown"
             log.warning("정책 글을 AI로 읽지 못해 구간 칸 규칙으로 만듭니다", extra={"code": error.code, "rawPolicyId": payload.get("rawPolicyId")})
-    completed = policy_completed_payload(payload, policy_frame(payload, reading, regions), regions, reading)
+    frame, frame_reason = policy_frame_with_reason(payload, reading, regions)
+    completed = policy_completed_payload(payload, frame, regions, reading)
     if completed is None:
         if failed is not None:  # AI가 읽지 못해 못 만든 것: 조용히 ack하면 기록이 남지 않음(리뷰 2026-10-22)
             raise AiFailed(failed)
+        # 까닭을 나눠 남김(기준일 확인 실패·틀 검사 실패·지역 미정 …). 예전엔 이유 없이 조용히 넘어갔음(리뷰 2026-10-23)
+        reason = not_sent_reason(payload, frame, frame_reason, regions, reading)
+        log.info("정책 판정 틀을 보내지 않습니다", extra={"rawPolicyId": payload.get("rawPolicyId"), "field": payload.get("field"), "reason": reason})
         return None
     event = {**new_event(EVENT_TYPE, PRODUCER, completed), "traceId": raw_event.get("traceId")}
     if errors := tools().validate(event, COMPLETED_SCHEMA):
