@@ -4,6 +4,8 @@ package kr.mujuthaek.api.notice.service;
 public enum NoticeField {
   /** 주거 */
   HOUSING,
+  /** 창업지원 */
+  STARTUP_SUPPORT,
   /** 사업공간 */
   BUSINESS_SPACE
 }
