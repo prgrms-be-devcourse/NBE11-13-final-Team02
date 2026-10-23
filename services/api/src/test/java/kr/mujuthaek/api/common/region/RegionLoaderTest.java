@@ -20,6 +20,7 @@ class RegionLoaderTest {
 
   @BeforeEach
   void clean() {
+    jdbc.update("delete from common.region_code_changes");
     jdbc.update("update common.regions set replaced_by = null");
     jdbc.update("delete from common.regions where level = 'SIGUNGU'");
     jdbc.update("delete from common.regions");
@@ -78,6 +79,16 @@ class RegionLoaderTest {
     // 2026 인천 개편: 중구·동구·서구 폐지, 제물포구·영종구·서해구·검단구 생김
     assertThat(validCodes("281")).contains("28125", "28155").doesNotContain("28110", "28140");
     assertThat(validCodes("282")).contains("28275", "28290").doesNotContain("28260");
+    // 새 코드가 하나로 정해지는 것만 replaced_by
+    assertThat(replacedBy("29")).isEqualTo("12");
+    assertThat(replacedBy("29110")).isEqualTo("12210");
+    assertThat(replacedBy("28140")).isEqualTo("28125");
+    assertThat(replacedBy("28110")).isNull(); // 제물포구·영종구로 갈라짐 → 대응표에만
+    assertThat(
+            jdbc.queryForList(
+                "select new_code from common.region_code_changes where old_code = '2811014700'",
+                String.class))
+        .containsExactly("2815510300");
   }
 
   @Test
