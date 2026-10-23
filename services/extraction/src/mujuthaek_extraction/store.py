@@ -6,10 +6,21 @@ processed_events를 **트랜잭션 맨 앞에서** 넣고, 이미 있으면(같�
 
 버전 순서: 같은 원본(rawPostId)은 공고 단위 잠금(pg_advisory_xact_lock)으로 줄 세우고, 더 새 버전이 이미 발행됐으면
 늦게 끝난 옛 버전 결과는 발행하지 않고 SUPERSEDED로 남깁니다. 검수 승인도 같은 이유로 막습니다(옛 자격 조건이 새 것을 덮지 않게).
+
+검수 대기 건 대체(2026-10-23, 검토 의견, migrations/V202610231800__extraction_review_superseded.sql):
+  새 버전의 결과를 **발행할 때**(save의 COMPLETED·PARTIAL·IN_REVIEW, 검수 승인) 같은 원본의 더 낮은 버전 PENDING 검수를 SUPERSEDED로 바꿉니다.
+  발행 여부를 기준으로 한 까닭: 옛 버전 승인을 막는 기준(_newer_published)과 같아야 '승인은 막혔는데 대기열에는 남은' 건이 생기지 않습니다.
+  발행하지 않는 결과(INTAKE_REVIEW·WAITING_SOURCE·FAILED 등)는 옛 버전 승인이 아직 가능하므로 대체하지 않습니다(다시 처리해 발행되면 그때 대체).
+  같은 버전을 다시 처리한 것은 대체하지 않습니다(버전이 더 높을 때만).
+  정정공고: 수집 이벤트의 kind가 CORRECTION이고 supersedesPostId가 원 공고를 가리키면, 정정공고를 발행할 때 원 공고의 PENDING 검수(모든 버전)도 대체합니다.
+  후속 안내(FOLLOW_UP)는 원 공고의 자격 조건을 바꾸지 않아 대체하지 않습니다.
+  대체는 새 결과 저장·발행과 같은 트랜잭션의 UPDATE(status = 'PENDING' 조건)라 여러 번 해도 같고, 공고 단위 잠금을
+  원본·원 공고 ID 순서대로 잡아 같은 공고의 승인·반려와 차례로 처리됩니다(먼저 대체되면 승인·반려는 대체한 버전을 알려 주며 거절).
 """
 
 from __future__ import annotations
 
+import logging
 import uuid
 from typing import Any
 
@@ -20,6 +31,7 @@ from mujuthaek_extraction.pipeline import Outcome
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
 
+log = logging.getLogger(__name__)
 REVIEW_STATUSES = {"IN_REVIEW", "INTAKE_REVIEW"}
 PARTIAL = "PARTIAL"  # 부분 게시: 이미 발행했고, 보류 항목은 사람이 확인해 승인할 수 있게 검수 목록에도 넣습니다(게시를 막지 않음)
 SUPERSEDED = "SUPERSEDED"
@@ -43,9 +55,69 @@ class DuplicateEvent(Exception):
     """같은 이벤트를 다른 처리가 이미 끝냈습니다. 아무것도 저장하지 않았습니다."""
 
 
-def _lock_notice(cur, raw_post_id: str | None) -> None:
-    if raw_post_id:
+def _lock_notice(cur, *raw_post_ids: str | None) -> None:
+    """공고 단위 잠금. 여러 개면 ID 순서대로 잡아 서로 기다리다 멈추지 않게 합니다(정정공고는 자기 원본과 원 공고 둘)."""
+    for raw_post_id in sorted({str(i) for i in raw_post_ids if i}):
         cur.execute("select pg_advisory_xact_lock(hashtext(%s))", (raw_post_id,))
+
+
+def _corrected_post(payload: dict[str, Any]) -> str | None:
+    """정정공고(kind CORRECTION)가 고친 원 공고의 rawPostId. 정정공고가 아니거나 자기 자신을 가리키면 None."""
+    if payload.get("kind") != "CORRECTION":
+        return None
+    target = _uuid_or_none(payload.get("supersedesPostId"))
+    return target if target and target != _uuid_or_none(payload.get("rawPostId")) else None
+
+
+_SUPERSEDE_SQL = (
+    "update review_queue r set status = 'SUPERSEDED', decided_at = now(), note = %(note)s, superseded_by_job_id = %(job)s,"
+    " superseded_by_raw_post_id = %(post)s, superseded_by_version = %(version)s"
+    " from extraction_jobs j where j.id = r.job_id and r.status = 'PENDING' and j.raw_post_id = %(target)s and j.id <> %(job)s"
+    " and (%(below)s::int is null or j.raw_version < %(below)s::int)"
+)
+
+
+def _supersede_pending(cur, job_id: str, raw_post_id: str | None, raw_version: Any, corrected_post: str | None) -> int:
+    """job_id가 발행한 결과로 의미가 없어진 PENDING 검수를 SUPERSEDED로 바꾸고 바꾼 수를 돌려줍니다. 발행과 같은 트랜잭션에서 부릅니다.
+    같은 원본의 더 낮은 버전, 정정공고면 원 공고의 모든 버전이 대상입니다."""
+    if not raw_post_id or not isinstance(raw_version, int):
+        return 0
+    common = {"job": job_id, "post": raw_post_id, "version": raw_version}
+    cur.execute(_SUPERSEDE_SQL, {**common, "target": raw_post_id, "below": raw_version, "note": f"v{raw_version} 발행으로 대체됨"})
+    count = cur.rowcount
+    if corrected_post:
+        note = f"정정공고({raw_post_id} v{raw_version}) 발행으로 대체됨"
+        cur.execute(_SUPERSEDE_SQL, {**common, "target": corrected_post, "below": None, "note": note})
+        count += cur.rowcount
+    if count:
+        log.info("이전 검수 대기 건을 대체됨으로 정리", extra={"jobId": job_id, "rawPostId": raw_post_id, "rawVersion": raw_version, "superseded": count})
+    return count
+
+
+def superseded_message(review_post_id: Any, by_post_id: Any, by_version: Any, by_job_id: Any) -> str:
+    """대체된 검수를 승인·반려하려 할 때 알려 줄 문구(대체한 버전·작업)."""
+    if by_post_id is not None and str(by_post_id) != str(review_post_id):
+        return f"정정공고({by_post_id} v{by_version}, 작업 {by_job_id})가 발행되어 대체된 검수입니다. 정정공고를 검수하세요."
+    return f"v{by_version}(작업 {by_job_id})이 발행되어 대체된 검수입니다. 새 버전을 검수하세요."
+
+
+def _not_pending(cur, job_id: str) -> LookupError:
+    """승인·반려할 수 없는 까닭. 대체된 건이면 대체한 버전을 알려 줍니다."""
+    row = cur.execute(
+        "select r.status, j.raw_post_id, r.superseded_by_raw_post_id, r.superseded_by_version, r.superseded_by_job_id"
+        " from review_queue r join extraction_jobs j on j.id = r.job_id where r.job_id = %s",
+        (job_id,),
+    ).fetchone()
+    if row and row[0] == SUPERSEDED:
+        return LookupError(superseded_message(*row[1:]))
+    return LookupError("대기 중인 검수가 아닙니다.")
+
+
+def _superseded_by(job_id: Any, raw_post_id: Any, version: Any) -> dict[str, Any] | None:
+    """대체한 작업·공고·버전(대체되지 않았으면 None)."""
+    if job_id is None:
+        return None
+    return {"jobId": str(job_id), "rawPostId": str(raw_post_id) if raw_post_id else None, "version": version}
 
 
 def _newer_published(cur, raw_post_id: str | None, raw_version: Any) -> bool:
@@ -95,8 +167,9 @@ class JobStore:
         raw_post_id = _uuid_or_none(payload.get("rawPostId"))
         raw_version = payload.get("version") if isinstance(payload.get("version"), int) else None
         status, event, error = outcome.status, outcome.event, outcome.error
+        corrected_post = _corrected_post(payload)
         with self.conn.transaction(), self.conn.cursor() as cur:
-            _lock_notice(cur, raw_post_id)
+            _lock_notice(cur, raw_post_id, corrected_post)
             if event_id and not outcome.retryable:
                 claimed = cur.execute(
                     "insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing returning event_id",
@@ -138,6 +211,8 @@ class JobStore:
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(outcome.review_reasons)))
             elif status == PARTIAL and (held := _held_reasons(outcome.candidate)):
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(held)))
+            if event:  # 이 버전을 발행함: 옛 버전·정정 전 공고의 대기 검수는 대체됨
+                _supersede_pending(cur, job_id, raw_post_id, raw_version, corrected_post)
         return job_id
 
     def judged(self, raw_event: dict[str, Any]) -> bool:
@@ -188,49 +263,59 @@ class JobStore:
 
     # ---- 검수 ----
     def reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
+        """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다."""
         rows = self.conn.execute(
             "select j.id, j.raw_post_id, j.raw_version, j.source_code, j.status, r.status, r.reasons, r.created_at, j.candidate->'notice'->>'title',"
-            " j.raw_event->'payload'->>'title' from review_queue r join extraction_jobs j on j.id = r.job_id where r.status = %s"
-            " order by r.created_at limit %s",
+            " j.raw_event->'payload'->>'title', r.decided_at, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
+            " from review_queue r join extraction_jobs j on j.id = r.job_id where r.status = %s order by r.created_at limit %s",
             (status, limit),
         ).fetchall()
-        keys = ("jobId", "rawPostId", "rawVersion", "sourceCode", "jobStatus", "reviewStatus", "reasons", "queuedAt", "title", "sourceTitle")
-        return [{k: (str(v) if k in ("jobId", "rawPostId") and v else v) for k, v in zip(keys, row, strict=True)} for row in rows]
+        keys = ("jobId", "rawPostId", "rawVersion", "sourceCode", "jobStatus", "reviewStatus", "reasons", "queuedAt", "title", "sourceTitle", "decidedAt")
+        items = []
+        for row in rows:
+            item = {k: (str(v) if k in ("jobId", "rawPostId") and v else v) for k, v in zip(keys, row[:11], strict=True)}
+            items.append(item | {"supersededBy": _superseded_by(*row[11:])})
+        return items
 
     def review(self, job_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
-            "select j.id, j.status, r.status, r.reasons, r.note, j.candidate, j.raw_event, j.error, j.model_used, j.cost_usd"
+            "select j.id, j.status, r.status, r.reasons, r.note, j.candidate, j.raw_event, j.error, j.model_used, j.cost_usd, j.raw_post_id,"
+            " r.decided_at, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
             " from review_queue r join extraction_jobs j on j.id = r.job_id where j.id = %s",
             (job_id,),
         ).fetchone()
         if row is None:
             return None
-        keys = ("jobId", "jobStatus", "reviewStatus", "reasons", "note", "candidate", "rawEvent", "error", "modelUsed", "costUsd")
-        item = dict(zip(keys, row, strict=True))
+        keys = ("jobId", "jobStatus", "reviewStatus", "reasons", "note", "candidate", "rawEvent", "error", "modelUsed", "costUsd", "rawPostId", "decidedAt")
+        item = dict(zip(keys, row[:12], strict=True))
         item["jobId"] = str(item["jobId"])
+        item["rawPostId"] = str(item["rawPostId"]) if item["rawPostId"] else None
         item["costUsd"] = float(item["costUsd"])
+        item["supersededBy"] = _superseded_by(*row[12:])
         return item
 
     def approve(self, job_id: str, candidate: dict[str, Any], event: dict[str, Any], note: str | None) -> None:
         """대기 중인 검수를 승인하고 고친 후보와 발행할 이벤트를 한 트랜잭션으로 저장합니다.
         더 새 버전이 이미 발행됐거나 대기 중인 검수가 아니면 LookupError를 냅니다."""
         with self.conn.transaction(), self.conn.cursor() as cur:
-            job = cur.execute("select raw_post_id, raw_version from extraction_jobs where id = %s", (job_id,)).fetchone()
+            job = cur.execute("select raw_post_id, raw_version, raw_event->'payload' from extraction_jobs where id = %s", (job_id,)).fetchone()
             raw_post_id = str(job[0]) if job and job[0] else None
-            _lock_notice(cur, raw_post_id)
-            if job and _newer_published(cur, raw_post_id, job[1]):
-                raise LookupError(f"더 새 버전이 이미 발행되어 v{job[1]} 결과는 승인할 수 없습니다. 새 버전을 검수하세요.")
+            corrected_post = _corrected_post(job[2] if job and isinstance(job[2], dict) else {})
+            _lock_notice(cur, raw_post_id, corrected_post)
             cur.execute(
                 "update review_queue set status = 'APPROVED', note = %s, decided_at = now() where job_id = %s and status = 'PENDING'",
                 (note, job_id),
             )
             if cur.rowcount != 1:
-                raise LookupError("대기 중인 검수가 아닙니다.")
+                raise _not_pending(cur, job_id)  # 대체된 건이면 대체한 버전을 알려 줌
+            if job and _newer_published(cur, raw_post_id, job[1]):  # 아직 대체되지 않은 옛 버전(예외로 트랜잭션째 되돌림)
+                raise LookupError(f"더 새 버전이 이미 발행되어 v{job[1]} 결과는 승인할 수 없습니다. 새 버전을 검수하세요.")
             cur.execute(
                 "update extraction_jobs set status = 'APPROVED', candidate = %s, completed_event_id = %s, updated_at = now() where id = %s",
                 (Jsonb(candidate), event["eventId"], job_id),
             )
             outbox.add(cur, event)
+            _supersede_pending(cur, job_id, raw_post_id, job[1] if job else None, corrected_post)  # 승인으로 이 버전을 발행함
 
     def reject(self, job_id: str, note: str | None) -> None:
         with self.conn.transaction(), self.conn.cursor() as cur:
@@ -239,7 +324,7 @@ class JobStore:
                 (note, job_id),
             )
             if cur.rowcount != 1:
-                raise LookupError("대기 중인 검수가 아닙니다.")
+                raise _not_pending(cur, job_id)
 
     # ---- 비용 ----
     def monthly_costs(self, month: str | None = None, budget_usd: float | None = None) -> dict[str, Any]:

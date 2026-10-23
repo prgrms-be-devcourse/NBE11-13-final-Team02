@@ -359,3 +359,174 @@ def test_ledger_writes_the_field_and_crossing_80_percent_sends_one_slack_message
         again.settle(again.reserve("gpt-6-luna", 0.01), 0.01)
         again.close()
     assert len(sent) == 1 and count(store, "select count(*) from extraction_alerts") == 1
+
+
+# ---- 검수 대기 건 대체 (2026-10-23, 검토 의견: 새 버전이 발행되면 옛 대기 건은 SUPERSEDED) ----
+def published(reason="x"):
+    """발행하는 결과(IN_REVIEW도 발행함). 이벤트 ID는 매번 새로."""
+    event = {**new_event("extraction.completed", "extraction", {}), "eventId": str(uuid.uuid4())}
+    return Outcome("IN_REVIEW", event=event, candidate=pending_item()["candidate"], review_reasons=[f"{reason} /eligibility/0"])
+
+
+def held(reason="x"):
+    """발행하지 않고 검수 대기열에만 오르는 결과."""
+    return Outcome("IN_REVIEW", event=None, candidate=pending_item()["candidate"], review_reasons=[f"{reason} /eligibility/0"])
+
+
+def session_of(store):
+    class Session:
+        def __enter__(self):
+            return store
+
+        def __exit__(self, *exc):
+            return False
+
+    return lambda: Session()
+
+
+def notice_event(version, raw_post_id=None, **payload):
+    event = versioned(version)
+    if raw_post_id:
+        event["payload"]["rawPostId"] = raw_post_id
+    event["payload"].update(payload)
+    return event
+
+
+def review_status(store, job_id):
+    return store.conn.execute("select status from review_queue where job_id = %s", (job_id,)).fetchone()[0]
+
+
+def test_publishing_newer_version_supersedes_older_pending_review(store):
+    v1 = store.save(notice_event(1), held("v1"))
+    assert [r["jobId"] for r in store.reviews("PENDING")] == [v1]
+    v2 = store.save(notice_event(2), published("v2"))
+
+    assert [r["jobId"] for r in store.reviews("PENDING")] == [v2]  # 기본 목록에는 새 버전만
+    [old] = store.reviews("SUPERSEDED")
+    assert old["jobId"] == v1 and old["decidedAt"] is not None
+    assert old["supersededBy"] == {"jobId": v2, "rawPostId": old["rawPostId"], "version": 2}
+    assert store.review(v1)["note"] == "v2 발행으로 대체됨" and store.review(v2)["supersededBy"] is None
+
+    service = ReviewService(session_of(store), new_event)
+    status, body = service.approve(v1, {})
+    assert status == 409 and "v2" in body["error"] and v2 in body["error"] and body["supersededBy"]["version"] == 2
+    status, body = service.reject(v1, {"note": "늦은 반려"})
+    assert status == 409 and "v2" in body["error"] and "새 버전" in body["error"]
+    assert review_status(store, v1) == "SUPERSEDED" and store.review(v1)["note"] == "v2 발행으로 대체됨"
+    assert service.list("SUPERSEDED")[0] == 200 and service.list("NOPE")[0] == 400
+    assert count(store, "select count(*) from outbox") == 1  # v2 발행 한 번뿐(대체된 v1은 발행 없음)
+
+    # 여러 번 해도 같음: v3 발행은 v2만 대체하고 이미 대체된 v1의 기록(대체한 버전)은 그대로
+    v3 = store.save(notice_event(3), published("v3"))
+    assert [r["jobId"] for r in store.reviews("PENDING")] == [v3]
+    assert {r["jobId"]: r["supersededBy"]["version"] for r in store.reviews("SUPERSEDED")} == {v1: 2, v2: 3}
+
+
+def test_same_version_reprocess_or_unpublished_newer_version_does_not_supersede(store):
+    v1 = store.save(notice_event(1), held("v1"))
+    store.save(notice_event(1, reprocess=True), published("v1 다시"))  # 같은 버전 재처리 발행: 대체 아님
+    store.save(notice_event(2), Outcome("FAILED", error="모델 연결 실패"))  # 새 버전이 발행되지 않음
+    store.save(notice_event(2), Outcome("INTAKE_REVIEW", review_reasons=["SOURCE_MISMATCH /files/0"]))
+    assert review_status(store, v1) == "PENDING"  # v1 승인은 아직 막히지 않았으므로 대기열에 남음
+    other = store.save(notice_event(5, str(uuid.uuid4())), published("다른 공고"))
+    assert review_status(store, v1) == "PENDING" and review_status(store, other) == "PENDING"
+
+
+def test_approving_newer_version_supersedes_older_pending_review(store):
+    # 새 버전이 발행되지 않은 채 검수에 올랐다가 승인으로 발행되면 그때 옛 대기 건을 대체
+    v1 = store.save(notice_event(1), held("v1"))
+    v2 = store.save(notice_event(2), held("v2"))
+    assert review_status(store, v1) == "PENDING"
+    event = {**new_event("extraction.completed", "extraction", {}), "eventId": str(uuid.uuid4())}
+    store.approve(v2, pending_item()["candidate"], event, "확인")
+    assert review_status(store, v2) == "APPROVED" and review_status(store, v1) == "SUPERSEDED"
+    assert store.review(v1)["supersededBy"]["jobId"] == v2
+
+
+def test_correction_notice_supersedes_pending_reviews_of_the_original_notice(store):
+    original = str(uuid.uuid4())
+    o1 = store.save(notice_event(1, original), held("원 공고 v1"))
+    o2 = store.save(notice_event(2, original), held("원 공고 v2"))
+    follow_up = notice_event(1, str(uuid.uuid4()), kind="FOLLOW_UP", supersedesPostId=original)
+    store.save(follow_up, published("후속 안내"))
+    assert review_status(store, o1) == review_status(store, o2) == "PENDING"  # 후속 안내는 원 공고를 바꾸지 않음
+
+    correction_post = str(uuid.uuid4())
+    correction = store.save(notice_event(1, correction_post, kind="CORRECTION", supersedesPostId=original), published("정정"))
+    assert review_status(store, o1) == review_status(store, o2) == "SUPERSEDED"
+    assert store.review(o2)["supersededBy"] == {"jobId": correction, "rawPostId": correction_post, "version": 1}
+    status, body = ReviewService(session_of(store), new_event).approve(o2, {})
+    assert status == 409 and "정정공고" in body["error"] and correction_post in body["error"]
+    assert review_status(store, correction) == "PENDING"
+
+
+def test_supersede_and_approve_of_the_same_notice_are_serialized(store):
+    # 공고 단위 잠금: 대체하는 트랜잭션이 끝날 때까지 옛 버전 승인은 기다렸다가, 대체된 것을 보고 거절
+    import threading
+    import time
+
+    import psycopg
+
+    from mujuthaek_extraction.store import _lock_notice, _supersede_pending
+
+    post = str(uuid.uuid4())
+    v1 = store.save(notice_event(1, post), held("v1"))
+    v2 = store.save(notice_event(2, post), held("v2"))
+    schema = store.conn.execute("select current_schema()").fetchone()[0]
+    other_conn = psycopg.connect(DB_URL, autocommit=True)
+    other_conn.execute(f"set search_path to {schema}")
+    other, results = JobStore(other_conn), []
+
+    def approve_old():
+        event = {**new_event("extraction.completed", "extraction", {}), "eventId": str(uuid.uuid4())}
+        try:
+            other.approve(v1, pending_item()["candidate"], event, None)
+            results.append("approved")
+        except LookupError as error:
+            results.append(str(error))
+
+    try:
+        with store.conn.transaction(), store.conn.cursor() as cur:
+            _lock_notice(cur, post)
+            worker = threading.Thread(target=approve_old)
+            worker.start()
+            time.sleep(0.5)
+            assert worker.is_alive()  # 잠금을 기다리는 중
+            assert _supersede_pending(cur, v2, post, 2, None) == 1
+        worker.join(10)
+    finally:
+        other_conn.close()
+    assert results and "v2" in results[0] and "대체" in results[0]
+    assert review_status(store, v1) == "SUPERSEDED" and count(store, "select count(*) from outbox") == 0
+
+
+def test_migration_supersedes_pending_reviews_already_behind_a_published_version():
+    # 이 변경 전에 쌓인 건: 새 버전이 이미 발행된 옛 대기 건(승인은 원래 막힘)을 마이그레이션이 대체 처리
+    import psycopg
+
+    schema = "test_" + uuid.uuid4().hex[:12]
+    conn = psycopg.connect(DB_URL, autocommit=True)
+    conn.execute(f"create schema {schema}")
+    conn.execute(f"set search_path to {schema}")
+    paths = sorted(MIGRATIONS.glob("V*.sql"))
+    target = next(p for p in paths if p.name.startswith("V202610231800__"))
+    try:
+        for path in paths[: paths.index(target)]:
+            conn.execute(path.read_text(encoding="utf-8"))
+        post, other = str(uuid.uuid4()), str(uuid.uuid4())
+        jobs = {name: str(uuid.uuid4()) for name in ("v1", "v2", "v3", "lone")}
+        rows = [(jobs["v1"], post, 1, None), (jobs["v2"], post, 2, str(uuid.uuid4())), (jobs["v3"], post, 3, None), (jobs["lone"], other, 1, None)]
+        for job_id, raw_post_id, version, completed in rows:
+            conn.execute(
+                "insert into extraction_jobs (id, event_id, raw_post_id, raw_version, status, raw_event, completed_event_id)"
+                " values (%s, %s, %s, %s, 'IN_REVIEW', '{}', %s)",
+                (job_id, str(uuid.uuid4()), raw_post_id, version, completed),
+            )
+        for name in ("v1", "v3", "lone"):
+            conn.execute("insert into review_queue (job_id) values (%s)", (jobs[name],))
+        conn.execute(target.read_text(encoding="utf-8"))
+        result = dict(conn.execute("select job_id::text, status || ':' || coalesce(superseded_by_version::text, '') from review_queue").fetchall())
+        assert result == {jobs["v1"]: "SUPERSEDED:2", jobs["v3"]: "PENDING:", jobs["lone"]: "PENDING:"}
+    finally:
+        conn.execute(f"drop schema {schema} cascade")
+        conn.close()
