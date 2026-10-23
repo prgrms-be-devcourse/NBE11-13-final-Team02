@@ -11,13 +11,14 @@ import kr.mujuthaek.api.eligibility.rule.Field;
 import kr.mujuthaek.api.notice.service.NoticeField;
 import kr.mujuthaek.api.notice.service.NoticeForJudgment;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import kr.mujuthaek.api.notice.service.ProgramForJudgment;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
- * 세 분야 모두 notice에서 같은 분야로 후보를 가져오고(주거 → HOUSING, 창업지원 → STARTUP_SUPPORT, 사업공간 → BUSINESS_SPACE), 값을
- * 그대로 옮기는지 봐요.
+ * 분야마다 notice의 맞는 조회에서 후보를 가져오고(주거·사업공간 → findOpenForJudgment, 창업지원 → findOpenProgramsForJudgment),
+ * 값을 그대로 옮기는지 봐요.
  */
 class JudgmentCandidateReaderTest {
 
@@ -46,27 +47,32 @@ class JudgmentCandidateReaderTest {
                         LocalDate.parse("2026-10-30"),
                         List.of("1150010100"),
                         SHOP_FRAME));
-            case STARTUP_SUPPORT ->
-                List.of(
-                    new NoticeForJudgment(
-                        PROGRAM,
-                        1,
-                        "예비창업패키지",
-                        null,
-                        LocalDate.parse("2026-11-05"),
-                        List.of(),
-                        STARTUP_FRAME));
             case HOUSING ->
                 List.of(
                     new NoticeForJudgment(UNKNOWN_REGION, 1, "지역을 모르는 공고", null, null, null, null));
+            case STARTUP_SUPPORT ->
+                throw new AssertionError("창업지원은 findOpenProgramsForJudgment로 받아요");
           };
+        }
+
+        @Override
+        public List<ProgramForJudgment> findOpenProgramsForJudgment() {
+          return List.of(
+              new ProgramForJudgment(
+                  PROGRAM,
+                  1,
+                  "예비창업패키지",
+                  null,
+                  LocalDate.parse("2026-11-05"),
+                  List.of(),
+                  STARTUP_FRAME));
         }
       };
 
   private final JudgmentCandidateReader reader = new JudgmentCandidateReader(notices);
 
   @Test
-  void businessSpaceComesFromNotice() {
+  void businessSpaceComesFromNoticeList() {
     assertThat(reader.openNotices(Field.BUSINESS_SPACE))
         .containsExactly(
             new NoticeCandidate(
@@ -90,7 +96,7 @@ class JudgmentCandidateReaderTest {
   }
 
   @Test
-  void startupSupportAlsoComesFromNotice() {
+  void startupSupportComesFromProgramList() {
     assertThat(reader.openNotices(Field.STARTUP_SUPPORT))
         .containsExactly(
             new NoticeCandidate(
@@ -104,9 +110,11 @@ class JudgmentCandidateReaderTest {
   }
 
   @Test
-  void stubGivesNothingUntilDataIsStored() {
+  void stubsGiveNothingUntilDataIsStored() {
+    NoticeQueryService stub = new NoticeQueryService();
     for (NoticeField field : NoticeField.values()) {
-      assertThat(new NoticeQueryService().findOpenForJudgment(field)).as(field.name()).isEmpty();
+      assertThat(stub.findOpenForJudgment(field)).as(field.name()).isEmpty();
     }
+    assertThat(stub.findOpenProgramsForJudgment()).isEmpty();
   }
 }

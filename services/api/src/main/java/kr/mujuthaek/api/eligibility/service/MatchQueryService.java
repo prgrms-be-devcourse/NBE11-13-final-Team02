@@ -65,7 +65,7 @@ public class MatchQueryService {
     return match(FrameSpec.BUSINESS_SPACE, applicant);
   }
 
-  /** 창업지원 목록 판정. 결과 모양은 주거와 같아요 (noticeId는 notice가 주는 지원사업 ID). */
+  /** 창업지원 목록 판정. 결과 모양은 주거와 같아요 (noticeId는 지원사업 ID, 수집 DB 정책 ID). */
   public MatchResult matchStartupSupport(ApplicantRequest applicant) {
     return match(FrameSpec.STARTUP_SUPPORT, applicant);
   }

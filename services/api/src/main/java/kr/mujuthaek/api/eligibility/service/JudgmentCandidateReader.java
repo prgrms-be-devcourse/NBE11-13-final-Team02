@@ -8,8 +8,8 @@ import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.stereotype.Component;
 
 /**
- * 목록 판정 후보를 notice의 판정용 조회({@link NoticeQueryService#findOpenForJudgment})로 가져와요. 주거·사업공간·창업지원 세 분야
- * 모두 notice가 줘요.
+ * 목록 판정 후보를 notice의 판정용 조회로 가져와요. 주거·사업공간은 공고({@link NoticeQueryService#findOpenForJudgment}),
+ * 창업지원은 지원사업({@link NoticeQueryService#findOpenProgramsForJudgment})이에요.
  */
 @Component
 class JudgmentCandidateReader implements JudgmentCandidates {
@@ -22,7 +22,15 @@ class JudgmentCandidateReader implements JudgmentCandidates {
 
   @Override
   public List<NoticeCandidate> openNotices(Field field) {
-    return notices.findOpenForJudgment(noticeField(field)).stream()
+    return switch (field) {
+      case HOUSING -> notices(NoticeField.HOUSING);
+      case BUSINESS_SPACE -> notices(NoticeField.BUSINESS_SPACE);
+      case STARTUP_SUPPORT -> programs();
+    };
+  }
+
+  private List<NoticeCandidate> notices(NoticeField field) {
+    return notices.findOpenForJudgment(field).stream()
         .map(
             n ->
                 new NoticeCandidate(
@@ -36,11 +44,18 @@ class JudgmentCandidateReader implements JudgmentCandidates {
         .toList();
   }
 
-  private static NoticeField noticeField(Field field) {
-    return switch (field) {
-      case HOUSING -> NoticeField.HOUSING;
-      case STARTUP_SUPPORT -> NoticeField.STARTUP_SUPPORT;
-      case BUSINESS_SPACE -> NoticeField.BUSINESS_SPACE;
-    };
+  private List<NoticeCandidate> programs() {
+    return notices.findOpenProgramsForJudgment().stream()
+        .map(
+            p ->
+                new NoticeCandidate(
+                    p.programId(),
+                    p.version(),
+                    p.title(),
+                    p.applyStart(),
+                    p.applyEnd(),
+                    p.regionCodes(),
+                    p.frame()))
+        .toList();
   }
 }
