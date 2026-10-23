@@ -66,6 +66,9 @@
     ],
     "targetGroups": [
       "YOUTH"
+    ],
+    "applicationChannels": [
+      "ONLINE"
     ]
   },
   "locations": [
@@ -90,6 +93,12 @@
         "APPLICATION"
       ],
       "applicationMode": "FIXED_PERIOD",
+      "places": [],
+      "applicationEmail": null,
+      "dailyHours": [],
+      "breaks": [],
+      "excludedDays": [],
+      "timeNote": null,
       "rawLabel": "신청",
       "scope": {
         "level": "NOTICE",
@@ -508,6 +517,9 @@
       },
       "appliesTo": "신청자",
       "submissionTime": "신청 시",
+      "group": null,
+      "copies": null,
+      "issuer": null,
       "description": "신청 시 주민등록등본을 제출합니다.",
       "evidenceIds": [
         "e1"
