@@ -28,8 +28,9 @@ from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.extract import ExtractionRun, run_extraction
 from mujuthaek_extraction.image_reading import read_image_tables
 from mujuthaek_extraction.intake import ApiReferenceProvider, IntakeStatus, SourceReader, build_intake
+from mujuthaek_extraction.intake.adapter import PDF_TEXT_DOCUMENT_ID
 from mujuthaek_extraction.judgment import build_judgment
-from mujuthaek_extraction.judgment.pages import evidence_pages
+from mujuthaek_extraction.judgment.pages import attach_locator_pages, evidence_pages
 from mujuthaek_extraction.method import LEGACY, STRUCTURED, extraction_method
 from mujuthaek_extraction.model.factory import NoticeModels
 from mujuthaek_extraction.model.fallback import FallbackOnErrorModel, extract_with_fallback
@@ -233,6 +234,8 @@ def _process(
     with usage.stage("publish"):
         # 판정 틀의 page: 근거 위치를 PDF 원문의 쪽 표시로 쪽 번호로 바꿉니다
         pages = evidence_pages(report.candidate, SourceBundle.from_material(material).texts)
+        # 공고 상세 API의 근거 쪽수: PDF 글자 원문 근거의 글자 범위에 같은 쪽 번호를 싣습니다(저장 후보에도 남아 승인 발행에도 쓰임)
+        attach_locator_pages(report.candidate, pages, PDF_TEXT_DOCUMENT_ID)
         payload = completed_payload(report.candidate, provider=raw.get("provider"), regions=regions, pages=pages)
         event = {**new_event(EVENT_TYPE, PRODUCER, payload), "traceId": raw_event.get("traceId")}
         schema = f"events/{EVENT_TYPE}.v1.json"

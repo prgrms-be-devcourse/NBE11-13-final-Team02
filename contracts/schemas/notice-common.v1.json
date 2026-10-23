@@ -1648,6 +1648,24 @@
             "end": {
               "type": "integer",
               "minimum": 1
+            },
+            "page": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "선택. 원문 글자가 쪽 표시(「--- N쪽 ---」)가 있는 PDF 글자일 때 범위 시작 위치가 들어 있는 그 PDF의 쪽 번호입니다. 쪽을 정할 수 없거나(그림 판독 묶음 안, 쪽 표시 없는 원문) 모르면 넣지 않습니다"
+            },
+            "printedPage": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "선택. page 쪽에 인쇄된 쪽 번호입니다. 모르면 넣지 않거나 null입니다"
             }
           }
         },

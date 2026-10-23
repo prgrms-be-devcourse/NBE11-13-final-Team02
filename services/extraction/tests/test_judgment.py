@@ -689,6 +689,39 @@ def test_evidence_inside_the_image_reading_block_gets_no_pdf_page():
     assert evidence_pages(made, {"pdf": text}) == {}
 
 
+def test_pdf_text_evidence_locator_carries_the_pdf_page():
+    # 요구 2-07: 공고 상세 API가 근거 쪽수를 보이도록 PDF 글자 원문 근거의 글자 범위에 쪽 번호를 함께 싣습니다
+    from mujuthaek_extraction.judgment.pages import attach_locator_pages, evidence_pages
+
+    text = "--- 1쪽 ---\n공고 개요\n--- 2쪽 오른쪽 ---\n만 19세 이상인 자\n=== 그림 판독 공고문.pdf 3쪽 ===\n판독 글자"
+    at = {name: text.index(name) for name in ("공고 개요", "만 19세", "판독 글자")}
+    made = {
+        "evidence": [{"id": f"ev-{k}", "sourceId": "pdf-text", "locator": {"kind": "TEXT_RANGE", "start": v, "end": v + 2}} for k, v in at.items()]
+        + [
+            {"id": "ev-collected", "sourceId": "text", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": 2}},
+            {"id": "ev-row", "sourceId": "units", "locator": {"kind": "UNIT_ROW", "pointer": "/0"}},
+        ]
+    }
+    made["evidence"][2]["locator"]["page"] = 9  # 예전 값은 지웁니다
+    attach_locator_pages(made, evidence_pages(made, {"pdf-text": text, "text": "--- 5쪽 ---\n수집 글자"}), "pdf-text")
+    locators = {e["id"]: e["locator"] for e in made["evidence"]}
+    assert locators["ev-공고 개요"]["page"] == 1 and locators["ev-만 19세"]["page"] == 2
+    assert "page" not in locators["ev-판독 글자"]  # 그림 판독 묶음 안
+    assert "page" not in locators["ev-collected"] and "page" not in locators["ev-row"]  # PDF 글자가 아닌 원문
+    assert all("printedPage" not in locator for locator in locators.values())
+
+
+def test_locator_page_passes_the_event_contract():
+    from mujuthaek_extraction.judgment.pages import attach_locator_pages
+
+    candidate = verified()
+    ranges = [e for e in candidate["evidence"] if e["locator"]["kind"] == "TEXT_RANGE"]
+    assert ranges
+    attach_locator_pages(candidate, {e["id"]: 1 for e in ranges}, ranges[0]["sourceId"])
+    assert ranges[0]["locator"]["page"] == 1
+    assert tools().validate(envelope(completed_payload(candidate, provider="가상주거공사")), EVENT_SCHEMA) == []
+
+
 def _youth(item_id, text, low, high):
     return item(item_id, "AGE", text, atom("AGE_YEARS", "BETWEEN", [low, high], "APPLICANT", unit="YEAR"))
 
