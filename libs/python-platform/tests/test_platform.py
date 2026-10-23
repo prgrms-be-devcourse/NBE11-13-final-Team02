@@ -7,7 +7,7 @@ import pytest
 from jsonschema import ValidationError
 
 from mujuthaek_platform import outbox
-from mujuthaek_platform.contracts import validate_event
+from mujuthaek_platform.contracts import events_dir, validate_event
 from mujuthaek_platform.events import new_event
 from mujuthaek_platform.ids import uuid7
 from mujuthaek_platform.logging import JsonFormatter
@@ -148,6 +148,31 @@ def test_contract_accepts_valid_event():
 def test_contract_rejects_invalid_payload(payload):
     with pytest.raises(ValidationError):
         validate_event(sample_event(**payload))
+
+
+def area_ready_example():
+    return json.loads((events_dir().parent / "examples" / "area.source.ready.json").read_text(encoding="utf-8"))
+
+
+def test_area_source_ready_example_passes():
+    validate_event(area_ready_example())
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"scope": "ALL"},  # 상가는 시도 이름이 있어야 해요
+        {"source": "BUS_STOP"},  # 시설은 ALL만
+        {"s3Key": "raw/STORES/2026-06-30/stores_gangwon.csv"},  # area/ 경로만
+        {"s3Key": "area/STORES/2026-06-30/상가_강원.csv"},  # 영문 파일 이름만
+        {"sha256": "AB" * 32},
+    ],
+)
+def test_area_source_ready_rejects_invalid_payload(payload):
+    event = area_ready_example()
+    event["payload"].update(payload)
+    with pytest.raises(ValidationError):
+        validate_event(event)
 
 
 def test_json_log_includes_extra_fields():
