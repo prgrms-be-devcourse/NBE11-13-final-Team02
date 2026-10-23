@@ -209,6 +209,28 @@ class NoticeIngestionIntegrationTest {
         .satisfies(e -> assertThat(e.quote()).contains("31,600,000", "411,700"));
   }
 
+  @Test
+  void 글자_범위_근거에_실린_PDF_쪽_번호도_상세에_보인다() {
+    ObjectNode event = fixture();
+    // 추출이 PDF 글자 근거의 글자 범위에 쪽 번호를 실은 경우(요구 2-07): 나이 조건 근거(ev-23)에 쪽을 실어요
+    for (JsonNode e : event.path("payload").path("notice").path("evidence")) {
+      if (e.path("id").asString().equals("ev-23")) {
+        ((ObjectNode) e.path("locator")).put("page", 2);
+      }
+    }
+    ingestion.apply(body(event));
+
+    NoticeDetailResponse detail = query.detail(onlyNotice());
+    assertThat(condition(detail, "eligibility-age").evidence())
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.page()).isEqualTo(2);
+              assertThat(e.printedPage()).isNull();
+              assertThat(e.documentName()).isEqualTo("첨부 PDF에서 읽은 글자 (쪽·표 구분)");
+            });
+  }
+
   private static NoticeDetailResponse.Condition condition(NoticeDetailResponse detail, String id) {
     return detail.conditions().stream().filter(c -> id.equals(c.id())).findFirst().orElseThrow();
   }

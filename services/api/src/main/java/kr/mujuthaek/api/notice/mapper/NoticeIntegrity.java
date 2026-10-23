@@ -203,8 +203,15 @@ final class NoticeIntegrity {
           fail("PAGE_OUT_OF_RANGE", "/evidence");
         if (ready && doc.path("pageCount").isNull()) fail("PAGE_COUNT_REQUIRED", "/evidence");
       }
-      if (kind.equals("TEXT_RANGE") && loc.path("start").asInt() >= loc.path("end").asInt())
-        fail("EMPTY_TEXT_RANGE", "/evidence");
+      if (kind.equals("TEXT_RANGE")) {
+        if (loc.path("start").asInt() >= loc.path("end").asInt())
+          fail("EMPTY_TEXT_RANGE", "/evidence");
+        // 쪽 표시가 있는 PDF 글자의 쪽 번호(선택): 문서 쪽 수를 알면 그 안이어야 해요
+        if (loc.hasNonNull("page")
+            && doc.hasNonNull("pageCount")
+            && loc.path("page").asInt() > doc.path("pageCount").asInt())
+          fail("PAGE_OUT_OF_RANGE", "/evidence");
+      }
     }
   }
 

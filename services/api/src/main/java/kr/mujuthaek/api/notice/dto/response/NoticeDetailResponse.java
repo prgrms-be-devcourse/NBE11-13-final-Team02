@@ -106,7 +106,7 @@ public record NoticeDetailResponse(
    * 값의 근거가 된 원문 인용. 모델 신뢰도는 계약에 없어서 주지 않아요(contracts/README.md).
    *
    * @param quote 원문 인용
-   * @param page PDF의 실제 쪽 (1부터). 근거 위치가 쪽이 아니면(글자 범위·표 행) null
+   * @param page PDF의 실제 쪽 (1부터). 글자 범위 근거는 PDF 글자에서 쪽을 정한 경우만, 표 행 근거·쪽을 모르면 null
    * @param printedPage 그 쪽에 인쇄된 쪽 번호 (없으면 null)
    * @param documentName 근거 문서 이름 (첨부 파일 이름 또는 원문 글자 묶음 이름)
    */

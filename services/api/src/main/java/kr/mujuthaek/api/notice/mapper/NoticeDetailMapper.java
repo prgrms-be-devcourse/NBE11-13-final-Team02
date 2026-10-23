@@ -414,13 +414,15 @@ public final class NoticeDetailMapper {
     Map<String, Evidence> out = new LinkedHashMap<>();
     for (JsonNode e : detail.path("evidence")) {
       JsonNode locator = e.path("locator");
-      boolean pdfPage = "PDF_PAGE".equals(text(locator.path("kind")));
+      // 쪽은 PDF 쪽 근거와, 쪽 표시가 있는 PDF 글자의 글자 범위 근거(추출이 page를 실은 경우)에서 읽어요. 표 행 근거는 쪽이 없어요
+      String kind = text(locator.path("kind"));
+      boolean paged = "PDF_PAGE".equals(kind) || "TEXT_RANGE".equals(kind);
       out.put(
           text(e.path("id")),
           new Evidence(
               text(e.path("quote")),
-              pdfPage && locator.path("page").isNumber() ? locator.path("page").asInt() : null,
-              pdfPage ? text(locator.path("printedPage")) : null,
+              paged && locator.path("page").isNumber() ? locator.path("page").asInt() : null,
+              paged ? text(locator.path("printedPage")) : null,
               names.get(text(e.path("sourceId")))));
     }
     return out;

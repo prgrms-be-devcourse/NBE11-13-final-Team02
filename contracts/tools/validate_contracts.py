@@ -665,8 +665,13 @@ def semantic_errors(data, ready=False):
                 error("PAGE_OUT_OF_RANGE", path)
             if ready and document["pageCount"] is None:
                 error("PAGE_COUNT_REQUIRED", path)
-        if locator["kind"] == "TEXT_RANGE" and locator["start"] >= locator["end"]:
-            error("EMPTY_TEXT_RANGE", path)
+        if locator["kind"] == "TEXT_RANGE":
+            if locator["start"] >= locator["end"]:
+                error("EMPTY_TEXT_RANGE", path)
+            # 쪽 표시가 있는 PDF 글자의 쪽 번호(선택): 문서 쪽 수를 알면 그 안이어야 합니다
+            page = locator.get("page")
+            if page is not None and document["pageCount"] is not None and page > document["pageCount"]:
+                error("PAGE_OUT_OF_RANGE", path)
     for count_id, count in counts.items():
         count_path = count_paths[count_id]
         parent_id = count["parentCountId"]
