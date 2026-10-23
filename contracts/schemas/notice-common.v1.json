@@ -496,7 +496,7 @@
           },
           "minItems": 0,
           "uniqueItems": true,
-          "description": "공고 전체의 신청 방법. 프로그램이 신청(APPLICATION) 일정들의 channels를 합쳐 정해진 순서(ONLINE, ONSITE, EMAIL, MAIL, FAX)로 적습니다(AI가 쓰지 않음, APPLICATION_CHANNELS_CONFLICT)"
+          "description": "공고 전체의 신청 방법. 프로그램이 신청(APPLICATION) 일정들의 channels를 합쳐 정해진 순서(ONLINE, ONSITE, EMAIL, MAIL, FAX)로 적습니다. 신청 일정이 없으면(계약으로 바로 신청받는 선착순 공고) 계약(CONTRACT) 일정들의 channels를 합칩니다(AI가 쓰지 않음, APPLICATION_CHANNELS_CONFLICT)"
         }
       },
       "description": "PDF 등 원문에서 추출한 공고 내용입니다. 수집기 원문 제목·상태와 구분합니다."
