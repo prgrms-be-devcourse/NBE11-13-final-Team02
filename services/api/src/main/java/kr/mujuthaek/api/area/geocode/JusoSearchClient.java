@@ -1,6 +1,7 @@
 package kr.mujuthaek.api.area.geocode;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.time.Clock;
 import java.util.List;
 import java.util.Set;
 import kr.mujuthaek.api.area.geocode.SearchOutcome.Failed;
@@ -38,16 +39,19 @@ public class JusoSearchClient {
   private final JusoSearchProperties properties;
   private final RestClient http;
   private final Sleeper sleeper;
+  private final CallLimiter limiter;
 
   @Autowired
   public JusoSearchClient(JusoSearchProperties properties) {
-    this(properties, defaultBuilder(properties), Sleeper.REAL);
+    this(properties, defaultBuilder(properties), Sleeper.REAL, Clock.systemUTC());
   }
 
-  JusoSearchClient(JusoSearchProperties properties, RestClient.Builder builder, Sleeper sleeper) {
+  JusoSearchClient(
+      JusoSearchProperties properties, RestClient.Builder builder, Sleeper sleeper, Clock clock) {
     this.properties = properties;
     this.http = builder.baseUrl(properties.baseUrl()).build();
     this.sleeper = sleeper;
+    this.limiter = new CallLimiter(properties.perSecond(), properties.perDay(), clock, sleeper);
   }
 
   /**
@@ -66,6 +70,10 @@ public class JusoSearchClient {
     for (int attempt = 0; attempt <= properties.retries(); attempt++) {
       if (attempt > 0) {
         sleeper.sleep(500L * attempt);
+      }
+      if (!limiter.acquire()) {
+        log.warn("도로명주소 검색 API 하루 호출 수({})를 넘었어요", properties.perDay());
+        return new Failed(Reason.RATE_LIMITED, null);
       }
       try {
         Response body = call(cleaned);
