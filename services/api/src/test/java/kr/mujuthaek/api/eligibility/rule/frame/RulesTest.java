@@ -474,7 +474,7 @@ class RulesTest {
             null,
             Map.of());
     FrameJudgment j = judge.judge(frame, old);
-    assertThat(j.result()).isEqualTo(Eligibility.NEEDS_CHECK);
+    assertThat(j.result()).isEqualTo(Eligibility.CHECK_NEEDED);
     assertThat(j.missingInputs()).containsExactly(Input.STATUSES);
 
     Applicant merited =

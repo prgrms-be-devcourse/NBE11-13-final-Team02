@@ -560,7 +560,7 @@
         "special-youth-no-income": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "car": "NOT_MET"
         }
@@ -587,7 +587,7 @@
         "special-youth-no-income": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "age": "NOT_MET"
         }
@@ -721,7 +721,7 @@
         "korean": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "groups": {
           "special-newlywed": "NOT_MET",
           "general-newlywed": "NOT_MET"
@@ -749,7 +749,7 @@
         "special-youth-no-income": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "korean": "NOT_MET"
         }
@@ -759,7 +759,7 @@
       "name": "아무것도 넣지 않음 (질문 목록 받기) → 확인 필요, 질문 세 개는 아직 답 없음",
       "applicant": null,
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "questions": {
           "korean": null,
           "special-youth-has-income": null,

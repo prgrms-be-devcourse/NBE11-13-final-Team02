@@ -266,7 +266,7 @@
         "arts-proof": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "income-or-assets": "NOT_MET"
         }
@@ -355,7 +355,7 @@
         "arts-proof": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "age": "NOT_MET"
         }
@@ -376,7 +376,7 @@
         "arts-proof": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "seoul": "NOT_MET"
         }
@@ -418,7 +418,7 @@
         "arts-proof": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "homeless": "NOT_MET"
         }
@@ -437,7 +437,7 @@
       },
       "answers": {},
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "criteria": {
           "arts-proof": "UNKNOWN"
         },
@@ -452,7 +452,7 @@
       "applicant": {},
       "answers": {},
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "missingInputs": [
           "birthDate",
           "residenceRegionCode",

@@ -237,7 +237,7 @@
         }
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "age-or-revenue": "NOT_MET"
         }
@@ -273,7 +273,7 @@
         }
       },
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "missingInputs": [
           "business.revenueByYear"
         ]

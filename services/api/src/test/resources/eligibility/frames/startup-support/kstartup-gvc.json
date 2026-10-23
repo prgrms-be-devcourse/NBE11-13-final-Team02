@@ -100,7 +100,7 @@
         }
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "stage": "NOT_MET"
         }

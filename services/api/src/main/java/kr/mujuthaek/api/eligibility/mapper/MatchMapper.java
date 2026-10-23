@@ -22,27 +22,27 @@ public final class MatchMapper {
         field.name(),
         new MatchResult.Counts(
             count(items, Eligibility.ELIGIBLE),
-            count(items, Eligibility.NEEDS_CHECK),
+            count(items, Eligibility.CHECK_NEEDED),
             (int) items.stream().filter(i -> CONDITIONS_NOT_READY.equals(i.reason())).count()),
         items);
   }
 
   /** 판정 틀이 없거나 읽지 못한 공고: 확인 필요 + 자격 조건 정리 중. */
   public static MatchResult.Item notReady(NoticeCandidate n) {
-    return item(n, Eligibility.NEEDS_CHECK, null, CONDITIONS_NOT_READY, List.of(), List.of(), 0);
+    return item(n, Eligibility.CHECK_NEEDED, null, CONDITIONS_NOT_READY, List.of(), List.of(), 0);
   }
 
   /** 판정한 공고 (지원 가능·확인 필요만 불러요). */
   public static MatchResult.Item judged(NoticeCandidate n, FrameJudgment j) {
-    boolean needsCheck = j.result() == Eligibility.NEEDS_CHECK;
+    boolean checkNeeded = j.result() == Eligibility.CHECK_NEEDED;
     return item(
         n,
         j.result(),
         j.rank(),
         null,
-        groups(j, needsCheck ? Verdict.UNKNOWN : Verdict.MET),
-        needsCheck ? JudgmentMapper.missingInputs(j.missingInputs()) : List.of(),
-        needsCheck ? openQuestions(j) : 0);
+        groups(j, checkNeeded ? Verdict.UNKNOWN : Verdict.MET),
+        checkNeeded ? JudgmentMapper.missingInputs(j.missingInputs()) : List.of(),
+        checkNeeded ? openQuestions(j) : 0);
   }
 
   private static MatchResult.Item item(

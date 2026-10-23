@@ -281,7 +281,7 @@
         "branch": "NO"
       },
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "criteria": {
           "industry-excluded": "UNKNOWN",
           "founder": "MET"
@@ -304,7 +304,7 @@
         "branch": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "industry-excluded": "NOT_MET"
         }
@@ -330,7 +330,7 @@
         "branch": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "founder": "NOT_MET"
         }
@@ -385,7 +385,7 @@
         "branch": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "gunpo-restricted": "NOT_MET"
         }

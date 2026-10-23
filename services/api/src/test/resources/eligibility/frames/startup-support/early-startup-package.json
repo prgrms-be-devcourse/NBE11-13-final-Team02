@@ -383,7 +383,7 @@
         "host-staff": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "business-age": "NOT_MET"
         }
@@ -409,7 +409,7 @@
         "host-staff": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "registered": "NOT_MET",
           "business-age": "NOT_MET"
@@ -440,7 +440,7 @@
         "host-staff": "NO"
       },
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "criteria": {
           "restricted": "UNKNOWN"
         },
@@ -476,7 +476,7 @@
         "host-staff": "NO"
       },
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "criteria": {
           "business-age": "UNKNOWN"
         }
@@ -506,7 +506,7 @@
         "host-staff": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "industry-excluded": "NOT_MET"
         }

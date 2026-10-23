@@ -80,7 +80,7 @@ public class MatchQueryService {
         continue;
       }
       FrameJudgment judgment = judgments.judge(frame, applicant);
-      if (judgment.result() != Eligibility.NOT_ELIGIBLE) {
+      if (judgment.result() != Eligibility.INELIGIBLE) {
         items.add(MatchMapper.judged(notice, judgment));
       }
     }

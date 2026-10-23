@@ -76,7 +76,7 @@ class JudgmentQueryServiceTest {
     assertThat(result.referenceDate()).isEqualTo(LocalDate.parse("2026-10-16"));
     JudgmentResult.Group artist = result.groups().getFirst();
     assertThat(artist.id()).isEqualTo("artist");
-    assertThat(artist.result()).isEqualTo(Verdict.MET);
+    assertThat(artist.result()).isEqualTo(Eligibility.ELIGIBLE);
     JudgmentResult.Criterion incomeOrAssets = artist.criteria().get(4);
     assertThat(incomeOrAssets.kind()).isEqualTo("ANY_OF");
     assertThat(incomeOrAssets.options().get(1).result()).isEqualTo(Verdict.MET);
@@ -96,7 +96,7 @@ class JudgmentQueryServiceTest {
   void anEmptyApplicantGetsTheQuestionnaire() throws Exception {
     JudgmentResult result = judgments.judgeHousing(frame("housing/seoripul-artown"), null, null);
 
-    assertThat(result.result()).isEqualTo(Eligibility.NEEDS_CHECK);
+    assertThat(result.result()).isEqualTo(Eligibility.CHECK_NEEDED);
     assertThat(result.missingInputs())
         .extracting(MissingInput::field)
         .contains("household.monthlyIncomeWon", "birthDate");
@@ -125,7 +125,7 @@ class JudgmentQueryServiceTest {
     assertThat(result.field()).isEqualTo("BUSINESS_SPACE");
     assertThat(result.result()).isEqualTo(Eligibility.ELIGIBLE);
     assertThat(result.groups().getFirst().id()).isEqualTo("youth");
-    assertThat(result.groups().getFirst().result()).isEqualTo(Verdict.MET);
+    assertThat(result.groups().getFirst().result()).isEqualTo(Eligibility.ELIGIBLE);
   }
 
   @Test

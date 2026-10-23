@@ -198,7 +198,7 @@
         }
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "rank": null,
         "groups": {
           "rank-1": "NOT_MET",
@@ -215,7 +215,7 @@
         }
       },
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "rank": null,
         "groups": {
           "rank-1": "UNKNOWN",

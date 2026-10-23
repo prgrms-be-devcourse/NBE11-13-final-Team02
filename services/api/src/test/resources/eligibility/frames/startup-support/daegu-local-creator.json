@@ -193,7 +193,7 @@
         "daegu-registration": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "daegu-resident": "NOT_MET"
         }

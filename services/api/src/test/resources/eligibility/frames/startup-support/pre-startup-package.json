@@ -273,7 +273,7 @@
         "rental-only": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "pre-founder": "NOT_MET"
         }
@@ -296,7 +296,7 @@
         "same-industry-restart": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "no-recent-closure": "NOT_MET"
         }

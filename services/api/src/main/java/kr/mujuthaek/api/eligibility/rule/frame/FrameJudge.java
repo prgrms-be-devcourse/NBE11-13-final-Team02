@@ -87,7 +87,7 @@ public final class FrameJudge {
         preferences,
         frame.notes(),
         questions(frame, applicant),
-        result == Eligibility.NEEDS_CHECK ? missingInputs(common, groups) : List.of());
+        result == Eligibility.CHECK_NEEDED ? missingInputs(common, groups) : List.of());
   }
 
   /** 내 순위: 충족한 대상군 중 가장 앞 순위. 1순위는 불충족, 2순위는 충족이면 2예요. */

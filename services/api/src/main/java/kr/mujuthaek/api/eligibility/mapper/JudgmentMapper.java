@@ -3,6 +3,7 @@ package kr.mujuthaek.api.eligibility.mapper;
 import java.util.List;
 import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
+import kr.mujuthaek.api.eligibility.rule.Eligibility;
 import kr.mujuthaek.api.eligibility.rule.frame.Evaluation;
 import kr.mujuthaek.api.eligibility.rule.frame.FrameJudgment;
 import kr.mujuthaek.api.eligibility.rule.frame.Input;
@@ -26,7 +27,7 @@ public final class JudgmentMapper {
                         g.group().id(),
                         g.group().name(),
                         g.group().rank(),
-                        g.verdict(),
+                        Eligibility.of(g.verdict()),
                         criteria(g.criteria())))
             .toList(),
         j.preferences().stream()

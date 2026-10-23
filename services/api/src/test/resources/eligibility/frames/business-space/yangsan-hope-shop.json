@@ -347,7 +347,7 @@
         "industry-other": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "industry-codes": "NOT_MET"
         }
@@ -409,7 +409,7 @@
         "industry-other": "NO"
       },
       "expect": {
-        "result": "NEEDS_CHECK",
+        "result": "CHECK_NEEDED",
         "groups": {
           "national-merit": "UNKNOWN"
         },
@@ -440,7 +440,7 @@
         "youth-idea": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "restricted": "NOT_MET"
         }
@@ -466,7 +466,7 @@
         "youth-idea": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "adult": "NOT_MET"
         }
@@ -492,7 +492,7 @@
         "youth-idea": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "nationality": "NOT_MET"
         }
@@ -518,7 +518,7 @@
         "youth-idea": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "industry-other": "NOT_MET"
         }
@@ -548,7 +548,7 @@
         "industry-other": "NO"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "closed-10y": "MET",
           "career-12m": "NOT_MET"

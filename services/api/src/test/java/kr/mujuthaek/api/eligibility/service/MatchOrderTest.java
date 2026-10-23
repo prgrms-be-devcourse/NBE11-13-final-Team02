@@ -74,7 +74,7 @@ class MatchOrderTest {
             Eligibility.ELIGIBLE,
             Eligibility.ELIGIBLE,
             Eligibility.ELIGIBLE,
-            Eligibility.NEEDS_CHECK);
+            Eligibility.CHECK_NEEDED);
     assertThat(result.counts()).isEqualTo(new MatchResult.Counts(4, 1, 0));
   }
 

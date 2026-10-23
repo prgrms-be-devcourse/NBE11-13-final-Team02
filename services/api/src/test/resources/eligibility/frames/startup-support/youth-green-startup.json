@@ -137,7 +137,7 @@
         "green-field": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "pre-youth-no-closure": "NOT_MET"
         }
@@ -159,7 +159,7 @@
         "green-field": "YES"
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "early-youth-age-window": "NOT_MET"
         }

@@ -142,7 +142,7 @@
         ]
       },
       "expect": {
-        "result": "NOT_ELIGIBLE",
+        "result": "INELIGIBLE",
         "criteria": {
           "corporation": "NOT_MET"
         }
