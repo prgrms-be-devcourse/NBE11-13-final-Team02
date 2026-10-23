@@ -26,7 +26,9 @@ class PostgresAreaBaseDataLoaderTest {
 
   @BeforeEach
   void clean() throws Exception {
-    exec("truncate area.facilities, area.stores, area.address_points, area.load_runs");
+    exec(
+        "truncate area.facilities, area.stores, area.address_points, area.region_boundaries,"
+            + " area.load_runs");
   }
 
   @Test
@@ -244,6 +246,48 @@ class PostgresAreaBaseDataLoaderTest {
                 "select col_description('area.address_points'::regclass, attnum) from pg_attribute"
                     + " where attrelid = 'area.address_points'::regclass and attname = 'underground'"))
         .contains("지하");
+  }
+
+  @Test
+  void regionBoundaries_transformFromUtmkFixShapesAndRejectBadRows() throws Exception {
+    AreaLoadReport r = load(AreaSource.REGION_BOUNDARY_SIG, "ALL", "boundary_sig.csv", false);
+
+    assertThat(r.status()).isEqualTo(AreaLoadReport.Status.SUCCEEDED);
+    assertThat(r.rowsInserted()).isEqualTo(3);
+    assertThat(r.rejectReasons()).isEqualTo(Map.of("BAD_CODE", 1, "BAD_GEOMETRY", 1));
+    assertThat(
+            one(
+                "select string_agg(code || ':' || st_numgeometries(geom::geometry), ',' order by code)"
+                    + " from area.region_boundaries where level = 'SIG'"))
+        .isEqualTo("11110:1,11140:2,11200:2"); // 꼬인 고리(성동구)는 고쳐서 두 조각
+    // UTM-K → 경위도 (청운동 근처)
+    assertThat(
+            one(
+                "select round(st_y(st_centroid(geom::geometry))::numeric, 2) || ','"
+                    + " || round(st_x(st_centroid(geom::geometry))::numeric, 2)"
+                    + " from area.region_boundaries where code = '11110'"))
+        .isEqualTo("37.59,126.97");
+  }
+
+  @Test
+  void regionBoundaries_reloadKeepsSameRowsAndLevelsStaySeparate() throws Exception {
+    load(AreaSource.REGION_BOUNDARY_SIG, "ALL", "boundary_sig.csv", false);
+    AreaLoadReport emd = load(AreaSource.REGION_BOUNDARY_EMD, "ALL", "boundary_emd.csv", false);
+    AreaLoadReport again =
+        load(
+            loader,
+            AreaSource.REGION_BOUNDARY_SIG,
+            "ALL",
+            "boundary_sig.csv",
+            "e".repeat(64),
+            LocalDate.of(2026, 10, 22),
+            false);
+
+    assertThat(emd.rowsInserted()).isEqualTo(1);
+    assertThat(emd.rowsDeleted()).isZero(); // 법정읍면동 적재가 시군구를 지우지 않음
+    assertThat(again.rowsUnchanged()).isEqualTo(3);
+    assertThat(again.rowsUpdated()).isZero();
+    assertThat(one("select count(*) from area.region_boundaries")).isEqualTo("4");
   }
 
   @Test

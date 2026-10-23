@@ -20,6 +20,12 @@ class AreaFixturesTest {
       new TreeMap<>(
           Map.ofEntries(
               Map.entry(
+                  "boundary_sig.csv",
+                  "7ead3c259db060fd56c45ec852dc5c8b735387f36b818fbbccf423e73d346596"),
+              Map.entry(
+                  "boundary_emd.csv",
+                  "896c9cf75d9631aa733d0ae4e5cab2b05916374c2ab7c2ea19b23f6e50674bd1"),
+              Map.entry(
                   "address_entrance_11.txt",
                   "446a23e69e56fd0e761832caea54cc52b2aab4f6fbb898181fa7b67b90c201e7"),
               Map.entry(

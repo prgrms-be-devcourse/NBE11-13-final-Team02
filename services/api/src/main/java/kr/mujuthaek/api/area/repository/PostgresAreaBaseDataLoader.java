@@ -141,6 +141,11 @@ public final class PostgresAreaBaseDataLoader {
         deleted = update(conn, sql("delete_address_points.sql"), req.scope());
         iu = queryPair(conn, sql("apply_address_points.sql"), req.scope(), dataDate);
       }
+      // 경계는 시군구·법정읍면동이 파일 하나씩이라, 지우기를 그 단계(level) 안에서만 해요.
+      case REGION_BOUNDARIES -> {
+        deleted = update(conn, sql("delete_region_boundaries.sql"), source.boundaryLevel());
+        iu = queryPair(conn, sql("apply_region_boundaries.sql"), source.boundaryLevel(), dataDate);
+      }
       default -> throw new IllegalStateException("모르는 적재 대상: " + source.target());
     }
     int inserted = iu[0];
@@ -341,9 +346,17 @@ public final class PostgresAreaBaseDataLoader {
           case STORES -> "select count(*) from area.stores where load_scope = ?";
           case ADDRESS_POINTS -> "select count(*) from area.address_points where load_scope = ?";
           case FACILITIES -> "select count(*) from area.facilities where source = ?";
+          case REGION_BOUNDARIES -> "select count(*) from area.region_boundaries where level = ?";
         };
+    AreaSource source = req.source();
+    String key =
+        source.scoped()
+            ? req.scope()
+            : source.target() == AreaSource.Target.REGION_BOUNDARIES
+                ? source.boundaryLevel()
+                : source.name();
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
-      ps.setString(1, req.source().scoped() ? req.scope() : req.source().name());
+      ps.setString(1, key);
       try (ResultSet rs = ps.executeQuery()) {
         rs.next();
         int existing = rs.getInt(1);
@@ -452,6 +465,7 @@ public final class PostgresAreaBaseDataLoader {
           underground   text,
           bldg_main     text,
           bldg_sub      text,
-          zip_code      text
+          zip_code      text,
+          geom          geometry
       ) on commit drop""";
 }
