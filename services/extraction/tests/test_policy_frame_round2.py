@@ -11,6 +11,7 @@ from mujuthaek_extraction.judgment.policy_frame import (
     COMMON_EXCLUSION,
     DIRECTION,
     DIRECTION_CONFLICT,
+    EMPTY_GROUP,
     EXCEPTION,
     MERGED_QUESTION,
     SCOPE,
@@ -101,7 +102,9 @@ def test_exclusion_item_from_a_common_paragraph_attached_to_one_group_moves_to_c
     item = condition("OTHER", "이 센터를 졸업한 이력이 있는 회사", group="biz", question="이 센터를 졸업했나요?", metWhen="NO")
     pre = condition("PRE_FOUNDER", "사업자 등록 전인 개인", group="pre")
     made = frame_of([pre, item], text, groups=TWO_GROUPS)
-    assert made["groups"][1]["criteria"] == []
+    # 제외를 옮겨 비게 된 대상군은 누구나 통과하지 않게 대상군 질문(확인 필요)으로 채움(4차)
+    [asked] = made["groups"][1]["criteria"]
+    assert (asked["kind"], asked["metWhen"], asked["inReview"]) == ("ASK", "YES", True) and EMPTY_GROUP in asked["reviewReason"]
     [moved] = made["common"]
     assert (moved["question"], moved["metWhen"], moved["inReview"]) == ("이 센터를 졸업했나요?", "NO", False)
     # 택1 길 안이면 옮기지 않고 확인 필요

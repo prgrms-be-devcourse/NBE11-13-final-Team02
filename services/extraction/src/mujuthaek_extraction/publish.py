@@ -12,13 +12,19 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import date
 from typing import Any
 from urllib.parse import urlsplit
 
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.judgment import build_judgment
-from mujuthaek_extraction.judgment.policy_frame import region_named, space_frame, startup_frame, uses_judging_date
+from mujuthaek_extraction.judgment.policy_frame import (
+    PERIOD_TEXT_FIELDS,
+    policy_apply_period,
+    region_named,
+    space_frame,
+    startup_frame,
+    uses_judging_date,
+)
 from mujuthaek_extraction.judgment.sanity import repair
 from mujuthaek_extraction.judgment.schema import frame_errors
 from mujuthaek_extraction.judgment.space import build_space
@@ -301,42 +307,11 @@ def not_sent_reason(policy: dict[str, Any], frame: dict[str, Any] | None, frame_
     return REGION_UNDECIDED if policy_region_codes(policy, regions, reading) is None else "알 수 없음"
 
 
-_DATE = r"(20\d{2})[-.]?(\d{2})[-.]?(\d{2})"
-# 신청 기간 칸 글자가 기간 하나뿐일 때만(「20260123 ~ 20260202」, 기업마당 「2026-10-16 ~ 2026-11-03」). 여러 구간·「예산 소진 시까지」는 모름
-_ONE_PERIOD = re.compile(rf"\s*{_DATE}\s*~\s*{_DATE}\s*")
 # 신청 기간 칸 글자 전체가 상시·수시·연중 모집이라는 말뿐일 때(「상시」, 「상시 접수」, 「연중 수시 모집」)
 _ALWAYS_TEXT = re.compile(r"[\s(]*(?:(?:상시|수시|연중)\s*)+(?:모집|접수|신청)?[\s)]*")
 YOUTH_ALWAYS_OPEN = "0057002"  # 온통청년 신청 기간 구분(aplyPrdSeCd): 0057002 상시
-PERIOD_TEXT_FIELDS = ("aplyYmd", "reqstBeginEndDe")  # 온통청년·기업마당 신청 기간 칸
 # 계약 detailUrl은 format uri: 받는 쪽 검사기가 거절하지 않게 RFC 3986 글자만(한글·공백이 그대로 든 주소는 보내지 않음)
 URI_CHARS = re.compile(r"[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
-
-
-def _day(value: Any) -> str | None:
-    text = str(value or "")
-    return _real_day(text[:4], text[4:6], text[6:8]) if re.fullmatch(r"20\d{6}", text) else None
-
-
-def _real_day(year: str, month: str, day: str) -> str | None:
-    try:
-        return date(int(year), int(month), int(day)).isoformat()
-    except ValueError:
-        return None
-
-
-def policy_apply_period(policy: dict[str, Any]) -> tuple[str | None, str | None]:
-    """접수 기간(시작일, 마감일). K-Startup 날짜 칸이 있으면 그것, 없으면 온통청년(aplyYmd)·기업마당(reqstBeginEndDe) 신청 기간 칸이
-    기간 하나뿐일 때 그 두 날. 여러 구간이거나 날짜가 아닌 글이면 모름(None) — 틀린 날짜보다 모름이 낫습니다."""
-    record = policy.get("record") or {}
-    start, end = _day(record.get("pbanc_rcpt_bgng_dt")), _day(record.get("pbanc_rcpt_end_dt"))
-    if start or end:
-        return start, end
-    for key in PERIOD_TEXT_FIELDS:
-        if (found := _ONE_PERIOD.fullmatch(str(record.get(key) or ""))) is not None:
-            first, last = _real_day(*found.groups()[:3]), _real_day(*found.groups()[3:])
-            if first and last and first <= last:
-                return first, last
-    return None, None
 
 
 def policy_apply_always(policy: dict[str, Any]) -> bool:
