@@ -5,6 +5,8 @@
 고친 결과로 다시 결합·검증해서 나빠진 것 없이 좋아졌을 때만 채택하고, 아니면 처음 결과를 그대로 씁니다.
 나빠졌는지는 개수가 아니라 (코드, 항목)별로 봅니다. 한 항목을 고치며 다른 항목에 새 문제가 생기면 채택하지 않습니다(2026-10-20).
 근거(인용) 문제만 보낸 자격 조건은 조건의 뜻(대상·종류·조건식·예외)이 바뀌면 그 항목만 처음 것을 그대로 둡니다.
+일정은 처음 답의 시작·끝 날짜가 근거 인용문으로 확인되는데 재확인 답이 그 날짜를 비우거나 근거에 없는 시각을 붙이면 그 일정만 처음 것을 둡니다.
+표시 메모 가운데 RECHECK_NOTE_CODES(서류 표 행 누락 의심)는 사람 확인 이슈가 아니지만 재확인에 보내고, 줄었는지도 함께 셉니다.
 오류 종류마다 따로 처리하지 않습니다. 검사기가 준 오류 문구를 그대로 AI에 전달합니다. 표시만 하는 notes는 보내지 않습니다(비용).
 AI 응답의 자기 보고로 통과되는 경로는 없습니다(채택 판단은 같은 검증기가 합니다).
 """
@@ -17,14 +19,18 @@ import re
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from mujuthaek_extraction.assemble.ai_output import SECTIONS
+from mujuthaek_extraction.assemble.details import KST, times_in
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.extract import ExtractionRun, run_extraction, schema_errors
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 from mujuthaek_extraction.model.base import ExtractionModel
 from mujuthaek_extraction.rules.base import CallSpec, FieldRules, structure_summary
+from mujuthaek_extraction.verify.claims import has_date
+from mujuthaek_extraction.verify.consistency import DOCUMENT_OMISSION, omitted_document_rows
 from mujuthaek_extraction.verify.model import VerificationReport
 
 NOTICE_FIELD = re.compile(r"\s/notice(?:/([A-Za-z]+))?")  # 문제 설명 「코드 /notice/announcedOn: …」의 칸 이름
@@ -59,6 +65,9 @@ EVIDENCE_ONLY_CODES = frozenset(
 # AI 재확인으로 보내지 않는 이슈: 공급표 금액 빈칸(SUPPLY_PRICE_MISSING)은 코드가 공고문 글을 이미 찾아봤고, 표 칸이 비어 있어
 # AI가 다시 읽어도 근거 있는 값을 더 얻기 어렵습니다. 이 이슈만으로 유료 재확인 호출이 늘지 않게 사람 확인으로 둡니다
 NO_RECHECK_CODES = frozenset({"SUPPLY_PRICE_MISSING"})
+# 화면 메모(verifier.NOTE_CODES)지만 AI 재확인에 보내는 것: 원문 서류 표 행을 어느 서류도 인용하지 않음(2026-10-23).
+# 누락이라 사람 확인으로 막지는 않지만, 재확인이 서류 섹션 전체를 다시 읽어 빠진 서류를 더할 수 있습니다
+RECHECK_NOTE_CODES = frozenset({DOCUMENT_OMISSION})
 # 뜻 비교에서 빼는 글 칸(설명·인용 참조). 나머지(대상·종류·조건식·단위·기준표·예외)는 그대로 같아야 합니다
 TEXT_KEYS = frozenset({"quoteRefs", "basis", "description", "originalText", "reason", "appliesTo"})
 INSTRUCTIONS = """검증에서 아래 항목에 문제가 발견되었습니다. 원문 전체를 다시 확인해 각 항목을 고친 뒤 같은 섹션·같은 id로 돌려줍니다.
@@ -114,10 +123,14 @@ def _item_key(candidate: dict[str, Any], pointer: str) -> tuple[str, str | None]
     return None
 
 
+def _rechecked_notes(candidate: dict[str, Any]) -> list[dict[str, str]]:
+    return [note for note in candidate["quality"]["notes"] if note.get("code") in RECHECK_NOTE_CODES]
+
+
 def problem_items(report: VerificationReport) -> dict[tuple[str, str | None], list[str]]:
     candidate = report.candidate
     problems: dict[tuple[str, str | None], list[str]] = {}
-    for issue in candidate["quality"]["reviewIssues"]:
+    for issue in [*candidate["quality"]["reviewIssues"], *_rechecked_notes(candidate)]:
         if issue["code"] in NO_RECHECK_CODES:
             continue
         key = _item_key(candidate, issue["target"])
@@ -141,10 +154,13 @@ def _location(candidate: dict[str, Any], pointer: str) -> tuple[str, str | None]
 
 
 def _problem_keys(report: VerificationReport) -> tuple[Counter, Counter]:
-    """(계약 오류, 사람 확인 이슈)를 (코드, 위치)별로 셉니다. 표시만 하는 notes는 세지 않음."""
+    """(계약 오류, 사람 확인 이슈)를 (코드, 위치)별로 셉니다. 표시만 하는 notes는 재확인에 보내는 것(RECHECK_NOTE_CODES)만 셉니다.
+    서류 표 행 누락 의심은 빠진 행 수만큼 세어, 재확인이 일부 행만 채워도 줄어든 것으로 봅니다."""
     candidate = report.candidate
     errors = Counter((error.partition(" ")[0], _location(candidate, error.partition(" ")[2])) for error in report.contract_errors)
     issues = Counter((issue["code"], _location(candidate, issue["target"])) for issue in candidate["quality"]["reviewIssues"])
+    for note in _rechecked_notes(candidate):
+        issues[(note["code"], _location(candidate, note["target"]))] += omitted_document_rows(note["description"])
     return errors, issues
 
 
@@ -190,6 +206,51 @@ def _keep_meaning(parts: list[dict[str, Any]], answer: dict[str, Any], targets: 
         if not (isinstance(item, dict) and item.get("id") in evidence_only and item.get("id") in original and _meaning(item) != _meaning(original[item["id"]]))
     ]
     return answer if len(kept) == len(answer["eligibility"]) else {**answer, "eligibility": kept}
+
+
+def _moment(value: Any) -> tuple[str, int | None] | None:
+    """일정 시작·끝 값 → (날짜, 시각(분) 또는 None). 형식을 모르면 None."""
+    if not isinstance(value, dict) or not isinstance(value.get("value"), str):
+        return None
+    if value.get("precision") != "MINUTE":
+        return value["value"][:10], None
+    try:
+        moment = datetime.fromisoformat(value["value"]).astimezone(KST)
+    except ValueError:
+        return None
+    return moment.date().isoformat(), moment.hour * 60 + moment.minute
+
+
+def _keep_verified_dates(parts: list[dict[str, Any]], answer: dict[str, Any]) -> dict[str, Any]:
+    """처음 답의 일정 시작·끝 날짜가 그 일정의 근거 인용문에서 확인되는데, 재확인 답이 그 칸을 비우거나 근거 인용문에 없는 시각을 붙이면
+    그 일정을 응답에서 뺍니다(처음 일정이 그대로 남음). 2026-10-23 시험 채점: 처음 답이 근거대로 적은 마감일을, 다른 문제를 줄인
+    재확인 답이 비워 둔 채 채택되어 마감일이 사라졌음. 확인된 값을 근거 없이 잃지 않게 합니다."""
+    index = _part_with(parts, "schedules")
+    if index is None or not isinstance(answer.get("schedules"), list):
+        return answer
+    first_quotes = {q["ref"]: q["text"] for q in parts[index].get("quotes", []) if isinstance(q, dict)}
+    new_quotes = {q["ref"]: q["text"] for q in answer.get("quotes", []) if isinstance(q, dict)}
+    original = {item.get("id"): item for item in parts[index]["schedules"] if isinstance(item, dict)}
+
+    def lost(item: dict[str, Any]) -> bool:
+        before = original.get(item.get("id"))
+        if before is None:
+            return False
+        before_texts = [first_quotes.get(r, "") for r in before.get("quoteRefs") or []]
+        after_text = "\n".join(new_quotes.get(r, "") for r in item.get("quoteRefs") or [] if isinstance(r, str))
+        for key in ("startsAt", "endsAt"):
+            old, new = before.get(key), item.get(key)
+            if old is None or not has_date(before_texts, old, end=key == "endsAt"):
+                continue  # 처음 값이 없거나 근거로 확인되지 않으면 재확인 답을 막지 않습니다
+            if new is None:
+                return True
+            moment = _moment(new)
+            if moment is not None and moment[1] is not None and moment[1] not in times_in(after_text):
+                return True  # 근거에 없는 시각을 붙임
+        return False
+
+    kept = [item for item in answer["schedules"] if not (isinstance(item, dict) and lost(item))]
+    return answer if len(kept) == len(answer["schedules"]) else {**answer, "schedules": kept}
 
 
 def _with_quotes(item: Any, quotes: dict[str, str]) -> Any:
@@ -355,7 +416,7 @@ def recheck_problems(
     schema = one_call.build_request(call, material, structure_summary(parts[0])).output_schema
     if schema_errors(run.parts[0], schema) is not None:
         return RecheckResult(parts, first, rechecked, False, run)
-    answer = _keep_meaning(parts, run.parts[0], targets)
+    answer = _keep_verified_dates(parts, _keep_meaning(parts, run.parts[0], targets))
     whole = tuple(t["section"] for t in targets if t["id"] is None and t["section"] != "notice")
     merged = merge_recheck(parts, answer, whole, sent_scope(targets))
     second = evaluate(merged)

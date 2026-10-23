@@ -8,9 +8,9 @@ from helpers import ai_part, example, source_for, to_ai
 
 from mujuthaek_extraction.assemble.assembler import assemble
 from mujuthaek_extraction.model import RecordedModel
-from mujuthaek_extraction.recheck import recheck_problems
+from mujuthaek_extraction.recheck import _improved, _keep_verified_dates, _problem_keys, problem_items, recheck_problems
 from mujuthaek_extraction.rules.housing_notice import RULES
-from mujuthaek_extraction.verify import SourceBundle, verify_extraction
+from mujuthaek_extraction.verify import SourceBundle, VerificationReport, verify_extraction
 
 
 def setup():
@@ -240,3 +240,45 @@ def test_recheck_changes_only_problem_fields_of_notice():
     # 칸을 정할 수 없는 문제(공고 전체)면 전부 받습니다
     whole = [{"section": "notice", "id": None, "problems": ["NOTICE_NOT_EXTRACTED /notice: 없음"]}]
     assert merge_recheck(parts, answer, (), sent_scope(whole))[0]["notice"]["title"] == "다른 제목"
+
+
+def schedule_part(ends_at, quote_ref="q-end", quote="등기우편 신청: 2026. 11. 3.(화) 도착분까지"):
+    item = {"id": "mail-apply", "kinds": ["APPLICATION"], "startsAt": None, "endsAt": ends_at, "quoteRefs": [quote_ref]}
+    return {"quotes": [{"ref": quote_ref, "documentId": "text1", "text": quote}], "schedules": [item]}
+
+
+def test_recheck_answer_that_loses_a_verified_schedule_date_keeps_the_first_item():
+    first = [schedule_part({"precision": "DAY", "value": "2026-11-03"})]
+    # 재확인 답이 확인된 마감일을 비움 → 그 일정은 응답에서 빠져 처음 것이 남습니다
+    nulled = schedule_part(None)
+    assert _keep_verified_dates(first, nulled)["schedules"] == []
+    # 근거에 없는 시각(16:00)을 붙임 → 처음 것
+    timed = schedule_part({"precision": "MINUTE", "value": "2026-11-03T16:00:00+09:00"})
+    assert _keep_verified_dates(first, timed)["schedules"] == []
+    # 근거에 그 시각이 있으면 받습니다
+    stated = schedule_part({"precision": "MINUTE", "value": "2026-11-03T16:00:00+09:00"}, quote="2026. 11. 3.(화) 16:00 도착분까지")
+    assert _keep_verified_dates(first, stated) is stated
+    # 처음 날짜가 근거로 확인되지 않으면(인용에 그 날짜 없음) 재확인 답을 막지 않습니다
+    unverified = [schedule_part({"precision": "DAY", "value": "2026-11-05"})]
+    assert _keep_verified_dates(unverified, nulled) is nulled
+
+
+def test_rechecked_note_is_sent_and_counted_by_omitted_rows():
+    candidate = {
+        "requiredDocuments": [],
+        "quality": {
+            "reviewIssues": [],
+            "notes": [
+                {"code": "DOCUMENT_OMISSION_SUSPECTED", "target": "/quality/coverage/requiredDocuments", "description": "원문 서류 표 행 5개를 …"},
+                {"code": "DETAIL_UNVERIFIED_CLEARED", "target": "/requiredDocuments", "description": "표시만"},
+            ],
+        },
+    }
+    report = VerificationReport(candidate=candidate, findings=[], contract_errors=[])
+    assert list(problem_items(report)) == [("requiredDocuments", None)]  # 서류 섹션 전체를 다시 봅니다
+    _, issues = _problem_keys(report)
+    assert issues[("DOCUMENT_OMISSION_SUSPECTED", ("requiredDocuments", None))] == 5
+    fewer = copy.deepcopy(candidate)
+    fewer["quality"]["notes"][0]["description"] = "원문 서류 표 행 2개를 …"
+    # 빠진 행이 줄면 나아진 것으로 봅니다(일부만 채운 재확인도 채택될 수 있음)
+    assert _improved(report, VerificationReport(candidate=fewer, findings=[], contract_errors=[]), ["requiredDocuments"])

@@ -7,7 +7,7 @@ V6 표 위치 대조: 값이 원문에 "있는지"(V2·V3)가 아니라 "제자�
 V7 앞뒤 일관성: 일정 순서(공고 ≤ 접수 시작 ≤ 당첨 발표 ≤ 계약 ≤ 입주, 시작 ≤ 끝), 값의 정상 범위(금액·면적·나이·소득 비율),
     월임대료가 보증금보다 큰 가격안, 주택형별 모집 수 합과 공고 전체 모집 수.
 V8 누락 탐지: AI가 "다 뽑았다(EXTRACTED)"고 한 섹션이 비었는데 원문에 그 절 제목이 있는 경우, 배점표가 있는데 가점 행이 없는 경우,
-    첨부 엑셀 주택 목록의 행 수보다 위치·공급 묶음이 크게 적은 경우.
+    첨부 엑셀 주택 목록의 행 수보다 위치·공급 묶음이 크게 적은 경우, 원문 서류 표의 행을 어느 서류도 인용하지 않은 경우(2026-10-23).
 모두 사람 확인 후보(의심)이며, 판정에 쓰는 섹션(공고·자격)이 아니면 화면 표시 메모로 갑니다(verifier.NOTE_CODES).
 """
 
@@ -747,6 +747,81 @@ def _check_price_tables(candidate: dict[str, Any], sources: SourceBundle, found:
         )
 
 
+# ---- V8 서류 표 행 누락 (2026-10-23) ----
+# 계층·대상별 서류 표처럼 행이 많은 표를 AI가 중간에서 멈추면(잘림 없이 정상 종료) 나머지 행의 서류가 통째로 빠졌고, 잡는 검사가 없었습니다.
+# 서류 표: 머리 행이나 표 바로 위 제목 줄(띄어 쓴 「구 비 서 류」 포함)에 서류 표 낱말이 있는 표, 그리고 쪽 표시만 사이에 두고 이어진 표.
+# 행에 서류 낱말이 있는데 어느 서류의 근거 인용·이름도 그 행에 없으면 빠진 행으로 셉니다. 의심이라 화면 메모로 두고(verifier.NOTE_CODES),
+# AI 재확인에는 서류 섹션 전체 문제로 보냅니다(recheck.RECHECK_NOTE_CODES).
+DOCUMENT_OMISSION = "DOCUMENT_OMISSION_SUSPECTED"
+DOCUMENT_TABLE_WORDS = re.compile(r"제출서류|구비서류|증빙서류|신청서류|확인서류|발급처|발급기관")  # 띄어쓰기를 뺀 글에서 찾음
+DOCUMENT_HEADING_WORDS = re.compile(r"제출서류|구비서류|증빙서류|신청서류|확인서류")
+DOCUMENT_WORD = re.compile(
+    r"증명서|확인서|증명원|확인원|등본|초본|사본|신분증|동의서|신청서|위임장|인감|통장|계약서|서약서|확약서|진단서|명세서|요구서|각서|등록증|자격증|수급자증"
+)
+HEADING_LOOKBACK = 3  # 표 위로 볼 글 줄 수(쪽 표시·빈 줄 제외)
+DOCUMENT_OMISSION_MIN_ROWS = 2  # 이만큼 빠져야 알립니다(한 행은 다른 표·글로 넣은 서류일 때가 많음)
+OMITTED_ROWS = re.compile(r"서류 표 행 (\d+)개")
+
+
+def omitted_document_rows(description: str) -> int:
+    """DOCUMENT_OMISSION_SUSPECTED 설명의 빠진 행 수(재확인이 일부만 채웠는지 비교하는 데 씀). 없으면 1."""
+    found = OMITTED_ROWS.search(description or "")
+    return int(found[1]) if found else 1
+
+
+def _document_table_rows(text: str) -> list[str]:
+    """원문 서류 표의 행(머리 행 제외)."""
+    lines = text.split(SHEET_START, 1)[0].split("\n")
+    out: list[str] = []
+    previous_end: int | None = None  # 바로 앞 서류 표가 끝난 줄
+    i = 0
+    while i < len(lines):
+        if not (_row_line(lines[i]) and (i == 0 or not _in_table(lines[i - 1]))):
+            i += 1
+            continue
+        start = i
+        rows = []
+        while i < len(lines) and _in_table(lines[i]):
+            if _row_line(lines[i]):
+                rows.append(lines[i])
+            i += 1
+        above = [line for line in reversed(lines[:start]) if line.strip() and not PAGE_MARK.match(line)][:HEADING_LOOKBACK]
+        header = bool(rows) and bool(DOCUMENT_TABLE_WORDS.search("".join(rows[0].split())))
+        titled = any(DOCUMENT_HEADING_WORDS.search("".join(line.split())) for line in above)
+        continued = previous_end is not None and all(not line.strip() or PAGE_MARK.match(line) for line in lines[previous_end:start])
+        if header or titled or continued:
+            out += rows[1:] if header else rows
+            previous_end = i
+        else:
+            previous_end = None
+    return out
+
+
+def _check_document_rows(candidate: dict[str, Any], sources: SourceBundle, find) -> None:
+    documents = candidate.get("requiredDocuments") or []
+    if not documents:
+        return  # 서류가 하나도 없으면 섹션 누락 검사(SECTION_OMISSION_SUSPECTED)가 봅니다
+    quotes = {ev["id"]: normalize(ev["quote"]) for ev in candidate.get("evidence") or []}
+    cited = [quotes[i] for d in documents for i in d.get("evidenceIds") or [] if len(quotes.get(i, "")) >= 4]
+    names = [n for n in (normalize(str(d.get("name") or "")) for d in documents) if len(n) >= 2]
+    missed = []
+    for row in _document_table_rows("\n".join(sources.texts.values())):
+        if not DOCUMENT_WORD.search(row):
+            continue
+        plain = normalize(row)
+        if any(q in plain or plain in q for q in cited) or any(n in plain for n in names):
+            continue
+        missed.append(" ".join(c for c in _cells(row) if c)[:60])
+    if len(missed) >= DOCUMENT_OMISSION_MIN_ROWS:
+        shown = ", ".join(f"「{row}」" for row in missed[:3])
+        find(
+            "V8",
+            DOCUMENT_OMISSION,
+            "/quality/coverage/requiredDocuments",
+            f"원문 서류 표 행 {len(missed)}개를 근거로 쓴 서류가 없습니다(빠진 서류 의심): {shown}{' …' if len(missed) > 3 else ''}",
+        )
+
+
 def check_consistency(candidate: dict[str, Any], sources: SourceBundle) -> list[Finding]:
     """정답표 없이 원문과 결과만으로 하는 V6·V7·V8 검사를 모두 돌려 결과를 돌려줍니다."""
     findings: list[Finding] = []
@@ -760,6 +835,7 @@ def check_consistency(candidate: dict[str, Any], sources: SourceBundle) -> list[
     _check_unattached_prices(candidate, find)
     _check_consistency(candidate, find)
     _check_omissions(candidate, sources, find)
+    _check_document_rows(candidate, sources, find)
     _check_image_content(candidate, sources, find)
     _check_image_evidence(candidate, sources, find)
     _check_notice_document(candidate, find)

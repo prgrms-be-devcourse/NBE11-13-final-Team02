@@ -54,7 +54,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
-from mujuthaek_extraction.assemble.regions import SIDO_ALIASES, SIGUNGU_SUFFIX
+from mujuthaek_extraction.assemble.regions import SIDO_NAMES, SIGUNGU_SUFFIX
 from mujuthaek_extraction.judgment.sanity import INVERTED, repair
 from mujuthaek_extraction.judgment.startup import AGE_BANDS
 
@@ -263,13 +263,8 @@ YEARS_WORDS = {
 NO_DIRECTION = "질문 방향(예·아니오 중 어느 답이 충족인지)을 정하지 못했습니다"
 
 
-# 시도 정식 이름 ↔ 약칭 대응(지역표의 약칭 SIDO_ALIASES에서 만듦). 앞 두 글자 비교는 「충청남도」↔「충남」을 놓쳐 공간 위치를 잃었음
+# 시도 정식 이름 ↔ 약칭 대응은 지역표(regions.SIDO_NAMES)의 것을 씁니다. 앞 두 글자 비교는 「충청남도」↔「충남」을 놓쳐 공간 위치를 잃었음
 # (리뷰 2026-10-23). 「광주」는 경기도 광주시와 구별할 수 없어 광주광역시의 약칭으로 쓰지 않습니다(지역표와 같은 이유).
-_SIDO_SAME: dict[str, set[str]] = {}
-for _alias, _full in SIDO_ALIASES.items():
-    _SIDO_SAME.setdefault(_full, {_full}).add(_alias)
-_SIDO_SAME.setdefault("광주광역시", {"광주광역시"})
-SIDO_NAMES: dict[str, set[str]] = {name: same for same in _SIDO_SAME.values() for name in same}
 
 
 def _place_named(token: str, plain: str) -> bool:

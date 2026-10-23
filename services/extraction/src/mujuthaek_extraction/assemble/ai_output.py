@@ -18,6 +18,9 @@ from mujuthaek_extraction.contracts import tools
 
 VERSION = "1"
 SECTIONS = ("notice", "locations", "schedules", "supplyGroups", "eligibility", "selectionRules", "requiredDocuments", "guidance")
+# 코드가 만든 조각(공급표 옮기기)이 결합기에 넘기는 검수 이슈 목록: [{"supplyGroupId", "code", "description"}].
+# AI 출력 칸이 아니므로 결합기가 형식 검사 전에 꺼냅니다(2026-10-23: 나누지 못한 두 금액 칸을 조용히 버리지 않게)
+CODE_ISSUES = "_reviewIssues"
 PROGRAM_ONLY_DEFS = {
     "evidence",
     "locator",

@@ -219,6 +219,9 @@ def _has_date(texts: list[str], value: dict[str, str] | None, *, end: bool = Fal
     return bool(year_ok and end and re.search(rf"(?:[~∼-]|부터)\s*0?{d}(?!\d)\s*(?:\.|일|\(|$)", rest))
 
 
+has_date = _has_date  # 재확인 채택(recheck._keep_verified_dates)에서도 같은 날짜 확인 규칙을 씁니다
+
+
 def _written_dates(text: str) -> set[date]:
     """연도까지 적힌 날짜들(「2026. 10. 7.」「2026년 10월 7일」「'26.10.07」)."""
     found = set()
