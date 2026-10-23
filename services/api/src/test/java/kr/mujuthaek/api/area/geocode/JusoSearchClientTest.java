@@ -168,6 +168,23 @@ class JusoSearchClientTest {
   }
 
   @Test
+  void keywordIsCleanedAndEmptyKeywordIsNotSent() {
+    var client = client(KEY);
+    server
+        .expect(once(), requestTo(URL))
+        .andExpect(
+            content()
+                .string(
+                    org.hamcrest.Matchers.containsString(
+                        "keyword=%EC%B4%88%EB%9F%89%EC%83%81%EB%A1%9C+1-2&")))
+        .andRespond(withSuccess(body("0", "0", ""), MediaType.APPLICATION_JSON));
+
+    assertThat(client.search("초량상로 <1-2>")).isInstanceOf(NotFound.class);
+    assertThat(client.search(" %= ")).isEqualTo(new Rejected("E0005"));
+    server.verify();
+  }
+
+  @Test
   void withoutKeyNothingIsCalled() {
     var client = client("");
 
