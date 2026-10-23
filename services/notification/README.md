@@ -47,3 +47,26 @@ notification.requested → NotificationService  회원마다·채널마다 받�
 메일 설정
 - 로컬: `NOTIFICATION_MAIL_PROVIDER=ses`, `NOTIFICATION_MAIL_FROM`(SES에서 인증한 주소), `AWS_PROFILE`(키는 `~/.aws/credentials`에만)
 - 배포(EC2): SES 정책을 붙인 IAM 역할을 인스턴스에 연결하고 메타데이터 hop limit을 2로. `.env`에 AWS 키를 넣지 않아요 (넣으면 역할보다 먼저 써요)
+
+## 테스트 메시지 (로컬)
+
+api 없이 `notification.requested` 6종류를 RabbitMQ에 직접 넣어 메일을 받아 봐요 (`samples/`).
+
+```bash
+# 알림 서버를 띄운 뒤 (SES로 실제 발송하려면 NOTIFICATION_MAIL_PROVIDER=ses …)
+./samples/publish.sh 받을주소@example.com        # 6개 모두. 번호를 붙이면 그것만: ./samples/publish.sh 주소 3 5
+./samples/status.sh                              # 발송 줄 상태 (주소는 안 보여요)
+./samples/send-now.sh                            # 1·2번(08:00·18:00 묶음)을 지금 보내게 당기기
+```
+
+| 파일 | type | 바로 가나 |
+| --- | --- | --- |
+| `1-new-notice.json` | NEW_NOTICE | 묶음 (08:00·18:00) |
+| `2-new-support.json` | NEW_SUPPORT | 묶음 |
+| `3-deadline-d3.json` | DEADLINE_D3 | 바로 |
+| `4-deadline-d1.json` | DEADLINE_D1 (`SPACE_RECRUITMENT`) | 바로 |
+| `5-corrected.json` | CORRECTED | 바로 |
+| `6-follow-up.json` | FOLLOW_UP | 바로 |
+
+- 실행할 때마다 eventId·dedupKey를 새로 만들어서 다시 보내도 매번 새 메일이 가요
+- SES 샌드박스는 인증한 주소로만 받을 수 있어요

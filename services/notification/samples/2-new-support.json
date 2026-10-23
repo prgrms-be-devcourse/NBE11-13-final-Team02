@@ -1,0 +1,16 @@
+{
+  "eventId": "__EVENT_ID__",
+  "eventType": "notification.requested",
+  "schemaVersion": 1,
+  "occurredAt": "__NOW__",
+  "producer": "api",
+  "payload": {
+    "type": "NEW_SUPPORT",
+    "dedupKey": "BENEFIT:0192b6f0-2222-7000-8000-000000000002:NEW:__RUN__",
+    "target": { "type": "BENEFIT", "id": "0192b6f0-2222-7000-8000-000000000002" },
+    "title": "새 지원 사업: 서울시 청년 월세 지원",
+    "body": "관심 조건에 맞는 새 지원 사업 소식이에요. 서울특별시 · 11월 20일 마감",
+    "linkPath": "/benefits/0192b6f0-2222-7000-8000-000000000002",
+    "recipients": [{ "userId": "__USER_ID__", "email": "__EMAIL__", "quietEnabled": false }]
+  }
+}

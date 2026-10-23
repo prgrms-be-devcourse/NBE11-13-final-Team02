@@ -1,0 +1,16 @@
+{
+  "eventId": "__EVENT_ID__",
+  "eventType": "notification.requested",
+  "schemaVersion": 1,
+  "occurredAt": "__NOW__",
+  "producer": "api",
+  "payload": {
+    "type": "FOLLOW_UP",
+    "dedupKey": "NOTICE:0192b6f0-1111-7000-8000-000000000001:FOLLOW_UP:0192b6f0-4444-7000-8000-000000000004:__RUN__",
+    "target": { "type": "NOTICE", "id": "0192b6f0-1111-7000-8000-000000000001" },
+    "title": "후속 안내: 서울 강동구 행복주택 입주자 모집",
+    "body": "관심 공고에 '서류심사 대상자 발표' (12월 1일) 안내가 올라왔어요.",
+    "linkPath": "/notices/0192b6f0-1111-7000-8000-000000000001",
+    "recipients": [{ "userId": "__USER_ID__", "email": "__EMAIL__", "quietEnabled": false }]
+  }
+}

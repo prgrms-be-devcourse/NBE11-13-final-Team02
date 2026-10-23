@@ -1,0 +1,16 @@
+{
+  "eventId": "__EVENT_ID__",
+  "eventType": "notification.requested",
+  "schemaVersion": 1,
+  "occurredAt": "__NOW__",
+  "producer": "api",
+  "payload": {
+    "type": "NEW_NOTICE",
+    "dedupKey": "NOTICE:0192b6f0-1111-7000-8000-000000000001:NEW:__RUN__",
+    "target": { "type": "NOTICE", "id": "0192b6f0-1111-7000-8000-000000000001" },
+    "title": "새 공고: 서울 강동구 행복주택 입주자 모집",
+    "body": "관심 조건에 맞는 새 공고 소식이에요. SH · 11월 6일 마감",
+    "linkPath": "/notices/0192b6f0-1111-7000-8000-000000000001",
+    "recipients": [{ "userId": "__USER_ID__", "email": "__EMAIL__", "quietEnabled": false }]
+  }
+}

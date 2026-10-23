@@ -1,0 +1,16 @@
+{
+  "eventId": "__EVENT_ID__",
+  "eventType": "notification.requested",
+  "schemaVersion": 1,
+  "occurredAt": "__NOW__",
+  "producer": "api",
+  "payload": {
+    "type": "DEADLINE_D1",
+    "dedupKey": "SPACE_RECRUITMENT:0192b6f0-3333-7000-8000-000000000003:D1:2026-10-24:__RUN__",
+    "target": { "type": "SPACE_RECRUITMENT", "id": "0192b6f0-3333-7000-8000-000000000003" },
+    "title": "내일 마감: 성동구 청년 창업 공간 입주기업 모집",
+    "body": "관심 사업공간 모집 접수가 내일(10월 24일) 마감돼요.",
+    "linkPath": "/space-recruitments/0192b6f0-3333-7000-8000-000000000003",
+    "recipients": [{ "userId": "__USER_ID__", "email": "__EMAIL__", "quietEnabled": false }]
+  }
+}
