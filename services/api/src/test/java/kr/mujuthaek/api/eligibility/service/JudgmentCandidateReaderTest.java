@@ -50,8 +50,6 @@ class JudgmentCandidateReaderTest {
             case HOUSING ->
                 List.of(
                     new NoticeForJudgment(UNKNOWN_REGION, 1, "지역을 모르는 공고", null, null, null, null));
-            case STARTUP_SUPPORT ->
-                throw new AssertionError("창업지원은 findOpenProgramsForJudgment로 받아요");
           };
         }
 
