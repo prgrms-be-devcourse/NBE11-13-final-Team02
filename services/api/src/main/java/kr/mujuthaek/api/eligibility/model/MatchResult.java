@@ -23,8 +23,8 @@ public record MatchResult(String field, Counts counts, List<Item> items) {
   public record Counts(int eligible, int needsCheck, int notReady) {}
 
   /**
-   * @param regionCodes 공고 지역 법정동코드 10자리. 프론트는 사용자가 고른 지역과 앞자리(시도 2자리, 시군구 5자리)를 비교해서 걸러요. 전국 공고·지역을
-   *     못 읽은 공고는 빈 목록
+   * @param regionCodes 공고 지역 법정동코드 10자리. 프론트는 사용자가 고른 지역과 앞자리(시도 2자리, 시군구 5자리)를 비교해서 걸러요. 전국 공고는 빈
+   *     목록, 지역을 모르는 공고는 null (전국 공고와 달라요)
    * @param status ELIGIBLE 지원 가능 / NEEDS_CHECK 조건 확인 필요
    * @param rank 내 순위: 지원 가능일 때 충족한 대상군 중 가장 앞 신청 순위 (1이 가장 앞). 순위가 없는 공고·확인 필요면 null
    * @param reason 판정 틀이 없어 확인 필요면 CONDITIONS_NOT_READY, 아니면 null

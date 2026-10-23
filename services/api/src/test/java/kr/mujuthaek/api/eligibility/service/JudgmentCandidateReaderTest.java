@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import kr.mujuthaek.api.eligibility.mapper.MatchMapper;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
 import kr.mujuthaek.api.eligibility.rule.Field;
 import kr.mujuthaek.api.notice.service.NoticeField;
@@ -23,6 +24,7 @@ class JudgmentCandidateReaderTest {
   private static final JsonMapper JSON = JsonMapper.builder().build();
   private static final UUID SHOP = UUID.randomUUID();
   private static final UUID PROGRAM = UUID.randomUUID();
+  private static final UUID UNKNOWN_REGION = UUID.randomUUID();
 
   private static final JsonNode SHOP_FRAME =
       JSON.readTree("{\"schema\": \"business-space-judgment.v1\"}");
@@ -54,7 +56,9 @@ class JudgmentCandidateReaderTest {
                         LocalDate.parse("2026-11-05"),
                         List.of(),
                         STARTUP_FRAME));
-            case HOUSING -> List.of();
+            case HOUSING ->
+                List.of(
+                    new NoticeForJudgment(UNKNOWN_REGION, 1, "지역을 모르는 공고", null, null, null, null));
           };
         }
       };
@@ -73,7 +77,16 @@ class JudgmentCandidateReaderTest {
                 LocalDate.parse("2026-10-30"),
                 List.of("1150010100"),
                 SHOP_FRAME));
-    assertThat(reader.openNotices(Field.HOUSING)).isEmpty();
+  }
+
+  @Test
+  void unknownRegionStaysNullNotNationwide() {
+    NoticeCandidate candidate = reader.openNotices(Field.HOUSING).getFirst();
+
+    assertThat(candidate.noticeId()).isEqualTo(UNKNOWN_REGION);
+    // 빈 목록(전국)으로 바꾸지 않아요: 바꾸면 모든 지역에 맞는 공고처럼 보여요
+    assertThat(candidate.regionCodes()).isNull();
+    assertThat(MatchMapper.notReady(candidate).regionCodes()).isNull();
   }
 
   @Test
