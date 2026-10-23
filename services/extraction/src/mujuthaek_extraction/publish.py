@@ -176,6 +176,48 @@ def _quoted_region_codes(found: dict[str, Any], policy: dict[str, Any], regions:
     return _codes_of(names, regions)
 
 
+def narrowest(codes: list[str]) -> list[str]:
+    """같은 지역의 상위 코드를 뺍니다: 같은 시도의 시군구가 있으면 시도 전체(xx000), 같은 시의 일반구(41285)가 있으면 그 시(41280).
+    xx000은 그 시도의 모든 시군구로 검색되므로, AI가 「경기도」「고양시」「일산동구」로 나눠 적으면 공간이 경기 전체로 넓어졌음(리뷰 2026-10-23)."""
+
+    def covered(code: str) -> bool:
+        if code.endswith("000"):
+            return any(other != code and other[:2] == code[:2] for other in codes)
+        return code[4] == "0" and any(other[:4] == code[:4] and other[4] != "0" for other in codes)
+
+    return [c for c in dict.fromkeys(codes) if not covered(c)]
+
+
+NEAR_LINES = 3  # 공간이 여럿이면 주소가 줄마다 따로 있음: 근거 문장 줄 앞뒤 이만큼의 줄에서도 이름을 찾음
+
+
+def _located_near(name: str, quote: str, text: str) -> bool:
+    """공간 이름이 근거 문장에, 아니면 원문에서 근거 문장이 있는 줄 앞뒤 NEAR_LINES줄 중 한 줄에 통째로 있는지."""
+    if region_named(name, quote):
+        return True
+    target = re.sub(r"\s+", "", quote)
+    lines = text.splitlines()
+    for n, line in enumerate(lines):
+        if target in re.sub(r"\s+", "", line):
+            if any(region_named(name, other) for other in lines[max(0, n - NEAR_LINES) : n + NEAR_LINES + 1]):
+                return True
+    return False
+
+
+def space_location_codes(found: dict[str, Any], policy: dict[str, Any], regions: Any) -> tuple[list[str] | None, bool]:
+    """AI가 읽은 입주 공간 소재지 → (시군구 5자리, AI가 공간 위치를 읽었는지). 근거 문장이 원문에 있어야 하고, 이름은 하나씩 확인해
+    (근거 문장이나 그 앞뒤 줄) 확인된 이름만 씁니다. 같은 시도·시의 상위 코드는 뺍니다. 하나도 못 정하면 코드는 None."""
+    names = [str(n) for n in found.get("names") or [] if str(n).strip()]
+    quote = str(found.get("quote") or "")
+    claimed = bool(names) and [re.sub(r"\s+", "", n) for n in names] != ["전국"]
+    text = str(policy.get("text") or "")
+    plain = re.sub(r"\s+", "", quote)
+    if not claimed or len(plain) < 2 or plain not in re.sub(r"\s+", "", text):
+        return None, claimed
+    codes = [c for n in names if _located_near(n, quote, text) for c in _codes_of([n], regions) or []]
+    return narrowest(codes) or None, True
+
+
 def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = None) -> list[str] | None:
     """정책의 지역 → 시군구 5자리 목록(xx000은 시도 전체). 전국이면 빈 목록, 정하지 못하면 None(빈 목록은 전국으로 읽혀 틀림).
     뜻은 분야마다 다릅니다(사용자 결정 2026-10-23).
@@ -183,15 +225,18 @@ def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = Non
     - SPACE_RECRUITMENT: 입주 공간이 있는 곳(검색·필터용). 신청자 거주지·사업장 소재지 요건은 판정 틀의 REGION 조건으로만 나타냅니다.
       AI가 글에서 읽은 공간 소재지(spaceLocation)를 근거 문장과 지역 이름을 확인한 뒤 먼저 쓰고(수집기가 전국이라고 해도 —
       전국 기관이 운영하는 공간도 한 곳에 있음), 없으면 아래 수집기 값 순서로 갑니다.
+      AI가 공간 위치를 읽었는데 확인하지 못했으면 빈 목록(전국)을 내지 않고 None(보내지 않음)입니다. 공간은 한 곳에 있으므로
+      「전국」은 틀린 값이고, 틀린 값이 누락보다 나쁩니다(리뷰 2026-10-23: 청주 공간이 전국으로 나갔음). 수집기가 시도·시군구를 주면 그 값을 씁니다.
     수집기 값(코드, 없으면 이름 — K-Startup은 「서울」처럼 이름만, 기업마당은 「충청권」 같은 권역도 줌)을 먼저 쓰고, 수집기가 지역을 모르면
     AI가 글에서 읽은 지원 지역을 씁니다. AI 값은 근거 문장이 원문에 있고 그 문장에 지역 이름이 있을 때만 씁니다."""
+    claimed = False
     if policy.get("field") == "SPACE_RECRUITMENT" and reading is not None:
-        located = _quoted_region_codes(reading.answer.get("spaceLocation") or {}, policy, regions)
-        if located:  # 빈 목록(「전국」)은 공간 위치가 아님
+        located, claimed = space_location_codes(reading.answer.get("spaceLocation") or {}, policy, regions)
+        if located:
             return located
     scope = policy.get("regionScope")
     if scope == "NATIONWIDE":
-        return []
+        return None if claimed else []
     codes = [str(c) for c in policy.get("regionCodes") or [] if re.fullmatch(r"[0-9]{5}", str(c))]
     if codes:
         return list(dict.fromkeys(codes))
@@ -199,7 +244,8 @@ def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = Non
         return found
     if reading is None:
         return None
-    return _quoted_region_codes(reading.answer.get("supportRegions") or {}, policy, regions)
+    support = _quoted_region_codes(reading.answer.get("supportRegions") or {}, policy, regions)
+    return None if claimed and support == [] else support
 
 
 def policy_frame(policy: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
