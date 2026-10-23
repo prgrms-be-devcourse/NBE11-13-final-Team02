@@ -391,8 +391,12 @@ def application_items(notice, *, approved=False):
 
 def application_channels(data):
     """공고 전체 신청 방법(notice.applicationChannels)의 정답: 신청(APPLICATION) 일정들의 channels를 합쳐 정해진 순서로.
-    AI가 쓰지 않고 프로그램이 계산합니다(2026-10-23). 보류 여부와 상관없이 모든 신청 일정을 봅니다(보류에 따라 값이 바뀌지 않게)."""
-    found = {c for s in data["schedules"] if "APPLICATION" in s["kinds"] for c in s["channels"]}
+    신청 일정이 없는 공고(별도 접수 없이 계약으로 바로 신청받는 선착순 공고)는 계약(CONTRACT) 일정들의 channels로 셉니다.
+    AI가 쓰지 않고 프로그램이 계산합니다(2026-10-23). 보류 여부와 상관없이 모든 일정을 봅니다(보류에 따라 값이 바뀌지 않게)."""
+    applying = [s for s in data["schedules"] if "APPLICATION" in s["kinds"]]
+    if not applying:
+        applying = [s for s in data["schedules"] if "CONTRACT" in s["kinds"]]
+    found = {c for s in applying for c in s["channels"]}
     return [c for c in APPLICATION_CHANNELS if c in found]
 
 

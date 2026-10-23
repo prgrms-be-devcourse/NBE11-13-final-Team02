@@ -887,6 +887,19 @@ class NoticeContractTest(unittest.TestCase):
         self.assert_valid()
         self.assertEqual(["ONLINE", "MAIL"], contract.application_channels(self.notice))
 
+    def test_notice_channels_follow_contract_schedules_when_there_is_no_application(self):
+        # 별도 접수 없이 계약으로 바로 신청받는 선착순 공고: 신청 일정이 없으면 계약 일정의 방법을 공고 전체 신청 방법으로 셉니다
+        notice = copy.deepcopy(self.notice)
+        for schedule in notice["schedules"]:
+            if "APPLICATION" in schedule["kinds"]:
+                schedule["kinds"] = ["CONTRACT"]
+                schedule["applicationMode"] = "NOT_APPLICABLE"
+                schedule["channels"] = ["ONSITE"]
+        self.assertEqual(["ONSITE"], contract.application_channels(notice))
+        notice["schedules"][0]["kinds"] = ["APPLICATION"]
+        notice["schedules"][0]["channels"] = ["MAIL"]
+        self.assertEqual(["MAIL"], contract.application_channels(notice))  # 신청 일정이 하나라도 있으면 그 일정만
+
     def test_required_document_group_copies_and_issuer(self):
         document = self.notice["requiredDocuments"][0]
         document.update(group="PROXY_SPOUSE", copies=2, issuer="주민센터")
