@@ -31,7 +31,7 @@ class RegionControllerTest {
     jdbc.update("delete from common.regions where level = 'SIGUNGU'");
     jdbc.update("delete from common.regions");
     Path sample =
-        Path.of(getClass().getClassLoader().getResource("common/region_codes_sample.txt").toURI());
+        Path.of(getClass().getClassLoader().getResource("common/legal_dong_sample.csv").toURI());
     new RegionLoader(jdbc).load(sample, LocalDate.of(2026, 7, 1));
   }
 
@@ -42,7 +42,7 @@ class RegionControllerTest {
         .andExpect(header().string("Cache-Control", "max-age=86400, public"))
         .andExpect(header().exists("ETag"))
         .andExpect(jsonPath("$.baseDate").value("2026-07-01"))
-        .andExpect(jsonPath("$.sidos.length()").value(4)) // 폐지된 강원도(42)는 빠져요
+        .andExpect(jsonPath("$.sidos.length()").value(5)) // 폐지된 광주(29)·강원도(42)는 빠져요
         .andExpect(jsonPath("$.sidos[0].code").value("11"))
         .andExpect(jsonPath("$.sidos[0].name").value("서울특별시"))
         .andExpect(jsonPath("$.sidos[0].shortName").value("서울"))
