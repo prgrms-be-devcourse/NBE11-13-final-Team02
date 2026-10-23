@@ -16,7 +16,7 @@ from typing import Any
 
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.judgment import build_judgment
-from mujuthaek_extraction.judgment.policy_frame import region_named, space_frame, startup_frame
+from mujuthaek_extraction.judgment.policy_frame import region_named, space_frame, startup_frame, uses_judging_date
 from mujuthaek_extraction.judgment.sanity import repair
 from mujuthaek_extraction.judgment.schema import frame_errors
 from mujuthaek_extraction.judgment.space import build_space
@@ -248,21 +248,48 @@ def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = Non
     return None if claimed and support == [] else support
 
 
-def policy_frame(policy: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
-    """정책 판정 틀: AI 읽기가 있으면 그것으로, 없거나 틀 검사를 통과하지 못하면 K-Startup 구간 칸 규칙으로(startup·space).
-    AI가 창업 지원·사업공간 모집이 아니라고 읽었으면 None(보내지 않음)."""
+# 보내지 않은 까닭(로그용). 「틀 검사 실패」 한 문구로 뭉치면 기준일 없음·지역 미정과 구별되지 않았음(리뷰 2026-10-23)
+NOT_RELEVANT = "AI가 창업지원·사업공간 공고가 아니라고 읽음"
+DATE_UNVERIFIED = "기준일 확인 실패: AI가 적은 공고일·기준일(찍힌 기준일)을 근거 문장에서 확인하지 못함"
+FRAME_INVALID = "틀 검사 실패"
+NO_AI = "AI 읽기 없음"
+NO_FALLBACK = "구간 칸 규칙으로도 틀을 만들지 못함(K-Startup 칸·게시일 없음)"
+REGION_UNDECIDED = "지역 미정(사업공간은 공간 위치, 창업지원은 지원 지역)"
+
+
+def policy_frame_with_reason(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> tuple[dict[str, Any] | None, str | None]:
+    """policy_frame과 같고, 틀을 만들지 못했으면 그 까닭(위 문구)을 함께 돌려줍니다."""
     startup = policy.get("field") == "STARTUP_SUPPORT"
     if reading is not None and not reading.answer["relevant"]:
-        return None
+        return None, NOT_RELEVANT
+    reason = NO_AI
     if reading is not None:
-        frame = (startup_frame if startup else space_frame)(policy, reading, regions)
+        frame = startup_frame(policy, reading, regions) if startup else space_frame(policy, reading, regions, today=today)
         errors = frame_errors(frame) if frame is not None else []
         if frame is not None and not errors:
-            return frame
+            return frame, None
         if errors:  # 틀 검사에 걸린 AI 틀: 위치만 남기고 구간 칸 규칙으로(값은 남기지 않음)
             log.warning("정책 AI 판정 틀이 틀 검사에 걸렸습니다", extra={"rawPolicyId": policy.get("rawPolicyId"), "errors": errors[:5]})
+        reason = FRAME_INVALID if errors else DATE_UNVERIFIED  # 관련 공고인데 space_frame이 None이면 날짜 확인 실패뿐
     fallback = repair(build_startup(policy) if startup else build_space(policy))
-    return fallback if fallback is not None and not frame_errors(fallback) else None
+    if fallback is not None and not frame_errors(fallback):
+        return fallback, None
+    return None, f"{reason}; {NO_FALLBACK}"
+
+
+def policy_frame(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> dict[str, Any] | None:
+    """정책 판정 틀: AI 읽기가 있으면 그것으로, 없거나 틀 검사를 통과하지 못하면 K-Startup 구간 칸 규칙으로(startup·space).
+    AI가 창업 지원·사업공간 모집이 아니라고 읽었으면 None(보내지 않음). today는 사업공간 공고에 기준일이 없을 때 쓰는 판정일(시험용, 기본은 지금)."""
+    return policy_frame_with_reason(policy, reading, regions, today=today)[0]
+
+
+def not_sent_reason(policy: dict[str, Any], frame: dict[str, Any] | None, frame_reason: str | None, regions: Any, reading: Any = None) -> str:
+    """policy_completed_payload가 None일 때 그 까닭."""
+    if frame is None:
+        return frame_reason or FRAME_INVALID
+    if policy.get("field") not in POLICY_FIELDS:
+        return "판정 틀이 없는 분야"
+    return REGION_UNDECIDED if policy_region_codes(policy, regions, reading) is None else "알 수 없음"
 
 
 def _day(value: Any) -> str | None:
@@ -274,7 +301,8 @@ def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | Non
     """정책 판정 틀 → extraction.completed payload(판정 요청안 2026-10-22: 틀은 이 이벤트의 judgment, rawPostId는 rawPolicyId).
     상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지역(policy_region_codes: 창업지원은 지원 지역,
     사업공간은 공간 소재지)을 정하지 못하면 None(보내지 않음).
-    틀에 확인 필요 조건이 하나라도 있으면 IN_REVIEW입니다. 접수 기간은 K-Startup 날짜 칸(규칙)에서만 옮깁니다."""
+    틀에 확인 필요 조건이 하나라도 있거나 판정일을 기준일로 쓴 틀(원문에 공고일·기준일 없음)이면 IN_REVIEW입니다.
+    접수 기간은 K-Startup 날짜 칸(규칙)에서만 옮깁니다."""
     codes = policy_region_codes(policy, regions, reading)
     if frame is None or codes is None or policy.get("field") not in POLICY_FIELDS:
         return None
@@ -287,7 +315,7 @@ def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | Non
         "field": policy["field"],
         "title": policy["title"],
         "conditions": [],
-        "reviewStatus": "IN_REVIEW" if _in_review(every) else "AUTO_PASSED",
+        "reviewStatus": "IN_REVIEW" if _in_review(every) or uses_judging_date(frame) else "AUTO_PASSED",
         "provider": policy.get("agency"),
         "regionCode": None,
         "regionCodes": codes,
