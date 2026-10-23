@@ -17,7 +17,9 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.23"]
+dev = ["pytest>=8", "ruff>=0.6", "jsonschema>=4.23", { include-group = "boundary" }]
+# 구역의 도형(SHP) → 경계 CSV 변환에만 (area/boundary_csv.py). 수집기 실행에는 필요 없어요
+boundary = ["pyshp>=2.3", "shapely>=2.0"]
 
 [tool.uv.sources]
 mujuthaek-platform = { path = "../../libs/python-platform", editable = true }
