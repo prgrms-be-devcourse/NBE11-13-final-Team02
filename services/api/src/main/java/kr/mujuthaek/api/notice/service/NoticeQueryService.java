@@ -175,7 +175,8 @@ public class NoticeQueryService {
 
   /**
    * 판정용 공고 목록: 이 분야의 열린 공고 전부를 한 번에 줘요(판정 담당 요청). 접수예정·접수중·상시만 넣어요(판정 담당 「열린 공고」 기준). 일정을 단정할 수 없는
-   * 확인 필요(UNKNOWN)는 지원할 수 있다고 보여 주지 않게 빼요. 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요.
+   * 확인 필요(UNKNOWN)는 지원할 수 있다고 보여 주지 않게 빼요. 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요. 사업공간이면 사업공간 모집
+   * 정책도 policy=true로 붙여요(마감일을 모르는데 상시도 아닌 정책·검수 대기 틀은 빼요, openPolicies).
    */
   public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
     List<NoticeForJudgment> notices =
@@ -184,36 +185,42 @@ public class NoticeQueryService {
                 row ->
                     new NoticeForJudgment(
                         row.id(),
+                        false,
                         row.version(),
                         row.title(),
                         row.applyStart(),
                         row.applyEnd(),
                         regionCodes(row.nationwide(), row.regionCodes()),
-                        row.frameJson() == null ? null : json.readTree(row.frameJson())))
+                        row.frameJson() == null ? null : json.readTree(row.frameJson()),
+                        row.detailUrl()))
             .toList();
     if (field != NoticeField.BUSINESS_SPACE) {
       return notices;
     }
-    // 사업공간 모집(창업지원 API의 입주기업 모집)도 사업공간 판정 대상이에요. noticeId 자리에 정책 ID(rawPolicyId)를 줘요
+    // 사업공간 모집(창업지원 API의 입주기업 모집)도 사업공간 판정 대상이에요. noticeId 자리에 정책 ID(rawPolicyId)를 주고 policy=true로
+    // 표시해요(공고 상세 API로 찾을 수 없어 화면은 detailUrl 원문으로 보냄)
     List<NoticeForJudgment> spaces =
         queries.openPolicies("SPACE_RECRUITMENT", LocalDate.now(clock)).stream()
             .map(
                 row ->
                     new NoticeForJudgment(
                         row.rawPolicyId(),
+                        true,
                         row.version(),
                         row.title(),
                         row.applyStart(),
                         row.applyEnd(),
                         legalDongs(row.regionCodes()),
-                        json.readTree(row.frameJson())))
+                        json.readTree(row.frameJson()),
+                        row.detailUrl()))
             .toList();
     return java.util.stream.Stream.concat(notices.stream(), spaces.stream()).toList();
   }
 
   /**
    * 판정용 창업지원 사업 목록(판정 담당 요청): 마감되지 않은 창업지원 사업 전부를 한 번에 줘요. 판정 틀이 있는 사업만 저장되므로 frame은 늘 있어요.
-   * programId는 수집 DB 정책 ID(rawPolicyId)예요.
+   * programId는 수집 DB 정책 ID(rawPolicyId)예요. 마감일을 모르는데 상시 모집도 아닌 사업과 검수 대기(IN_REVIEW) 틀은 넣지 않아요
+   * (openPolicies).
    */
   public List<ProgramForJudgment> findOpenProgramsForJudgment() {
     return queries.openPolicies("STARTUP_SUPPORT", LocalDate.now(clock)).stream()
@@ -226,7 +233,8 @@ public class NoticeQueryService {
                     row.applyStart(),
                     row.applyEnd(),
                     legalDongs(row.regionCodes()),
-                    json.readTree(row.frameJson())))
+                    json.readTree(row.frameJson()),
+                    row.detailUrl()))
         .toList();
   }
 

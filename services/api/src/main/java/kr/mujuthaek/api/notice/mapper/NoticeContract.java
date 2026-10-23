@@ -180,18 +180,28 @@ public final class NoticeContract {
   private static final Map<String, String> JUDGMENT_SOURCE_KEY =
       Map.of("STARTUP_SUPPORT", "rawPolicyId");
 
+  /** 정책 이벤트에만 있고 반드시 있는 칸: 지원 지역, 원문 주소(없으면 null), 상시 모집 여부 (계약 검사기 POLICY_ONLY_KEYS). */
+  private static final java.util.List<String> POLICY_ONLY_KEYS =
+      java.util.List.of("regionCodes", "detailUrl", "applyAlways");
+
   /** 판정 틀: 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(계약 검사기 judgment_errors와 같게). */
   private static void checkJudgment(JsonNode payload) {
     JsonNode judgment = payload.path("judgment");
     boolean policy = POLICY_FRAME_FIELDS.contains(payload.path("field").asString());
     if (policy
         && (!judgment.isObject()
-            || !payload.has("regionCodes")
+            || POLICY_ONLY_KEYS.stream().anyMatch(key -> !payload.has(key))
             || payload.has("notice")
+            || payload.has("heldItems")
             || !payload.path("conditions").isEmpty())) fail("EVENT_POLICY_FRAME_SHAPE", "/payload");
-    if (!policy && payload.has("regionCodes"))
-      fail("EVENT_POLICY_FRAME_SHAPE", "/payload/regionCodes");
+    if (!policy)
+      for (String key : POLICY_ONLY_KEYS)
+        if (payload.has(key)) fail("EVENT_POLICY_FRAME_SHAPE", "/payload/" + key);
     if (!judgment.isObject()) return;
+    // 정책 틀의 검수 상태는 틀 전체로 정해요(heldItems 없음): 확인 필요 조건이 있는 틀은 자동 통과가 아니에요
+    if (policy
+        && "AUTO_PASSED".equals(payload.path("reviewStatus").asString(""))
+        && anyInReview(judgment)) fail("EVENT_POLICY_REVIEW_STATUS", "/payload/reviewStatus");
     if (!judgment
         .path("schema")
         .asString("")
@@ -207,6 +217,18 @@ public final class NoticeContract {
       if (!field.getKey().equals("notes")) collectIds(field.getValue(), ids);
     if (ids.size() != new java.util.HashSet<>(ids).size())
       fail("JUDGMENT_DUPLICATE_ID", "/payload/judgment");
+  }
+
+  /** 판정 틀 어디든(안내 notes 제외) inReview가 true인 조건이 있는지 (계약 검사기 _any_in_review). */
+  private static boolean anyInReview(JsonNode node) {
+    if (node.isObject()) {
+      if (node.path("inReview").isBoolean() && node.path("inReview").asBoolean()) return true;
+      for (var field : node.properties())
+        if (!field.getKey().equals("notes") && anyInReview(field.getValue())) return true;
+    } else if (node.isArray()) {
+      for (JsonNode item : node) if (anyInReview(item)) return true;
+    }
+    return false;
   }
 
   private static void collectIds(JsonNode node, java.util.List<String> ids) {

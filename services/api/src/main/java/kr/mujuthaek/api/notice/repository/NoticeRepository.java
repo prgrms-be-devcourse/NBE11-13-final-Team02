@@ -37,7 +37,12 @@ public class NoticeRepository {
       LocalDate applyEnd,
       List<String> regionCodes,
       String frameJson,
-      ReviewStatus reviewStatus) {}
+      ReviewStatus reviewStatus,
+      String detailUrl,
+      boolean applyAlways) {}
+
+  /** 저장된(공개 중인) 정책 판정 틀의 버전과 검수 상태. */
+  public record PolicyJudgmentState(int version, ReviewStatus reviewStatus) {}
 
   /**
    * 정책 판정 틀을 저장해요. 더 높은 버전이 있거나, 같은 버전의 승인본(APPROVED)을 승인 아닌 결과로 덮으려 하면 바꾸지 않고 false (공고의
@@ -46,15 +51,16 @@ public class NoticeRepository {
   public boolean savePolicyJudgment(PolicyJudgmentRow row, Instant now) {
     return jdbc.sql(
                 "insert into notice.policy_judgments (raw_policy_id, field, raw_version, source_event_id,"
-                    + " title, apply_start, apply_end, region_codes, frame, review_status, created_at,"
-                    + " updated_at) values (:id, :field, :version, :eventId, :title, :applyStart,"
-                    + " :applyEnd, cast(:regions as text[]), cast(:frame as jsonb), :reviewStatus, :now,"
-                    + " :now)"
+                    + " title, apply_start, apply_end, region_codes, frame, review_status, detail_url,"
+                    + " apply_always, created_at, updated_at) values (:id, :field, :version, :eventId,"
+                    + " :title, :applyStart, :applyEnd, cast(:regions as text[]), cast(:frame as jsonb),"
+                    + " :reviewStatus, :detailUrl, :applyAlways, :now, :now)"
                     + " on conflict (raw_policy_id) do update set field = excluded.field,"
                     + " raw_version = excluded.raw_version, source_event_id = excluded.source_event_id,"
                     + " title = excluded.title, apply_start = excluded.apply_start,"
                     + " apply_end = excluded.apply_end, region_codes = excluded.region_codes,"
                     + " frame = excluded.frame, review_status = excluded.review_status,"
+                    + " detail_url = excluded.detail_url, apply_always = excluded.apply_always,"
                     + " updated_at = excluded.updated_at"
                     + " where notice.policy_judgments.raw_version < excluded.raw_version"
                     + " or (notice.policy_judgments.raw_version = excluded.raw_version"
@@ -70,16 +76,20 @@ public class NoticeRepository {
             .param("regions", row.regionCodes().toArray(String[]::new))
             .param("frame", row.frameJson())
             .param("reviewStatus", row.reviewStatus().name())
+            .param("detailUrl", row.detailUrl())
+            .param("applyAlways", row.applyAlways())
             .param("now", now.atOffset(ZoneOffset.UTC))
             .update()
         == 1;
   }
 
-  /** 저장된 정책 판정 틀의 버전 (없으면 비어 있음). */
-  public Optional<Integer> policyJudgmentVersion(UUID rawPolicyId) {
-    return jdbc.sql("select raw_version from notice.policy_judgments where raw_policy_id = :id")
+  /** 저장된 정책 판정 틀의 버전과 검수 상태 (없으면 비어 있음). */
+  public Optional<PolicyJudgmentState> policyJudgmentState(UUID rawPolicyId) {
+    return jdbc.sql(
+            "select raw_version, review_status from notice.policy_judgments where raw_policy_id = :id")
         .param("id", rawPolicyId)
-        .query(Integer.class)
+        .query(
+            (rs, i) -> new PolicyJudgmentState(rs.getInt(1), ReviewStatus.valueOf(rs.getString(2))))
         .optional();
   }
 
