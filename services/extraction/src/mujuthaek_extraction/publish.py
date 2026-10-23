@@ -12,7 +12,9 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import date
 from typing import Any
+from urllib.parse import urlsplit
 
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.judgment import build_judgment
@@ -257,24 +259,31 @@ NO_FALLBACK = "구간 칸 규칙으로도 틀을 만들지 못함(K-Startup 칸�
 REGION_UNDECIDED = "지역 미정(사업공간은 공간 위치, 창업지원은 지원 지역)"
 
 
-def policy_frame_with_reason(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> tuple[dict[str, Any] | None, str | None]:
-    """policy_frame과 같고, 틀을 만들지 못했으면 그 까닭(위 문구)을 함께 돌려줍니다."""
+def policy_frame_detail(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> tuple[dict[str, Any] | None, str | None, bool]:
+    """policy_frame_with_reason에 더해, 보낼 틀이 구간 칸 규칙 틀(AI 틀이 아님)인지를 함께 돌려줍니다.
+    구간 칸 규칙 틀은 원문 글을 읽지 않아 글에만 적힌 조건이 빠져 있을 수 있으므로 틀 전체를 검수 대기(IN_REVIEW)로 보냅니다."""
     startup = policy.get("field") == "STARTUP_SUPPORT"
     if reading is not None and not reading.answer["relevant"]:
-        return None, NOT_RELEVANT
+        return None, NOT_RELEVANT, False
     reason = NO_AI
     if reading is not None:
         frame = startup_frame(policy, reading, regions) if startup else space_frame(policy, reading, regions, today=today)
         errors = frame_errors(frame) if frame is not None else []
         if frame is not None and not errors:
-            return frame, None
+            return frame, None, False
         if errors:  # 틀 검사에 걸린 AI 틀: 위치만 남기고 구간 칸 규칙으로(값은 남기지 않음)
             log.warning("정책 AI 판정 틀이 틀 검사에 걸렸습니다", extra={"rawPolicyId": policy.get("rawPolicyId"), "errors": errors[:5]})
         reason = FRAME_INVALID if errors else DATE_UNVERIFIED  # 관련 공고인데 space_frame이 None이면 날짜 확인 실패뿐
     fallback = repair(build_startup(policy) if startup else build_space(policy))
     if fallback is not None and not frame_errors(fallback):
-        return fallback, None
-    return None, f"{reason}; {NO_FALLBACK}"
+        return fallback, None, True
+    return None, f"{reason}; {NO_FALLBACK}", False
+
+
+def policy_frame_with_reason(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> tuple[dict[str, Any] | None, str | None]:
+    """policy_frame과 같고, 틀을 만들지 못했으면 그 까닭(위 문구)을 함께 돌려줍니다."""
+    frame, reason, _ = policy_frame_detail(policy, reading, regions, today=today)
+    return frame, reason
 
 
 def policy_frame(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> dict[str, Any] | None:
@@ -292,30 +301,98 @@ def not_sent_reason(policy: dict[str, Any], frame: dict[str, Any] | None, frame_
     return REGION_UNDECIDED if policy_region_codes(policy, regions, reading) is None else "알 수 없음"
 
 
+_DATE = r"(20\d{2})[-.]?(\d{2})[-.]?(\d{2})"
+# 신청 기간 칸 글자가 기간 하나뿐일 때만(「20260123 ~ 20260202」, 기업마당 「2026-10-16 ~ 2026-11-03」). 여러 구간·「예산 소진 시까지」는 모름
+_ONE_PERIOD = re.compile(rf"\s*{_DATE}\s*~\s*{_DATE}\s*")
+# 신청 기간 칸 글자 전체가 상시·수시·연중 모집이라는 말뿐일 때(「상시」, 「상시 접수」, 「연중 수시 모집」)
+_ALWAYS_TEXT = re.compile(r"[\s(]*(?:(?:상시|수시|연중)\s*)+(?:모집|접수|신청)?[\s)]*")
+YOUTH_ALWAYS_OPEN = "0057002"  # 온통청년 신청 기간 구분(aplyPrdSeCd): 0057002 상시
+PERIOD_TEXT_FIELDS = ("aplyYmd", "reqstBeginEndDe")  # 온통청년·기업마당 신청 기간 칸
+# 계약 detailUrl은 format uri: 받는 쪽 검사기가 거절하지 않게 RFC 3986 글자만(한글·공백이 그대로 든 주소는 보내지 않음)
+URI_CHARS = re.compile(r"[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
+
+
 def _day(value: Any) -> str | None:
     text = str(value or "")
-    return f"{text[:4]}-{text[4:6]}-{text[6:8]}" if re.fullmatch(r"20\d{6}", text) else None
+    return _real_day(text[:4], text[4:6], text[6:8]) if re.fullmatch(r"20\d{6}", text) else None
 
 
-def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | None, regions: Any, reading: Any = None) -> dict[str, Any] | None:
+def _real_day(year: str, month: str, day: str) -> str | None:
+    try:
+        return date(int(year), int(month), int(day)).isoformat()
+    except ValueError:
+        return None
+
+
+def policy_apply_period(policy: dict[str, Any]) -> tuple[str | None, str | None]:
+    """접수 기간(시작일, 마감일). K-Startup 날짜 칸이 있으면 그것, 없으면 온통청년(aplyYmd)·기업마당(reqstBeginEndDe) 신청 기간 칸이
+    기간 하나뿐일 때 그 두 날. 여러 구간이거나 날짜가 아닌 글이면 모름(None) — 틀린 날짜보다 모름이 낫습니다."""
+    record = policy.get("record") or {}
+    start, end = _day(record.get("pbanc_rcpt_bgng_dt")), _day(record.get("pbanc_rcpt_end_dt"))
+    if start or end:
+        return start, end
+    for key in PERIOD_TEXT_FIELDS:
+        if (found := _ONE_PERIOD.fullmatch(str(record.get(key) or ""))) is not None:
+            first, last = _real_day(*found.groups()[:3]), _real_day(*found.groups()[3:])
+            if first and last and first <= last:
+                return first, last
+    return None, None
+
+
+def policy_apply_always(policy: dict[str, Any]) -> bool:
+    """상시 모집인지. 출처가 칸으로 분명히 알려 준 경우만 true: 온통청년 신청 기간 구분이 상시(0057002)이거나, 신청 기간 칸 글자 전체가
+    상시·수시·연중 모집이라는 말뿐일 때. 제목·본문의 「상시 모집」은 일부 모집이나 지난 안내일 수 있어 쓰지 않습니다(모르면 false)."""
+    record = policy.get("record") or {}
+    if str(record.get("aplyPrdSeCd") or "") == YOUTH_ALWAYS_OPEN:
+        return True
+    return any(_ALWAYS_TEXT.fullmatch(text) for key in PERIOD_TEXT_FIELDS if (text := str(record.get(key) or "")).strip())
+
+
+def policy_detail_url(policy: dict[str, Any]) -> str | None:
+    """사람이 열어볼 원문 주소(raw.policy.collected의 detailUrl). http(s) 주소가 아니거나, URI 글자가 아닌 글자가 있거나,
+    인증 값·사용자 정보가 든 주소(계약 PRIVATE_URL)면 None."""
+    url = str(policy.get("detailUrl") or "").strip()
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.netloc or not URI_CHARS.fullmatch(url) or tools().private_url(url):
+        return None
+    return url
+
+
+def policy_review_status(frame: dict[str, Any], *, by_rules: bool = False) -> str:
+    """정책 판정 틀의 검수 상태(사용자 결정 2026-10-23).
+    - IN_REVIEW: 틀 전체를 믿을 수 없음 — 구간 칸 규칙 틀(AI 틀이 틀 검사·기준일 확인에 걸렸거나 AI가 읽지 못함). 받는 쪽은 이전 공개본을 유지하고,
+      첫 버전이면 승인(APPROVED) 전까지 공개하지 않습니다.
+    - PARTIALLY_PASSED: 틀은 쓰되 일부 조건만 확인 필요 — 확인 필요(inReview) 조건이 있거나, 원문에 기준일이 없어 판정일을 기준일로 쓴 틀(선택 B).
+      판정은 inReview 조건을 확인 필요로 다룹니다. 정책 이벤트는 heldItems가 없습니다(보류는 조건마다 inReview로).
+    - AUTO_PASSED: 확인 필요 조건이 없음."""
+    if by_rules:
+        return "IN_REVIEW"
+    every = [*frame["common"], *(c for g in frame["groups"] for c in g["criteria"]), *(c for p in frame["preferences"] for c in p["criteria"])]
+    return "PARTIALLY_PASSED" if _in_review(every) or uses_judging_date(frame) else "AUTO_PASSED"
+
+
+def policy_completed_payload(
+    policy: dict[str, Any], frame: dict[str, Any] | None, regions: Any, reading: Any = None, *, by_rules: bool = False
+) -> dict[str, Any] | None:
     """정책 판정 틀 → extraction.completed payload(판정 요청안 2026-10-22: 틀은 이 이벤트의 judgment, rawPostId는 rawPolicyId).
     상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지역(policy_region_codes: 창업지원은 지원 지역,
     사업공간은 공간 소재지)을 정하지 못하면 None(보내지 않음).
-    틀에 확인 필요 조건이 하나라도 있거나 판정일을 기준일로 쓴 틀(원문에 공고일·기준일 없음)이면 IN_REVIEW입니다.
-    접수 기간은 K-Startup 날짜 칸(규칙)에서만 옮깁니다."""
+    검수 상태는 policy_review_status(by_rules: 구간 칸 규칙 틀이면 IN_REVIEW). 접수 기간은 policy_apply_period,
+    원문 주소는 policy_detail_url, 상시 모집 여부는 policy_apply_always."""
     codes = policy_region_codes(policy, regions, reading)
     if frame is None or codes is None or policy.get("field") not in POLICY_FIELDS:
         return None
-    record = policy.get("record") or {}
-    start, end = _day(record.get("pbanc_rcpt_bgng_dt")), _day(record.get("pbanc_rcpt_end_dt"))
-    every = [*frame["common"], *(c for g in frame["groups"] for c in g["criteria"]), *(c for p in frame["preferences"] for c in p["criteria"])]
+    start, end = policy_apply_period(policy)
     return {
         "rawPostId": policy["rawPolicyId"],
         "rawVersion": policy["version"],
         "field": policy["field"],
         "title": policy["title"],
         "conditions": [],
-        "reviewStatus": "IN_REVIEW" if _in_review(every) or uses_judging_date(frame) else "AUTO_PASSED",
+        "reviewStatus": policy_review_status(frame, by_rules=by_rules),
         "provider": policy.get("agency"),
         "regionCode": None,
         "regionCodes": codes,
@@ -323,5 +400,7 @@ def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | Non
         "applicationWindows": [],
         "summary": None,
         "reprocess": bool(policy.get("reprocess")),
+        "detailUrl": policy_detail_url(policy),
+        "applyAlways": policy_apply_always(policy),
         "judgment": frame,
     }

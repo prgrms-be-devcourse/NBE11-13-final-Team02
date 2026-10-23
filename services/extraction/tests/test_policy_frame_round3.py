@@ -77,14 +77,15 @@ def test_space_notice_without_any_date_uses_the_judging_date_and_holds_date_depe
     assert closed["kind"] == "BUSINESS_REGISTRATION" and closed["closedWithinYears"] == 2
     assert not arrears["inReview"]  # 기준일과 상관없는 조건은 그대로
     completed = policy_completed_payload(payload, made, REGIONS, reading(answer(conditions, **(NO_DATE | LOCATED))))
-    assert completed["reviewStatus"] == "IN_REVIEW" and completed["regionCodes"] == ["41590"]
+    # 일부 조건만 확인 필요: 틀은 쓰고(PARTIALLY_PASSED) 그 조건만 판정에서 확인 필요로(사용자 결정 2026-10-23)
+    assert completed["reviewStatus"] == "PARTIALLY_PASSED" and completed["regionCodes"] == ["41590"]
 
 
-def test_judging_date_frame_is_never_auto_passed_even_without_date_conditions():
+def test_judging_date_frame_is_partially_passed_even_without_date_conditions():
     arrears = condition("EXCLUDED_STATUS", "국세 체납자는 신청 불가", excludedCodes=["TAX_ARREARS"])
     payload, made = undated([arrears], "- 국세 체납자는 신청 불가\n")
     assert not any(c["inReview"] for c in everything(made))
-    assert policy_completed_payload(payload, made, REGIONS, reading(answer([arrears], **(NO_DATE | LOCATED))))["reviewStatus"] == "IN_REVIEW"
+    assert policy_completed_payload(payload, made, REGIONS, reading(answer([arrears], **(NO_DATE | LOCATED))))["reviewStatus"] == "PARTIALLY_PASSED"
     # 기준일이 있는 같은 공고는 자동 통과
     dated = space_frame(payload, reading(answer([arrears], **LOCATED)), REGIONS, today=TODAY)
     assert dated["referenceDate"] == "2026-10-07" and not uses_judging_date(dated)
