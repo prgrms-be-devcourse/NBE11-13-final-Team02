@@ -3,3 +3,6 @@
 *.jar binary
 # 법정동코드 샘플은 저장소 원본(services/extraction/data/legal-dong-codes)에서 그대로 뗀 줄이에요 (줄바꿈 변환 안 함)
 services/api/src/test/resources/common/legal_dong_sample.csv -text
+
+# area 테스트 자료는 바이트 그대로 (줄바꿈 변환 안 함, CP949라 diff도 글자로 안 봄)
+services/api/src/test/resources/area/fixtures/** -text -diff

@@ -20,6 +20,9 @@ __pycache__/
 !.env.example
 *.pem
 *.csv
+# 공개 데이터로 만든 area 적재 테스트 자료는 올려요
+!services/api/src/test/resources/area/fixtures/*.csv
+!services/collector/area/area_manifest.csv
 # 법정동코드 테스트 자료 (저장소 원본에서 뗀 줄)
 !services/api/src/test/resources/common/*.csv
 .aws/

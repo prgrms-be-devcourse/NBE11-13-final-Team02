@@ -4,15 +4,23 @@
   python -m mujuthaek_collector run-once dcco             출처 하나를 지금 한 번 수집
   python -m mujuthaek_collector run-once dcco --recheck   마감 전 공고까지 다시 열어 정정 확인
   python -m mujuthaek_collector run-all                   모든 출처를 순서대로 한 번
+  python -m mujuthaek_collector run-once gov24            정책 API 출처 하나 (gov24, bokjiro_central, bokjiro_local, youth)
+  python -m mujuthaek_collector run-policies              정책 API 출처를 순서대로 한 번
   python -m mujuthaek_collector relay                     아웃박스에 쌓인 이벤트를 한 번 보내기
   python -m mujuthaek_collector cleanup                   보관 기한이 지난 원본 파일 지우기
   python -m mujuthaek_collector save-fixtures dcco        테스트용 화면 저장 (tests/fixtures/dcco/)
   python -m mujuthaek_collector status                    최근 수집 회차 보기
+  python -m mujuthaek_collector area-upload --source BUS_STOP --data-date 2025-10-31 --file … [--scope 강원]
+                                                          생활권·상권 원천 파일을 S3 area/에 올리고 적재 요청 보내기
+  python -m mujuthaek_collector area-upload --manifest area/area_manifest.csv --skip-upload
+                                                          이미 올린 파일 목록으로 적재 요청만 보내기
 
 스케줄 (서울 시간)
   평일 9~18시 매시 5분   모든 출처 수집 (출처는 하나씩 순서대로)
   매일 3시               정정 확인 (마감 전 공고를 다시 열어 바뀌었으면 새 버전)
   매일 4시               보관 기한이 지난 원본 파일 정리
+  매일 6시 30분          정책 API 수집 (목록 전체 → 새 정책·바뀐 정책만 상세·첨부)
+  일요일 5시             정책 다시 확인 (목록에 수정일이 없는 복지로 중앙만)
   5초마다                아웃박스 이벤트 발행
 """
 
@@ -26,12 +34,17 @@ from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
+from mujuthaek_collector.area.sources import SOURCES as AREA_SOURCES
 from mujuthaek_collector.config import Settings
 from mujuthaek_collector.core.file_store import S3FileStore
 from mujuthaek_collector.core.http_client import PoliteClient
 from mujuthaek_collector.core.storage import PostgresStore
 from mujuthaek_collector.pipeline import RunResult, run_source
 from mujuthaek_collector.sources.base import Fetcher, Source
+from mujuthaek_collector.sources.policy.config import PolicySettings
+from mujuthaek_collector.sources.policy.pipeline import run_policy_source
+from mujuthaek_collector.sources.policy.registry import POLICY_ORDER, build_policy_sources, get_policy
+from mujuthaek_collector.sources.policy.store import PostgresPolicyStore
 from mujuthaek_collector.sources.registry import ORDER, get
 from mujuthaek_platform import broker, outbox
 from mujuthaek_platform import logging as platform_logging
@@ -69,14 +82,14 @@ def collect(code: str, settings: Settings, *, recheck: bool = False) -> RunResul
     return result
 
 
-def enabled_sources(settings: Settings) -> list[str]:
-    """sources.enabled가 true인 출처만 ORDER 순서대로. 문제가 생긴 출처는 DB에서 false로 바꿔 잠시 멈춰요."""
+def enabled_sources(settings: Settings, order: list[str] = ORDER) -> list[str]:
+    """sources.enabled가 true인 출처만 order 순서대로. 문제가 생긴 출처는 DB에서 false로 바꿔 잠시 멈춰요."""
     store = PostgresStore(settings.db_url)
     try:
         enabled = {row[0] for row in store.conn.execute("select code from sources where enabled").fetchall()}
     finally:
         store.close()
-    return [code for code in ORDER if code in enabled]
+    return [code for code in order if code in enabled]
 
 
 def collect_all(settings: Settings, *, recheck: bool = False) -> None:
@@ -89,6 +102,42 @@ def collect_all(settings: Settings, *, recheck: bool = False) -> None:
                 collect(code, settings, recheck=recheck)
             except Exception:  # noqa: BLE001 — 한 출처의 실패가 다른 출처를 막지 않게
                 log.exception("출처 수집 실패", extra={"source": code})
+    finally:
+        _run_lock.release()
+
+
+def collect_policy(code: str, settings: Settings, *, recheck: bool = False) -> RunResult:
+    """정책 API 출처 하나. API는 짧은 간격, 원문 화면·첨부는 기관 사이트라 게시판 수집과 같은 간격(robots.txt 확인)으로 요청해요."""
+    policy_settings = PolicySettings.from_env()
+    source = get_policy(code, policy_settings)
+    store = PostgresPolicyStore(settings.db_url)
+    files = make_file_store(settings)
+    api = PoliteClient(delay_seconds=policy_settings.api_delay_seconds, max_file_bytes=settings.max_file_bytes)
+    web = PoliteClient(delay_seconds=settings.delay_seconds, max_file_bytes=settings.max_file_bytes)
+    try:
+        result = run_policy_source(source, api, web, store, files, policy_settings, recheck=recheck)
+    finally:
+        api.close()
+        web.close()
+        store.close()
+    _last_results[code] = {"status": result.status, "new": result.new_count, "at": datetime.now().isoformat(timespec="seconds")}
+    return result
+
+
+def collect_policies(settings: Settings, *, weekly_recheck: bool = False) -> None:
+    """정책 출처를 순서대로. weekly_recheck=True면 목록에 수정일이 없는 출처만 전부 다시 열어봐요."""
+    if not _run_lock.acquire(blocking=False):
+        log.warning("이전 수집이 아직 끝나지 않아 이번 정책 수집은 건너뛰어요")
+        return
+    try:
+        sources = build_policy_sources(PolicySettings.from_env())
+        for code in enabled_sources(settings, POLICY_ORDER):
+            if weekly_recheck and not sources[code].weekly_recheck:
+                continue
+            try:
+                collect_policy(code, settings, recheck=weekly_recheck)
+            except Exception:  # noqa: BLE001 — 한 출처의 실패가 다른 출처를 막지 않게
+                log.exception("정책 출처 수집 실패", extra={"source": code})
     finally:
         _run_lock.release()
 
@@ -141,16 +190,16 @@ def relay(settings: Settings) -> int:
 
 def cleanup(settings: Settings, today: date | None = None) -> int:
     """보관 기한(stored_until)이 지난 원본 파일만 S3에서 지워요. 다운로드 주소·해시·추출한 글자는 남아요."""
-    store = PostgresStore(settings.db_url)
     files = make_file_store(settings)
     removed = 0
-    try:
-        for file_id, key in store.expired_files(today or date.today()):
-            files.delete(key)
-            store.mark_file_deleted(file_id)
-            removed += 1
-    finally:
-        store.close()
+    for store in (PostgresStore(settings.db_url), PostgresPolicyStore(settings.db_url)):  # 게시판 첨부(raw_files)와 정책 첨부(raw_policy_files)
+        try:
+            for file_id, key in store.expired_files(today or date.today()):
+                files.delete(key)
+                store.mark_file_deleted(file_id)
+                removed += 1
+        finally:
+            store.close()
     log.info("보관 기한 정리", extra={"removed": removed})
     return removed
 
@@ -189,6 +238,32 @@ def print_status(settings: Settings) -> None:
         print(f"{started:%m-%d %H:%M}  {code:5}  {status:8}  새 {new:3}건  {took:>6}  {error}")
 
 
+def area_upload(args: argparse.Namespace, settings: Settings) -> int:
+    """원천 파일 올리기(또는 목록으로 확인만) → 받는 큐 만들기 → 아웃박스 기록 → 발행. 문제가 있으면 1을 돌려줘요."""
+    from mujuthaek_collector.area import command
+
+    connection = broker.connect(settings.rabbitmq_url)
+    try:
+        command.declare_receiver(connection.channel())
+    finally:
+        connection.close()
+    store = PostgresStore(settings.db_url)
+    files = make_file_store(settings)
+    try:
+        if args.manifest:
+            result = command.from_manifest(files, store.conn, Path(args.manifest))
+        else:
+            data_date = date.fromisoformat(args.data_date)
+            result = command.upload_file(files, store.conn, args.source, data_date, Path(args.file), args.scope)
+    finally:
+        store.close()
+    print(f"올림 {result.uploaded}개, 적재 요청 기록 {result.recorded}건 (같은 파일은 다시 올리거나 기록하지 않아요)")
+    for problem in result.problems:
+        print(f"  - {problem}")
+    print(f"이벤트 발행: {relay(settings)}건")
+    return 1 if result.problems else 0
+
+
 class HealthHandler(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 — http.server 규칙
         if self.path != "/health":
@@ -219,8 +294,12 @@ def run_scheduler(settings: Settings) -> None:
     scheduler.add_job(collect_all, "cron", day_of_week="mon-fri", hour="9-18", minute=5, args=[settings], id="collect", **common)
     scheduler.add_job(collect_all, "cron", hour=3, minute=0, args=[settings], kwargs={"recheck": True}, id="recheck", **common)
     scheduler.add_job(cleanup, "cron", hour=4, minute=0, args=[settings], id="cleanup", **common)
+    scheduler.add_job(collect_policies, "cron", hour=6, minute=30, args=[settings], id="policies", **common)
+    scheduler.add_job(
+        collect_policies, "cron", day_of_week="sun", hour=5, minute=0, args=[settings], kwargs={"weekly_recheck": True}, id="policies-recheck", **common
+    )
     scheduler.add_job(Relay(settings).quietly, "interval", seconds=5, id="relay", **common)
-    log.info("스케줄러 시작", extra={"sources": ORDER})
+    log.info("스케줄러 시작", extra={"sources": ORDER, "policies": POLICY_ORDER})
     scheduler.start()
 
 
@@ -229,30 +308,47 @@ def main(argv: list[str] | None = None) -> None:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("run", help="스케줄러로 계속 실행")
     once = commands.add_parser("run-once", help="출처 하나를 지금 한 번 수집")
-    once.add_argument("source", choices=ORDER)
-    once.add_argument("--recheck", action="store_true", help="마감 전 공고까지 다시 열어 정정 확인")
+    once.add_argument("source", choices=ORDER + POLICY_ORDER)
+    once.add_argument("--recheck", action="store_true", help="마감 전 공고(정책은 바뀌지 않은 정책)까지 다시 열어 확인")
     every = commands.add_parser("run-all", help="모든 출처를 순서대로 한 번")
     every.add_argument("--recheck", action="store_true")
+    commands.add_parser("run-policies", help="정책 API 출처를 순서대로 한 번")
     commands.add_parser("relay", help="아웃박스 이벤트를 한 번 보내기")
     commands.add_parser("cleanup", help="보관 기한이 지난 원본 파일 지우기")
     fixtures = commands.add_parser("save-fixtures", help="테스트용 화면 저장")
     fixtures.add_argument("source", choices=ORDER)
     fixtures.add_argument("--details", type=int, default=3, help="게시판마다 저장할 상세 수")
     commands.add_parser("status", help="최근 수집 회차 보기")
+    area = commands.add_parser("area-upload", help="생활권·상권 원천 파일을 S3 area/에 올리고 적재 요청(area.source.ready) 보내기")
+    area.add_argument("--source", choices=AREA_SOURCES)
+    area.add_argument("--data-date", help="원천 기준일 (YYYY-MM-DD)")
+    area.add_argument("--file", help="원천 파일 (CSV, 지하철은 엑셀도 돼요)")
+    area.add_argument("--scope", help="상가정보의 시도 이름 (강원, 경기, 전남광주 …)")
+    area.add_argument("--manifest", help="이미 올린 파일 목록 CSV (--skip-upload와 같이)")
+    area.add_argument("--skip-upload", action="store_true", help="올리지 않고 S3 sha256 메타데이터만 확인해 적재 요청만 보내기")
     args = parser.parse_args(argv)
+    if args.command == "area-upload":
+        if args.manifest and not args.skip_upload:
+            parser.error("--manifest는 이미 올린 파일 목록이라 --skip-upload와 같이 써요")
+        if not args.manifest and not (args.source and args.data_date and args.file):
+            parser.error("--source, --data-date, --file이 필요해요 (또는 --manifest … --skip-upload)")
 
     platform_logging.setup("collector")
     settings = Settings.from_env()
     if args.command == "run":
         run_scheduler(settings)
     elif args.command == "run-once":
-        result = collect(args.source, settings, recheck=args.recheck)
+        run = collect_policy if args.source in POLICY_ORDER else collect
+        result = run(args.source, settings, recheck=args.recheck)
         print(f"{result.source_code}: {result.status}, 새 버전 {result.new_count}건")
         for warning in result.warnings:
             print(f"  - {warning}")
         print(f"이벤트 발행: {relay(settings)}건")
     elif args.command == "run-all":
         collect_all(settings, recheck=args.recheck)
+        print(f"이벤트 발행: {relay(settings)}건")
+    elif args.command == "run-policies":
+        collect_policies(settings)
         print(f"이벤트 발행: {relay(settings)}건")
     elif args.command == "relay":
         print(f"이벤트 발행: {relay(settings)}건")
@@ -262,6 +358,8 @@ def main(argv: list[str] | None = None) -> None:
         save_fixtures(args.source, settings, args.details)
     elif args.command == "status":
         print_status(settings)
+    elif args.command == "area-upload":
+        raise SystemExit(area_upload(args, settings))
 
 
 if __name__ == "__main__":
