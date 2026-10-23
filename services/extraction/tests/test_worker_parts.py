@@ -557,13 +557,74 @@ def test_policy_events_get_a_waiting_queue_so_collector_relay_is_not_blocked():
 
     worker.declare(Channel())
     bindings = {(c["queue"], c["routing_key"]) for name, c in calls if name == "queue_bind" and c.get("exchange") == worker.EXCHANGE}
-    # 판정 틀은 같은 정책 이벤트를 전용 큐로 한 부 더 받습니다(공용 정책 큐는 화면용 추출 담당 몫, 2026-10-22)
+    # 정책 이벤트는 공용 정책 큐 하나로 받아 판정 틀을 만듭니다(다른 담당은 발행만 함, 2026-10-23). 전용 큐는 더 만들지 않습니다
     assert bindings == {
         ("mujuthaek.raw.collected", "raw.notice.collected"),
         ("mujuthaek.raw.policy", "raw.policy.collected"),
-        ("mujuthaek.raw.policy.judgment", "raw.policy.collected"),
     }
+    # 이미 있는 큐와 인자가 달라 거절당하지 않게 인자 없이 선언합니다
     assert ("queue_declare", {"queue": "mujuthaek.raw.policy", "durable": True}) in calls
+    assert ("queue_declare", {"queue": "mujuthaek.raw.policy.dlq", "durable": True}) in calls
+
+
+def test_failed_policy_message_is_moved_to_dlq_then_acked():
+    # 정책 큐에는 dead-letter 인자가 없어 reject하면 메시지가 사라집니다. .dlq로 옮긴 뒤에만 ack합니다
+    from mujuthaek_extraction import worker
+
+    calls = []
+
+    class Channel:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: calls.append((name, args, kwargs))
+
+    worker.finish_policy(Channel(), 7, "dlq", b'{"eventId": "x"}', "props")
+    assert [c[0] for c in calls] == ["basic_publish", "basic_ack"]
+    assert calls[0][2] == {"exchange": "", "routing_key": "mujuthaek.raw.policy.dlq", "body": b'{"eventId": "x"}', "properties": "props"}
+    calls.clear()
+    worker.finish_policy(Channel(), 8, "requeue", b"{}")
+    assert calls == [("basic_nack", (8,), {"requeue": True})]
+    calls.clear()
+    worker.finish_policy(Channel(), 9, "ack", b"{}")
+    assert calls == [("basic_ack", (9,), {})]
+
+    class Broken(Channel):
+        def basic_publish(self, **kwargs):
+            raise OSError("연결 끊김")
+
+    calls.clear()
+    with pytest.raises(OSError):
+        worker.finish_policy(Broken(), 10, "dlq", b"{}")
+    assert calls == []  # 옮기지 못했으면 ack하지 않음(연결이 끊긴 뒤 다시 옴)
+
+
+def test_replay_dlq_moves_messages_back_until_limit_or_empty():
+    from types import SimpleNamespace
+
+    from mujuthaek_extraction import worker
+
+    class Channel:
+        def __init__(self, bodies):
+            self.bodies, self.calls = list(bodies), []
+
+        def basic_get(self, queue, auto_ack):
+            self.calls.append(("get", queue))
+            if not self.bodies:
+                return None, None, None
+            return SimpleNamespace(delivery_tag=len(self.calls)), "props", self.bodies.pop(0)
+
+        def basic_publish(self, **kwargs):
+            self.calls.append(("publish", kwargs["routing_key"], kwargs["body"]))
+
+        def basic_ack(self, tag):
+            self.calls.append(("ack", tag))
+
+    dlq, queue = worker.DLQ_TARGETS["policy"]
+    assert (dlq, queue) == ("mujuthaek.raw.policy.dlq", "mujuthaek.raw.policy")
+    channel = Channel([b"a", b"b", b"c"])
+    assert worker.replay_dlq(channel, dlq, queue, limit=2) == 2  # 한도까지만
+    assert [c for c in channel.calls if c[0] == "publish"] == [("publish", queue, b"a"), ("publish", queue, b"b")]
+    assert worker.replay_dlq(channel, dlq, queue, limit=10) == 1  # 남은 것만, 비면 멈춤
+    assert worker.DLQ_TARGETS["notice"] == ("mujuthaek.raw.collected.dlq", "mujuthaek.raw.collected")
 
 
 def test_unexpected_error_keeps_cost_already_spent(monkeypatch):

@@ -3,10 +3,10 @@
 큐 (팀 이벤트 흐름 문서)
   교환기 mujuthaek.events(topic) ── raw.notice.collected ──▶ 큐 mujuthaek.raw.collected (extraction이 선언)
   처리 실패·형식 오류 메시지는 재시도 없이 mujuthaek.dlx → mujuthaek.raw.collected.dlq
-  교환기 mujuthaek.events ── raw.policy.collected ──▶ 큐 mujuthaek.raw.policy.judgment(우리 전용): 창업지원·사업공간 모집이면 판정 틀을
-  만들어 extraction.completed(judgment)를 아웃박스에 넣습니다. 실패는 mujuthaek.dlx → mujuthaek.raw.policy.judgment.dlq
+  교환기 mujuthaek.events ── raw.policy.collected ──▶ 큐 mujuthaek.raw.policy: 창업지원·사업공간 모집이면 판정 틀을 만들어
+  extraction.completed(judgment)를 아웃박스에 넣습니다. 정책 이벤트는 수집기가 발행만 하고 이 큐를 꺼내는 곳은 extraction뿐입니다
+  (2026-10-23 팀 확인). 실패는 mujuthaek.raw.policy.dlq로 직접 옮기고 ack합니다(이미 만들어진 큐라 dead-letter 인자를 붙이지 않음)
   (AI 영구 실패로 틀을 못 만들었거나 AI 일시 실패가 MAX_AI_RETRIES번 이어진 메시지도 .dlq로)
-  공용 큐 mujuthaek.raw.policy는 정책 화면용 추출(다른 담당) 몫이라 꺼내 가지 않습니다(같은 큐를 함께 꺼내면 메시지를 나눠 가져 양쪽이 일부를 놓침)
   prefetch 1: 한 번에 한 건만 처리합니다(AI 호출이 길어서). 처리는 별도 스레드에서 하고 ack는 연결 스레드로 넘깁니다(pika 하트비트 유지).
   DB 연결은 메시지마다 새로 엽니다. 예전에는 하나를 계속 써서 DB가 한 번 끊기면 이후 메시지가 전부 .dlq로 갔습니다(검토 2026-10-16).
   DB를 못 쓰면 .dlq가 아니라 잠시 뒤 큐로 되돌립니다(자료 문제가 아니라 일시 장애이므로).
@@ -54,12 +54,12 @@ DLX = "mujuthaek.dlx"
 QUEUE = "mujuthaek.raw.collected"
 DLQ = QUEUE + ".dlq"
 ROUTING_KEY = "raw.notice.collected"
-# 정책 원본(raw.policy.collected). 공용 큐는 정책 화면용 추출(다른 담당)이 꺼내 가도록 선언만 유지합니다(받을 큐가 없으면 collector
-# 발행기(mandatory)가 거절당해 같은 묶음의 공고 이벤트까지 막힘). 우리는 같은 이벤트를 전용 큐로 한 부 더 받아 판정 틀만 만듭니다
+# 정책 원본(raw.policy.collected). 이 큐를 꺼내 판정 틀을 만듭니다(받을 큐가 없으면 collector 발행기(mandatory)가 거절당해 같은 묶음의
+# 공고 이벤트까지 막히므로 선언도 유지). 큐는 dev에서 인자 없이 먼저 만들어져 있어, 인자를 바꾸면 다시 선언할 때 거절당합니다(PRECONDITION_FAILED).
+# 그래서 실패 메시지는 dead-letter 대신 POLICY_DLQ로 직접 옮깁니다(finish_policy)
 POLICY_QUEUE = "mujuthaek.raw.policy"
+POLICY_DLQ = POLICY_QUEUE + ".dlq"
 POLICY_ROUTING_KEY = "raw.policy.collected"
-JUDGMENT_QUEUE = "mujuthaek.raw.policy.judgment"
-JUDGMENT_DLQ = JUDGMENT_QUEUE + ".dlq"
 COMPLETED_SCHEMA = "events/extraction.completed.v1.json"
 CLAIM_LEASE_SECONDS = 300  # 처리권 기한. 워커가 죽으면 이 시간 뒤 다른 처리가 이어받습니다
 CLAIM_RENEW_SECONDS = 60  # 처리 중 기한을 늘리는 간격(공고 하나가 30분 넘게 걸린 실측이 있어 기한을 계속 늘림)
@@ -84,10 +84,36 @@ def declare(channel) -> None:
     channel.queue_bind(queue=QUEUE, exchange=EXCHANGE, routing_key=ROUTING_KEY)
     channel.queue_declare(queue=POLICY_QUEUE, durable=True)
     channel.queue_bind(queue=POLICY_QUEUE, exchange=EXCHANGE, routing_key=POLICY_ROUTING_KEY)
-    channel.queue_declare(queue=JUDGMENT_DLQ, durable=True)
-    channel.queue_bind(queue=JUDGMENT_DLQ, exchange=DLX, routing_key=POLICY_ROUTING_KEY)
-    channel.queue_declare(queue=JUDGMENT_QUEUE, durable=True, arguments={"x-dead-letter-exchange": DLX})
-    channel.queue_bind(queue=JUDGMENT_QUEUE, exchange=EXCHANGE, routing_key=POLICY_ROUTING_KEY)
+    channel.queue_declare(queue=POLICY_DLQ, durable=True)
+
+
+DLQ_TARGETS = {"notice": (DLQ, QUEUE), "policy": (POLICY_DLQ, POLICY_QUEUE)}
+
+
+def replay_dlq(channel, dlq: str, queue: str, limit: int) -> int:
+    """.dlq 메시지를 원래 큐로 최대 limit건 되돌립니다(원인을 고친 뒤 운영자가 실행). 옮긴 뒤에만 .dlq에서 지웁니다.
+    같은 정책·공고 버전은 처리 기록으로 걸러지므로, 이미 끝난 것이 섞여 있어도 AI를 다시 부르지 않습니다."""
+    moved = 0
+    while moved < limit:
+        method, properties, body = channel.basic_get(queue=dlq, auto_ack=False)
+        if method is None:
+            break
+        channel.basic_publish(exchange="", routing_key=queue, body=body, properties=properties)
+        channel.basic_ack(method.delivery_tag)
+        moved += 1
+    return moved
+
+
+def finish_policy(channel, delivery_tag: int, decision: str, body: bytes, properties: Any = None) -> None:
+    """정책 메시지의 결정을 큐에 알립니다. .dlq면 본문을 POLICY_DLQ로 옮긴 뒤 ack합니다(정책 큐에는 dead-letter 인자가 없어
+    reject하면 메시지가 사라짐). 옮기기가 실패하면 예외가 나서 ack하지 않으므로 연결이 끊긴 뒤 메시지가 다시 옵니다."""
+    if decision == "ack":
+        channel.basic_ack(delivery_tag)
+    elif decision == "requeue":
+        channel.basic_nack(delivery_tag, requeue=True)
+    else:
+        channel.basic_publish(exchange="", routing_key=POLICY_DLQ, body=body, properties=properties)
+        channel.basic_ack(delivery_tag)
 
 
 class BudgetExhausted(Exception):
@@ -501,7 +527,7 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
 
     retries = RetryCounter()
 
-    def judge(delivery_tag: int, body: bytes) -> None:
+    def judge(delivery_tag: int, body: bytes, properties: Any = None) -> None:
         """정책 수집 이벤트 하나를 judge_message로 처리하고 그 결정(ack·requeue·.dlq)을 연결 스레드로 넘깁니다."""
         try:
             raw_event = json.loads(body)
@@ -511,10 +537,10 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
         except Exception:
             log.exception("판정 틀을 만들지 못했습니다. .dlq로 보냅니다")
             decision = "dlq"
-        connection.add_callback_threadsafe(functools.partial(finish, delivery_tag, decision))
+        connection.add_callback_threadsafe(functools.partial(finish_policy, channel, delivery_tag, decision, body, properties))
 
-    def on_policy(_channel, method, _properties, body: bytes) -> None:
-        threading.Thread(target=judge, args=(method.delivery_tag, body), daemon=True).start()
+    def on_policy(_channel, method, properties, body: bytes) -> None:
+        threading.Thread(target=judge, args=(method.delivery_tag, body, properties), daemon=True).start()
 
     def tick() -> None:  # 연결 스레드가 살아 메시지를 받을 수 있는 동안 신호를 보냅니다(AI 처리는 다른 스레드라 막히지 않음)
         if health:
@@ -522,7 +548,7 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
         connection.call_later(CONSUMER_BEAT_SECONDS, tick)
 
     channel.basic_consume(queue=QUEUE, on_message_callback=on_message)
-    channel.basic_consume(queue=JUDGMENT_QUEUE, on_message_callback=on_policy)
+    channel.basic_consume(queue=POLICY_QUEUE, on_message_callback=on_policy)
     log.info("큐 소비 시작", extra={"queue": QUEUE, "model": processor.models.describe()})
     tick()
     channel.start_consuming()
