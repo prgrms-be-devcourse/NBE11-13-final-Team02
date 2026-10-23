@@ -50,8 +50,8 @@ class MatchQueryServiceTest {
   static final UUID GVC = UUID.fromString("00000000-0000-0000-0000-00000000000f");
 
   /**
-   * notice·benefit 대신 쓰는 후보. 주거 4개: 장기전세(서초), 서리풀 아트타운(서초), 틀 없는 공고(전국), 다른 분야 틀이 들어간 공고(부산). 사업공간
-   * 1개(성동 안심상가), 창업지원 1개(K-Startup).
+   * notice 대신 쓰는 후보. 주거 4개: 장기전세(서초), 서리풀 아트타운(서초), 틀 없는 공고(전국), 다른 분야 틀이 들어간 공고(부산). 사업공간 1개(성동
+   * 안심상가), 창업지원 1개(K-Startup).
    */
   @TestConfiguration
   static class FakeNotices {
