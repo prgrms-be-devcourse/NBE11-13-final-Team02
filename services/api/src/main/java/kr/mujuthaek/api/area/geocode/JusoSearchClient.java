@@ -50,10 +50,17 @@ public class JusoSearchClient {
     this.sleeper = sleeper;
   }
 
-  /** 검색어로 첫 쪽(최대 10개)을 받아요. 검색어는 주소 정리 결과를 그대로 넘겨요. */
+  /**
+   * 검색어로 첫 쪽(최대 10개)을 받아요. 검색어는 주소 정리 결과를 넘기고, 여기서 API가 받지 않는 글자를 걸러요({@link JusoKeyword}). 거르고 나서
+   * 비면 부르지 않고 E0005(검색어 없음)예요.
+   */
   public SearchOutcome search(String keyword) {
     if (!properties.hasKey()) {
       return new Failed(Reason.NO_KEY, null);
+    }
+    String cleaned = JusoKeyword.clean(keyword);
+    if (cleaned.isEmpty()) {
+      return new Rejected("E0005");
     }
     String last = null;
     for (int attempt = 0; attempt <= properties.retries(); attempt++) {
@@ -61,7 +68,7 @@ public class JusoSearchClient {
         sleeper.sleep(500L * attempt);
       }
       try {
-        Response body = call(keyword);
+        Response body = call(cleaned);
         Response.Common common =
             body == null || body.results() == null ? null : body.results().common();
         if (common == null) {
