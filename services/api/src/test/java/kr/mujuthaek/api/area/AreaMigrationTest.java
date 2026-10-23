@@ -14,7 +14,8 @@ class AreaMigrationTest {
             one(
                 "select string_agg(table_name, ',' order by table_name) from information_schema.tables"
                     + " where table_schema = 'area'"))
-        .isEqualTo("facilities,industry_group_rules,load_runs,stores");
+        .isEqualTo(
+            "facilities,industry_group_rules,load_runs,location_metrics,notice_locations,stores");
   }
 
   @Test
