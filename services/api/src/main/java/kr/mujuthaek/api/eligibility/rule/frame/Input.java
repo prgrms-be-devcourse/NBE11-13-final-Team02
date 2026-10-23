@@ -3,7 +3,7 @@ package kr.mujuthaek.api.eligibility.rule.frame;
 /**
  * 판정에 쓰는 사용자 입력 칸. 값이 없어서 확인 필요가 된 조건은 이 칸을 알려줘요 (화면이 이 칸을 물으면 돼요).
  *
- * <p>field는 요청 JSON의 applicant 안 경로예요.
+ * <p>field는 요청 JSON의 profile 안 경로예요.
  */
 public enum Input {
   BIRTH_DATE("birthDate", "생년월일"),

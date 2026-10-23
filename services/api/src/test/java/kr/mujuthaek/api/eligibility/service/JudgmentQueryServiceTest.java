@@ -187,7 +187,7 @@ class JudgmentQueryServiceTest {
     rejected(
         () -> judgments.judgeHousing(frame, applicant, null),
         ErrorCode.INVALID_REQUEST,
-        "applicant.household.monthlyIncomeWon");
+        "profile.household.monthlyIncomeWon");
     assertThatThrownBy(() -> judgments.judgeHousing(frame, applicant, null))
         .hasMessageNotContaining("7654321");
   }

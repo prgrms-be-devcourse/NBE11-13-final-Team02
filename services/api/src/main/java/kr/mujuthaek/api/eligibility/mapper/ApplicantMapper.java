@@ -25,12 +25,12 @@ public final class ApplicantMapper {
       return new Applicant(
           null, null, null, null, null, null, null, null, null, null, null, null, null, answers);
     }
-    checkRegion(request.residenceRegionCode(), "applicant.residenceRegionCode");
-    checkAtLeast(request.residenceMonths(), 0, "applicant.residenceMonths");
+    checkRegion(request.residenceRegionCode(), "profile.residenceRegionCode");
+    checkAtLeast(request.residenceMonths(), 0, "profile.residenceMonths");
     if (request.childBirthDates() != null) {
       check(
           request.childBirthDates().stream().allMatch(d -> d != null),
-          "applicant.childBirthDates",
+          "profile.childBirthDates",
           "빈 날짜가 있어요");
     }
     return new Applicant(
@@ -45,8 +45,8 @@ public final class ApplicantMapper {
         household(request.household()),
         subscription(request.subscription()),
         business(request.business()),
-        codes(request.statuses(), Codes::isStatus, "applicant.statuses", "유형"),
-        codes(request.restrictions(), Codes::isRestriction, "applicant.restrictions", "신청 제한 사유"),
+        codes(request.statuses(), Codes::isStatus, "profile.statuses", "유형"),
+        codes(request.restrictions(), Codes::isRestriction, "profile.restrictions", "신청 제한 사유"),
         answers);
   }
 
@@ -54,13 +54,13 @@ public final class ApplicantMapper {
     if (h == null) {
       return null;
     }
-    checkAtLeast(h.size(), 1, "applicant.household.size");
-    checkAtLeast(h.homelessYears(), 0, "applicant.household.homelessYears");
-    checkAtLeast(h.monthlyIncomeWon(), 0, "applicant.household.monthlyIncomeWon");
-    checkAtLeast(h.applicantMonthlyIncomeWon(), 0, "applicant.household.applicantMonthlyIncomeWon");
-    checkAtLeast(h.parentsMonthlyIncomeWon(), 0, "applicant.household.parentsMonthlyIncomeWon");
-    checkAtLeast(h.applicantAndParentsSize(), 1, "applicant.household.applicantAndParentsSize");
-    checkAtLeast(h.carValueWon(), 0, "applicant.household.carValueWon");
+    checkAtLeast(h.size(), 1, "profile.household.size");
+    checkAtLeast(h.homelessYears(), 0, "profile.household.homelessYears");
+    checkAtLeast(h.monthlyIncomeWon(), 0, "profile.household.monthlyIncomeWon");
+    checkAtLeast(h.applicantMonthlyIncomeWon(), 0, "profile.household.applicantMonthlyIncomeWon");
+    checkAtLeast(h.parentsMonthlyIncomeWon(), 0, "profile.household.parentsMonthlyIncomeWon");
+    checkAtLeast(h.applicantAndParentsSize(), 1, "profile.household.applicantAndParentsSize");
+    checkAtLeast(h.carValueWon(), 0, "profile.household.carValueWon");
     return new Applicant.Household(
         h.size(),
         h.head(),
@@ -81,9 +81,9 @@ public final class ApplicantMapper {
     if (s == null) {
       return null;
     }
-    checkAtLeast(s.months(), 0, "applicant.subscription.months");
-    checkAtLeast(s.payments(), 0, "applicant.subscription.payments");
-    checkAtLeast(s.balanceWon(), 0, "applicant.subscription.balanceWon");
+    checkAtLeast(s.months(), 0, "profile.subscription.months");
+    checkAtLeast(s.payments(), 0, "profile.subscription.payments");
+    checkAtLeast(s.balanceWon(), 0, "profile.subscription.balanceWon");
     return new Applicant.Subscription(s.months(), s.payments(), s.balanceWon());
   }
 
@@ -91,10 +91,10 @@ public final class ApplicantMapper {
     if (b == null) {
       return null;
     }
-    checkRegion(b.siteRegionCode(), "applicant.business.siteRegionCode");
+    checkRegion(b.siteRegionCode(), "profile.business.siteRegionCode");
     check(
         b.industryCode() == null || b.industryCode().matches("\\d{5}"),
-        "applicant.business.industryCode",
+        "profile.business.industryCode",
         "업종 코드는 한국표준산업분류 11차 5자리 숫자예요");
     List<Applicant.BusinessRecord> history = null;
     if (b.history() != null) {
@@ -103,7 +103,7 @@ public final class ApplicantMapper {
     if (b.revenueByYear() != null) {
       check(
           b.revenueByYear().values().stream().allMatch(v -> v != null),
-          "applicant.business.revenueByYear",
+          "profile.business.revenueByYear",
           "빈 매출액이 있어요");
     }
     return new Applicant.Business(
@@ -116,11 +116,11 @@ public final class ApplicantMapper {
   }
 
   private static Applicant.BusinessRecord record(BusinessRecordRequest r) {
-    check(r != null && r.openedOn() != null, "applicant.business.history", "개업일이 있어야 해요");
+    check(r != null && r.openedOn() != null, "profile.business.history", "개업일이 있어야 해요");
     LocalDate closed = r.closedOn();
     check(
         closed == null || !closed.isBefore(r.openedOn()),
-        "applicant.business.history",
+        "profile.business.history",
         "폐업일이 개업일보다 앞이에요");
     return new Applicant.BusinessRecord(r.openedOn(), closed);
   }

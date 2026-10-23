@@ -65,24 +65,24 @@ class ApplicantMapperTest {
             CustomException.class,
             e ->
                 assertThat(e.getMessage())
-                    .startsWith("applicant.household.monthlyIncomeWon")
+                    .startsWith("profile.household.monthlyIncomeWon")
                     .doesNotContain("4321987"));
   }
 
   @Test
   void unknownStatusCodesAreRejected() {
-    invalid("{\"statuses\": [\"VIP\"]}", "applicant.statuses");
+    invalid("{\"statuses\": [\"VIP\"]}", "profile.statuses");
   }
 
   @Test
   void industryCodesHaveFiveDigits() {
-    invalid("{\"business\": {\"industryCode\": \"561\"}}", "applicant.business.industryCode");
+    invalid("{\"business\": {\"industryCode\": \"561\"}}", "profile.business.industryCode");
   }
 
   @Test
   void aBusinessCannotCloseBeforeItOpens() {
     invalid(
         "{\"business\": {\"history\": [{\"openedOn\": \"2024-01-01\", \"closedOn\": \"2023-01-01\"}]}}",
-        "applicant.business.history");
+        "profile.business.history");
   }
 }
