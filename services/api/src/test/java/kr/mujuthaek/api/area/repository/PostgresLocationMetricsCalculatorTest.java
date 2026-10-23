@@ -137,6 +137,47 @@ class PostgresLocationMetricsCalculatorTest {
   }
 
   @Test
+  void nearestUsesSpheroidDistanceEvenWhenKnnOrderDiffers() throws Exception {
+    // <->(KNN)는 구면 거리로 순서를 정하고 st_distance는 타원체 거리예요. 이 위도에서 구면은 남북을 조금 길게, 동서를 조금 짧게 재서
+    // 타원체로 북쪽 1,000m 역보다 동쪽 1,001m 역이 <->로는 먼저 나와요(실제 자료 3,000곳 중 9곳, 최대 164m가 이렇게 틀렸음).
+    UUID at = UUID.randomUUID();
+    String p = "st_makepoint(124.5, 33.2)::geography";
+    exec(
+        "insert into area.facilities (kind, sub_kind, name, geom, source, source_key, data_date)"
+            + " values ('SUBWAY_STATION', '1호선', '북쪽역', st_project("
+            + p
+            + ", 1000, 0), '"
+            + SOURCE
+            + "', 'SPH-N', date '2026-09-30'),"
+            + " ('SUBWAY_STATION', '1호선', '동쪽역', st_project("
+            + p
+            + ", 1001, pi() / 2), '"
+            + SOURCE
+            + "', 'SPH-E', date '2026-09-30')");
+    exec(
+        "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
+            + " address_text, geom, status, method) values ('"
+            + at
+            + "', gen_random_uuid(), 1, 'COMPLEX', '시험 위치 구면', "
+            + p
+            + ", 'OK', 'FILE')");
+    assertThat(
+            one(
+                "select name from area.facilities where kind = 'SUBWAY_STATION'"
+                    + " order by geom <-> "
+                    + p
+                    + " limit 1"))
+        .isEqualTo("동쪽역");
+
+    calculator.calculate(List.of(at));
+
+    assertThat(new java.math.BigDecimal(metric(at, "station_nearest_m")))
+        .isCloseTo(
+            new java.math.BigDecimal("1000"),
+            org.assertj.core.data.Offset.offset(new java.math.BigDecimal("0.01")));
+  }
+
+  @Test
   void failedLocationGetsNoMetricsAndRerunReplacesRows() throws Exception {
     UUID failed = UUID.randomUUID();
     exec(
