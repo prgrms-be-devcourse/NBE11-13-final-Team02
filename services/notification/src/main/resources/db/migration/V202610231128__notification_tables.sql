@@ -39,7 +39,7 @@ create table notifications (
     id          uuid        primary key,
     user_id     uuid        not null,
     type        text        not null check (type in ('NEW_NOTICE', 'NEW_SUPPORT', 'DEADLINE_D3', 'DEADLINE_D1', 'CORRECTED', 'FOLLOW_UP')),
-    target_type text        not null check (target_type in ('NOTICE', 'BENEFIT')),
+    target_type text        not null check (target_type in ('NOTICE', 'BENEFIT', 'SPACE_RECRUITMENT')),  -- notices / benefits / space_recruitments
     target_id   uuid        not null,
     dedup_key   text        not null unique,
     title       text        not null,

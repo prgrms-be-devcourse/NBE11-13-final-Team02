@@ -61,12 +61,12 @@ api
 | `dedupKey` | string | ✅ | 같은 알림인지 가리는 열쇠 (회원 ID 빼고). 아래 표. 알림 서버는 `{userId}:{dedupKey}`로 한 회원에게 한 번만 만들어요 |
 | `userIds` | uuid[] | ✅ 1~500개 | 받을 회원 |
 | `target` | object | ✅ | 무엇에 대한 알림인지 |
-| `target.type` | `NOTICE` \| `BENEFIT` | ✅ | 공고(notice 모듈) / 정책·창업지원·사업공간 모집(benefit 모듈) |
-| `target.id` | uuid | ✅ | noticeId / benefitId |
+| `target.type` | `NOTICE` \| `BENEFIT` \| `SPACE_RECRUITMENT` | ✅ | ID가 들어 있는 테이블. `NOTICE` 주거·사업공간 공고(notice `notices`) · `BENEFIT` 지원 정책·창업지원(benefit `benefits`) · `SPACE_RECRUITMENT` 사업공간 모집(benefit `space_recruitments`) |
+| `target.id` | uuid | ✅ | 그 테이블의 ID (noticeId / benefitId / spaceRecruitmentId) |
 | `target.title` | string | ✅ | 알림 문구에 써요 |
 | `target.provider` | string \| null | ✅ | LH, SH, 기관 이름 |
 | `target.applyEnd` | date \| null | ✅ | 접수 마감일. 문구에 써요 ("11월 8일 마감") |
-| `target.linkPath` | string | ✅ | PWA 상세 화면 경로 (`/notices/{id}`, `/benefits/{id}`) |
+| `target.linkPath` | string | ✅ | PWA 상세 화면 경로 (`/notices/{id}`, `/benefits/{id}`, `/space-recruitments/{id}`) |
 | `correction` | object \| null | ✅ | `CORRECTED`일 때만 |
 | `correction.changedFields` | string[] | ✅ | 사용자에게 알릴 바뀐 항목만 (아래 4장). 문구 "접수 일정·자격 조건이 바뀌었어요" |
 | `followUp` | object \| null | ✅ | `FOLLOW_UP`일 때만 |
@@ -139,7 +139,7 @@ api
 | 언제 | 대상자 | type |
 | --- | --- | --- |
 | `NoticePublished` (reprocess = false) | 주거(`HOUSING`)면 `housing_interests`, 사업공간(`BUSINESS_SPACE`)면 `business_interests`가 맞는 회원 + 그 공고를 관심 공고로 둔 회원 | NEW_NOTICE |
-| `BenefitPublished` (reprocess = false) | `BENEFIT`면 `support_interests`, `STARTUP_SUPPORT`·`SPACE_RECRUITMENT`면 `business_interests`가 맞는 회원 | NEW_SUPPORT |
+| `BenefitPublished` (reprocess = false) | field `BENEFIT`면 `support_interests`, `STARTUP_SUPPORT`·`SPACE_RECRUITMENT`면 `business_interests`가 맞는 회원 | NEW_SUPPORT (`target.type`은 사업공간 모집이면 `SPACE_RECRUITMENT`, 나머지는 `BENEFIT`) |
 | `NoticeUpdated`·`BenefitUpdated` (reprocess = false), 알릴 항목이 바뀜 | 관심 공고로 둔 회원 | CORRECTED |
 | `NoticeUpdated`에 `followUps` | 관심 공고로 둔 회원 | FOLLOW_UP |
 | 매일 09:00 스케줄러 | 마감일이 3일 뒤·1일 뒤인 열린 공고·정책을 관심 공고로 둔 회원 | DEADLINE_D3·D1 |
@@ -182,6 +182,7 @@ benefit의 시도 코드가 2자리(`11`)면 맞출 때 `11000`으로 바꿔 봐
 | 결정 | 내용 |
 | --- | --- |
 | 대상자 계산 위치 | **api** `notification` 모듈. 알림 서버는 발송만 |
+| `target.type` | `NOTICE`·`BENEFIT`·`SPACE_RECRUITMENT` 3개. ID 하나로 테이블 하나를 바로 찾게 사업공간 모집(`space_recruitments`)을 `BENEFIT`에서 나눠요 |
 | 이벤트 | `notification.requested`, `user.withdrawn` 2개 (예전 초안의 `notice.*`·`benefit.*`·`user.interest.changed`·`user.favorites.changed`는 쓰지 않아요) |
 | api 아웃박스·릴레이 | 담당자3이 만들고 담당자1이 리뷰 |
 | 후속 안내 | 알려요 (FOLLOW_UP) |

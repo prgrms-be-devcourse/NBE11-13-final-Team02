@@ -69,7 +69,7 @@ processed_events        받은 이벤트 장부
 | `id` | uuid PK | UUID v7 |
 | `user_id` | uuid | 요청의 `userIds` 중 한 명 |
 | `type` | text | `NEW_NOTICE` · `NEW_SUPPORT` · `DEADLINE_D3` · `DEADLINE_D1` · `CORRECTED` · `FOLLOW_UP` |
-| `target_type`, `target_id` | | 요청의 `target.type`·`target.id` |
+| `target_type`, `target_id` | | 요청의 `target.type`(`NOTICE`·`BENEFIT`·`SPACE_RECRUITMENT`)·`target.id` |
 | `dedup_key` | text UNIQUE | `{user_id}:{요청의 dedupKey}`. 같은 알림을 두 번 만들지 않아요 |
 | `title`, `body` | text | `type`별 템플릿 + 요청 값(제목·마감일·정정 항목·후속 글 제목)으로 만든 문구 |
 | `link_path` | text | 요청의 `target.linkPath`. 메일·알림함에서 누르면 가는 PWA 화면 |
