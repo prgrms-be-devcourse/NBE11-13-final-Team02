@@ -12,7 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.JdbcTemplate;
 
-/** 법정동코드 전체자료와 같은 형식(탭 구분, CP949)의 짧은 자료로 확인해요. */
+/** 저장소 법정동코드표에서 뗀 짧은 자료(common/legal_dong_sample.csv)와 빌드에 들어간 실제 코드표로 확인해요. */
 class RegionLoaderTest {
 
   private final JdbcTemplate jdbc = new JdbcTemplate(TestDatabase.dataSource());
@@ -26,28 +26,67 @@ class RegionLoaderTest {
   }
 
   @Test
-  void keepsOnlySidoAndSigungu() throws Exception {
-    var rows =
-        RegionCodeFile.read(
-            new BufferedReader(
-                new StringReader(
-                    "법정동코드\t법정동명\t폐지여부\n"
-                        + "1100000000\t서울특별시\t존재\n"
-                        + "1144000000\t서울특별시 마포구\t존재\n"
-                        + "1144010100\t서울특별시 마포구 아현동\t존재\n")));
+  void keepsOnlySidoAndSigungu_fromCommaOrTabFiles() throws Exception {
+    var expected =
+        List.of(
+            new RegionCodeFile.Row("11", "SIDO", null, "서울특별시", "서울특별시", "서울", true),
+            new RegionCodeFile.Row("11440", "SIGUNGU", "11", "마포구", "서울특별시 마포구", null, true));
+    String comma =
+        "법정동코드,법정동명,폐지여부\n"
+            + "1100000000,서울특별시,존재\n"
+            + "1144000000,서울특별시 마포구 ,존재\n" // 원본에 이름 끝 공백이 있는 줄이 있어요
+            + "1144010100,서울특별시 마포구 아현동,존재\n";
+
+    assertThat(RegionCodeFile.read(new BufferedReader(new StringReader(comma))))
+        .isEqualTo(expected);
+    assertThat(RegionCodeFile.read(new BufferedReader(new StringReader(comma.replace(',', '\t')))))
+        .isEqualTo(expected);
+  }
+
+  @Test
+  void sejongHasNoSidoLineSoTheSigunguLineMakesIt() throws Exception {
+    var rows = RegionCodeFile.read(new BufferedReader(new StringReader("3611000000,세종특별자치시,존재\n")));
 
     assertThat(rows)
         .containsExactly(
-            new RegionCodeFile.Row("11", "SIDO", null, "서울특별시", "서울특별시", "서울", true),
-            new RegionCodeFile.Row("11440", "SIGUNGU", "11", "마포구", "서울특별시 마포구", null, true));
+            new RegionCodeFile.Row("36", "SIDO", null, "세종특별자치시", "세종특별자치시", "세종", true),
+            new RegionCodeFile.Row("36110", "SIGUNGU", "36", "세종특별자치시", "세종특별자치시", null, true));
+  }
+
+  @Test
+  void decodesCp949FilesToo() {
+    byte[] cp949 = "1100000000\t서울특별시\t존재".getBytes(RegionLoader.CP949);
+    byte[] utf8 = "1100000000,서울특별시,존재".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+    assertThat(RegionLoader.decode(cp949)).contains("서울특별시");
+    assertThat(RegionLoader.decode(utf8)).contains("서울특별시");
+  }
+
+  @Test
+  void loadsTheBundledRepositoryFile() throws Exception {
+    RegionLoader.Bundled bundled = RegionLoader.bundled();
+    loader.loadBundled();
+
+    assertThat(bundled.fileName()).isEqualTo("legal_dong_20260929.csv");
+    assertThat(bundled.baseDate()).isEqualTo(LocalDate.of(2026, 9, 29));
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from common.regions where level = 'SIDO' and valid",
+                Integer.class))
+        .isEqualTo(16);
+    assertThat(names("SIDO")).contains("12:전남광주", "36:세종", "51:강원", "52:전북");
+    // 2026 인천 개편: 중구·동구·서구 폐지, 제물포구·영종구·서해구·검단구 생김
+    assertThat(validCodes("281")).contains("28125", "28155").doesNotContain("28110", "28140");
+    assertThat(validCodes("282")).contains("28275", "28290").doesNotContain("28260");
   }
 
   @Test
   void loadsTheFileAndLinksReplacedCodes() throws Exception {
     int count = loader.load(sample(), LocalDate.of(2026, 7, 1));
 
-    assertThat(count).isEqualTo(11);
-    assertThat(names("SIDO")).containsExactly("11:서울", "36:세종", "41:경기", "42:강원", "51:강원");
+    assertThat(count).isEqualTo(15);
+    assertThat(names("SIDO"))
+        .containsExactly("11:서울", "12:전남광주", "29:광주", "36:세종", "41:경기", "42:강원", "51:강원");
     assertThat(
             jdbc.queryForObject(
                 "select name || '|' || full_name from common.regions where code = '41111'",
@@ -68,7 +107,7 @@ class RegionLoaderTest {
     loader.load(sample(), LocalDate.of(2026, 7, 1));
 
     assertThat(jdbc.queryForObject("select count(*) from common.regions", Integer.class))
-        .isEqualTo(11);
+        .isEqualTo(15);
   }
 
   @Test
@@ -77,6 +116,8 @@ class RegionLoaderTest {
     assertThat(RegionCodeFile.shortName("전라남도")).isEqualTo("전남");
     assertThat(RegionCodeFile.shortName("경상북도")).isEqualTo("경북");
     assertThat(RegionCodeFile.shortName("제주특별자치도")).isEqualTo("제주");
+    assertThat(RegionCodeFile.shortName("전남광주통합특별시")).isEqualTo("전남광주");
+    assertThat(RegionCodeFile.shortName("광주광역시")).isEqualTo("광주");
   }
 
   private List<String> names(String level) {
@@ -84,6 +125,13 @@ class RegionLoaderTest {
         "select code || ':' || short_name from common.regions where level = ? order by code",
         String.class,
         level);
+  }
+
+  private List<String> validCodes(String prefix) {
+    return jdbc.queryForList(
+        "select code from common.regions where level = 'SIGUNGU' and valid and code like ? order by code",
+        String.class,
+        prefix + "%");
   }
 
   private String replacedBy(String code) {
@@ -95,7 +143,7 @@ class RegionLoaderTest {
     return Path.of(
         RegionLoaderTest.class
             .getClassLoader()
-            .getResource("common/region_codes_sample.txt")
+            .getResource("common/legal_dong_sample.csv")
             .toURI());
   }
 }
