@@ -164,10 +164,31 @@ def _codes_of(names: list[str], regions: Any) -> list[str] | None:
     return list(dict.fromkeys(found))
 
 
+def _quoted_region_codes(found: dict[str, Any], policy: dict[str, Any], regions: Any) -> list[str] | None:
+    """AI가 글에서 읽은 지역(names·quote) → 시군구 5자리. 근거 문장이 원문에 있고 그 문장에 지역 이름이 모두 있을 때만. 「전국」이면 빈 목록."""
+    names, quote = found.get("names") or [], found.get("quote")
+    text = re.sub(r"\s+", "", str(policy.get("text") or ""))
+    plain = re.sub(r"\s+", "", quote or "")
+    if len(plain) < 2 or plain not in text or not names or not all(region_named(n, quote) or n in REGION_GROUPS and n in plain for n in names):
+        return None
+    if names == ["전국"]:
+        return []
+    return _codes_of(names, regions)
+
+
 def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = None) -> list[str] | None:
-    """정책의 지원 지역 → 시군구 5자리 목록(xx000은 시도 전체). 전국이면 빈 목록, 정하지 못하면 None(빈 목록은 전국으로 읽혀 틀림).
+    """정책의 지역 → 시군구 5자리 목록(xx000은 시도 전체). 전국이면 빈 목록, 정하지 못하면 None(빈 목록은 전국으로 읽혀 틀림).
+    뜻은 분야마다 다릅니다(사용자 결정 2026-10-23).
+    - STARTUP_SUPPORT: 지원 지역(사업 대상 지역)
+    - SPACE_RECRUITMENT: 입주 공간이 있는 곳(검색·필터용). 신청자 거주지·사업장 소재지 요건은 판정 틀의 REGION 조건으로만 나타냅니다.
+      AI가 글에서 읽은 공간 소재지(spaceLocation)를 근거 문장과 지역 이름을 확인한 뒤 먼저 쓰고(수집기가 전국이라고 해도 —
+      전국 기관이 운영하는 공간도 한 곳에 있음), 없으면 아래 수집기 값 순서로 갑니다.
     수집기 값(코드, 없으면 이름 — K-Startup은 「서울」처럼 이름만, 기업마당은 「충청권」 같은 권역도 줌)을 먼저 쓰고, 수집기가 지역을 모르면
     AI가 글에서 읽은 지원 지역을 씁니다. AI 값은 근거 문장이 원문에 있고 그 문장에 지역 이름이 있을 때만 씁니다."""
+    if policy.get("field") == "SPACE_RECRUITMENT" and reading is not None:
+        located = _quoted_region_codes(reading.answer.get("spaceLocation") or {}, policy, regions)
+        if located:  # 빈 목록(「전국」)은 공간 위치가 아님
+            return located
     scope = policy.get("regionScope")
     if scope == "NATIONWIDE":
         return []
@@ -178,15 +199,7 @@ def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = Non
         return found
     if reading is None:
         return None
-    support = reading.answer.get("supportRegions") or {}
-    names, quote = support.get("names") or [], support.get("quote")
-    text = re.sub(r"\s+", "", str(policy.get("text") or ""))
-    plain = re.sub(r"\s+", "", quote or "")
-    if len(plain) < 2 or plain not in text or not names or not all(region_named(n, quote) or n in REGION_GROUPS and n in plain for n in names):
-        return None
-    if names == ["전국"]:
-        return []
-    return _codes_of(names, regions)
+    return _quoted_region_codes(reading.answer.get("supportRegions") or {}, policy, regions)
 
 
 def policy_frame(policy: dict[str, Any], reading: Any, regions: Any) -> dict[str, Any] | None:
@@ -213,7 +226,8 @@ def _day(value: Any) -> str | None:
 
 def policy_completed_payload(policy: dict[str, Any], frame: dict[str, Any] | None, regions: Any, reading: Any = None) -> dict[str, Any] | None:
     """정책 판정 틀 → extraction.completed payload(판정 요청안 2026-10-22: 틀은 이 이벤트의 judgment, rawPostId는 rawPolicyId).
-    상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지원 지역을 정하지 못하면 None(보내지 않음).
+    상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지역(policy_region_codes: 창업지원은 지원 지역,
+    사업공간은 공간 소재지)을 정하지 못하면 None(보내지 않음).
     틀에 확인 필요 조건이 하나라도 있으면 IN_REVIEW입니다. 접수 기간은 K-Startup 날짜 칸(규칙)에서만 옮깁니다."""
     codes = policy_region_codes(policy, regions, reading)
     if frame is None or codes is None or policy.get("field") not in POLICY_FIELDS:

@@ -9,7 +9,7 @@ from test_startup_judgment import WATEROUND
 
 from mujuthaek_extraction.assemble.regions import RegionCodeTable
 from mujuthaek_extraction.contracts import tools
-from mujuthaek_extraction.judgment.policy_frame import NO_REFERENCE, QUOTE_MISSING, VALUE_MISSING, opened_range, space_frame, startup_frame
+from mujuthaek_extraction.judgment.policy_frame import NO_REFERENCE, QUOTE_MISSING, RANGE_PART, VALUE_MISSING, opened_range, space_frame, startup_frame
 from mujuthaek_extraction.judgment.schema import frame_errors
 from mujuthaek_extraction.model import ModelError, RecordedModel
 from mujuthaek_extraction.publish import policy_completed_payload, policy_frame, policy_region_codes
@@ -385,7 +385,7 @@ def test_range_with_only_one_bound_is_held_for_review():
     quote = "공고일 기준 만 19~39세인 자"
     for bound in ({"maxAge": 39}, {"minAge": 19}):
         age = first_of([condition("AGE", quote, **bound)], quote + "\n")
-        assert age["inReview"] and VALUE_MISSING in age["reviewReason"]
+        assert age["inReview"] and RANGE_PART in age["reviewReason"]  # 실제 이유(한쪽 경계만 읽음)를 적음
         spaced = space_frame(tour() | {"text": TOUR_TEXT + quote + "\n"}, reading(answer([condition("AGE", quote, **bound)])), REGIONS)
         assert frame_errors(spaced) == [] and spaced["common"][0]["inReview"]
     assert first_of([condition("AGE", "만 19세 이상 39세 이하", maxAge=39)], "만 19세 이상 39세 이하\n")["inReview"]

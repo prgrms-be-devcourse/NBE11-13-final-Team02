@@ -112,7 +112,7 @@
             "type": "string",
             "pattern": "^[0-9]{5}$"
           },
-          "description": "정책(STARTUP_SUPPORT·SPACE_RECRUITMENT)만: 지원 지역 시군구 5자리(xx000은 시도 전체). 빈 목록이면 전국. 지역을 정하지 못한 정책은 이벤트를 보내지 않습니다"
+          "description": "정책(STARTUP_SUPPORT·SPACE_RECRUITMENT)만: 시군구 5자리(xx000은 시도 전체). STARTUP_SUPPORT는 지원 지역(사업 대상 지역), SPACE_RECRUITMENT는 입주 공간이 있는 곳(검색·필터용)이며 신청자 거주지·사업장 소재지 요건은 판정 틀(judgment)의 REGION 조건으로만 나타냅니다. 빈 목록이면 전국(사업공간은 공간 위치를 정하지 못했고 수집기 지역도 전국일 때). 지역을 정하지 못한 정책은 이벤트를 보내지 않습니다"
         },
         "regionCode": {
           "anyOf": [
