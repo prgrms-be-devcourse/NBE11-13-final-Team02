@@ -70,7 +70,7 @@ class JusoSearchClientTest {
     var client = client(KEY);
     var form = new LinkedMultiValueMap<String, String>();
     form.add("confmKey", KEY);
-    form.add("keyword", "부산광역시 동구 초량상로 1-2");
+    form.add("keyword", "부산광역시 중구 초량상로 1-2");
     form.add("currentPage", "1");
     form.add("countPerPage", "10");
     form.add("resultType", "json");
@@ -80,15 +80,15 @@ class JusoSearchClientTest {
         .andExpect(content().formData(form))
         .andRespond(
             withSuccess(
-                body("0", "1", juso("2617010200", "초량상로", "0", "1", "2")),
+                body("0", "1", juso("2611010100", "초량상로", "0", "1", "2")),
                 MediaType.APPLICATION_JSON));
 
-    SearchOutcome outcome = client.search("부산광역시 동구 초량상로 1-2");
+    SearchOutcome outcome = client.search("부산광역시 중구 초량상로 1-2");
 
     server.verify();
     assertThat(outcome).isInstanceOf(Found.class);
     JusoResult r = ((Found) outcome).results().getFirst();
-    assertThat(r.sigunguCode()).isEqualTo("26170");
+    assertThat(r.sigunguCode()).isEqualTo("26110");
     assertThat(r.rn()).isEqualTo("초량상로");
     assertThat(r.underground()).isFalse();
     assertThat(r.buildingMain()).isEqualTo(1);
@@ -172,7 +172,7 @@ class JusoSearchClientTest {
         .expect(requestTo(URL))
         .andRespond(
             withSuccess(
-                body("0", "1", juso("2617010200", "초량상로", "0", "1", "2")),
+                body("0", "1", juso("2611010100", "초량상로", "0", "1", "2")),
                 MediaType.APPLICATION_JSON));
 
     assertThat(client.search("초량상로 1-2")).isInstanceOf(Found.class);
