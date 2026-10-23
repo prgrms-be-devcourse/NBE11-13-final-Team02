@@ -82,7 +82,17 @@ CLAIM_KEYS = {
     "basis",
     "phone",
     "url",
+    "places",
+    "applicationEmail",
+    "dailyHours",
+    "breaks",
+    "excludedDays",
+    "timeNote",
+    "copies",
+    "issuer",
 }
+# 신청 방법의 정해진 순서(notice-common applicationChannel). 공고 전체 신청 방법(notice.applicationChannels)은 이 순서로 적습니다
+APPLICATION_CHANNELS = ("ONLINE", "ONSITE", "EMAIL", "MAIL", "FAX")
 
 
 
@@ -379,6 +389,13 @@ def application_items(notice, *, approved=False):
     return [s for i, s in enumerate(notice["schedules"]) if "APPLICATION" in s["kinds"] and not blocked(f"/schedules/{i}")]
 
 
+def application_channels(data):
+    """공고 전체 신청 방법(notice.applicationChannels)의 정답: 신청(APPLICATION) 일정들의 channels를 합쳐 정해진 순서로.
+    AI가 쓰지 않고 프로그램이 계산합니다(2026-10-23). 보류 여부와 상관없이 모든 신청 일정을 봅니다(보류에 따라 값이 바뀌지 않게)."""
+    found = {c for s in data["schedules"] if "APPLICATION" in s["kinds"] for c in s["channels"]}
+    return [c for c in APPLICATION_CHANNELS if c in found]
+
+
 def application_day(value):
     if not value or value["precision"] == "MONTH":
         return None
@@ -640,6 +657,14 @@ def semantic_errors(data, ready=False):
             start, end = temporal_bounds(node["startsAt"]), temporal_bounds(node["endsAt"])
             if start and end and start[0] > end[1]:
                 error("REVERSED_SCHEDULE", path)
+            # 하루 안의 시각 구간(HH:MM)은 글자 비교가 곧 시각 비교입니다
+            for key in ("dailyHours", "breaks"):
+                for index, span in enumerate(node.get(key) or []):
+                    if span["start"] >= span["end"]:
+                        error("TIME_RANGE_REVERSED", f"{path}/{key}/{index}")
+            for index, place in enumerate(node.get("places") or []):
+                if all(place[k] is None for k in ("name", "address", "detail")):
+                    error("EMPTY_PLACE", f"{path}/places/{index}")
         # 범위 값(선택 칸): 원문이 범위로만 적었을 때만 쓰고 단일 값과 함께 쓰지 않습니다
         for single, ranged in (("exclusiveAreaSqm", "exclusiveAreaRange"), ("amountKrw", "amountRangeKrw")):
             span = node.get(ranged) if single in node else None
@@ -726,6 +751,8 @@ def semantic_errors(data, ready=False):
             error("NOTICE_HAS_SUPERSEDES", f"/sourceReferences/{index}")
         if ready and item["kind"] != "NOTICE" and item["supersedesPostId"] is None:
             error("UNLINKED_RELATED_NOTICE", f"/sourceReferences/{index}")
+    if data["notice"]["applicationChannels"] != application_channels(data):
+        error("APPLICATION_CHANNELS_CONFLICT", "/notice/applicationChannels")
     if "input" in data:
         incoming = data["input"]
         if not any(

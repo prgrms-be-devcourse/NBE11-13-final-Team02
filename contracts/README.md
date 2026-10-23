@@ -54,17 +54,17 @@ standard-notice
 ├─ publisherCode / supplyTypeCode  서비스 필터용 기관·유형 코드
 ├─ regionScope / regionCodes[]    전국/지역/미확인·법정동코드 10자리
 ├─ applicationSummary             notice가 계산한 현재 접수 상태
-├─ notice                         원문 공고 제목·기관명·분야·유형·공고일·대상군·수량
+├─ notice                         원문 공고 제목·기관명·분야·유형·공고일·대상군·수량·공고 전체 신청 방법(프로그램 계산)
 ├─ locations[]                    단지·건물·주소·지역 코드·상하위 관계
 ├─ supplyGroups[]                 주택형 / 개별 주택 / 사업공간 호실
 │  ├─ locationId / unitLabel / floor / housingTypeCode / buildingUse
 │  ├─ exclusiveAreaSqm / commonAreaSqm
 │  ├─ counts[] / prices[]         모집 수·가격·부가세·가격안 연결
 │  └─ leaseTerm                   최초·갱신·최대 임대 개월
-├─ schedules[]                    종류·대상·순위·접수 방식·시작/종료·조건부 종료·신청 링크
+├─ schedules[]                    종류·대상·순위·접수 방식·시작/종료·조건부 종료·신청 링크·접수 장소·이메일·접수 시각·제외 요일
 ├─ eligibility[]                  자격 조건·AND/OR/NOT·예외·원문
 ├─ selectionRules[]               순위·가점·동점·추첨·선착순·입찰
-├─ requiredDocuments[]            제출 서류·대상·시점
+├─ requiredDocuments[]            제출 서류·대상·시점·서류 묶음·부수·발급 기관
 ├─ guidance[]                     신청 방법·놓치면 탈락하는 주의사항·입주 안내·생활 유의사항·문의처
 ├─ evidence[]                     문서·실제 페이지/문자 범위/행·원문 인용
 ├─ quality                        추출 범위·누락 사유·검토 이슈·필드 신뢰도·독립 검증
@@ -91,7 +91,10 @@ standard-notice
 | `pricePlanId` | 같은 보증금/임대료 전환안의 가격들을 연결합니다. 서로 다른 전환안의 보증금과 월세를 섞어 계산하지 않습니다. 하나의 기본안만 있고 명시한 안 ID가 없으면 `null`을 사용할 수 있습니다. |
 | `taxTreatment`, `vatRate`, `billingPeriod` | VAT 포함/별도/면세/해당 없음/미확인과 세율·일회/월/연 주기를 구분합니다. VAT를 일괄 10%로 채우지 않습니다. `MONTHLY_RENT`를 연 임대료로 해석하지 않습니다. |
 | `counts[]` | 단지 전체 수·이번 모집 수·예비자·현재 공실·대기자를 구분합니다. 명시된 전체/구성 관계가 있을 때만 `parentCountId`, `aggregationComplete`로 합산 검증합니다. |
-| `schedules[]` | 공고·신청·서류 제출·서류심사 결과·당첨·계약·입주·입찰·개찰을 구분합니다. 같은 구간이 신청과 입찰을 겸하면 `kinds`에 둘 다 기록합니다. `applicationMode`로 기간제·상시·해당 없음·미확인을 구분합니다. |
+| `schedules[]` | 공고·신청·주택 열람(`VIEWING`: 주택 열람·세대 관람·샘플하우스·방문 예약)·서류 제출·서류심사 결과·당첨·계약·입주·입찰·개찰을 구분합니다. 같은 구간이 신청과 입찰을 겸하면 `kinds`에 둘 다 기록합니다. `applicationMode`로 기간제·상시·해당 없음·미확인을 구분합니다. |
+| 일정 접수 방법·장소·시각(2026-10-23) | `channels`는 `ONLINE`(인터넷·온라인·홈페이지·모바일)·`ONSITE`(방문·현장·창구)·`EMAIL`·`MAIL`(우편·등기)·`FAX` 중에서만 고릅니다(이전 v1의 자유 글자에서 바뀜, 사용자 승인). 「인터넷 신청 불가」처럼 원문이 막은 방법은 넣지 않습니다. `places[]`(`name`·`address`·`detail`, 각 칸 글자 또는 `null`, 세 칸 모두 `null`이면 `EMPTY_PLACE`)는 방문 접수 장소, `applicationEmail`(`address`·`subjectFormat`)은 이메일 접수 주소입니다. 장소·주소·이메일은 원문에 그대로 있는 글자만 쓰고 근거에서 확인하지 못하면 `null`입니다. `dailyHours[]`·`breaks[]`는 접수하는 날의 시각 구간과 쉬는 시각(`{start, end}`, `HH:MM`, 한국 시각, `start < end` — `TIME_RANGE_REVERSED`), `excludedDays[]`는 접수하지 않는 요일·공휴일(`MON`…`SUN`, `HOLIDAY`), `timeNote`는 시각에 붙은 조건 설명입니다. 원문에 마감 시각(「18:00까지」)이 있으면 `startsAt`·`endsAt`을 `MINUTE`로 씁니다. 추출기는 시각·요일 낱말이 일정 근거 인용문에 있는지 확인하고, 없으면 그 칸을 비우고 표시 메모(`quality.notes`)를 남깁니다. **이전 저장본**: notice는 받는 이벤트만 계약으로 검사하고 저장된 이전 공고를 다시 검사하지 않습니다(새 칸이 없으면 빈 값, 자유 글자 `channels`는 정해진 값이 아니면 상세 응답에서 뺌). 추출기의 검수 승인은 저장된 이전 후보를 새 형식으로 옮긴 뒤(원문 낱말로 신청 방법을 정함) 검사합니다. |
+| `notice.applicationChannels` | 공고 전체 신청 방법. AI가 쓰지 않고 프로그램이 신청(`APPLICATION`) 일정들의 `channels`를 합쳐 정해진 순서(`ONLINE`, `ONSITE`, `EMAIL`, `MAIL`, `FAX`)로 적습니다. 보류 여부와 상관없이 모든 신청 일정을 봅니다. 계산 값과 다르면 `APPLICATION_CHANNELS_CONFLICT`입니다. |
+| `requiredDocuments[]` 묶음(2026-10-23) | `group`: `COMMON`(신청자 모두)·`CONDITIONAL`(해당자만)·`DIRECT`(본인 방문 신청)·`PROXY_SPOUSE`(배우자 대리)·`PROXY_OTHER`(배우자 외 대리)·`null`(원문이 묶음을 나누지 않음). `copies`는 근거 인용문에 「1부」「2통」처럼 있는 제출 부수, `issuer`는 근거에 그대로 있는 발급 기관이며 확인하지 못하면 `null`입니다. 같은 이름·같은 묶음·같은 제출 시점의 서류는 하나로 합칩니다(근거·대상 범위를 합침). |
 | `scope` | 공고 전체 / 특정 단지·건물 / 특정 주택형·호실, 대상군·신규/재공급을 표현합니다. 가격·일정·수량·조건의 의미를 비교할 때 반드시 함께 확인합니다. |
 | `selectionRules[]` | 선정 방식과 조건을 자격 필수 조건에서 분리합니다. 순위는 `priorityRank`, 가점은 `points/maxPoints`, 동점 순서는 `order`입니다. |
 | `guidance[]` | 공고 상세 화면에 보여 줄 안내입니다(2026-10-16 추가). `kind`: `APPLICATION_METHOD`(신청 경로·우편 접수 주소와 대상·필요한 인증서), `CAUTION`(중복 신청 무효·자격 유지·서류 미제출 제외·계약 포기 시 지위 상실 등 놓치면 불이익), `MOVE_IN`(계약 후 입주 기한·대출 상환·열쇠 인도 등), `LIVING_NOTICE`(관리비·현 상태 입주·입주청소·전대 금지 등 거주 중 유의사항), `CONTACT`(문의처, 전화는 `phone`), `OTHER`. `title`은 짧은 제목, `description`은 원문을 요약한 문장, `url`은 원문에 적힌 링크만 씁니다. 판정 조건은 `eligibility`, 날짜가 있는 일정은 `schedules`에 두고 여기에 중복하지 않습니다. |

@@ -56,7 +56,10 @@
     "evidenceIds": [
       "e1"
     ],
-    "targetGroups": []
+    "targetGroups": [],
+    "applicationChannels": [
+      "ONLINE"
+    ]
   },
   "locations": [
     {
@@ -81,6 +84,12 @@
         "BID"
       ],
       "applicationMode": "FIXED_PERIOD",
+      "places": [],
+      "applicationEmail": null,
+      "dailyHours": [],
+      "breaks": [],
+      "excludedDays": [],
+      "timeNote": null,
       "rawLabel": "입찰신청",
       "scope": {
         "level": "NOTICE",

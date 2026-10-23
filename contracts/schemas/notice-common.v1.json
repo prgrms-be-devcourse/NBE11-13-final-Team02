@@ -392,7 +392,8 @@
         "description",
         "counts",
         "evidenceIds",
-        "targetGroups"
+        "targetGroups",
+        "applicationChannels"
       ],
       "properties": {
         "title": {
@@ -487,6 +488,15 @@
           },
           "minItems": 0,
           "uniqueItems": true
+        },
+        "applicationChannels": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/applicationChannel"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "description": "공고 전체의 신청 방법. 프로그램이 신청(APPLICATION) 일정들의 channels를 합쳐 정해진 순서(ONLINE, ONSITE, EMAIL, MAIL, FAX)로 적습니다(AI가 쓰지 않음, APPLICATION_CHANNELS_CONFLICT)"
         }
       },
       "description": "PDF 등 원문에서 추출한 공고 내용입니다. 수집기 원문 제목·상태와 구분합니다."
@@ -682,7 +692,13 @@
         "evidenceIds",
         "applicationUrl",
         "priorityRank",
-        "applicationMode"
+        "applicationMode",
+        "places",
+        "applicationEmail",
+        "dailyHours",
+        "breaks",
+        "excludedDays",
+        "timeNote"
       ],
       "properties": {
         "id": {
@@ -703,7 +719,8 @@
               "OTHER",
               "BID",
               "BID_OPENING",
-              "DOCUMENT_REVIEW_RESULT"
+              "DOCUMENT_REVIEW_RESULT",
+              "VIEWING"
             ]
           },
           "minItems": 1,
@@ -720,12 +737,11 @@
         "channels": {
           "type": "array",
           "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "\\S"
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/applicationChannel"
           },
           "minItems": 0,
-          "uniqueItems": true
+          "uniqueItems": true,
+          "description": "이 일정의 신청·제출 방법(applicationChannel). 2026-10-23부터 자유 글자가 아닌 정해진 값입니다"
         },
         "startsAt": {
           "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/temporal"
@@ -806,6 +822,72 @@
             "NOT_APPLICABLE",
             "UNKNOWN"
           ]
+        },
+        "places": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/place"
+          },
+          "minItems": 0,
+          "description": "방문·현장 접수 장소. 원문에 없거나 확인하지 못하면 빈 목록"
+        },
+        "applicationEmail": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/applicationEmail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "이메일 접수 주소. 일정 근거에서 주소를 확인하지 못하면 null"
+        },
+        "dailyHours": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/timeRange"
+          },
+          "minItems": 0,
+          "description": "접수하는 날의 접수 시각(예: 10:00~17:00). 원문에 없거나 근거에서 확인하지 못하면 빈 목록"
+        },
+        "breaks": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/timeRange"
+          },
+          "minItems": 0,
+          "description": "접수하지 않는 쉬는 시각(점심시간 등)"
+        },
+        "excludedDays": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "MON",
+              "TUE",
+              "WED",
+              "THU",
+              "FRI",
+              "SAT",
+              "SUN",
+              "HOLIDAY"
+            ]
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "description": "기간 중 접수하지 않는 요일·공휴일(HOLIDAY). 원문의 「주말」은 SAT·SUN"
+        },
+        "timeNote": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "시각에 붙은 조건 설명(예: 마감일은 16시까지). 근거에 없는 시각이 들어 있으면 null"
         }
       },
       "allOf": [
@@ -1459,7 +1541,10 @@
         "appliesTo",
         "submissionTime",
         "description",
-        "evidenceIds"
+        "evidenceIds",
+        "group",
+        "copies",
+        "issuer"
       ],
       "properties": {
         "id": {
@@ -1491,6 +1576,42 @@
               "type": "null"
             }
           ]
+        },
+        "group": {
+          "enum": [
+            "COMMON",
+            "CONDITIONAL",
+            "DIRECT",
+            "PROXY_SPOUSE",
+            "PROXY_OTHER",
+            null
+          ],
+          "description": "서류 묶음. COMMON(신청자 모두), CONDITIONAL(해당자만), DIRECT(본인 방문 신청), PROXY_SPOUSE(배우자 대리 신청), PROXY_OTHER(배우자 외 대리 신청). 원문이 묶음을 나누지 않았으면 null"
+        },
+        "copies": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "제출 부수. 근거 인용문에 「1부」「2통」처럼 있는 수만, 없으면 null"
+        },
+        "issuer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "발급 기관(예: 주민센터). 근거 인용문에 그대로 있는 글자만, 없으면 null"
         },
         "description": {
           "anyOf": [
@@ -2681,6 +2802,115 @@
         }
       },
       "description": "부분 완료(PARTIALLY_PASSED)에서 공고는 게시하되 확인 전까지 쓰지 않는 항목·섹션. 판정·화면은 이 범위만 '원문 확인 필요'로 보여 줍니다"
+    },
+    "applicationChannel": {
+      "enum": [
+        "ONLINE",
+        "ONSITE",
+        "EMAIL",
+        "MAIL",
+        "FAX"
+      ],
+      "description": "신청·제출 방법. ONLINE(인터넷·온라인·홈페이지·모바일), ONSITE(방문·현장·창구), EMAIL(이메일), MAIL(우편·등기), FAX(팩스). 원문이 「인터넷 신청 불가」처럼 막은 방법은 넣지 않습니다"
+    },
+    "place": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "address",
+        "detail"
+      ],
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "접수처 이름(예: 「○○지역본부 1층 접수처」). 원문에 그대로 있는 글자만"
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "접수처 주소. 원문에 그대로 있는 글자만 쓰며, 일정 근거에서 확인하지 못하면 null"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "층·호실·창구 등 덧붙인 위치. 원문에 그대로 있는 글자만"
+        }
+      },
+      "description": "방문·현장 접수 장소. 세 칸이 모두 null인 장소는 넣지 않습니다(EMPTY_PLACE)"
+    },
+    "applicationEmail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "address",
+        "subjectFormat"
+      ],
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+          "description": "원문에 그대로 있는 접수 이메일 주소"
+        },
+        "subjectFormat": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "원문이 정한 메일 제목 형식(예: 「[신청] 성명_주택형」). 없으면 null"
+        }
+      },
+      "description": "이메일 접수 주소와 제목 형식"
+    },
+    "timeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$"
+        }
+      },
+      "description": "하루 안의 시각 구간(HH:MM, 한국 시각). start는 end보다 일러야 합니다(TIME_RANGE_REVERSED)"
     }
   }
 }
