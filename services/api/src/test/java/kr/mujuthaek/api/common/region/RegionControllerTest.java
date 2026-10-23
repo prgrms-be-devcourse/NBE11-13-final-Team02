@@ -27,6 +27,7 @@ class RegionControllerTest {
 
   @BeforeEach
   void load() throws Exception {
+    jdbc.update("delete from common.region_code_changes");
     jdbc.update("update common.regions set replaced_by = null");
     jdbc.update("delete from common.regions where level = 'SIGUNGU'");
     jdbc.update("delete from common.regions");

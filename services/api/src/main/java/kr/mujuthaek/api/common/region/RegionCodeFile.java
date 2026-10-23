@@ -54,20 +54,36 @@ final class RegionCodeFile {
       String shortName,
       boolean valid) {}
 
+  /** 파일 한 줄 그대로 (읍면동·리 포함). */
+  record Entry(String code, String fullName, boolean valid) {}
+
   private RegionCodeFile() {}
 
   static List<Row> read(BufferedReader reader) throws IOException {
-    List<Row> rows = new ArrayList<>();
-    Map<String, String> sidoNames = new LinkedHashMap<>();
+    return rows(entries(reader));
+  }
+
+  /** 모든 줄 (머리줄·빈 줄 빼고). 이름 끝 공백은 잘라요. */
+  static List<Entry> entries(BufferedReader reader) throws IOException {
+    List<Entry> entries = new ArrayList<>();
     String line;
     while ((line = reader.readLine()) != null) {
       String[] cells = line.split(line.indexOf('\t') >= 0 ? "\t" : ",");
       if (cells.length < 3 || !cells[0].trim().matches("[0-9]{10}")) {
         continue; // 머리줄·빈 줄
       }
-      String code = cells[0].trim();
-      String fullName = cells[1].trim();
-      boolean valid = cells[2].trim().equals("존재");
+      entries.add(new Entry(cells[0].trim(), cells[1].trim(), cells[2].trim().equals("존재")));
+    }
+    return entries;
+  }
+
+  static List<Row> rows(List<Entry> entries) {
+    List<Row> rows = new ArrayList<>();
+    Map<String, String> sidoNames = new LinkedHashMap<>();
+    for (Entry entry : entries) {
+      String code = entry.code();
+      String fullName = entry.fullName();
+      boolean valid = entry.valid();
       if (code.endsWith("00000000")) {
         String sido = code.substring(0, 2);
         sidoNames.put(sido, fullName);
