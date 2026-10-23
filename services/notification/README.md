@@ -30,3 +30,16 @@ make db-notification          # 알림 DB 만들기 (이미 있는 볼륨에 한
 ```
 
 앱을 한 번 띄우면 RabbitMQ에 `mujuthaek.notification` 큐가 생기고, 그 뒤로는 앱이 꺼져 있어도 이벤트가 큐에 쌓여요.
+
+## 발송 구조 (채널 갈아끼우기)
+
+```
+notification.requested → NotificationService  알림 1건(notifications) + 채널별 발송 줄(deliveries)
+                         DeliveryWorker        보낼 시각이 된 줄을 채널에 넘기고 SENT·재시도·FAILED·SKIPPED 기록
+                         NotificationChannel   채널마다 다른 일만: 받을 수 있나 / 묶음 지원 / 보내기
+                           └ EmailChannel → EmailSender (log: 로그만, ses: AWS SES)
+```
+
+웹 푸시 붙이기: `push_subscriptions` 마이그레이션 + `NotificationChannel`을 구현한 `PushChannel` 빈 하나. 알림 만들기·중복 거르기·조용한 시간·재시도는 그대로 써요.
+
+메일 설정: `NOTIFICATION_MAIL_PROVIDER=ses`, `NOTIFICATION_MAIL_FROM`(SES에서 인증한 주소), `AWS_PROFILE`(키는 `~/.aws/credentials`에만).

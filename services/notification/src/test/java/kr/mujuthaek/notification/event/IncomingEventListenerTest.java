@@ -29,6 +29,8 @@ class IncomingEventListenerTest {
   @BeforeEach
   void clear() {
     jdbc.sql("delete from processed_events").update();
+    jdbc.sql("delete from notifications").update();
+    while (rabbit.receive(EventQueueConfig.DLQ) != null) {} // 다른 테스트가 남긴 실패 메시지
   }
 
   @Test
@@ -45,17 +47,35 @@ class IncomingEventListenerTest {
   }
 
   @Test
+  void payloadOutsideContractGoesToDeadLetterQueue() throws Exception {
+    UUID eventId = UUID.randomUUID();
+    publish(
+        "notification.requested",
+        """
+        {"eventId":"%s","eventType":"notification.requested","payload":{"type":"NEW_NOTICE"}}
+        """
+            .formatted(eventId)); // userIds·target 없음
+
+    assertThat(receiveDead()).isNotNull();
+    assertThat(processed(eventId)).isZero();
+  }
+
+  @Test
   void brokenEnvelopeGoesToDeadLetterQueue() throws Exception {
     publish("notification.requested", "{\"eventType\":\"notification.requested\"}"); // eventId 없음
 
+    assertThat(receiveDead()).isNotNull();
+    assertThat(jdbc.sql("select count(*) from processed_events").query(Long.class).single())
+        .isZero();
+  }
+
+  private Message receiveDead() {
     Message dead = null;
     Instant until = Instant.now().plus(WAIT);
     while (dead == null && Instant.now().isBefore(until)) {
       dead = rabbit.receive(EventQueueConfig.DLQ, 500);
     }
-    assertThat(dead).isNotNull();
-    assertThat(jdbc.sql("select count(*) from processed_events").query(Long.class).single())
-        .isZero();
+    return dead;
   }
 
   private void publish(String routingKey, String body) {
@@ -74,9 +94,12 @@ class IncomingEventListenerTest {
   private static String event(UUID eventId, String eventType) {
     return """
         {"eventId":"%s","eventType":"%s","schemaVersion":1,"occurredAt":"2026-10-22T00:00:00Z",
-         "producer":"api","payload":{}}
+         "producer":"api","payload":{"type":"DEADLINE_D1","dedupKey":"NOTICE:%s:D1:2026-11-06",
+         "userIds":["%s"],"target":{"type":"NOTICE","id":"%s","title":"강동구 행복주택",
+         "provider":"SH","applyEnd":"2026-11-06","linkPath":"/notices/%s"},
+         "correction":null,"followUp":null}}
         """
-        .formatted(eventId, eventType);
+        .formatted(eventId, eventType, eventId, UUID.randomUUID(), eventId, eventId);
   }
 
   private static void await(Supplier<Boolean> condition) throws InterruptedException {

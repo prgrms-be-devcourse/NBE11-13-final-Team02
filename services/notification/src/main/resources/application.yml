@@ -24,6 +24,18 @@ spring:
       simple:
         default-requeue-rejected: false # 실패 메시지는 무한 재시도 대신 실패 큐(mujuthaek.notification.dlq)로
 
+notification:
+  mail:
+    provider: ${NOTIFICATION_MAIL_PROVIDER:log}     # log: 보내지 않고 로그만, ses: AWS SES로 보내기 (키는 AWS_PROFILE에서)
+    from: ${NOTIFICATION_MAIL_FROM:noreply@localhost}  # SES에서 인증한 보내는 주소
+    web-base-url: ${NOTIFICATION_WEB_BASE_URL:http://localhost:5173}
+    ses:
+      region: ${AWS_REGION:ap-northeast-2}
+      max-per-second: ${NOTIFICATION_SES_MAX_PER_SECOND:1}  # 샌드박스 한도
+  delivery:
+    poll-interval-ms: 5000
+    batch-size: 20
+
 server:
   port: 8081                            # api가 8080
 
