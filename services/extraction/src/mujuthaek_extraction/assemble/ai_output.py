@@ -2,7 +2,8 @@
 
 손으로 따로 적지 않고 계약 스키마에서 만듭니다. 계약이 바뀌면 AI 출력 형식도 같이 바뀝니다.
 - 근거: evidenceIds → quoteRefs (맨 위 quotes[]의 ref). 위치는 결합기가 계산합니다.
-- 계산값 제외: 가격 amountKrw, 위치 regionCode. 원문 sourceAmount·sourceUnit·region은 그대로 받습니다.
+- 계산값 제외: 가격 amountKrw, 위치 regionCode, 공고 전체 신청 방법 applicationChannels(신청 일정에서 계산).
+  원문 sourceAmount·sourceUnit·region은 그대로 받습니다.
 - 프로그램 전용 정의(근거 위치, 문서, 원본 참조, 검증, 품질 보고서 등) 제외.
 - 섹션별 호출(결정 E2)을 위해 모든 섹션과 coverage 항목은 선택입니다.
 """
@@ -31,7 +32,7 @@ PROGRAM_ONLY_DEFS = {
     "applicationSummary",
     "areaSummary",
 }
-COMPUTED_PROPERTIES = {"price": {"amountKrw", "amountRangeKrw"}, "location": {"regionCode"}}
+COMPUTED_PROPERTIES = {"price": {"amountKrw", "amountRangeKrw"}, "location": {"regionCode"}, "notice": {"applicationChannels"}}
 QUOTE = {
     "type": "object",
     "additionalProperties": False,

@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from mujuthaek_extraction.assemble.coverage import self_reported_partial
+from mujuthaek_extraction.assemble.details import refresh_application_channels
 from mujuthaek_extraction.assemble.quarantine import remove_item
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.intake.model import ApiReference
@@ -59,6 +60,10 @@ NOTE_CODES = {
     # V9 비교 방향 대조(OPERATOR_MISMATCH)는 넣지 않습니다: 자격 항목에만 걸리고, 방향이 반대면 판정이 뒤집히므로 늘 사람 확인입니다
     # 그림 판독 글자(AI가 옮김)를 근거로 한 공급·일정 등은 표시만. 자격·공고 정보는 EVIDENCE_FROM_IMAGE로 사람 확인
     "IMAGE_TRANSCRIBED_VALUES",
+    # 근거에서 확인하지 못한 일정 접수 방법·장소·시각, 서류 부수·발급 기관을 비움(details.py), 형식이 틀린 덧붙인 칸을 비움(coerce.py).
+    # 틀린 값은 이미 지웠으므로 표시만 합니다(2026-10-23). 일정의 종류·날짜 등 뜻 있는 칸을 바꾼 AI_OUTPUT_ITEM_COERCED는 넣지 않습니다(보류)
+    "DETAIL_UNVERIFIED_CLEARED",
+    "AI_OUTPUT_FIELD_CLEARED",
 }
 # 비교를 못 했을 뿐 불일치가 아닌 API 대조 결과: 섹션과 상관없이 표시만 (불일치 API_MISMATCH는 사람 확인)
 # API_VALUE_NOT_EXTRACTED: API에는 값이 있는데 추출값이 비어 있음(누락). 틀린 값이 아니라 빠진 값이라 공고를 막지 않습니다(2026-10-20)
@@ -170,6 +175,7 @@ def verify_extraction(
         "apiComparison": quality["verification"]["apiComparison"],
     }
     contract = tools()
+    refresh_application_channels(result)  # 결합 뒤 항목 격리(quarantine)로 일정이 빠졌을 수 있습니다
     if isinstance(result.get("notice"), dict) and isinstance(result["notice"].get("counts"), list) and isinstance(quality.get("missingFields"), list):
         drop_unknown_notice_counts(result)
 
