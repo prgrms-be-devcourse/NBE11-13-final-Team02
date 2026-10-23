@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: notification
+  profiles:
+    default: local
+  threads:
+    virtual:
+      enabled: true                     # 가상 스레드: 웹 푸시처럼 바깥 요청을 기다리는 일이 많아서
+  datasource:
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/notification}
+    username: ${NOTIFICATION_DB_USER:notification_app}
+    password: ${NOTIFICATION_DB_PASSWORD:notification-pass}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate                # 테이블은 Flyway가 만들고 JPA는 확인만
+  flyway:
+    locations: classpath:db/migration
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    username: ${RABBITMQ_USER:mujuthaek}
+    password: ${RABBITMQ_PASSWORD:mq-pass}
+    listener:
+      simple:
+        default-requeue-rejected: false # 실패 메시지는 무한 재시도 대신 실패 큐(mujuthaek.notification.dlq)로
+
+server:
+  port: 8081                            # api가 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

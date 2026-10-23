@@ -1,6 +1,6 @@
 #!/bin/bash
 # 컨테이너를 처음 만들 때(볼륨이 비었을 때) 한 번만 실행돼요.
-# 프로그램마다 DB와 사용자를 따로 둬요: collector, extraction, api
+# 프로그램마다 DB와 사용자를 따로 둬요: collector, extraction, api (알림 notification은 03-notification.sh)
 set -euo pipefail
 
 create_db() {
