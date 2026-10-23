@@ -139,13 +139,25 @@ public final class NoticeProjection {
    */
   public static List<String> applicationChannels(JsonNode detail) {
     Set<String> found = new java.util.HashSet<>();
+    boolean anyApplication = false;
     for (JsonNode s : detail.path("schedules"))
-      if (application(s)) found.addAll(channels(s.path("channels")));
+      if (application(s)) {
+        anyApplication = true;
+        found.addAll(channels(s.path("channels")));
+      }
+    // 신청 일정이 없으면(계약으로 바로 신청받는 선착순 공고) 계약 일정들의 방법을 합쳐요 (Python 계약 검사기와 같게)
+    if (!anyApplication)
+      for (JsonNode s : detail.path("schedules"))
+        if (hasKind(s, "CONTRACT")) found.addAll(channels(s.path("channels")));
     return CHANNELS.stream().filter(found::contains).toList();
   }
 
   private static boolean application(JsonNode item) {
-    for (JsonNode kind : item.path("kinds")) if ("APPLICATION".equals(kind.asString())) return true;
+    return hasKind(item, "APPLICATION");
+  }
+
+  private static boolean hasKind(JsonNode item, String kind) {
+    for (JsonNode k : item.path("kinds")) if (kind.equals(k.asString())) return true;
     return false;
   }
 
