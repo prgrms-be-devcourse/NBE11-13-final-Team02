@@ -1,0 +1,16 @@
+{
+  "eventId": "f66e2851-938c-5910-a73a-b12cfade1956",
+  "eventType": "area.source.ready",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-23T09:00:00Z",
+  "producer": "collector",
+  "payload": {
+    "source": "REGION_BOUNDARY_SIG",
+    "scope": "ALL",
+    "s3Key": "area/REGION_BOUNDARY_SIG/2026-09-30/boundary_sig.csv",
+    "sha256": "8033c0936030653bbcc77077370034e84dc0c7e87c642d6e5fe2bc4ae38ae34c",
+    "dataDate": "2026-09-30",
+    "fileName": "boundary_sig.csv",
+    "rows": 256
+  }
+}
