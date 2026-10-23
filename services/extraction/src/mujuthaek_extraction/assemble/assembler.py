@@ -18,7 +18,9 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 
 from mujuthaek_extraction.assemble import ai_output
+from mujuthaek_extraction.assemble.coerce import COERCIBLE, coerce_item
 from mujuthaek_extraction.assemble.coverage import DROPPED_INVALID, DROPPED_NO_EVIDENCE
+from mujuthaek_extraction.assemble.details import check_details
 from mujuthaek_extraction.assemble.missing_prices import fill_missing_prices
 from mujuthaek_extraction.assemble.quotes import (
     NormalizedText,
@@ -269,10 +271,14 @@ class _Assembler:
 
     def salvage(self, number: int, part: dict[str, Any], validator: Draft202012Validator) -> dict[str, Any]:
         """형식 오류가 난 곳만 빼서 섹션을 살립니다 (2026-10-16 항목 격리). 예전에는 오류 하나로 섹션 전체(예: 자격 조건 12개)를 버렸습니다.
-        자격 조건의 예외 하나가 틀리면 그 예외만 빼고(조건은 사람 확인), 그 밖에는 틀린 항목만 뺍니다."""
-        for _ in range(3):
+        자격 조건의 예외 하나가 틀리면 그 예외만 빼고(조건은 사람 확인), 그 밖에는 틀린 항목만 뺍니다.
+        일정·서류는 틀린 칸만 안전한 값으로 바꿔 항목을 남깁니다(coerce.py, 2026-10-23). 일정의 종류·날짜·범위처럼 뜻이 있는 칸을 바꿨으면
+        보류(AI_OUTPUT_ITEM_COERCED → 화면 「확인 필요」), 접수 장소·시각 같은 덧붙인 칸만 비웠으면 표시 메모입니다. 바꿔도 틀리면 뺍니다."""
+        coerced: dict[int, tuple[str, dict[str, Any], list[str], bool]] = {}  # 항목 객체 id → (섹션, 항목, 바꾼 칸, 뜻 있는 칸을 바꿨는지)
+        for _ in range(4):
             items: dict[str, set[int]] = defaultdict(set)
             exceptions: dict[int, set[int]] = defaultdict(set)
+            errors: dict[tuple[str, int], list[Any]] = defaultdict(list)
             for error in validator.iter_errors(part):
                 path = list(error.absolute_path)
                 if len(path) < 2 or path[0] not in SECTIONS or path[0] == "notice" or not isinstance(path[1], int):
@@ -281,8 +287,20 @@ class _Assembler:
                     exceptions[path[1]].add(path[3])
                 else:
                     items[path[0]].add(path[1])
+                    errors[(path[0], path[1])].append(error)
             if not items and not exceptions:
                 break
+            for section in COERCIBLE:
+                for index in sorted(items.get(section, set())):
+                    item = part[section][index]
+                    if id(item) in coerced or not isinstance(item, dict):
+                        continue  # 이미 한 번 바꿨는데도 틀리면 아래에서 뺍니다
+                    fixed = coerce_item(section, item, errors[(section, index)], part)
+                    if fixed is not None:
+                        coerced[id(item)] = (section, item, *fixed)
+                        items[section].discard(index)
+                if section in items and not items[section]:
+                    del items[section]
             for index, positions in exceptions.items():
                 if index in items["eligibility"]:
                     continue
@@ -297,6 +315,8 @@ class _Assembler:
                     f"{_label(condition)}: 형식이 맞지 않는 예외 {len(positions)}개를 뺐습니다. 원문의 예외를 확인해야 합니다",
                 )
             for section, indexes in items.items():
+                for index in indexes:
+                    coerced.pop(id(part[section][index]), None)
                 labels = [_label(part[section][i]) for i in sorted(indexes) if isinstance(part[section][i], dict)]
                 for index in sorted(indexes, reverse=True):
                     del part[section][index]
@@ -306,6 +326,18 @@ class _Assembler:
                 coverage = part.get("coverage") if isinstance(part.get("coverage"), dict) else {}
                 if isinstance(coverage.get(section), dict) and coverage[section].get("status") == "EXTRACTED":
                     coverage[section] = {"status": "PARTIAL", "reason": DROPPED_INVALID}
+        for section, item, fields, meaningful in coerced.values():
+            index = next(i for i, x in enumerate(part[section]) if x is item)
+            names = ", ".join(fields)
+            if meaningful:
+                self.issue(
+                    [section, index],
+                    "AI_OUTPUT_ITEM_COERCED",
+                    f"{number}번째 응답의 {_label(item)}: 형식이 맞지 않는 칸({names})을 안전한 값으로 바꿨어요. 원문 확인 전까지 쓰지 않아요",
+                )
+            else:  # 일정 항목을 가리키면 그 일정이 접수 기간에서 빠지므로 섹션을 가리킵니다(details.py와 같음)
+                target = [section] if section == "schedules" else [section, index]
+                self.issue(target, "AI_OUTPUT_FIELD_CLEARED", f"{number}번째 응답의 {_label(item)}: 형식이 맞지 않는 칸({names})을 비웠어요")
         return part
 
     # 2. 인용문 → 근거 위치
@@ -676,6 +708,8 @@ class _Assembler:
         result = AssemblyResult(candidate, issues, self.notes)
         if candidate is not None:
             candidate["quality"]["reviewIssues"] = issues
+            # 일정 접수 방법·장소·시각과 서류 묶음을 근거로 확인하고 같은 서류를 합칩니다(details.py). 합칠 때 위의 이슈 위치도 맞춥니다
+            self.notes.extend(check_details(candidate))
             result.contract_errors = tools().validate(candidate, "schemas/extracted-notice.v1.json")
         return result
 

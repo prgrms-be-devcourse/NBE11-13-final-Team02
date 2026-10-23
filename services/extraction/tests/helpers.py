@@ -24,7 +24,7 @@ def to_ai(node):
         for key, value in node.items():
             if key == "evidenceIds":
                 out["quoteRefs"] = value
-            elif key not in ("amountKrw", "regionCode"):
+            elif key not in ("amountKrw", "regionCode", "applicationChannels"):
                 out[key] = to_ai(value)
         return out
     if isinstance(node, list):

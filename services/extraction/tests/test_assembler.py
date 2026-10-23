@@ -141,14 +141,54 @@ def test_notice_without_evidence_gives_no_candidate():
 
 
 def test_invalid_item_is_dropped_but_section_survives():
-    # 항목 격리(2026-10-16): 형식이 틀린 항목만 빼고 섹션은 살립니다
+    # 항목 격리(2026-10-16): 형식이 틀린 항목만 빼고 섹션은 살립니다. 원문 표현(rawLabel)이 틀린 일정은 고칠 수 없어 뺍니다
     data = example("housing")
     part = copy.deepcopy(ai_part(data))
-    part["schedules"].append({**copy.deepcopy(part["schedules"][0]), "id": "broken", "applicationMode": "SOMETIMES"})
+    part["schedules"].append({**copy.deepcopy(part["schedules"][0]), "id": "broken", "rawLabel": ""})
     result = assemble([part], source_for("housing", data))
     assert [s["id"] for s in result.candidate["schedules"]] == [data["schedules"][0]["id"]]
     assert result.candidate["quality"]["coverage"]["schedules"]["status"] == "PARTIAL"
     assert ("AI_OUTPUT_ITEM_DROPPED", "/schedules") in {(i["code"], i["target"]) for i in result.issues}
+
+
+def test_invalid_schedule_fields_are_coerced_and_item_held():
+    # 프론트 요청 6-3(2026-10-23): 종류·접수 방식·시각이 틀린 일정은 빼지 않고 틀린 칸만 안전한 값으로 바꿔 「확인 필요」(보류)로 남깁니다
+    data = example("housing")
+    part = copy.deepcopy(ai_part(data))
+    broken = copy.deepcopy(part["schedules"][0])
+    broken.update(id="broken", kinds=["APPLICATION", "INTERVIEW"], applicationMode="SOMETIMES", dailyHours=[{"start": "9시", "end": "18:00"}])
+    broken["endsAt"] = {"precision": "MINUTE", "value": "10월 31일"}
+    part["schedules"].append(broken)
+    result = assemble([part], source_for("housing", data))
+    assert result.contract_errors == []
+    kept = result.candidate["schedules"][1]
+    assert kept["id"] == "broken" and kept["rawLabel"] == broken["rawLabel"] and kept["evidenceIds"]
+    assert kept["kinds"] == ["APPLICATION"] and kept["applicationMode"] == "UNKNOWN" and kept["dailyHours"] == []
+    assert (kept["endsAt"], kept["endStatus"], kept["endCondition"]) == (None, "UNKNOWN", None)
+    assert result.candidate["quality"]["coverage"]["schedules"]["status"] == "EXTRACTED"
+    assert ("AI_OUTPUT_ITEM_COERCED", "/schedules/1") in {(i["code"], i["target"]) for i in result.issues}
+
+
+def test_schedule_with_only_unknown_kinds_becomes_other():
+    data = example("housing")
+    part = copy.deepcopy(ai_part(data))
+    part["schedules"].append({**copy.deepcopy(part["schedules"][0]), "id": "tour", "kinds": ["TOUR"], "applicationMode": "FIXED_PERIOD"})
+    result = assemble([part], source_for("housing", data))
+    kept = result.candidate["schedules"][1]
+    assert kept["kinds"] == ["OTHER"] and kept["applicationMode"] == "NOT_APPLICABLE"
+    assert ("AI_OUTPUT_ITEM_COERCED", "/schedules/1") in {(i["code"], i["target"]) for i in result.issues}
+
+
+def test_bad_extra_schedule_fields_are_only_cleared():
+    # 덧붙인 칸(접수 장소·제외 요일)만 틀리면 비우고 표시 메모만 남깁니다(보류 아님). 일정 항목을 가리키면 접수 기간에서 빠지므로 섹션을 가리킵니다
+    data = example("housing")
+    part = copy.deepcopy(ai_part(data))
+    part["schedules"][0].update(places=[{"name": "접수처"}], excludedDays=["토요일"])
+    result = assemble([part], source_for("housing", data))
+    schedule = result.candidate["schedules"][0]
+    assert schedule["places"] == [] and schedule["excludedDays"] == [] and schedule["kinds"] == ["APPLICATION"]
+    assert ("AI_OUTPUT_FIELD_CLEARED", "/schedules") in {(i["code"], i["target"]) for i in result.issues}
+    assert not [i for i in result.issues if i["code"] == "AI_OUTPUT_ITEM_COERCED"]
 
 
 def test_invalid_exception_is_dropped_and_condition_marked():
@@ -486,8 +526,11 @@ def test_scrambled_flowchart_quote_locates_evidence_but_judgment_items_are_revie
     [evidence_id] = candidate["schedules"][0]["evidenceIds"]
     [evidence] = [e for e in candidate["evidence"] if e["id"] == evidence_id]
     assert evidence["quote"].startswith("동일순위") and candidate["guidance"][0]["evidenceIds"] == [evidence_id]
-    assert [(i["code"], i["target"]) for i in result.issues] == [("EVIDENCE_SCATTERED", "/schedules/0")]
+    assert [(i["code"], i["target"]) for i in result.issues if i["code"] != "DETAIL_UNVERIFIED_CLEARED"] == [("EVIDENCE_SCATTERED", "/schedules/0")]
     assert any(n.startswith("/guidance/0") and "뒤섞여" in n for n in result.notes)
+    # 바뀐 근거에는 신청 방법(온라인)·시각이 없어 그 값은 비웁니다(날짜만 남김)
+    schedule = candidate["schedules"][0]
+    assert schedule["channels"] == [] and schedule["startsAt"]["precision"] == "DAY" and candidate["notice"]["applicationChannels"] == []
 
 
 def test_later_broken_section_keeps_coverage_of_the_earlier_good_one():

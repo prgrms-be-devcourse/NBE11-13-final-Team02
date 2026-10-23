@@ -36,7 +36,7 @@ def test_three_calls_assemble_to_same_candidate_as_one_response():
     assert [r.call_name for r in model.requests] == ["structure", "schedules", "conditions"]
     assert result.failed_calls == []
     assert assemble(result.parts, source).candidate == assemble([ai_part(data)], source).candidate
-    assert {a.prompt_version for a in result.attempts} == {f"housing_notice/v28/{n}" for n in CALL_SECTIONS}
+    assert {a.prompt_version for a in result.attempts} == {f"housing_notice/v29/{n}" for n in CALL_SECTIONS}
 
 
 def test_request_has_source_and_structure_but_no_trusted_identifiers():
@@ -389,7 +389,7 @@ def test_conditions_are_split_into_one_call_per_section():
 
 
 def test_few_bad_section_items_are_left_to_the_assembler_without_a_second_call():
-    # 비용(OpenAI 9회 중 2회가 다시 요청): 항목 한두 개만 틀리면 다시 요청하지 않고 결합기가 그 항목만 뺍니다. 1이면 이전처럼 다시 요청
+    # 비용(OpenAI 9회 중 2회가 다시 요청): 항목 한두 개만 틀리면 다시 요청하지 않고 결합기가 그 항목만 고치거나 뺍니다. 1이면 이전처럼 다시 요청
     data = example("housing")
     script = recorded_parts(data)
     part = ai_part(data, CALL_SECTIONS["schedules"])
@@ -398,6 +398,7 @@ def test_few_bad_section_items_are_left_to_the_assembler_without_a_second_call()
     _, source, model, result = run(script, policy=RetryPolicy(repair_min_bad_items=3))
     assert [r.call_name for r in model.requests].count("schedules") == 1 and result.failed_calls == []
     assembled = assemble(result.parts, source)
-    assert assembled.candidate is not None and "AI_OUTPUT_ITEM_DROPPED" in {i["code"] for i in assembled.issues}
+    # 일정은 빼지 않고 틀린 칸만 바꿔 보류합니다(6-3, 2026-10-23)
+    assert assembled.candidate is not None and "AI_OUTPUT_ITEM_COERCED" in {i["code"] for i in assembled.issues}
     _, _, model, _ = run(script, policy=RetryPolicy(repair_min_bad_items=1))
     assert [r.call_name for r in model.requests].count("schedules") == 2

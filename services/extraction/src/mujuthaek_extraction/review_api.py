@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+import copy
 import hmac
 import json
 import logging
@@ -28,6 +29,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
+from mujuthaek_extraction.assemble.details import upgrade_stored
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.publish import approved_payload
 from mujuthaek_extraction.store import SUPERSEDED, superseded_message
@@ -97,6 +99,8 @@ class ReviewService:
             candidate = body.get("candidate") or item["candidate"]
             if candidate is None:
                 return 409, {"error": "추출 결과가 없어 승인할 수 없습니다. 원본 자료를 고친 뒤 다시 처리하세요."}
+            # 2026-10-23 이전에 저장한 후보는 일정·서류의 새 칸과 정해진 신청 방법 값으로 옮긴 뒤 검사합니다(새 형식이면 그대로)
+            candidate = upgrade_stored(copy.deepcopy(candidate))
             errors = tools().validate(candidate, CANDIDATE_SCHEMA)
             if errors:
                 return 422, {"error": "표준 공고 형식이 맞지 않습니다.", "details": errors[:20]}
