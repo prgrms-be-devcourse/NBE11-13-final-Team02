@@ -92,6 +92,13 @@ mujuthaek:
       per-day: 10000
       retries: 2
       timeout: 5s
+    juso-coord:                         # 도로명주소 좌표제공 API (사전에 없는 새 건물). 키가 비면 부르지 않아요 (법정동 대표점으로)
+      base-url: https://business.juso.go.kr/addrlink/addrCoordApi.do
+      api-key: ${JUSO_COORD_API_KEY:}
+      per-second: 5
+      per-day: 10000
+      retries: 2
+      timeout: 5s
 
 management:
   endpoints:
