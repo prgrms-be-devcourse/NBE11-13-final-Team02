@@ -30,7 +30,7 @@ public class LoanProductStore {
                 rs.getString(1),
                 rs.getString(2),
                 rs.getLong(3),
-                rs.getDouble(4),
+                rs.getBigDecimal(4),
                 (Long) rs.getObject(5),
                 (Long) rs.getObject(6),
                 (Integer) rs.getObject(7),

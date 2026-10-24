@@ -1,13 +1,15 @@
 package kr.mujuthaek.api.eligibility.rule;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.util.List;
 
 /**
  * 보증금으로 준비할 돈: 보증금 − 받을 수 있는 대출 중 가장 큰 금액.
  *
- * <p>대출 조건(소득·자산 상한)을 입력이 없어 판정할 수 없는 상품이 지금 고른 것보다 더 많이 빌려주면, 금액 대신 이유(INCOME_UNKNOWN·
- * ASSET_UNKNOWN)를 줘요. 나이·대상이 맞지 않거나 모르면 그 상품은 쓰지 않아요.
+ * <p>아는 소득·자산이 상한을 넘는 상품은 먼저 빼요. 남은 상품 중 입력이 없어 소득·자산 조건을 판정할 수 없는 상품이 지금 고른 것보다 더 많이 빌려주면, 금액 대신
+ * 이유(INCOME_UNKNOWN·ASSET_UNKNOWN)를 줘요. 나이·대상이 맞지 않거나 모르면 그 상품은 쓰지 않아요.
  */
 public final class PrepareCost {
 
@@ -18,7 +20,7 @@ public final class PrepareCost {
       String code,
       String name,
       long maxAmountWon,
-      double depositRatio,
+      BigDecimal depositRatio,
       Long maxAnnualIncomeWon,
       Long maxTotalAssetsWon,
       Integer minAge,
@@ -47,11 +49,11 @@ public final class PrepareCost {
       if (!ageAndTargetFit(p, a, referenceDate)) {
         continue;
       }
-      long amount = Math.min(p.maxAmountWon(), (long) Math.floor(depositWon * p.depositRatio()));
-      String unknown = unknownCondition(p, a);
-      if (unknown == null && !meetsMoneyLimits(p, a)) {
+      if (exceedsKnownLimit(p, a)) { // 아는 값만으로 이미 못 받는 상품
         continue;
       }
+      long amount = Math.min(p.maxAmountWon(), loanAmount(depositWon, p.depositRatio()));
+      String unknown = unknownCondition(p, a);
       if (unknown != null) {
         if (amount > unknownBest) {
           unknownBest = amount;
@@ -88,6 +90,22 @@ public final class PrepareCost {
     return true;
   }
 
+  /** 보증금 × 비율, 원 단위 버림. double로 곱하면 0.29 같은 비율에서 1원 모자라게 나와서 BigDecimal로 계산해요. */
+  static long loanAmount(long depositWon, BigDecimal ratio) {
+    return BigDecimal.valueOf(depositWon)
+        .multiply(ratio)
+        .setScale(0, RoundingMode.FLOOR)
+        .longValueExact();
+  }
+
+  /** 아는 소득·자산이 상한을 넘으면 true. 모르는 값은 여기서 보지 않아요. */
+  private static boolean exceedsKnownLimit(LoanProduct p, Applicant a) {
+    Long income = a.householdIncome();
+    Long assets = a.totalAssetsWon();
+    return (p.maxAnnualIncomeWon() != null && income != null && income > p.maxAnnualIncomeWon())
+        || (p.maxTotalAssetsWon() != null && assets != null && assets > p.maxTotalAssetsWon());
+  }
+
   /** 입력이 없어 판정할 수 없는 돈 조건. 다 알면 null. */
   private static String unknownCondition(LoanProduct p, Applicant a) {
     if (p.maxAnnualIncomeWon() != null && a.householdIncome() == null) {
@@ -97,10 +115,5 @@ public final class PrepareCost {
       return "ASSET_UNKNOWN";
     }
     return null;
-  }
-
-  private static boolean meetsMoneyLimits(LoanProduct p, Applicant a) {
-    return (p.maxAnnualIncomeWon() == null || a.householdIncome() <= p.maxAnnualIncomeWon())
-        && (p.maxTotalAssetsWon() == null || a.totalAssetsWon() <= p.maxTotalAssetsWon());
   }
 }

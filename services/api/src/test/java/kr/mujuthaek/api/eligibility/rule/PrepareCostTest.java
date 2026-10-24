@@ -2,6 +2,7 @@ package kr.mujuthaek.api.eligibility.rule;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import kr.mujuthaek.api.eligibility.rule.PrepareCost.LoanProduct;
@@ -13,9 +14,26 @@ class PrepareCostTest {
   private static final LocalDate REF = LocalDate.of(2026, 10, 22);
   private static final LoanProduct YOUTH =
       new LoanProduct(
-          "YOUTH", "청년 전세자금", 200_000_000, 0.8, 50_000_000L, 340_000_000L, 19, 34, List.of());
+          "YOUTH",
+          "청년 전세자금",
+          200_000_000,
+          new BigDecimal("0.8"),
+          50_000_000L,
+          340_000_000L,
+          19,
+          34,
+          List.of());
   private static final LoanProduct GENERAL =
-      new LoanProduct("GENERAL", "일반 전세자금", 120_000_000, 0.7, null, null, null, null, List.of());
+      new LoanProduct(
+          "GENERAL",
+          "일반 전세자금",
+          120_000_000,
+          new BigDecimal("0.7"),
+          null,
+          null,
+          null,
+          null,
+          List.of());
 
   @Test
   void picksTheLargestLoanTheApplicantQualifiesFor() {
@@ -69,6 +87,26 @@ class PrepareCostTest {
   }
 
   @Test
+  void knownIncomeOverTheCapDropsTheProductEvenWhenAssetsAreUnknown() {
+    // 소득 9천만 원(청년 상한 5천만 원 초과), 자산은 안 넣음: 청년 대출은 어차피 못 받으니 '자산을 몰라서 판정 불가'가 아니라 일반 대출로 계산
+    var a =
+        new ApplicantBuilder().birth(1997, 3, 15).household(1).personalIncome(90_000_000L).build();
+
+    var r = PrepareCost.calculate(100_000_000L, a, List.of(YOUTH, GENERAL), REF);
+
+    assertThat(r.note()).isNull();
+    assertThat(r.loan().productCode()).isEqualTo("GENERAL");
+    assertThat(r.prepareWon()).isEqualTo(30_000_000);
+  }
+
+  @Test
+  void loanAmountIsExactForRatiosDoubleGetsWrong() {
+    // 1000만 × 0.29: double이면 2899999.9999…라 버리면 1원 모자람
+    assertThat(PrepareCost.loanAmount(10_000_000L, new BigDecimal("0.29"))).isEqualTo(2_900_000);
+    assertThat(PrepareCost.loanAmount(123_456_789L, new BigDecimal("0.575"))).isEqualTo(70_987_653);
+  }
+
+  @Test
   void noProductsOrNoPrice() {
     var a = Applicant.empty();
     assertThat(PrepareCost.calculate(10_000_000L, a, List.of(), REF).prepareWon())
@@ -77,7 +115,15 @@ class PrepareCostTest {
         .isEqualTo("PRICE_NOT_ANNOUNCED");
     var newlyweds =
         new LoanProduct(
-            "NEWLY", "신혼", 300_000_000, 0.8, null, null, null, null, List.of("NEWLYWED"));
+            "NEWLY",
+            "신혼",
+            300_000_000,
+            new BigDecimal("0.8"),
+            null,
+            null,
+            null,
+            null,
+            List.of("NEWLYWED"));
     assertThat(PrepareCost.calculate(10_000_000L, a, List.of(newlyweds), REF).loan()).isNull();
   }
 }
