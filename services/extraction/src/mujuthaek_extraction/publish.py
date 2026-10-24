@@ -10,10 +10,27 @@
 
 from __future__ import annotations
 
+import logging
+import re
 from typing import Any
+from urllib.parse import urlsplit
 
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.judgment import build_judgment
+from mujuthaek_extraction.judgment.policy_frame import (
+    PERIOD_TEXT_FIELDS,
+    policy_apply_period,
+    region_named,
+    space_frame,
+    startup_frame,
+    uses_judging_date,
+)
+from mujuthaek_extraction.judgment.sanity import repair
+from mujuthaek_extraction.judgment.schema import frame_errors
+from mujuthaek_extraction.judgment.space import build_space
+from mujuthaek_extraction.judgment.startup import build_startup
+
+log = logging.getLogger(__name__)
 
 
 def _issue_targets(candidate: dict[str, Any], *, with_notes: bool = False) -> list[tuple[str, str]]:
@@ -118,3 +135,247 @@ def approved_payload(candidate: dict[str, Any], *, provider: str | None = None, 
     )
     payload.pop("heldItems", None)
     return payload
+
+
+def _in_review(criteria: list[dict[str, Any]]) -> bool:
+    return any(c["inReview"] or _in_review([i for o in c.get("options") or [] for i in o["criteria"]]) for c in criteria)
+
+
+POLICY_FIELDS = ("STARTUP_SUPPORT", "SPACE_RECRUITMENT")
+
+
+# 권역 이름 → 시도 이름(지역표로 코드를 찾으므로 통합·개편된 시도도 지역표를 따름)
+REGION_GROUPS = {
+    "수도권": ("서울", "인천", "경기"),
+    "충청권": ("대전", "세종", "충북", "충남"),
+    "호남권": ("광주", "전북", "전남"),
+    "영남권": ("부산", "대구", "울산", "경북", "경남"),
+    "동남권": ("부산", "울산", "경남"),
+    "대경권": ("대구", "경북"),
+    "강원권": ("강원",),
+    "제주권": ("제주",),
+}
+
+
+def _codes_of(names: list[str], regions: Any) -> list[str] | None:
+    """지역 이름(권역 포함) → 시군구 5자리. 하나라도 못 찾으면 None."""
+    if not names or regions is None:
+        return None
+    found = []
+    for name in names:
+        name = re.sub(r"[\[\]()]", "", str(name)).strip()
+        for part in REGION_GROUPS.get(name, (name,)):
+            match = regions.lookup(part)
+            if match.code is None or match.note:
+                return None
+            found.append(match.code[:5])
+    return list(dict.fromkeys(found))
+
+
+def _quoted_region_codes(found: dict[str, Any], policy: dict[str, Any], regions: Any) -> list[str] | None:
+    """AI가 글에서 읽은 지역(names·quote) → 시군구 5자리. 근거 문장이 원문에 있고 그 문장에 지역 이름이 모두 있을 때만. 「전국」이면 빈 목록."""
+    names, quote = found.get("names") or [], found.get("quote")
+    text = re.sub(r"\s+", "", str(policy.get("text") or ""))
+    plain = re.sub(r"\s+", "", quote or "")
+    if len(plain) < 2 or plain not in text or not names or not all(region_named(n, quote) or n in REGION_GROUPS and n in plain for n in names):
+        return None
+    if names == ["전국"]:
+        return []
+    return _codes_of(names, regions)
+
+
+def narrowest(codes: list[str]) -> list[str]:
+    """같은 지역의 상위 코드를 뺍니다: 같은 시도의 시군구가 있으면 시도 전체(xx000), 같은 시의 일반구(41285)가 있으면 그 시(41280).
+    xx000은 그 시도의 모든 시군구로 검색되므로, AI가 「경기도」「고양시」「일산동구」로 나눠 적으면 공간이 경기 전체로 넓어졌음(리뷰 2026-10-23)."""
+
+    def covered(code: str) -> bool:
+        if code.endswith("000"):
+            return any(other != code and other[:2] == code[:2] for other in codes)
+        return code[4] == "0" and any(other[:4] == code[:4] and other[4] != "0" for other in codes)
+
+    return [c for c in dict.fromkeys(codes) if not covered(c)]
+
+
+NEAR_LINES = 3  # 공간이 여럿이면 주소가 줄마다 따로 있음: 근거 문장 줄 앞뒤 이만큼의 줄에서도 이름을 찾음
+
+
+def _located_near(name: str, quote: str, text: str) -> bool:
+    """공간 이름이 근거 문장에, 아니면 원문에서 근거 문장이 있는 줄 앞뒤 NEAR_LINES줄 중 한 줄에 통째로 있는지."""
+    if region_named(name, quote):
+        return True
+    target = re.sub(r"\s+", "", quote)
+    lines = text.splitlines()
+    for n, line in enumerate(lines):
+        if target in re.sub(r"\s+", "", line):
+            if any(region_named(name, other) for other in lines[max(0, n - NEAR_LINES) : n + NEAR_LINES + 1]):
+                return True
+    return False
+
+
+def space_location_codes(found: dict[str, Any], policy: dict[str, Any], regions: Any) -> tuple[list[str] | None, bool]:
+    """AI가 읽은 입주 공간 소재지 → (시군구 5자리, AI가 공간 위치를 읽었는지). 근거 문장이 원문에 있어야 하고, 이름은 하나씩 확인해
+    (근거 문장이나 그 앞뒤 줄) 확인된 이름만 씁니다. 같은 시도·시의 상위 코드는 뺍니다. 하나도 못 정하면 코드는 None."""
+    names = [str(n) for n in found.get("names") or [] if str(n).strip()]
+    quote = str(found.get("quote") or "")
+    claimed = bool(names) and [re.sub(r"\s+", "", n) for n in names] != ["전국"]
+    text = str(policy.get("text") or "")
+    plain = re.sub(r"\s+", "", quote)
+    if not claimed or len(plain) < 2 or plain not in re.sub(r"\s+", "", text):
+        return None, claimed
+    codes = [c for n in names if _located_near(n, quote, text) for c in _codes_of([n], regions) or []]
+    return narrowest(codes) or None, True
+
+
+def policy_region_codes(policy: dict[str, Any], regions: Any, reading: Any = None) -> list[str] | None:
+    """정책의 지역 → 시군구 5자리 목록(xx000은 시도 전체). 전국이면 빈 목록, 정하지 못하면 None(빈 목록은 전국으로 읽혀 틀림).
+    뜻은 분야마다 다릅니다(사용자 결정 2026-10-23).
+    - STARTUP_SUPPORT: 지원 지역(사업 대상 지역)
+    - SPACE_RECRUITMENT: 입주 공간이 있는 곳(검색·필터용). 신청자 거주지·사업장 소재지 요건은 판정 틀의 REGION 조건으로만 나타냅니다.
+      AI가 글에서 읽은 공간 소재지(spaceLocation)를 근거 문장과 지역 이름을 확인한 뒤 먼저 쓰고(수집기가 전국이라고 해도 —
+      전국 기관이 운영하는 공간도 한 곳에 있음), 없으면 아래 수집기 값 순서로 갑니다.
+      AI가 공간 위치를 읽었는데 확인하지 못했으면 빈 목록(전국)을 내지 않고 None(보내지 않음)입니다. 공간은 한 곳에 있으므로
+      「전국」은 틀린 값이고, 틀린 값이 누락보다 나쁩니다(리뷰 2026-10-23: 청주 공간이 전국으로 나갔음). 수집기가 시도·시군구를 주면 그 값을 씁니다.
+    수집기 값(코드, 없으면 이름 — K-Startup은 「서울」처럼 이름만, 기업마당은 「충청권」 같은 권역도 줌)을 먼저 쓰고, 수집기가 지역을 모르면
+    AI가 글에서 읽은 지원 지역을 씁니다. AI 값은 근거 문장이 원문에 있고 그 문장에 지역 이름이 있을 때만 씁니다."""
+    claimed = False
+    if policy.get("field") == "SPACE_RECRUITMENT" and reading is not None:
+        located, claimed = space_location_codes(reading.answer.get("spaceLocation") or {}, policy, regions)
+        if located:
+            return located
+    scope = policy.get("regionScope")
+    if scope == "NATIONWIDE":
+        return None if claimed else []
+    codes = [str(c) for c in policy.get("regionCodes") or [] if re.fullmatch(r"[0-9]{5}", str(c))]
+    if codes:
+        return list(dict.fromkeys(codes))
+    if scope in ("SIDO", "SIGUNGU") and (found := _codes_of(policy.get("regionNames") or [], regions)) is not None:
+        return found
+    if reading is None:
+        return None
+    support = _quoted_region_codes(reading.answer.get("supportRegions") or {}, policy, regions)
+    return None if claimed and support == [] else support
+
+
+# 보내지 않은 까닭(로그용). 「틀 검사 실패」 한 문구로 뭉치면 기준일 없음·지역 미정과 구별되지 않았음(리뷰 2026-10-23)
+NOT_RELEVANT = "AI가 창업지원·사업공간 공고가 아니라고 읽음"
+DATE_UNVERIFIED = "기준일 확인 실패: AI가 적은 공고일·기준일(찍힌 기준일)을 근거 문장에서 확인하지 못함"
+FRAME_INVALID = "틀 검사 실패"
+NO_AI = "AI 읽기 없음"
+NO_FALLBACK = "구간 칸 규칙으로도 틀을 만들지 못함(K-Startup 칸·게시일 없음)"
+REGION_UNDECIDED = "지역 미정(사업공간은 공간 위치, 창업지원은 지원 지역)"
+
+
+def policy_frame_detail(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> tuple[dict[str, Any] | None, str | None, bool]:
+    """policy_frame_with_reason에 더해, 보낼 틀이 구간 칸 규칙 틀(AI 틀이 아님)인지를 함께 돌려줍니다.
+    구간 칸 규칙 틀은 원문 글을 읽지 않아 글에만 적힌 조건이 빠져 있을 수 있으므로 틀 전체를 검수 대기(IN_REVIEW)로 보냅니다."""
+    startup = policy.get("field") == "STARTUP_SUPPORT"
+    if reading is not None and not reading.answer["relevant"]:
+        return None, NOT_RELEVANT, False
+    reason = NO_AI
+    if reading is not None:
+        frame = startup_frame(policy, reading, regions) if startup else space_frame(policy, reading, regions, today=today)
+        errors = frame_errors(frame) if frame is not None else []
+        if frame is not None and not errors:
+            return frame, None, False
+        if errors:  # 틀 검사에 걸린 AI 틀: 위치만 남기고 구간 칸 규칙으로(값은 남기지 않음)
+            log.warning("정책 AI 판정 틀이 틀 검사에 걸렸습니다", extra={"rawPolicyId": policy.get("rawPolicyId"), "errors": errors[:5]})
+        reason = FRAME_INVALID if errors else DATE_UNVERIFIED  # 관련 공고인데 space_frame이 None이면 날짜 확인 실패뿐
+    fallback = repair(build_startup(policy) if startup else build_space(policy))
+    if fallback is not None and not frame_errors(fallback):
+        return fallback, None, True
+    return None, f"{reason}; {NO_FALLBACK}", False
+
+
+def policy_frame_with_reason(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> tuple[dict[str, Any] | None, str | None]:
+    """policy_frame과 같고, 틀을 만들지 못했으면 그 까닭(위 문구)을 함께 돌려줍니다."""
+    frame, reason, _ = policy_frame_detail(policy, reading, regions, today=today)
+    return frame, reason
+
+
+def policy_frame(policy: dict[str, Any], reading: Any, regions: Any, *, today: Any = None) -> dict[str, Any] | None:
+    """정책 판정 틀: AI 읽기가 있으면 그것으로, 없거나 틀 검사를 통과하지 못하면 K-Startup 구간 칸 규칙으로(startup·space).
+    AI가 창업 지원·사업공간 모집이 아니라고 읽었으면 None(보내지 않음). today는 사업공간 공고에 기준일이 없을 때 쓰는 판정일(시험용, 기본은 지금)."""
+    return policy_frame_with_reason(policy, reading, regions, today=today)[0]
+
+
+def not_sent_reason(policy: dict[str, Any], frame: dict[str, Any] | None, frame_reason: str | None, regions: Any, reading: Any = None) -> str:
+    """policy_completed_payload가 None일 때 그 까닭."""
+    if frame is None:
+        return frame_reason or FRAME_INVALID
+    if policy.get("field") not in POLICY_FIELDS:
+        return "판정 틀이 없는 분야"
+    return REGION_UNDECIDED if policy_region_codes(policy, regions, reading) is None else "알 수 없음"
+
+
+# 신청 기간 칸 글자 전체가 상시·수시·연중 모집이라는 말뿐일 때(「상시」, 「상시 접수」, 「연중 수시 모집」)
+_ALWAYS_TEXT = re.compile(r"[\s(]*(?:(?:상시|수시|연중)\s*)+(?:모집|접수|신청)?[\s)]*")
+YOUTH_ALWAYS_OPEN = "0057002"  # 온통청년 신청 기간 구분(aplyPrdSeCd): 0057002 상시
+# 계약 detailUrl은 format uri: 받는 쪽 검사기가 거절하지 않게 RFC 3986 글자만(한글·공백이 그대로 든 주소는 보내지 않음)
+URI_CHARS = re.compile(r"[A-Za-z0-9\-._~:/?#\[\]@!$&'()*+,;=%]+")
+
+
+def policy_apply_always(policy: dict[str, Any]) -> bool:
+    """상시 모집인지. 출처가 칸으로 분명히 알려 준 경우만 true: 온통청년 신청 기간 구분이 상시(0057002)이거나, 신청 기간 칸 글자 전체가
+    상시·수시·연중 모집이라는 말뿐일 때. 제목·본문의 「상시 모집」은 일부 모집이나 지난 안내일 수 있어 쓰지 않습니다(모르면 false)."""
+    record = policy.get("record") or {}
+    if str(record.get("aplyPrdSeCd") or "") == YOUTH_ALWAYS_OPEN:
+        return True
+    return any(_ALWAYS_TEXT.fullmatch(text) for key in PERIOD_TEXT_FIELDS if (text := str(record.get(key) or "")).strip())
+
+
+def policy_detail_url(policy: dict[str, Any]) -> str | None:
+    """사람이 열어볼 원문 주소(raw.policy.collected의 detailUrl). http(s) 주소가 아니거나, URI 글자가 아닌 글자가 있거나,
+    인증 값·사용자 정보가 든 주소(계약 PRIVATE_URL)면 None."""
+    url = str(policy.get("detailUrl") or "").strip()
+    try:
+        parts = urlsplit(url)
+    except ValueError:
+        return None
+    if parts.scheme not in ("http", "https") or not parts.netloc or not URI_CHARS.fullmatch(url) or tools().private_url(url):
+        return None
+    return url
+
+
+def policy_review_status(frame: dict[str, Any], *, by_rules: bool = False) -> str:
+    """정책 판정 틀의 검수 상태(사용자 결정 2026-10-23).
+    - IN_REVIEW: 틀 전체를 믿을 수 없음 — 구간 칸 규칙 틀(AI 틀이 틀 검사·기준일 확인에 걸렸거나 AI가 읽지 못함). 받는 쪽은 이전 공개본을 유지하고,
+      첫 버전이면 승인(APPROVED) 전까지 공개하지 않습니다.
+    - PARTIALLY_PASSED: 틀은 쓰되 일부 조건만 확인 필요 — 확인 필요(inReview) 조건이 있거나, 원문에 기준일이 없어 판정일을 기준일로 쓴 틀(선택 B).
+      판정은 inReview 조건을 확인 필요로 다룹니다. 정책 이벤트는 heldItems가 없습니다(보류는 조건마다 inReview로).
+    - AUTO_PASSED: 확인 필요 조건이 없음."""
+    if by_rules:
+        return "IN_REVIEW"
+    every = [*frame["common"], *(c for g in frame["groups"] for c in g["criteria"]), *(c for p in frame["preferences"] for c in p["criteria"])]
+    return "PARTIALLY_PASSED" if _in_review(every) or uses_judging_date(frame) else "AUTO_PASSED"
+
+
+def policy_completed_payload(
+    policy: dict[str, Any], frame: dict[str, Any] | None, regions: Any, reading: Any = None, *, by_rules: bool = False
+) -> dict[str, Any] | None:
+    """정책 판정 틀 → extraction.completed payload(판정 요청안 2026-10-22: 틀은 이 이벤트의 judgment, rawPostId는 rawPolicyId).
+    상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지역(policy_region_codes: 창업지원은 지원 지역,
+    사업공간은 공간 소재지)을 정하지 못하면 None(보내지 않음).
+    검수 상태는 policy_review_status(by_rules: 구간 칸 규칙 틀이면 IN_REVIEW). 접수 기간은 policy_apply_period,
+    원문 주소는 policy_detail_url, 상시 모집 여부는 policy_apply_always."""
+    codes = policy_region_codes(policy, regions, reading)
+    if frame is None or codes is None or policy.get("field") not in POLICY_FIELDS:
+        return None
+    start, end = policy_apply_period(policy)
+    return {
+        "rawPostId": policy["rawPolicyId"],
+        "rawVersion": policy["version"],
+        "field": policy["field"],
+        "title": policy["title"],
+        "conditions": [],
+        "reviewStatus": policy_review_status(frame, by_rules=by_rules),
+        "provider": policy.get("agency"),
+        "regionCode": None,
+        "regionCodes": codes,
+        "schedule": {"applyStartOn": start, "applyEndOn": end} if start or end else None,
+        "applicationWindows": [],
+        "summary": None,
+        "reprocess": bool(policy.get("reprocess")),
+        "detailUrl": policy_detail_url(policy),
+        "applyAlways": policy_apply_always(policy),
+        "judgment": frame,
+    }

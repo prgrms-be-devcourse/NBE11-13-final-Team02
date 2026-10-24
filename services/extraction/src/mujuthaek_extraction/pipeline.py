@@ -28,25 +28,28 @@ from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.extract import ExtractionRun, run_extraction
 from mujuthaek_extraction.image_reading import read_image_tables
 from mujuthaek_extraction.intake import ApiReferenceProvider, IntakeStatus, SourceReader, build_intake
+from mujuthaek_extraction.intake.adapter import PDF_TEXT_DOCUMENT_ID
 from mujuthaek_extraction.judgment import build_judgment
-from mujuthaek_extraction.judgment.pages import evidence_pages
+from mujuthaek_extraction.judgment.pages import attach_locator_pages, evidence_pages
 from mujuthaek_extraction.method import LEGACY, STRUCTURED, extraction_method
 from mujuthaek_extraction.model.factory import NoticeModels
 from mujuthaek_extraction.model.fallback import FallbackOnErrorModel, extract_with_fallback
 from mujuthaek_extraction.publish import completed_payload
 from mujuthaek_extraction.recheck import recheck_problems
+from mujuthaek_extraction.rules import discover
 from mujuthaek_extraction.rules.base import FieldRules
-from mujuthaek_extraction.rules.housing_notice import RULES as HOUSING_RULES
-from mujuthaek_extraction.rules.housing_notice import RULES_V10 as HOUSING_RULES_V10
 from mujuthaek_extraction.usage import MeteredModel, UsageRecorder
 from mujuthaek_extraction.verify import SourceBundle, verify_extraction
 
 log = logging.getLogger(__name__)
 PRODUCER = "extraction"
 EVENT_TYPE = "extraction.completed"
-RULES_BY_FIELD: dict[str, FieldRules] = {"HOUSING": HOUSING_RULES}  # BUSINESS_SPACE·POLICY·STARTUP_SUPPORT 규칙은 아직 없음
-# 추출 방식별 규칙(method.py). legacy는 2026-10-17 이전 방식(표 행 글자만 + 이전 프롬프트)
-RULES_BY_METHOD: dict[str, dict[str, FieldRules]] = {STRUCTURED: RULES_BY_FIELD, LEGACY: {"HOUSING": HOUSING_RULES_V10}}
+# 분야별 규칙은 rules/ 하위 폴더에서 자동으로 모읍니다(FIELD·RULES를 내놓은 폴더만, 요구 2-02). 지금은 HOUSING만 있고
+# BUSINESS_SPACE·STARTUP_SUPPORT는 폴더에 규칙을 넣기 전까지 UNSUPPORTED입니다
+_CURRENT_RULES, _LEGACY_RULES = discover()
+RULES_BY_FIELD: dict[str, FieldRules] = _CURRENT_RULES
+# 추출 방식별 규칙(method.py). legacy는 2026-10-17 이전 방식(표 행 글자만 + 이전 프롬프트, 폴더의 RULES_LEGACY)
+RULES_BY_METHOD: dict[str, dict[str, FieldRules]] = {STRUCTURED: RULES_BY_FIELD, LEGACY: _LEGACY_RULES}
 INTAKE_STATUS = {IntakeStatus.REJECTED: "REJECTED", IntakeStatus.WAITING_SOURCE: "WAITING_SOURCE", IntakeStatus.REVIEW_REQUIRED: "INTAKE_REVIEW"}
 RETRYABLE = {"WAITING_SOURCE", "FAILED"}  # 다시 처리할 수 있는 상태 (processed_events에 넣지 않음)
 
@@ -231,6 +234,8 @@ def _process(
     with usage.stage("publish"):
         # 판정 틀의 page: 근거 위치를 PDF 원문의 쪽 표시로 쪽 번호로 바꿉니다
         pages = evidence_pages(report.candidate, SourceBundle.from_material(material).texts)
+        # 공고 상세 API의 근거 쪽수: PDF 글자 원문 근거의 글자 범위에 같은 쪽 번호를 싣습니다(저장 후보에도 남아 승인 발행에도 쓰임)
+        attach_locator_pages(report.candidate, pages, PDF_TEXT_DOCUMENT_ID)
         payload = completed_payload(report.candidate, provider=raw.get("provider"), regions=regions, pages=pages)
         event = {**new_event(EVENT_TYPE, PRODUCER, payload), "traceId": raw_event.get("traceId")}
         schema = f"events/{EVENT_TYPE}.v1.json"

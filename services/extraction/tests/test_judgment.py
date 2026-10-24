@@ -687,3 +687,118 @@ def test_evidence_inside_the_image_reading_block_gets_no_pdf_page():
     start = text.index("판독 글자")
     made = {"evidence": [{"id": "ev-1", "sourceId": "pdf", "locator": {"kind": "TEXT_RANGE", "start": start, "end": start + 5}}]}
     assert evidence_pages(made, {"pdf": text}) == {}
+
+
+def test_pdf_text_evidence_locator_carries_the_pdf_page():
+    # 요구 2-07: 공고 상세 API가 근거 쪽수를 보이도록 PDF 글자 원문 근거의 글자 범위에 쪽 번호를 함께 싣습니다
+    from mujuthaek_extraction.judgment.pages import attach_locator_pages, evidence_pages
+
+    text = "--- 1쪽 ---\n공고 개요\n--- 2쪽 오른쪽 ---\n만 19세 이상인 자\n=== 그림 판독 공고문.pdf 3쪽 ===\n판독 글자"
+    at = {name: text.index(name) for name in ("공고 개요", "만 19세", "판독 글자")}
+    made = {
+        "evidence": [{"id": f"ev-{k}", "sourceId": "pdf-text", "locator": {"kind": "TEXT_RANGE", "start": v, "end": v + 2}} for k, v in at.items()]
+        + [
+            {"id": "ev-collected", "sourceId": "text", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": 2}},
+            {"id": "ev-row", "sourceId": "units", "locator": {"kind": "UNIT_ROW", "pointer": "/0"}},
+        ]
+    }
+    made["evidence"][2]["locator"]["page"] = 9  # 예전 값은 지웁니다
+    attach_locator_pages(made, evidence_pages(made, {"pdf-text": text, "text": "--- 5쪽 ---\n수집 글자"}), "pdf-text")
+    locators = {e["id"]: e["locator"] for e in made["evidence"]}
+    assert locators["ev-공고 개요"]["page"] == 1 and locators["ev-만 19세"]["page"] == 2
+    assert "page" not in locators["ev-판독 글자"]  # 그림 판독 묶음 안
+    assert "page" not in locators["ev-collected"] and "page" not in locators["ev-row"]  # PDF 글자가 아닌 원문
+    assert all("printedPage" not in locator for locator in locators.values())
+
+
+def test_locator_page_passes_the_event_contract():
+    from mujuthaek_extraction.judgment.pages import attach_locator_pages
+
+    candidate = verified()
+    ranges = [e for e in candidate["evidence"] if e["locator"]["kind"] == "TEXT_RANGE"]
+    assert ranges
+    attach_locator_pages(candidate, {e["id"]: 1 for e in ranges}, ranges[0]["sourceId"])
+    assert ranges[0]["locator"]["page"] == 1
+    assert tools().validate(envelope(completed_payload(candidate, provider="가상주거공사")), EVENT_SCHEMA) == []
+
+
+def _youth(item_id, text, low, high):
+    return item(item_id, "AGE", text, atom("AGE_YEARS", "BETWEEN", [low, high], "APPLICANT", unit="YEAR"))
+
+
+def test_list_items_under_one_of_lead_become_one_choice_not_all_required():
+    # AI가 「다음 중 어느 하나」 목록의 줄을 따로 낸 경우: 모두 갖춰야 하는 조건으로 두지 않고 선택지 하나로 묶고 확인 필요
+    items = [
+        item("lead", "OTHER", "신청자는 공고일 현재 다음 중 어느 하나에 해당하는 자이어야 합니다."),
+        _youth("young", "① 만 19세 이상 만 39세 이하인 자", 19, 39),
+        item("old", "AGE", "② 만 65세 이상인 자", atom("AGE_YEARS", "GTE", 65, "APPLICANT", unit="YEAR")),
+    ]
+    frame = build_judgment(candidate(items))
+    assert frame_errors(frame) == []
+    [either] = frame["common"]
+    assert either["kind"] == "ANY_OF" and either["inReview"] and "하나만" in either["reviewReason"]
+    assert [[(c["kind"], c["minAge"], c["maxAge"]) for c in o["criteria"]] for o in either["options"]] == [[("AGE", 19, 39)], [("AGE", 65, None)]]
+    assert [o["label"] for o in either["options"]] == ["만 19세 이상 만 39세 이하인 자", "만 65세 이상인 자"]
+
+
+def test_one_of_list_that_cannot_be_structured_becomes_one_question():
+    items = [
+        item("lead", "OTHER", "이번 모집은 아래 직군 종사자에 한하여 공급합니다."),
+        item("a", "OTHER", "- 산업단지 입주기업에 재직 중인 근로자"),
+        item("b", "OTHER", "- 공공의료기관 소속 간호 인력"),
+        item("c", "OTHER", "- 군 복무 중인 부사관"),
+    ]
+    frame = build_judgment(candidate(items))
+    assert frame_errors(frame) == []
+    [asked] = frame["common"]
+    assert asked["kind"] == "ASK" and asked["metWhen"] == "YES" and asked["inReview"]
+    assert asked["question"].startswith("다음 중 하나에 해당하나요?") and "공공의료기관" in asked["question"] and "부사관" in asked["question"]
+
+
+def test_all_required_list_and_limit_list_stay_separate():
+    required = [
+        item("lead", "OTHER", "다음 요건을 모두 갖춘 자"),
+        item("home", "OTHER", "- 무주택세대구성원일 것"),
+        _youth("young", "- 만 19세 이상 만 39세 이하인 자", 19, 39),
+    ]
+    frame = build_judgment(candidate(required))
+    assert frame_errors(frame) == [] and len(frame["common"]) >= 2
+    assert not any(c["kind"] == "ANY_OF" or str(c["id"]).endswith("one-of") for c in criteria(frame))
+    # 「아래 중 하나에 해당하면 신청 불가」는 줄마다 「해당하면 안 됨」으로 따로 묻는 것이 맞음
+    limits = [
+        item("lead", "OTHER", "아래 중 어느 하나에 해당하는 자는 신청할 수 없습니다."),
+        item("a", "OTHER", "- 공공임대주택에 거주 중인 자는 신청할 수 없습니다"),
+        item("b", "OTHER", "- 분양전환 공공임대주택 당첨자는 신청할 수 없습니다"),
+    ]
+    frame = build_judgment(candidate(limits))
+    assert not any(str(c["id"]).endswith("one-of") for c in criteria(frame))
+
+
+def test_list_lead_saying_both_one_and_all_is_one_question_in_review():
+    items = [
+        item("lead", "OTHER", "아래 중 하나에 해당하고 아래 요건을 모두 갖춘 자"),
+        item("a", "OTHER", "- 대학 재학생"),
+        item("b", "OTHER", "- 취업 준비 중인 졸업생"),
+    ]
+    [asked] = build_judgment(candidate(items))["common"]
+    assert asked["kind"] == "ASK" and asked["inReview"] and "정하지 못해" in asked["reviewReason"]
+    # 머리 문장과 목록을 한 항목에 담은 경우(계약이 허락하는 모양)는 「하나에 해당하나요?」로 묻습니다
+    single = item("one", "OTHER", "다음 중 하나에 해당하는 자\n- 대학 재학생\n- 취업 준비 중인 졸업생")
+    [asked] = build_judgment(candidate([single]))["common"]
+    assert asked["question"].startswith("다음 중 하나에 해당하나요?") and not asked["inReview"]
+
+
+def test_list_lines_far_from_the_lead_or_in_another_scope_are_not_joined():
+    items = [
+        item("lead", "OTHER", "이번 모집은 아래 직군 종사자에 한하여 공급합니다."),
+        item("a", "OTHER", "- 산업단지 입주기업에 재직 중인 근로자"),
+        item("b", "OTHER", "- 공공의료기관 소속 간호 인력", groups=["신혼부부"]),
+    ]
+    made = candidate(items, ["신혼부부"])
+    made["evidence"] = [
+        {"id": "ev-1", "sourceId": "text", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": 30}, "quote": "x"},
+        {"id": "ev-2", "sourceId": "text", "locator": {"kind": "TEXT_RANGE", "start": 2000, "end": 2030}, "quote": "y"},
+    ]
+    made["eligibility"][1]["evidenceIds"] = ["ev-2"]  # 머리 문장에서 멀리 떨어진 줄
+    frame = build_judgment(made)
+    assert not any(str(c["id"]).endswith("one-of") for c in criteria(frame))

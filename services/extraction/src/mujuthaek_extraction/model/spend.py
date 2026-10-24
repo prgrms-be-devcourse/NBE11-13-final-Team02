@@ -6,6 +6,7 @@
 - 호출 전: 최악 비용을 적고(reserve), 합계가 상한을 넘으면 적지 않고 거절합니다. 확인과 기록을 DB 잠금 안에서 해 동시 처리가 함께 넘지 않습니다.
 - 응답 뒤: 실제 비용으로 바꿉니다(settle). 청구되지 않은 실패면 지웁니다(release).
 - 프로세스가 죽으면 최악 비용이 그대로 남아 합계에 들어갑니다(청구됐을 수 있으므로 넉넉히 셈).
+- 분야(field)도 적어 분야별 비용을 셉니다. 비용을 적은 처리가 끝나면(close) 월 상한 80% 경고를 확인합니다(cost_alert.py, 2026-10-23).
 연결은 장부 전용입니다(모델 호출 스레드에서 트랜잭션을 쓰므로 작업 저장 연결과 나눕니다).
 """
 
@@ -13,7 +14,10 @@ from __future__ import annotations
 
 import threading
 import uuid
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from mujuthaek_extraction.cost_alert import CostAlert
 
 # 날·달 경계는 한국 시간으로 셉니다
 _DAY_START = "date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul'"
@@ -28,14 +32,16 @@ _LOCK_KEY = "extraction_spend"
 class SpendLedger:
     """한 처리(run)의 비용을 DB 장부에 적고 하루·월 상한을 지킵니다."""
 
-    def __init__(self, conn, *, daily_usd: float, monthly_usd: float, scope: dict[str, Any] | None = None):
+    def __init__(self, conn, *, daily_usd: float, monthly_usd: float, scope: dict[str, Any] | None = None, alert: CostAlert | None = None):
         conn.autocommit = True
         self.conn = conn
         self.daily_usd = daily_usd
         self.monthly_usd = monthly_usd
         self.run_id = str(uuid.uuid4())
         scope = scope or {}
-        self._scope = (scope.get("eventId"), scope.get("rawPostId"), scope.get("rawVersion"))
+        self._scope = (scope.get("eventId"), scope.get("rawPostId"), scope.get("rawVersion"), scope.get("field"))
+        self.alert = alert  # 월 상한 80% 경고(cost_alert.py). 이 처리가 비용을 적었으면 닫을 때 확인합니다
+        self._charged = False
         self._lock = threading.Lock()
         self.refused: str | None = None  # 거절한 이유(하루·월). 처리 결과를 다시 처리 대상으로 바꿀 때 씁니다
 
@@ -68,9 +74,11 @@ class SpendLedger:
                 return None
             entry = str(uuid.uuid4())
             self.conn.execute(
-                "insert into extraction_spend (id, run_id, event_id, raw_post_id, raw_version, model, reserved_usd) values (%s, %s, %s, %s, %s, %s, %s)",
+                "insert into extraction_spend (id, run_id, event_id, raw_post_id, raw_version, field, model, reserved_usd)"
+                " values (%s, %s, %s, %s, %s, %s, %s, %s)",
                 (entry, self.run_id, *self._scope, model, round(worst_usd, 6)),
             )
+            self._charged = True
             return entry
 
     def settle(self, entry: str, cost_usd: float) -> None:
@@ -82,4 +90,8 @@ class SpendLedger:
             self.conn.execute("delete from extraction_spend where id = %s", (entry,))
 
     def close(self) -> None:
-        self.conn.close()
+        try:
+            if self.alert is not None and self._charged:
+                self.alert.check(self.conn)  # 오류는 check 안에서 로그만 남깁니다
+        finally:
+            self.conn.close()
