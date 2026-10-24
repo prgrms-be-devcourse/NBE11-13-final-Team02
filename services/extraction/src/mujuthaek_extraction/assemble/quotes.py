@@ -325,6 +325,10 @@ def split_joined_quote(text: str, quote: str, index: NormalizedText) -> list[str
     """원문에 없는 인용이 원문에 한 곳씩 있는 문장 조각들을 이어 붙인 것이면 그 조각들, 아니면 None."""
     if candidates(text, quote, index)[0]:
         return None
+    return _split_sentences(text, quote, index) or _split_cells(text, quote, index)
+
+
+def _split_sentences(text: str, quote: str, index: NormalizedText) -> list[str] | None:
     parts = [p.strip() for p in SPLIT_JOINED.split(quote) if p and p.strip()]
     if len(parts) < 2 or any(len(normalize(strip_markers(p))) < SPLIT_PART_CHARS for p in parts):
         return None
@@ -333,6 +337,20 @@ def split_joined_quote(text: str, quote: str, index: NormalizedText) -> list[str
         return None
     places = [found[0] for found in spans]
     if any(b[0] >= a[0] and b[0] - a[1] < SPLIT_APART_CHARS for a, b in zip(places, places[1:], strict=False)):
+        return None
+    return parts
+
+
+def _split_cells(text: str, quote: str, index: NormalizedText) -> list[str] | None:
+    """표 여러 행·칸을 이어 쓰며 칸 일부를 빼먹은 인용(2026-10-24 일곱 번째 채점: 「[표 25-1] 동의서 [붙임1] | 대상자 : … 작성 제외 | 1통 | …」가
+    원문 칸의 뒷부분 「동의방법 : …」을 빼고 이어져 서류 5개가 빠짐). 「|」 칸 경계마다 나눠, 짧은 칸(「1통」)은 빼고 나머지 칸이 모두 원문에
+    한 곳씩 있으면 그 칸들을 근거로 씁니다. 칸 경계는 원문의 구분이라 칸끼리 가까워도 됩니다(칸 안 글자는 이어진 그대로여야 함)."""
+    if quote.count("|") < 1:
+        return None
+    parts = [p.strip() for p in strip_markers(quote).split("|") if len(normalize(p)) >= SPLIT_PART_CHARS]
+    if len(parts) < 2:
+        return None
+    if not all(len(candidates(text, part, index)[0]) == 1 for part in parts):
         return None
     return parts
 
