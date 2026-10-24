@@ -1,0 +1,268 @@
+"""주거 공고 추출 규칙. 호출 순서: 구조 → 일정·안내 → 자격·선정·서류 (결정 E2).
+
+v2(2026-10-16): 필수 항목 체크리스트, 분양 납부 조건, 미적용·불문 기준, 예외·조건식 형식, 수량 묶음 기본값, 신청 방식 규칙.
+v3(2026-10-16): 서비스(판정·상세 화면·알림)에 쓰이는 항목만 뽑고 나머지는 "넣지 않음"으로 명시. 호실별 가격은 묶지 않음.
+v4(2026-10-16): 주택 미정 공고(전세임대·별첨 목록 매입임대)의 공통 비용, 순위별 자격 기준 구조화, 호실이 많은 공고의 이어받기 호출(continuation).
+v5(2026-10-16): 서비스 상세 화면 기준(참고: 주거나침반) — 안내(guidance: 신청 방법·주의사항·입주·거주 유의·문의처) 섹션 추가(일정 호출에서 함께),
+    가점 배점표 행마다 항목, 계약·입주처럼 날짜 없는 필수 단계도 일정으로, 선착순·잔여세대의 서류 제출·계약은 신청으로도 표시, 지역은 시·군·구 접미사까지.
+v6(2026-10-16): 순위·대상별 접수 기간은 APPLICATION 일정을 따로(알림을 순위별로), 누락 기록은 값이 null인 칸 하나만(값을 채운 칸·조건식 전체 금지).
+v7(2026-10-16): 가점 배점표의 감점 행은 points를 음수로(실측: GH 국민임대 감점 -5·-3점이 형식 위반으로 걸려 자격·선정·서류가 빠짐).
+v8(2026-10-16): 자산·소득 조사 해당자만 내는 증빙 서류 표도 서류로 넣습니다(실측: 12건 시험에서 두 정답표 모두 넣은 이 표가 여러 공고에서 통째로 빠짐).
+v9(2026-10-16): 범위로만 적힌 면적은 exclusiveAreaRange, 금액은 sourceAmount에 범위 표기 그대로(계약 범위 칸 추가, 대전도시공사 정정공고).
+    구조 호출: 첨부 엑셀 공급주택목록이 원문에 붙어 있으면 주택별로, 없거나 잘렸으면 공고문의 주택형별 표로.
+v10(2026-10-17): sol 정답표 기준에 맞춤 — 수량 종류는 표의 열 제목으로(건설·대기·공가는 OFFERED 아님, 예비입주자 공고의 금회 모집은 OFFERED),
+    한 행의 금액 칸은 계층·요금안마다 모두(평균 월임대료와 층별 범위는 다른 안), 가격이 있는 행은 모집이 없어도 공급 묶음으로,
+    소수 면적 우선, 대리 신청 서류(위임장·인감증명서)와 도장도 서류로(실측: 14건 sol 대조 모집 수 47.8%, bmc 가격 절반 누락).
+v20(2026-10-18): v19 + 순위는 대상(가·나·다목)마다 PRIORITY 하나(26-1), 별도 접수 기간 없는 선착순 공고는 APPLICATION 없음(사용자 결정).
+v21(2026-10-18): v20 + 월까지만 적힌 입주 예정은 MONTH 정밀도로, 잔금·중도금 납부 기한은 일정 하나로(실측 v30 청약홈 에코델타).
+v22(2026-10-18): v21 + 특정 상황에서만 내는 증빙(신용카드사 증빙, 기금 대출 상환 증빙 등)도 서류로(실측 v31 LH 5건).
+v23(2026-10-18): v22 + 분양전환 때 기준은 자격에서 빼고, 「미성년자 불가」는 AGE_YEARS≥19로,
+  주택목록이 별첨이어도 원문의 주택·호수는 공급 묶음으로(실측 v32 LH 제주 든든전세).
+v24(2026-10-18): v23 + 표 행을 인용할 때 빈 칸은 넣지 않음(실측 v34 OpenAI LH 김제: 빈 칸을 반복하다 서류 호출이 잘림).
+v25(2026-10-18): v24 + 계약 뒤 부가 신청(편의시설 설치 신청 등)은 접수(APPLICATION)가 아님(실측 v35 LH 인천석남: 접수 시작일로 자동 게시).
+v26(2026-10-18): 섹션별로 다시 정리 — 번호 정리, 「기타서류」 지시 충돌 제거, 「틀린 값보다 빈 값」 원칙, 공고일 일정 필수,
+  입주자 모집 공고의 「주택 N호」는 모집 수, 계층 정의 속 나이, 짧은 전화번호, 계약 시 서류, 다음 쪽으로 이어진 표(실측 v36 5건).
+v27(2026-10-19): v26 + AI가 직접 쓰는 문장(description·reason)은 '~해요' 체로.
+v28(2026-10-20): v27 + 단지·주소가 없는 공고는 대상 지역을 위치(kind AREA)로 적음 — 전국이면 「전국」, 지역이면 시도(시군구)마다.
+  실측: 위치가 없어 지역 검색에서 빠지던 공고 23건(「대구경북지역」「전북지역본부」·「사업대상지역 : 전국」인 전세임대 등).
+v19(2026-10-18): v18 + 선착순 공고의 접수 일정은 먼저 오는 서류 제출로,
+    소득은 비율과 금액표가 함께면 비율로(19-6), 기본·금회 완화 조건은 적용하는 쪽만 STRUCTURED(19-7).
+v18(2026-10-18): v17 + 짧게 적힌 서류(신분증·인감도장·기타서류 등) 빠짐없이, 순위·계층 정의 속 나이(65세 이상)도 AGE 조건으로(19-5).
+v17(2026-10-18): v16 + 병합 칸으로 여러 행에 한 번만 적힌 배점은 행마다 그 점수로(실측: LH 철원 영구임대 가점 5·4·3점 행이 점수 없이 빠짐).
+v16(2026-10-17): v15 + 재계약·계약 갱신 때의 소득·자산 기준은 자격이 아니라 안내로(19-4, 실측: 경북 매입임대 재계약 105%가 자격으로 자동 게시).
+v15(2026-10-17): v14 + 대상 계층의 자녀 요건은 CHILD_COUNT ≥ 1 조건으로(19-3), 자녀 수·출생 시기별 자산 가산 표는 행마다 REPLACE 예외(23-1).
+v14(2026-10-17): v13 + 대상 주택 수(TOTAL_HOUSING)와 모집 수(OFFERED)를 따로, 예비입주자 공고의 「공급호수·세대수」는
+    대상 주택 수, 지역별 호수 표는 구마다 공급 묶음(사용자 결정).
+v13(2026-10-17): v12 + 분양 발코니 확장·유상옵션(합계 행) 금액을 가격으로, 서류 표의 발급기관 전화도 CONTACT로, 분양 규제 표를 안내로.
+v12(2026-10-17): v11 + 가구원 수별 소득·자산 기준은 기본값 조건 + REPLACE 예외(when: HOUSEHOLD_MEMBER_COUNT)로(19-2).
+v11(2026-10-17): 구조 방식 — 표 아래 열 제목 줄·행마다 읽기 도움 줄(↳)을 프로그램이 붙임(intake/pdf_reader.render). 값 종류는 ↳ 줄의 열 제목으로.
+    v10은 RULES_V10으로 남김(롤백 스위치 EXTRACTION_METHOD=legacy, method.py).
+프롬프트 파일은 지금 쓰는 v28, 바로 앞 v27(롤백용), 이전 방식(legacy) 롤백용 v10만 둡니다(위 이력은 무엇이 왜 바뀌었는지 기록으로 남김).
+"""
+
+from dataclasses import replace
+from pathlib import Path
+
+from mujuthaek_extraction.rules.base import CallSpec, FieldRules
+
+# 원문이 길어 자격·선정·서류를 나눠 호출할 때 덧붙이는 지시
+SPLIT_NOTE = (
+    "대상군(청년·신혼부부 등)별 조건은 scope.targetGroups로 구분합니다. 공고 기본 정보·위치·공급 조건·일정과 이 호출이 맡지 않은 섹션은 "
+    "다시 추출하지 않습니다.\n섹션을 나눠 호출합니다. 맡은 섹션은 원문 끝까지 빠짐없이, 요약하지 말고 항목마다 넣습니다."
+)
+
+# 호출별 출력 한도 근거: 저장된 실제 유료 응답(gpt-6-luna, 정상 종료 END) 중 최대 출력 토큰 (2026-10-20 집계, 시도 446건:
+# eval/live-v10~v40·extract-v*·paid-v6·pipeline*·live-perf). 반복으로 폭주해 한도까지 간 응답은 빼고 셉니다.
+MEASURED_MAX_OUTPUT = {
+    "structure": 45_000,  # 정상 종료 최대 39,073(SH 310653). 이전 방식의 SH 213행 공고가 약 4.5만 토큰을 썼다는 기록이 있어 그 값으로
+    "schedules": 13_813,  # 0815(live-v40). 이전 기록 11,818(GH 783)
+    "eligibility": 27_818,  # LH 양주 영구임대 0727(live-v34)
+    "selection": 21_505,  # GH 783(live-v34)
+    "documents": 16_116,  # 인천 4358(live-v11). LH 김제 19412의 24,000(빈 칸 「|  |」 반복으로 잘림)은 제외
+    "conditions": 23_488,  # 나눠 부르지 않던 때(pipeline5 0854)
+}
+# 출력 한도 = 실측 최대의 약 1.3배(반올림). 한도가 넉넉하면 반복으로 폭주한 응답이 한도까지 가며 시간·비용을 다 씁니다.
+# 실측(live-perf 0839, 2026-10-20): 선정 호출이 빈 칸 「|  |」을 반복하다 48,000토큰에서 잘림(294초, $0.030 = 그 공고 비용의 54%),
+# 다시 받으니 5,547토큰. 새 한도 28,000이면 같은 폭주의 출력·시간이 약 40% 줄어듭니다. 설정 EXTRACTION_MAX_OUTPUT_TOKENS로 호출별로 바꿀 수 있습니다.
+OUTPUT_LIMITS = {
+    "structure": 64_000,  # 낮추지 않음: 호별 표가 많은 공고(SH 213행 약 4.5만)를 담아야 합니다(1.3배 ≈ 5.9만보다 조금 넉넉히)
+    "supply_more": 64_000,  # 이어받기: 실측 없음. 구조 호출과 같은 공급 묶음을 담으므로 같은 한도
+    "schedules": 18_000,  # 이전 32,000
+    "eligibility": 36_000,  # 이전 64,000
+    "selection": 28_000,  # 이전 48,000
+    "documents": 21_000,  # 이전 48,000
+    "conditions": 64_000,  # 나눠 부르지 않을 때만(기본은 나눔). 자격·선정·서류 세 섹션 최댓값의 합(약 6.5만)을 담게 그대로
+}
+
+RULES_V10 = FieldRules(  # 이전 방식(EXTRACTION_METHOD=legacy): 표 행 글자만 받음. 지우지 말고 롤백용으로 둡니다
+    field="housing_notice",
+    prompt_version="v10",
+    prompt_path=Path(__file__).with_name("prompt.v10.md"),
+    calls=(
+        CallSpec(
+            name="structure",
+            sections=("notice", "locations", "supplyGroups"),
+            instructions=(
+                "공고 기본 정보(notice), 단지·건물·주소(locations), 주택형·호실별 공급 조건(supplyGroups: 면적·수량·가격·임대기간)을 추출합니다.\n"
+                "공통 지시 1장의 '공통·위치·공급' 항목을 모두 확인합니다. 가격은 임대면 모든 전환안과 전세형까지, 분양·매각이면 층·타입별 가격과 "
+                "계약금·중도금·잔금·융자금·할부금 같은 납부 조건까지 넣습니다. 호실별 표가 있으면 가격이 같아도 호실마다 하나씩 넣습니다.\n"
+                "원문 끝에 '=== 첨부 엑셀 ... ===' 공급주택목록이 있으면 목록의 주택마다 위치(locations, 주소)를 넣습니다. "
+                "목록에 주택·호실별 보증금·임대료가 있으면 공급 묶음도 호실마다 만들고, 없으면 공고문의 주택형별 표로 공급 묶음과 가격을 만듭니다. "
+                "엑셀이 없거나 '머리 행만 보입니다'로 잘렸으면 공고문 표만 씁니다.\n"
+                "공급표·임대조건표의 행을 끝까지 세어 모두 넣고, 한 행의 금액 칸은 계층·요금안마다 모두 가격으로 넣습니다. "
+                "수량 종류는 표의 열 제목으로 고릅니다.\n"
+                "공용면적·선납 할인·옵션 비용·관리비 예치금은 넣지 않습니다.\n"
+                "단지 안의 건물은 parentLocationId로 단지를 가리킵니다.\n"
+                "공고 전체 수량은 notice.counts, 주택형·호실별 수량은 supplyGroups[].counts에 적습니다.\n"
+                "여기서 정한 위치·공급 ID를 다음 호출들이 그대로 사용합니다."
+            ),
+            uses_structure=False,
+            max_output_tokens=OUTPUT_LIMITS["structure"],
+        ),
+        CallSpec(
+            name="schedules",
+            sections=("schedules", "guidance"),
+            instructions=(
+                "공고·신청·주택 열람·서류 제출·서류심사 결과·당첨자 발표·계약·입주·입찰·개찰 일정(schedules)과 "
+                "신청 방법·주의사항·입주 안내·거주 유의사항·문의처(guidance)를 추출합니다.\n"
+                "계약·입주처럼 신청자가 꼭 거치는 단계는 날짜가 '개별 안내'여도 일정으로 넣고, 내부 절차의 소요 기간·이의신청·세금 기한은 넣지 않습니다. "
+                "별도 접수 기간 없이 방문 서류 제출·계약으로 바로 신청받는 공고(선착순 동·호 지정 등)는 APPLICATION 일정을 만들지 않고 "
+                "CONTRACT·DOCUMENT_SUBMISSION으로 둡니다(공통 지시와 같음, 사용자 결정 2026-10-18).\n"
+                "같은 구간이 신청과 입찰을 겸하면 kinds에 둘 다 적습니다. 대상·순위별로 일정이 다르면 각각 따로 적고 scope와 priorityRank로 구분합니다.\n"
+                "공고 기본 정보·위치·공급 조건·자격·서류는 다시 추출하지 않습니다."
+            ),
+            uses_structure=True,
+            max_output_tokens=OUTPUT_LIMITS["schedules"],
+        ),
+        CallSpec(
+            name="conditions",
+            sections=("eligibility", "selectionRules", "requiredDocuments"),
+            instructions=(
+                "신청 자격(eligibility), 선정 방식·순위·가점·동점 처리(selectionRules), 제출 서류(requiredDocuments)를 추출합니다.\n"
+                "공통 지시 1장의 '자격·선정·서류' 항목을 모두 확인합니다. '이번에는 적용하지 않음'·'불문' 기준도 조건으로 남기고, "
+                "다른 곳의 가산·완화 표는 해당 조건의 예외로 넣습니다.\n"
+                "선정은 순위·방식·동점 처리·예비입주자 배수와 가점 배점표의 행마다 하나(그 행의 점수와 항목 최고점)를 넣습니다. "
+                "서류는 이름마다 하나(대상은 appliesTo, 서류별 조건은 description)이며, 대리 신청 서류도 대상을 적어 넣고 발급 방법 설명은 넣지 않습니다.\n"
+                "대상군(청년·신혼부부 등)별 조건은 scope.targetGroups로 구분합니다. 공고 기본 정보·위치·공급 조건·일정은 다시 추출하지 않습니다."
+            ),
+            uses_structure=True,
+            max_output_tokens=OUTPUT_LIMITS["conditions"],
+        ),
+    ),
+    continuation=CallSpec(
+        name="supply_more",
+        sections=("supplyGroups",),
+        instructions=(
+            "앞 응답이 공급 묶음을 다 담지 못했습니다. '이미 추출한 구조'에 있는 공급 묶음은 다시 넣지 않고, "
+            "그 다음 단지·호실부터 이어서 공급 묶음(supplyGroups)만 넣습니다.\n"
+            "인용은 이 응답의 quotes에 새로 적습니다. 다 넣었으면 coverage.supplyGroups를 EXTRACTED로, "
+            "아직 남았으면 PARTIAL과 '이어서: <마지막 id>'로 적습니다."
+        ),
+        uses_structure=True,
+        max_output_tokens=OUTPUT_LIMITS["supply_more"],
+    ),
+    # 모든 공고에서 자격·선정·서류를 따로 호출합니다(호출 2번 추가, 같은 원문이라 입력 캐시로 공고당 약 $0.005~0.01).
+    # 실측(2026-10-16 시험): 나눠 호출한 대형 공고에서 서류 22→43/60·가점 10→43/43·소득 기준 0→17/17. 서류는 여러 공고에서 4할가량 빠짐
+    large_text_chars=0,
+    split_calls=(
+        (
+            "conditions",
+            (
+                CallSpec(
+                    name="eligibility",
+                    sections=("eligibility",),
+                    instructions=(
+                        "신청 자격(eligibility)을 추출합니다. 공통 지시 1장의 '자격' 항목을 모두 확인합니다. "
+                        "'이번에는 적용하지 않음'·'불문' 기준도 조건으로 남기고, 다른 곳의 가산·완화 표는 해당 조건의 예외로 넣습니다. "
+                        "특별공급·일반공급 등 공급 유형별·계층별 소득·자산 기준은 유형마다 따로 넣습니다.\n" + SPLIT_NOTE
+                    ),
+                    uses_structure=True,
+                    max_output_tokens=OUTPUT_LIMITS["eligibility"],
+                ),
+                CallSpec(
+                    name="selection",
+                    sections=("selectionRules",),
+                    instructions=(
+                        "선정 방식·순위·가점·동점 처리(selectionRules)를 추출합니다. 순위·방식·동점 처리·예비입주자 배수와 "
+                        "가점 배점표의 행마다 하나(그 행의 점수와 항목 최고점)를 넣습니다. 공급 유형별 배점표가 따로 있으면 표마다 모든 행을 넣습니다.\n"
+                        + SPLIT_NOTE
+                    ),
+                    uses_structure=True,
+                    max_output_tokens=OUTPUT_LIMITS["selection"],
+                ),
+                CallSpec(
+                    name="documents",
+                    sections=("requiredDocuments",),
+                    instructions=(
+                        "제출 서류(requiredDocuments)를 추출합니다. 서류는 이름마다 하나(대상은 appliesTo, 서류별 조건은 description)이며, "
+                        "공급 유형별 서류 표가 따로 있으면 표마다 넣습니다. 대리 신청 서류(위임장·인감증명서 등)도 appliesTo에 대상을 적어 넣고, "
+                        "발급 방법 설명은 넣지 않습니다.\n" + SPLIT_NOTE
+                    ),
+                    uses_structure=True,
+                    max_output_tokens=OUTPUT_LIMITS["documents"],
+                ),
+            ),
+        ),
+    ),
+)
+
+# 호출 지시: 공통 지시의 절 이름(2장 「공고」「공급」「일정」「자격」「선정」「서류」「안내」)을 가리킵니다.
+# RULES_V10의 호출 지시는 이전 방식(legacy) 롤백용이라 그대로 둡니다.
+_STRUCTURE = CallSpec(
+    name="structure",
+    sections=("notice", "locations", "supplyGroups"),
+    instructions=(
+        "공고(notice), 단지·건물·주소(locations), 주택형·호실별 공급 조건(supplyGroups: 면적·수량·가격·임대기간)을 추출합니다.\n"
+        "공통 지시 2장의 「공고」「위치」「공급」 절을 모두 따릅니다. 표의 행은 다음 쪽으로 이어진 행까지 끝까지 넣고, 한 행의 금액 칸은 "
+        "계층·요금안마다 모두 가격으로 넣습니다. 수량 종류는 열 제목과 원문 표현으로 고릅니다.\n"
+        "원문 끝에 '=== 첨부 엑셀 ... ===' 공급주택목록이 있으면 목록의 주택마다 위치(주소)를 넣고, 목록에 주택·호실별 보증금·임대료가 있으면 "
+        "공급 묶음도 호실마다 만듭니다. 없거나 '머리 행만 보입니다'로 잘렸으면 공고문의 표만 씁니다.\n"
+        "여기서 정한 위치·공급 ID를 다음 호출들이 그대로 사용합니다."
+    ),
+    uses_structure=False,
+    max_output_tokens=OUTPUT_LIMITS["structure"],
+)
+_SCHEDULES = CallSpec(
+    name="schedules",
+    sections=("schedules", "guidance"),
+    instructions=(
+        "일정(schedules)과 신청 안내·주의사항·입주 안내·거주 유의사항·문의처(guidance)를 추출합니다.\n"
+        "공통 지시 2장의 「일정」「안내」 절을 따릅니다. 공고일 일정을 반드시 넣고, APPLICATION은 입주자 모집에 신청하는 기간에만 씁니다"
+        "(별도 접수 없이 계약으로 바로 신청받는 공고는 CONTRACT·DOCUMENT_SUBMISSION). 대상·순위별 일정은 각각 따로 적습니다.\n"
+        "문의처는 공고 끝뿐 아니라 서류 표·안내문의 ☎ 번호(짧은 번호 포함)까지 기관마다 넣습니다.\n"
+        "공고 기본 정보·위치·공급 조건·자격·서류는 다시 추출하지 않습니다."
+    ),
+    uses_structure=True,
+    max_output_tokens=OUTPUT_LIMITS["schedules"],
+)
+_ELIGIBILITY = CallSpec(
+    name="eligibility",
+    sections=("eligibility",),
+    instructions=(
+        "신청 자격(eligibility)을 추출합니다. 공통 지시 2장의 「자격」 절을 모두 따릅니다.\n"
+        "빠뜨리기 쉬운 것: 계층·순위 정의 안의 나이·자녀 요건(「고령자(만 65세 이상)」 등은 그 계층의 조건), '이번에는 적용하지 않음'·'불문' 기준, "
+        "다른 곳의 가산·완화 표(그 조건의 예외), 공급 유형별·계층별로 다른 소득·자산 기준(유형마다 따로).\n" + SPLIT_NOTE
+    ),
+    uses_structure=True,
+    max_output_tokens=OUTPUT_LIMITS["eligibility"],
+)
+_SELECTION = CallSpec(
+    name="selection",
+    sections=("selectionRules",),
+    instructions=(
+        "선정 방식·순위·가점·동점 처리(selectionRules)를 추출합니다. 공통 지시 2장의 「선정」 절을 따릅니다. 순위는 순위 안의 대상마다, "
+        "가점은 배점표의 행마다(병합 칸의 점수는 행마다), 공급 유형별 배점표는 표마다 모든 행을 넣습니다.\n" + SPLIT_NOTE
+    ),
+    uses_structure=True,
+    max_output_tokens=OUTPUT_LIMITS["selection"],
+)
+_DOCUMENTS = CallSpec(
+    name="documents",
+    sections=("requiredDocuments",),
+    instructions=(
+        "제출 서류(requiredDocuments)를 추출합니다. 공통 지시 2장의 「서류」 절을 따릅니다. 서류는 이름마다 하나(대상은 appliesTo)이며, "
+        "서류 표를 다 넣은 뒤 「빠뜨리기 쉬운 곳」(방문·대리 신청 상자, 계약 시 구비서류, ※ 주석, 신분증·도장·인감 낱말)을 다시 훑습니다.\n" + SPLIT_NOTE
+    ),
+    uses_structure=True,
+    max_output_tokens=OUTPUT_LIMITS["documents"],
+)
+_CONDITIONS = CallSpec(  # 나눠 부르지 않을 때(large_text_chars 설정)만 씁니다
+    name="conditions",
+    sections=("eligibility", "selectionRules", "requiredDocuments"),
+    instructions=(
+        "신청 자격(eligibility), 선정 방식(selectionRules), 제출 서류(requiredDocuments)를 추출합니다. 공통 지시 2장의 「자격」「선정」「서류」 "
+        "절을 모두 따릅니다. 대상군별 조건은 scope.targetGroups로 구분하고, 공고 기본 정보·위치·공급 조건·일정은 다시 추출하지 않습니다."
+    ),
+    uses_structure=True,
+    max_output_tokens=OUTPUT_LIMITS["conditions"],
+)
+
+# 구조 방식(EXTRACTION_METHOD=structured, 기본): 표에 열 제목 줄·행 읽기 도움 줄(↳)이 붙은 글자를 받습니다.
+RULES = replace(
+    RULES_V10,
+    prompt_version="v28",
+    prompt_path=Path(__file__).with_name("prompt.v28.md"),
+    calls=(_STRUCTURE, _SCHEDULES, _CONDITIONS),
+    split_calls=(("conditions", (_ELIGIBILITY, _SELECTION, _DOCUMENTS)),),
+    supply_tables=True,
+)

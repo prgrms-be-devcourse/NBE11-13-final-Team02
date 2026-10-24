@@ -54,6 +54,9 @@ class MemoryStore:
         post.list_status = list_status or post.list_status
         post.deadline_on = deadline_on or post.deadline_on
 
+    def set_parent(self, post_id, parent_post_id):
+        self.posts[post_id].parent_post_id = parent_post_id
+
     def queued_posts(self, source_code, board_key, limit):
         queued = [
             p
@@ -103,6 +106,7 @@ class MemoryStore:
 @dataclass
 class MemoryFileStore:
     objects: dict[str, bytes] = field(default_factory=dict)
+    metadatas: dict[str, dict[str, str]] = field(default_factory=dict)
 
     def put(self, key, data, content_type):
         self.objects[key] = data
@@ -110,6 +114,15 @@ class MemoryFileStore:
 
     def delete(self, key):
         self.objects.pop(key, None)
+        self.metadatas.pop(key, None)
+
+    def put_file(self, key, path, content_type, metadata):
+        self.objects[key] = path.read_bytes()
+        self.metadatas[key] = dict(metadata)
+        return key
+
+    def metadata(self, key):
+        return self.metadatas.get(key) if key in self.objects else None
 
 
 @dataclass

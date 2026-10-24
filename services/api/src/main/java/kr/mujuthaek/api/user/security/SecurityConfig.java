@@ -46,7 +46,7 @@ class SecurityConfig {
       KnownProviderAuthorizationRequestResolver providerResolver)
       throws Exception {
     AuthenticationEntryPoint unauthorized =
-        (request, response, error) -> ProblemResponses.write(response, ErrorCode.UNAUTHORIZED);
+        (request, response, error) -> ProblemResponses.write(response, ErrorCode.UNAUTHENTICATED);
     AccessDeniedHandler forbidden =
         (request, response, error) -> ProblemResponses.write(response, ErrorCode.FORBIDDEN);
     http.cors(Customizer.withDefaults())

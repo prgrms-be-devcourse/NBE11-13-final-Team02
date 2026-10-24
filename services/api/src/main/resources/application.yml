@@ -24,6 +24,11 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false # 실패 메시지는 무한 재시도 대신 실패 큐로
+        retry:                          # 연결 오류 같은 예외는 몇 번 더 해 보고 실패 큐로 (2초 → 4초)
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2s
+          multiplier: 2
   security:
     oauth2:
       client:
@@ -69,6 +74,14 @@ app:
     access-token-ttl: 30m               # 요청마다 Authorization: Bearer 로 보내는 토큰
     refresh-token-ttl: 14d              # 로그인 유지 기간. HttpOnly 쿠키, DB에는 해시만
     cookie-secure: false                # 로컬은 http라 false. 운영은 true (application-prod.yml)
+
+mujuthaek:
+  s3:                                   # collector와 같은 환경 변수. S3_ENDPOINT를 빈 값으로 주면 AWS S3 (EC2 역할)
+    endpoint: ${S3_ENDPOINT:http://localhost:9000}
+    bucket: ${S3_BUCKET:mujuthaek-raw}
+    region: ${AWS_REGION:ap-northeast-2}
+    access-key: ${MINIO_ROOT_USER:minio}        # endpoint가 있을 때만 써요 (로컬 MinIO)
+    secret-key: ${MINIO_ROOT_PASSWORD:minio-pass}
 
 management:
   endpoints:

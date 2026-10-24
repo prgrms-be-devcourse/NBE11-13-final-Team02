@@ -101,6 +101,6 @@ class SocialLoginServiceTest {
     assertThatThrownBy(() -> userService.getMe(UUID.randomUUID()))
         .isInstanceOf(CustomException.class)
         .extracting(e -> ((CustomException) e).errorCode())
-        .isEqualTo(ErrorCode.UNAUTHORIZED);
+        .isEqualTo(ErrorCode.UNAUTHENTICATED);
   }
 }

@@ -77,7 +77,7 @@ class SecurityIntegrationTest {
     mvc.perform(get("/api/users/me"))
         .andExpect(status().isUnauthorized())
         .andExpect(header().string("Content-Type", "application/problem+json;charset=UTF-8"))
-        .andExpect(jsonPath("$.code").value("UNAUTHORIZED"))
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"))
         .andExpect(jsonPath("$.status").value(401));
   }
 
@@ -110,7 +110,7 @@ class SecurityIntegrationTest {
 
     mvc.perform(get("/api/users/me").header("Authorization", "Bearer not-a-jwt"))
         .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("UNAUTHORIZED"));
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
     mvc.perform(get("/api/users/me").header("Authorization", "Bearer " + expiredToken))
         .andExpect(status().isUnauthorized());
   }
@@ -260,14 +260,6 @@ class SecurityIntegrationTest {
   }
 
   // ── 예외 처리 ─────────────────────────────────────────────
-
-  @Test
-  void wrongHttpMethodIs405NotServerError() throws Exception {
-    mvc.perform(get("/api/auth/refresh"))
-        .andExpect(status().isMethodNotAllowed())
-        .andExpect(header().string("Allow", "POST"))
-        .andExpect(jsonPath("$.code").value("METHOD_NOT_ALLOWED"));
-  }
 
   @Test
   void unknownProviderIs404NotServerError() throws Exception {

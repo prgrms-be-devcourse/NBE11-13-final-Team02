@@ -1,0 +1,16 @@
+{
+  "eventId": "1591c7fa-581b-5e5a-9ffe-2d28b6300247",
+  "eventType": "area.source.ready",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-22T03:00:00Z",
+  "producer": "collector",
+  "payload": {
+    "source": "STORES",
+    "scope": "강원",
+    "s3Key": "area/STORES/2026-06-30/stores_gangwon.csv",
+    "sha256": "6505ddc859141a3c7526f2c3e0aec101afc4d7fdc52bb38a2bd7f54b67f917dd",
+    "dataDate": "2026-06-30",
+    "fileName": "소상공인시장진흥공단_상가(상권)정보_강원_202606.csv",
+    "rows": 110206
+  }
+}

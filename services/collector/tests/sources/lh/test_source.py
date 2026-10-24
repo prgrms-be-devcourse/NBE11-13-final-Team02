@@ -207,3 +207,9 @@ def test_missing_api_key_blocks_only_this_source(source, lh, run, store):
     lh.service_key = None
     result = run(source, lh)
     assert result.status == "BLOCKED" and config.API_KEY_ENV in result.warnings[0] and not store.posts
+
+
+@pytest.mark.parametrize("env", ["ab%2Bcd%2Fef%3D%3D", "ab+cd/ef=="])
+def test_api_key_copied_encoded_from_the_portal_is_decoded_once(source, settings, monkeypatch, env):
+    monkeypatch.setenv(config.API_KEY_ENV, env)
+    assert source.make_client(settings).service_key == "ab+cd/ef=="

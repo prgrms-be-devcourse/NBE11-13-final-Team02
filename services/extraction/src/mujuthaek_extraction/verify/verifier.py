@@ -1,0 +1,304 @@
+"""검증 실행과 최종 판정 (설계 5장).
+
+검수 등급: 판정에 쓰지 않는 섹션(서류·일정·공급·위치·선정)의 근거 위치 문제는 quality.notes로 옮겨 자동 처리합니다(화면 표시만).
+sourceStatus = PASSED ⇔ notes로 옮기지 않은 V2·V3·V5 문제 없음
+status       = PASSED ⇔ V1 통과 ∧ sourceStatus PASSED ∧ API 대조가 MATCHED·NO_COMPARABLE_FIELDS·SKIPPED_NO_API_REFERENCE
+                         ∧ 검수 이슈(reviewIssues) 없음 ∧ 공고·자격 섹션 완전 ∧ 그 밖의 섹션은 실패·미시도 없음
+PASSED여도 계약의 완료 조건(ready 검사)으로 한 번 더 확인하고, 걸리면 REVIEW_REQUIRED로 되돌립니다.
+AI 응답의 자기 보고로 PASSED가 되는 경로는 없습니다. 입력 후보는 바꾸지 않고 새 후보를 돌려줍니다.
+"""
+
+from __future__ import annotations
+
+import copy
+from collections.abc import Callable
+from datetime import datetime
+from typing import Any
+
+from mujuthaek_extraction.assemble.coverage import self_reported_partial
+from mujuthaek_extraction.assemble.quarantine import remove_item
+from mujuthaek_extraction.contracts import tools
+from mujuthaek_extraction.intake.model import ApiReference
+from mujuthaek_extraction.verify.api_compare import compare_api
+from mujuthaek_extraction.verify.claims import check_claims
+from mujuthaek_extraction.verify.consistency import check_consistency
+from mujuthaek_extraction.verify.directions import check_directions
+from mujuthaek_extraction.verify.evidence import check_evidence
+from mujuthaek_extraction.verify.exceptions import check_missing_exceptions
+from mujuthaek_extraction.verify.model import RULES_VERSION, Finding, PdfTextExtractor, SourceBundle, VerificationReport
+from mujuthaek_extraction.verify.numbers import check_numbers
+
+SCHEMA = "schemas/extracted-notice.v1.json"
+API_OK = {"MATCHED", "NO_COMPARABLE_FIELDS", "SKIPPED_NO_API_REFERENCE"}
+# 검수 등급 (2026-10-15 결정: AI 재확인 후에도 남으면 사람 확인은 판정에 영향 주는 것만)
+CRITICAL_SECTIONS = {"notice", "eligibility"}
+# 근거 위치 문제: 판정에 쓰지 않는 섹션이면 자동 처리(항목 제외·표시)하고 quality.notes로 옮깁니다
+NOTE_CODES = {
+    "EVIDENCE_QUOTE_NOT_FOUND",
+    "EVIDENCE_AMBIGUOUS",
+    "EVIDENCE_QUOTE_TOO_SHORT",
+    "ITEM_DROPPED_NO_EVIDENCE",
+    "CLAIM_UNSUPPORTED",
+    "ORIGINAL_TEXT_NOT_FOUND",
+    "MISSING_FIELD_HAS_VALUE",
+    "AI_OUTPUT_ITEM_DROPPED",
+    "ITEM_QUARANTINED",
+    # AI가 없는 인용 참조를 적음: 그 참조는 근거로 쓰지 않고, 남은 근거가 없으면 항목이 빠집니다(EVIDENCE_QUOTE_NOT_FOUND와 같은 처리).
+    # 실측 LH 신혼·신생아 매입임대: 일정 6개가 빠진 뒤 이 이슈 9개가 /schedules에 남아 일정 섹션 전체가 보류됨(2026-10-20)
+    "QUOTE_REF_UNKNOWN",
+    # 정답표 없이 하는 검사(V7 수량 합계·V8 누락): 의심이라 판정 섹션에서만 사람 확인
+    # 값이 틀렸다는 신호(V6 표 위치 VALUE_POSITION_SUSPECTED, V7 일정 순서·가격 범위·월세가 보증금보다 큼, V9 원문 어디에도 없는 값
+    # VALUE_NOT_IN_QUOTE)는 여기 넣지 않습니다(2026-10-21). 공급·일정이어도 메모로 두면 틀린 값이 그대로 게시되므로,
+    # 재확인으로 못 고치면 그 항목만 보류합니다(부분 게시). 틀린 값보다 누락이 낫습니다
+    "COUNT_TOTAL_SUSPECTED",
+    "SECTION_OMISSION_SUSPECTED",
+    "SCORING_OMISSION_SUSPECTED",
+    "LIST_OMISSION_SUSPECTED",
+    "ELIGIBILITY_OMISSION_SUSPECTED",
+    "SUPPLY_PRICE_UNATTACHED",
+    # V9 비교 방향 대조(OPERATOR_MISMATCH)는 넣지 않습니다: 자격 항목에만 걸리고, 방향이 반대면 판정이 뒤집히므로 늘 사람 확인입니다
+    # 그림 판독 글자(AI가 옮김)를 근거로 한 공급·일정 등은 표시만. 자격·공고 정보는 EVIDENCE_FROM_IMAGE로 사람 확인
+    "IMAGE_TRANSCRIBED_VALUES",
+}
+# 비교를 못 했을 뿐 불일치가 아닌 API 대조 결과: 섹션과 상관없이 표시만 (불일치 API_MISMATCH는 사람 확인)
+# API_VALUE_NOT_EXTRACTED: API에는 값이 있는데 추출값이 비어 있음(누락). 틀린 값이 아니라 빠진 값이라 공고를 막지 않습니다(2026-10-20)
+ALWAYS_NOTE_CODES = {
+    "API_TARGET_MISSING",
+    "API_SCOPE_AMBIGUOUS",
+    "API_MAPPING_MISSING",
+    "API_VALUE_NOT_EXTRACTED",
+    # 공고일이 근거 인용문에는 없지만 원문의 공고일 표기나 같은 공고의 API 공고일로 값이 확인됨(claims.py). 값은 맞으므로 표시만
+    "VALUE_CONFIRMED_IN_SOURCE",
+    "VALUE_CONFIRMED_BY_API",
+    "INCOME_CRITERION_UNUSED",
+    "AI_OUTPUT_ID_RENAMED",
+}
+# INCOME_CRITERION_UNUSED: 소득 기준 일부 누락 의심. 실측 정밀도가 낮아(재계약·완화 표 등) 검수자 화면 메모로만 둡니다(2026-10-16)
+
+
+SETTLED_REASONS = {"NOT_IN_SOURCE", "NOT_APPLICABLE", "TO_BE_ANNOUNCED"}  # 원문이 없다·해당 없다·추후 통보라고 확인된 빈칸 (계약과 같음)
+
+
+def is_note(issue: dict[str, str]) -> bool:
+    if issue["code"] in ALWAYS_NOTE_CODES:
+        return True
+    section = issue["target"].lstrip("/").split("/", 1)[0]
+    return issue["code"] in NOTE_CODES and section not in CRITICAL_SECTIONS and section != ""
+
+
+def _gate_findings(result: dict[str, Any], contract: Any, known: list[str], now: str) -> list[Finding]:
+    """완료 조건(범위 미확정·미해결 누락·미검토 예외 등)은 PASSED일 때만 검사되어 다른 문제가 다 풀린 뒤에야 드러납니다.
+    처음부터 PASSED로 가정해 미리 검사하고, 걸리는 것을 검수 대상에 올려 AI 재확인이 한 번에 고칠 수 있게 합니다."""
+    probe = copy.deepcopy(result)
+    probe["quality"]["reviewIssues"] = []
+    # API 대조는 따로 판정하므로 여기서는 통과 값으로 둡니다(스키마 오류로 의미 검사가 건너뛰어지지 않게)
+    neutral_api = {"status": "SKIPPED_NO_API_REFERENCE", "referenceSha256": None, "referenceIdentity": None, "fields": []}
+    probe["quality"]["verification"].update(status="PASSED", sourceStatus="PASSED", checkedAt=now, rulesVersion=RULES_VERSION, apiComparison=neutral_api)
+    errors = [e for e in contract.validate(probe, SCHEMA) if e not in known and not e.startswith("SCHEMA")]
+    return [_error_finding(e) for e in errors]
+
+
+def check_reported_partial(result: dict[str, Any]) -> list[Finding]:
+    """AI가 원문에 있는데 다 옮기지 못했다고 스스로 적은 섹션(PARTIAL). 판정 섹션은 계약 검사가 이미 막으므로 그 밖의 섹션만 봅니다.
+    재확인이 빠진 항목을 채우지 못하면 사람 확인으로 갑니다(가점표·일정·서류가 빠진 채 자동 완료되지 않게)."""
+    return [
+        Finding(
+            "V8",
+            "COVERAGE_PARTIAL_REPORTED",
+            f"/quality/coverage/{section}",
+            f"원문에 있는데 다 옮기지 못했다고 적은 섹션입니다: {entry.get('reason') or '사유 없음'}",
+        )
+        for section, entry in result["quality"]["coverage"].items()
+        if section not in CRITICAL_SECTIONS and self_reported_partial(entry)
+    ]
+
+
+def _dicts(node: Any):
+    if isinstance(node, dict):
+        yield node
+        node = list(node.values())
+    if isinstance(node, list):
+        for child in node:
+            yield from _dicts(child)
+
+
+def drop_unknown_notice_counts(result: dict[str, Any]) -> None:
+    """공고 전체 수량(/notice/counts) 가운데 값이 비었고 누락 사유가 미확정(별첨 필요·확인 필요 등)인 항목을 빼고 메모로 남깁니다.
+    공고 정보는 판정 섹션이라 계약상 미확정 누락이 있으면 완료할 수 없고, /notice는 보류도 할 수 없어 공고 전체가 검수로 갔습니다
+    (실측 LH 든든전세: 모집 인원이 별첨 목록에만 있음). 값이 없는 항목이라 빼도 틀린 값은 게시되지 않습니다(누락 + 메모).
+    다른 수량이 상위 수량으로 가리키는 항목은 빼지 않습니다. 결과를 그 자리에서 바꿉니다."""
+    quality, counts = result["quality"], result["notice"]["counts"]
+    parents = {node.get("parentCountId") for node in _dicts(result) if node.get("parentCountId")}
+    for index in reversed(range(len(counts))):
+        pointer = f"/notice/counts/{index}"
+        missing = (m for m in quality["missingFields"] if isinstance(m, dict) and m.get("target") == pointer + "/value")
+        entry = next((m for m in missing if m.get("reason") not in SETTLED_REASONS), None)
+        count = counts[index]
+        if entry is None or not isinstance(count, dict) or count.get("value") is not None or count.get("id") in parents:
+            continue
+        remove_item(result, pointer)
+        description = f"{entry['description']} (값을 알 수 없어({entry['reason']}) 이 수량 항목을 뺐습니다. 원문 확인 필요)"
+        quality["notes"].append({"code": "UNKNOWN_COUNT_DROPPED", "target": "/notice/counts", "description": description})
+
+
+def _incomplete(section: str, status: str) -> bool:
+    return status in ({"PARTIAL", "NOT_ATTEMPTED", "FAILED"} if section in CRITICAL_SECTIONS else {"NOT_ATTEMPTED", "FAILED"})
+
+
+def _error_finding(error: str) -> Finding:
+    code, _, rest = error.partition(" ")
+    target = rest.split(":", 1)[0].strip() or "/"
+    return Finding("V1", f"CONTRACT_{code}", target if target.startswith("/") else "/", error)
+
+
+def verify_extraction(
+    candidate: dict[str, Any],
+    sources: SourceBundle,
+    api_reference: ApiReference | None,
+    *,
+    clock: Callable[[], datetime],
+    pdf_text: PdfTextExtractor | None = None,
+) -> VerificationReport:
+    """후보 사본에 모든 검사를 돌려 검수 이슈·표시 메모를 나누고 PASSED·PARTIALLY_PASSED·REVIEW_REQUIRED를 판정해 돌려줍니다."""
+    result = copy.deepcopy(candidate)
+    quality = result["quality"]
+    quality["verification"] = {
+        "status": "NOT_RUN",
+        "sourceStatus": "NOT_RUN",
+        "checkedAt": None,
+        "rulesVersion": None,
+        "apiComparison": quality["verification"]["apiComparison"],
+    }
+    contract = tools()
+    if isinstance(result.get("notice"), dict) and isinstance(result["notice"].get("counts"), list) and isinstance(quality.get("missingFields"), list):
+        drop_unknown_notice_counts(result)
+
+    contract_errors = contract.validate(result, SCHEMA)
+    findings = [_error_finding(e) for e in contract_errors]
+    schema_broken = any(e.startswith("SCHEMA") for e in contract_errors)
+    if not schema_broken:
+        comparison, api_findings = compare_api(result, api_reference)
+        api_matched = frozenset(f["target"] for f in comparison["fields"] if f["status"] == "MATCH")
+        source_findings = check_evidence(result, sources, pdf_text) + check_numbers(result, sources) + check_missing_exceptions(result, sources)
+        source_findings += check_consistency(result, sources) + check_claims(result, sources, api_matched=api_matched)
+        source_findings += check_directions(result) + check_reported_partial(result)
+        findings += source_findings + api_findings + _gate_findings(result, contract, contract_errors, clock().isoformat())
+        quality["verification"]["apiComparison"] = comparison
+        blocking = [f for f in source_findings if not is_note(f.issue())]
+        quality["verification"]["sourceStatus"] = "REVIEW_REQUIRED" if blocking else "PASSED"
+    else:
+        quality["verification"]["sourceStatus"] = "NOT_RUN"
+
+    existing = {(i["code"], i["target"]) for i in quality["reviewIssues"]}
+    for finding in findings:
+        if (finding.code, finding.target) not in existing:
+            quality["reviewIssues"].append(finding.issue())
+            existing.add((finding.code, finding.target))
+    for entry in quality["missingFields"]:  # 판정에 쓰지 않는 칸의 미확정 값은 표시만 합니다
+        section = entry["target"].lstrip("/").split("/", 1)[0]
+        if entry["reason"] not in SETTLED_REASONS and section not in CRITICAL_SECTIONS:
+            quality["notes"].append({"code": "MISSING_FIELD_NEEDS_REVIEW", "target": entry["target"], "description": entry["description"]})
+    quality["notes"] = list({(i["code"], i["target"], i["description"]): i for i in [*quality["notes"], *filter(is_note, quality["reviewIssues"])]}.values())
+    quality["reviewIssues"] = [i for i in quality["reviewIssues"] if not is_note(i)]
+
+    passed = (
+        not contract_errors
+        and quality["verification"]["sourceStatus"] == "PASSED"
+        and quality["verification"]["apiComparison"]["status"] in API_OK
+        and not quality["reviewIssues"]
+        and not any(_incomplete(section, entry["status"]) for section, entry in quality["coverage"].items())
+    )
+    held = None if passed or schema_broken else hold_plan(result, contract_errors)
+    status = "PASSED" if passed else "PARTIALLY_PASSED" if held else "REVIEW_REQUIRED"
+    quality["verification"].update(status=status, checkedAt=clock().isoformat(), rulesVersion=RULES_VERSION)
+    if held:
+        quality["heldItems"] = held
+
+    if status != "REVIEW_REQUIRED":  # 완료 조건(근거 있는 필드 평가, 누락 사유, 미검토 예외 등)을 계약 검사기로 다시 확인합니다
+        ready_errors = contract.validate(result, SCHEMA)
+        if ready_errors:
+            gate = [_error_finding(e) for e in ready_errors]
+            findings += gate
+            quality["reviewIssues"].extend(f.issue() for f in gate)
+            quality["verification"]["status"] = "REVIEW_REQUIRED"
+            quality.pop("heldItems", None)
+            contract_errors = ready_errors
+    return VerificationReport(candidate=result, findings=findings, contract_errors=contract_errors)
+
+
+# ---- 부분 완료 (2026-10-17 설계 검토: 영향 범위만 보류) ----
+# 공고 수천 건을 전부 사람이 볼 수 없으므로, 검수 이슈가 특정 항목·섹션에만 있으면 공고는 게시하고 그 범위만 '원문 확인 필요'로 보류합니다.
+# 공고 정체성(제목·기관·분야)·입력·원본 문서·계약 형식 오류는 보류할 수 없어 공고 전체가 검수로 갑니다.
+# 공고 기본 정보 중 공고일·공급 유형·설명·대상 계층·공고 전체 수량은 칸 단위로 보류합니다(2026-10-20 결정, 계약 NOTICE_HOLDABLE).
+# API 불일치도 그 칸이 보류할 수 있는 곳이면 그 칸만 보류합니다(실측: 남은 공고 전체 검수 7건 중 4건이 API 공고일 불일치, API 쪽이 틀림).
+LIST_SECTIONS = ("locations", "supplyGroups", "schedules", "eligibility", "selectionRules", "requiredDocuments", "guidance")
+
+
+def held_target(candidate: dict[str, Any], pointer: str) -> tuple[str, str] | None:
+    """검수 이슈 위치 → 보류할 (범위, ITEM/SECTION). 보류할 수 없는 위치면 None."""
+    pointer = pointer.split(" ", 1)[0]
+    parts = pointer.lstrip("/").split("/")
+    if pointer.startswith("/quality/coverage/") and len(parts) >= 3 and parts[2] in LIST_SECTIONS:
+        return f"/{parts[2]}", "SECTION"
+    if pointer.startswith("/quality/missingFields/") and len(parts) >= 3 and parts[2].isdigit():
+        entries = candidate["quality"]["missingFields"]
+        index = int(parts[2])
+        return held_target(candidate, entries[index]["target"]) if index < len(entries) else None
+    if parts[0] == "counts" and len(parts) >= 2:  # 수량 규칙 오류(/counts/<수량 id>): 그 수량을 가진 공급 묶음
+        for g, group in enumerate(candidate["supplyGroups"]):
+            if any(c.get("id") == parts[1] for c in group.get("counts") or []):
+                return f"/supplyGroups/{g}", "ITEM"
+        return None
+    if parts[0] == "notice" and len(parts) >= 2 and parts[1] in tools().NOTICE_HOLDABLE:
+        if parts[1] == "counts" and len(parts) >= 3 and parts[2].isdigit() and int(parts[2]) < len(candidate["notice"]["counts"]):
+            return f"/notice/counts/{parts[2]}", "ITEM"
+        return f"/notice/{parts[1]}", "ITEM"
+    if parts[0] in LIST_SECTIONS:
+        if len(parts) >= 2 and parts[1].isdigit() and int(parts[1]) < len(candidate[parts[0]]):
+            return f"/{parts[0]}/{parts[1]}", "ITEM"
+        return f"/{parts[0]}", "SECTION"
+    return None
+
+
+def hold_plan(candidate: dict[str, Any], contract_errors: list[str]) -> list[dict[str, Any]] | None:
+    """모든 검수 이슈·미완 섹션을 보류 범위로 묶을 수 있으면 보류 목록, 하나라도 공고 전체 문제면 None."""
+    quality = candidate["quality"]
+    comparison = quality["verification"]["apiComparison"]
+    if quality["verification"]["sourceStatus"] == "NOT_RUN":
+        return None
+    if comparison["status"] not in API_OK:
+        # 불일치한 칸이 모두 보류할 수 있는 곳일 때만 부분 게시합니다(그 칸의 API_MISMATCH 이슈가 아래에서 보류됨)
+        mismatched = [f["target"] for f in comparison["fields"] if f["status"] == "MISMATCH"]
+        if comparison["status"] != "MISMATCH" or not mismatched or any(held_target(candidate, t) is None for t in mismatched):
+            return None
+    if _incomplete("notice", quality["coverage"]["notice"]["status"]):
+        return None
+    held: dict[str, dict[str, Any]] = {}
+
+    def add(target: str, extent: str, code: str, description: str) -> None:
+        entry = held.setdefault(target, {"target": target, "extent": extent, "codes": [], "description": description})
+        if code not in entry["codes"]:
+            entry["codes"].append(code)
+
+    for issue in quality["reviewIssues"]:
+        found = held_target(candidate, issue["target"])
+        if found is None:
+            return None
+        add(*found, issue["code"], "확인 전까지 판정·화면에 쓰지 않습니다(원문 확인 필요)")
+    for error in contract_errors:
+        code, _, pointer = error.partition(" ")
+        found = held_target(candidate, pointer)
+        if found is None:
+            return None
+        add(*found, f"CONTRACT_{code}", "계약 완료 조건을 채우지 못해 확인 전까지 쓰지 않습니다")
+    for section, entry in quality["coverage"].items():
+        if section != "notice" and _incomplete(section, entry["status"]):
+            add(f"/{section}", "SECTION", f"COVERAGE_{entry['status']}", "섹션을 다 추출하지 못해 확인 전까지 쓰지 않습니다")
+    if not held:
+        return None
+    # 섹션 전체를 보류하면 그 안의 항목 보류는 섹션에 합칩니다
+    sections = {t for t, h in held.items() if h["extent"] == "SECTION"}
+    for target in [t for t in held if any(t.startswith(s + "/") for s in sections)]:
+        section = next(s for s in sections if target.startswith(s + "/"))
+        held[section]["codes"] = list(dict.fromkeys([*held[section]["codes"], *held.pop(target)["codes"]]))
+    return list(held.values())

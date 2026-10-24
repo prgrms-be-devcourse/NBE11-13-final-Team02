@@ -30,7 +30,7 @@ final class SocialProfiles {
   private static SocialProfile kakao(Map<String, Object> attributes) {
     Object id = attributes.get("id");
     if (id == null) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, "카카오 회원번호가 없어요");
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "카카오 회원번호가 없어요");
     }
     String nickname = text(child(child(attributes, "kakao_account"), "profile").get("nickname"));
     if (nickname == null) {
@@ -47,7 +47,7 @@ final class SocialProfiles {
     Map<String, Object> response = child(attributes, "response");
     String id = text(response.get("id"));
     if (id == null) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, "네이버 회원번호가 없어요");
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "네이버 회원번호가 없어요");
     }
     return new SocialProfile(SocialProvider.NAVER, id, text(response.get("nickname")));
   }
@@ -56,7 +56,7 @@ final class SocialProfiles {
   private static SocialProfile google(Map<String, Object> attributes) {
     String id = text(attributes.get("sub"));
     if (id == null) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, "구글 회원번호가 없어요");
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "구글 회원번호가 없어요");
     }
     String nickname = text(attributes.get("name"));
     return new SocialProfile(

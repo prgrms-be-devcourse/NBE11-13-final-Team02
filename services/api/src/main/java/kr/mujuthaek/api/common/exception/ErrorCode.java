@@ -1,15 +1,22 @@
 package kr.mujuthaek.api.common.exception;
 
+import java.util.Locale;
 import org.springframework.http.HttpStatus;
 
-/** 우리 오류 코드. 모듈마다 필요한 코드를 여기에 추가해요 (접두어로 모듈 구분). */
+/**
+ * 우리 오류 코드. 응답의 {@code code}에 그대로 나가고 화면이 이걸로 문구를 골라요. 모듈마다 필요한 코드를 여기에 추가해요 (접두어로 모듈 구분, 예:
+ * NOTICE_NOT_FOUND).
+ */
 public enum ErrorCode {
-  INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않아요"),
-  NOT_FOUND(HttpStatus.NOT_FOUND, "대상을 찾을 수 없어요"),
-  METHOD_NOT_ALLOWED(HttpStatus.METHOD_NOT_ALLOWED, "지원하지 않는 요청 방식이에요"),
-  INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 났어요"),
-  UNAUTHORIZED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요"),
+  VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않아요"),
+  INVALID_CURSOR(HttpStatus.BAD_REQUEST, "목록 위치(cursor)가 올바르지 않아요. 처음부터 다시 받아 주세요"),
+  UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요"),
   FORBIDDEN(HttpStatus.FORBIDDEN, "권한이 없어요"),
+  CSRF_INVALID(HttpStatus.FORBIDDEN, "요청 확인 값(CSRF)이 없거나 달라요"),
+  NOT_FOUND(HttpStatus.NOT_FOUND, "대상을 찾을 수 없어요"),
+  CONFLICT(HttpStatus.CONFLICT, "이미 처리된 요청과 겹쳐요"),
+  RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "요청이 너무 잦아요. 잠시 뒤에 다시 해 주세요"),
+  INTERNAL_ERROR(HttpStatus.INTERNAL_SERVER_ERROR, "서버 오류가 났어요"),
 
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
@@ -23,6 +30,8 @@ public enum ErrorCode {
   WITHDRAWAL_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "탈퇴하려는 계정과 다시 로그인한 계정이 달라요"),
   ;
 
+  private static final String TYPE_BASE = "https://mujuthaek.kr/problems/";
+
   private final HttpStatus status;
   private final String message;
 
@@ -35,7 +44,13 @@ public enum ErrorCode {
     return status;
   }
 
+  /** 응답의 title. */
   public String message() {
     return message;
+  }
+
+  /** 응답의 type. 예: VALIDATION_FAILED → https://mujuthaek.kr/problems/validation-failed */
+  public String type() {
+    return TYPE_BASE + name().toLowerCase(Locale.ROOT).replace('_', '-');
   }
 }

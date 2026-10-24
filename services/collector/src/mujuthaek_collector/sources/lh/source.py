@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import time
+import urllib.parse
 from collections.abc import Callable
 from dataclasses import asdict
 from datetime import date, datetime
@@ -88,7 +89,10 @@ class LhSource(Source):
 
     # ── 요청 클라이언트 ────────────────────────────────────────
     def make_client(self, settings: Settings) -> Fetcher:
-        return LhClient(service_key=os.environ.get(config.API_KEY_ENV) or None, delay_seconds=settings.delay_seconds, max_file_bytes=settings.max_file_bytes)
+        # 포털 화면에는 인증키가 URL 인코딩된 채로만 보이기도 해요. 요청할 때 다시 인코딩하므로 한 번 풀어 둬요
+        # (+가 공백으로 바뀌지 않게 unquote_plus가 아니라 unquote)
+        key = urllib.parse.unquote(os.environ.get(config.API_KEY_ENV) or "") or None
+        return LhClient(service_key=key, delay_seconds=settings.delay_seconds, max_file_bytes=settings.max_file_bytes)
 
     def _apis(self, client: Fetcher) -> tuple[LhApi, MyHomeApi]:
         key = getattr(client, "service_key", None)

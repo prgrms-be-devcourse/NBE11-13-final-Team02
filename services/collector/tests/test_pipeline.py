@@ -66,6 +66,32 @@ def test_new_posts_are_saved_with_event(client, store, file_store, settings, mon
     assert any(key.startswith("raw/dcco/1/v1/") for key in file_store.objects)
 
 
+def test_correction_listed_before_its_original_is_linked(client, store, file_store, settings, monkeypatch):
+    """목록이 최신 글 먼저라 같은 회차에 정정공고가 원래 공고보다 먼저 등록돼도 이벤트에 원래 공고가 연결돼요."""
+    rows = [
+        ("11", "검암역 푸르지오 프라베뉴(검암B-1BL) 입주자모집공고[정정공고]", date(2026, 10, 5)),
+        ("10", "검암역 푸르지오 프라베뉴(검암B-1BL) 입주자모집공고", date(2026, 10, 1)),
+    ]
+    pages(client, rows)
+    run(FakeSource(rows), client, store, file_store, settings, monkeypatch)
+    original, correction = store.by_key("10"), store.by_key("11")
+    assert correction.kind == "CORRECTION" and correction.parent_post_id == original.id
+    event = next(v.event for v in store.versions if v.post.id == correction.id)
+    assert event["payload"]["supersedesPostId"] == str(original.id)
+
+
+def test_correction_links_to_the_round_before_it_not_a_later_one(client, store, file_store, settings, monkeypatch):
+    """매달 같은 이름으로 올라오는 공고: 정정공고는 자기보다 먼저 올라온 회차에 연결돼요 (LH 김제하동 국민임대 같은 경우)."""
+    rows = [
+        ("22", "김제하동 국민임대주택 모집공고", date(2026, 10, 7)),
+        ("21", "김제하동 국민임대주택 모집공고", date(2026, 9, 7)),
+        ("23", "[정정공고]김제하동 국민임대주택 모집공고", date(2026, 9, 8)),
+    ]
+    pages(client, rows)
+    run(FakeSource(rows), client, store, file_store, settings, monkeypatch)
+    assert store.by_key("23").parent_post_id == store.by_key("21").id
+
+
 def test_event_files_point_to_uploaded_s3_objects(client, store, file_store, settings, monkeypatch):
     """이벤트의 s3Key는 실제로 올린 S3 경로와 같고, 받는 쪽은 role로 공고문을 찾아요."""
     rows = ROWS[:1]

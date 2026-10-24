@@ -1,0 +1,59 @@
+{
+  "id": "age",
+  "category": "AGE",
+  "scope": {
+    "level": "NOTICE",
+    "locationIds": [],
+    "supplyGroupIds": [],
+    "targetGroups": [],
+    "supplyCategory": "ALL",
+    "resolution": "RESOLVED",
+    "description": "공고 전체에 적용합니다."
+  },
+  "appliesTo": "신청자 및 명시한 가구 범위",
+  "referenceTime": "공고일",
+  "originalText": "공고일 만 19세 이상 39세 이하이며 무주택 가구여야 합니다.",
+  "description": "공고일 만 19세 이상 39세 이하이며 무주택 가구여야 합니다.",
+  "rule": {
+    "status": "STRUCTURED",
+    "expression": {
+      "kind": "ALL",
+      "children": [
+        {
+          "kind": "ATOMIC",
+          "subject": "APPLICANT",
+          "attribute": "AGE_YEARS",
+          "operator": "GTE",
+          "value": 19,
+          "unit": "YEAR",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": null,
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        {
+          "kind": "ATOMIC",
+          "subject": "APPLICANT",
+          "attribute": "AGE_YEARS",
+          "operator": "LTE",
+          "value": 39,
+          "unit": "YEAR",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": null,
+          "evidenceIds": [
+            "e1"
+          ]
+        }
+      ]
+    },
+    "reason": null
+  },
+  "exceptionsStatus": "NONE_IN_SOURCE",
+  "exceptions": [],
+  "evidenceIds": [
+    "e1"
+  ]
+}

@@ -1,76 +1,142 @@
 package kr.mujuthaek.api.common.exception;
 
+import jakarta.servlet.http.HttpServletRequest;
+import java.net.URI;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Locale;
+import kr.mujuthaek.api.common.logging.SensitiveFields;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.TypeMismatchException;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
-import org.springframework.web.ErrorResponse;
+import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
-/** 오류 응답 형식 통일: Problem Details(RFC 9457) + 우리 오류 코드(code). */
+/**
+ * 오류 응답 형식 통일: Problem Details(RFC 9457) + 화면이 문구를 고를 {@code code}.
+ *
+ * <pre>
+ * { "type": "https://mujuthaek.kr/problems/validation-failed", "title": "입력값이 올바르지 않아요",
+ *   "status": 400, "code": "VALIDATION_FAILED", "detail": "…", "instance": "/api/v1/…",
+ *   "errors": [{ "field": "applicant.personalIncomeAnnualWon", "reason": "MIN" }] }
+ * </pre>
+ *
+ * <p>입력값(소득·자산 등)은 detail·errors·로그 어디에도 넣지 않아요. 칸 이름과 어긴 규칙만 남겨요. 500은 코드와 시각만 보여줘요.
+ */
 @RestControllerAdvice
 class GlobalExceptionHandler {
 
   private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+  private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
+
+  /** errors[] 한 칸. reason은 어긴 검사 이름(Min → MIN, NotNull → NOT_NULL). */
+  record FieldProblem(String field, String reason) {}
 
   @ExceptionHandler(CustomException.class)
-  ProblemDetail handle(CustomException e) {
-    return problem(e.errorCode().status(), e.errorCode(), e.getMessage());
+  ProblemDetail handle(CustomException e, HttpServletRequest request) {
+    return problem(e.errorCode(), e.getMessage(), request);
   }
 
   @ExceptionHandler(MethodArgumentNotValidException.class)
-  ProblemDetail handle(MethodArgumentNotValidException e) {
+  ProblemDetail handle(MethodArgumentNotValidException e, HttpServletRequest request) {
+    List<FieldError> errors = e.getBindingResult().getFieldErrors();
     String detail =
-        e.getBindingResult().getFieldErrors().stream()
-            .map(error -> error.getField() + ": " + error.getDefaultMessage())
+        errors.stream()
             .findFirst()
-            .orElse(ErrorCode.INVALID_REQUEST.message());
-    return problem(HttpStatus.BAD_REQUEST, ErrorCode.INVALID_REQUEST, detail);
+            .map(error -> error.getField() + ": " + error.getDefaultMessage())
+            .orElse(ErrorCode.VALIDATION_FAILED.message());
+    ProblemDetail problem = problem(ErrorCode.VALIDATION_FAILED, detail, request);
+    problem.setProperty(
+        "errors",
+        errors.stream()
+            .map(error -> new FieldProblem(error.getField(), reason(error.getCode())))
+            .toList());
+    return problem;
   }
 
-  /** 읽을 수 없는 요청 본문(깨진 JSON), 주소·쿼리 값의 타입이 맞지 않음 → 400 (서버 오류가 아니에요). */
-  @ExceptionHandler({HttpMessageNotReadableException.class, TypeMismatchException.class})
-  ProblemDetail handleUnreadable(Exception e) {
-    return problem(
-        HttpStatus.BAD_REQUEST, ErrorCode.INVALID_REQUEST, ErrorCode.INVALID_REQUEST.message());
+  @ExceptionHandler(HandlerMethodValidationException.class)
+  ProblemDetail handle(HandlerMethodValidationException e, HttpServletRequest request) {
+    List<FieldProblem> errors =
+        e.getParameterValidationResults().stream()
+            .flatMap(
+                result ->
+                    result.getResolvableErrors().stream()
+                        .map(
+                            error ->
+                                new FieldProblem(
+                                    result.getMethodParameter().getParameterName(),
+                                    reason(lastCode(error.getCodes())))))
+            .toList();
+    ProblemDetail problem =
+        problem(ErrorCode.VALIDATION_FAILED, ErrorCode.VALIDATION_FAILED.message(), request);
+    problem.setProperty("errors", errors);
+    return problem;
   }
 
-  /**
-   * 나머지. 스프링 MVC의 표준 요청 오류(ErrorResponse: 없는 주소 404, 지원하지 않는 메서드 405, 지원하지 않는 형식 415, 필수 값 없음 400
-   * …)는 원래 상태 코드를 그대로 써요. 405의 Allow 같은 헤더도 함께 보내요. 그 밖의 예외만 500으로 기록해요.
-   */
+  @ExceptionHandler({
+    HttpMessageNotReadableException.class,
+    MethodArgumentTypeMismatchException.class,
+    MissingServletRequestParameterException.class
+  })
+  ProblemDetail handleUnreadable(Exception e, HttpServletRequest request) {
+    String detail =
+        switch (e) {
+          case MethodArgumentTypeMismatchException m -> m.getName() + ": 형식이 맞지 않아요";
+          case MissingServletRequestParameterException m -> m.getParameterName() + ": 꼭 있어야 해요";
+          default -> "요청 본문을 읽지 못했어요 (JSON 형식 확인)";
+        };
+    return problem(ErrorCode.VALIDATION_FAILED, detail, request);
+  }
+
+  @ExceptionHandler(NoResourceFoundException.class)
+  ProblemDetail handle(NoResourceFoundException e, HttpServletRequest request) {
+    return problem(ErrorCode.NOT_FOUND, ErrorCode.NOT_FOUND.message(), request);
+  }
+
   @ExceptionHandler(Exception.class)
-  ResponseEntity<ProblemDetail> handle(Exception e) {
-    if (e instanceof ErrorResponse error && error.getStatusCode().is4xxClientError()) {
-      HttpStatusCode status = error.getStatusCode();
-      ErrorCode code =
-          switch (status.value()) {
-            case 404 -> ErrorCode.NOT_FOUND;
-            case 405 -> ErrorCode.METHOD_NOT_ALLOWED;
-            default -> ErrorCode.INVALID_REQUEST;
-          };
-      return ResponseEntity.status(status)
-          .headers(error.getHeaders())
-          .body(problem(status, code, code.message()));
-    }
-    log.error("처리하지 못한 오류", e);
-    return ResponseEntity.internalServerError()
-        .body(
-            problem(
-                HttpStatus.INTERNAL_SERVER_ERROR,
-                ErrorCode.INTERNAL_ERROR,
-                ErrorCode.INTERNAL_ERROR.message()));
+  ProblemDetail handle(Exception e, HttpServletRequest request) {
+    // 예외 메시지에 판정 입력 값이 섞여 있을 수 있어서 가린 뒤에 남겨요
+    log.error(
+        "처리하지 못한 오류: {} {}",
+        request.getMethod(),
+        request.getRequestURI(),
+        SensitiveFields.masked(e));
+    ProblemDetail problem =
+        problem(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.message(), request);
+    problem.setProperty("timestamp", OffsetDateTime.now(SEOUL).withNano(0).toString());
+    return problem;
   }
 
-  private static ProblemDetail problem(HttpStatusCode status, ErrorCode code, String detail) {
-    ProblemDetail problem = ProblemDetail.forStatusAndDetail(status, detail);
+  static ProblemDetail problem(ErrorCode code, String detail, HttpServletRequest request) {
+    ProblemDetail problem = ProblemDetail.forStatusAndDetail(code.status(), detail);
+    problem.setType(URI.create(code.type()));
+    problem.setTitle(code.message());
+    problem.setInstance(URI.create(request.getRequestURI()));
     problem.setProperty("code", code.name());
     return problem;
+  }
+
+  /** Bean Validation 검사 이름을 대문자 스네이크로 (Min → MIN, NotNull → NOT_NULL, DecimalMax → DECIMAL_MAX). */
+  static String reason(String constraint) {
+    if (constraint == null || constraint.isBlank()) {
+      return "INVALID";
+    }
+    return constraint.replaceAll("([a-z0-9])([A-Z])", "$1_$2").toUpperCase(Locale.ROOT);
+  }
+
+  private static String lastCode(String[] codes) {
+    if (codes == null || codes.length == 0) {
+      return null;
+    }
+    String code = codes[codes.length - 1];
+    return code.contains(".") ? code.substring(code.lastIndexOf('.') + 1) : code;
   }
 }

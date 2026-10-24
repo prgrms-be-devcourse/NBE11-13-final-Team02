@@ -69,6 +69,20 @@ services:
     volumes:
       - ../services/collector/migrations:/flyway/sql:ro
 
+  # extraction 데이터베이스 테이블 (services/extraction/migrations). make migrate-extraction
+  # 작업 기록·검수 대기열·아웃박스·처리권·비용 장부 등. extraction worker를 띄우기 전에 한 번 적용해요
+  migrate-extraction:
+    image: flyway/flyway:11.14
+    profiles: [apps]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      -url=jdbc:postgresql://postgres:5432/extraction -user=extraction_app -password=${EXTRACTION_DB_PASSWORD}
+      -locations=filesystem:/flyway/sql -connectRetries=10 migrate
+    volumes:
+      - ../services/extraction/migrations:/flyway/sql:ro
+
   # 수집 워커 (make up). 평소엔 make infra 후 services/collector에서 uv run으로 직접 실행해요.
   # 컨테이너 안에서는 localhost가 아니라 서비스 이름으로 접속해요.
   collector:
@@ -87,6 +101,9 @@ services:
       AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
       AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
       LH_API_KEY: ${LH_API_KEY:-}
+      DATA_GO_KR_SERVICE_KEY: ${DATA_GO_KR_SERVICE_KEY:-}   # 정책 API 인증키 (비우면 정책 출처는 건너뜀)
+      YOUTHCENTER_API_KEY: ${YOUTHCENTER_API_KEY:-}
+      BIZINFO_API_KEY: ${BIZINFO_API_KEY:-}
     ports: ["127.0.0.1:8091:8091"]   # 상태 확인 http://localhost:8091/health
 
 volumes:

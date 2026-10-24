@@ -8,9 +8,10 @@ from mujuthaek_collector.sources.local.dudc import DudcSource
 from mujuthaek_collector.sources.local.gbgn import GbgnSource
 from mujuthaek_collector.sources.local.ih import IhSource
 from mujuthaek_collector.sources.local.sh import ShSource
+from mujuthaek_collector.sources.local.soco import SocoSource
 from mujuthaek_collector.sources.local.umca import UmcaSource
 
-ORDER = ["sh", "gh", "bmc", "ih", "dcco", "dudc", "umca", "gbdc", "gndc", "lh"]
+ORDER = ["sh", "gh", "bmc", "ih", "dcco", "dudc", "umca", "gbdc", "gndc", "soco", "lh"]
 
 
 def build_sources() -> dict[str, Source]:
@@ -24,6 +25,7 @@ def build_sources() -> dict[str, Source]:
         UmcaSource(),
         GbgnSource("gbdc"),
         GbgnSource("gndc"),
+        SocoSource(),
         LhSource(),
     ]
     by_code = {s.code: s for s in sources}

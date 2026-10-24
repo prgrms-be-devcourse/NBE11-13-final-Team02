@@ -1,0 +1,679 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json",
+  "title": "자격 조건 v1",
+  "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/eligibility",
+  "$defs": {
+    "atomic": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "subject",
+        "attribute",
+        "operator",
+        "value",
+        "unit",
+        "basis",
+        "referenceTime",
+        "evidenceIds",
+        "benchmark"
+      ],
+      "properties": {
+        "kind": {
+          "const": "ATOMIC"
+        },
+        "subject": {
+          "enum": [
+            "APPLICANT",
+            "HOUSEHOLD",
+            "PARENTS",
+            "SPOUSE",
+            "OTHER",
+            "BUSINESS",
+            "REPRESENTATIVE"
+          ]
+        },
+        "attribute": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "eligibility-attributes.v1.json의 code입니다. 속성별 단위·연산자·값 제약과 benchmark 필수 여부는 속성 사전이 기준이며 검사기가 확인합니다."
+        },
+        "operator": {
+          "enum": [
+            "EQ",
+            "NE",
+            "LT",
+            "LTE",
+            "GT",
+            "GTE",
+            "IN",
+            "NOT_IN",
+            "BETWEEN",
+            "EXISTS"
+          ]
+        },
+        "value": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "array"
+          ]
+        },
+        "unit": {
+          "enum": [
+            "YEAR",
+            "MONTH",
+            "DAY",
+            "KRW",
+            "PERCENT",
+            "COUNT",
+            "CODE",
+            "BOOLEAN"
+          ]
+        },
+        "basis": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "referenceTime": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "benchmark": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/benchmark"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "LT",
+                  "LTE",
+                  "GT",
+                  "GTE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "IN",
+                  "NOT_IN"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "items": {
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean"
+                  ]
+                },
+                "minItems": 1,
+                "uniqueItems": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "const": "BETWEEN"
+              }
+            },
+            "required": [
+              "operator"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                },
+                "minItems": 2,
+                "maxItems": 2
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "const": "EXISTS"
+              }
+            },
+            "required": [
+              "operator"
+            ]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operator": {
+                "enum": [
+                  "EQ",
+                  "NE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            }
+          }
+        }
+      ],
+      "description": "사용자 값이 아닌 공고의 기준 조건입니다. 지원하지 않는 조건은 UNSTRUCTURED로 보존합니다."
+    },
+    "expression": {
+      "oneOf": [
+        {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/atomic"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "children"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "ALL",
+                "ANY"
+              ]
+            },
+            "children": {
+              "type": "array",
+              "items": {
+                "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/expression"
+              },
+              "minItems": 2
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "child"
+          ],
+          "properties": {
+            "kind": {
+              "const": "NOT"
+            },
+            "child": {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/expression"
+            }
+          }
+        }
+      ],
+      "description": "expression 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "expression",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "STRUCTURED",
+            "UNSTRUCTURED"
+          ]
+        },
+        "expression": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/expression"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "STRUCTURED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expression": {
+                "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/expression"
+              },
+              "reason": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "UNSTRUCTURED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "expression": {
+                "type": "null"
+              },
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      ],
+      "description": "rule 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "exception": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "originalText",
+        "description",
+        "when",
+        "effect",
+        "effectExpression",
+        "evidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "originalText": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "when": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/rule"
+        },
+        "effect": {
+          "enum": [
+            "WAIVE",
+            "REPLACE",
+            "ADD_REQUIREMENT",
+            "OTHER"
+          ]
+        },
+        "effectExpression": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/expression"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "REPLACE",
+                  "ADD_REQUIREMENT"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "effectExpression": {
+                "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/expression"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "enum": [
+                  "WAIVE",
+                  "OTHER"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "effectExpression": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "exception 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "eligibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "category",
+        "scope",
+        "appliesTo",
+        "referenceTime",
+        "originalText",
+        "description",
+        "rule",
+        "exceptionsStatus",
+        "exceptions",
+        "evidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "category": {
+          "enum": [
+            "AGE",
+            "NATIONALITY",
+            "HOME_OWNERSHIP",
+            "INCOME",
+            "ASSETS",
+            "CAR_ASSETS",
+            "RESIDENCE",
+            "MARITAL_STATUS",
+            "CHILDREN",
+            "SAVINGS",
+            "HOUSEHOLD",
+            "BUSINESS_REGISTRATION",
+            "INDUSTRY",
+            "BUSINESS_REGION",
+            "BUSINESS_HISTORY",
+            "OTHER"
+          ]
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "appliesTo": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "referenceTime": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "originalText": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rule": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/rule"
+        },
+        "exceptionsStatus": {
+          "enum": [
+            "NONE_IN_SOURCE",
+            "PRESENT",
+            "NOT_REVIEWED"
+          ]
+        },
+        "exceptions": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/exception"
+          },
+          "minItems": 0
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "exceptionsStatus": {
+                "const": "PRESENT"
+              }
+            },
+            "required": [
+              "exceptionsStatus"
+            ]
+          },
+          "then": {
+            "properties": {
+              "exceptions": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "exceptionsStatus": {
+                "enum": [
+                  "NONE_IN_SOURCE",
+                  "NOT_REVIEWED"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "exceptions": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ],
+      "description": "eligibility 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "benchmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "standardName",
+        "referenceYear",
+        "householdMemberCount",
+        "householdScope",
+        "referenceVersion"
+      ],
+      "properties": {
+        "standardName": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "referenceYear": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1900,
+              "maximum": 2200
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "householdMemberCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "householdScope": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "referenceVersion": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "benchmark 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    }
+  }
+}

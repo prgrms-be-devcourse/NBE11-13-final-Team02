@@ -29,7 +29,7 @@ public class UserService {
         users
             .findById(userId)
             .orElseThrow(
-                () -> new CustomException(ErrorCode.UNAUTHORIZED, "회원 정보가 없어요. 다시 로그인해 주세요"));
+                () -> new CustomException(ErrorCode.UNAUTHENTICATED, "회원 정보가 없어요. 다시 로그인해 주세요"));
     var providers =
         socialAccounts.findByUserIdOrderByCreatedAt(userId).stream()
             .map(a -> a.getProvider().name())
