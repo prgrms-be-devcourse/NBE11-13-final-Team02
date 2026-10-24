@@ -188,6 +188,17 @@ def _item_key(section: str, item: dict[str, Any]) -> str:
     return "|".join(re.sub(r"\s+", "", str(p or "")) for p in parts)
 
 
+# 처음부터 나눠 부를 서류 표 행 수(설정 EXTRACTION_PRESPLIT_DOC_ROWS, 0이면 끔 = 이전처럼 잘린 뒤에만 나눠 부름)
+PRESPLIT_ROWS = int(os.getenv("EXTRACTION_PRESPLIT_DOC_ROWS", "60"))
+
+
+def document_rows(material: ExtractionMaterial) -> int:
+    """원문 서류 표에서 서류 낱말이 든 행 수(검증의 서류 누락 검사와 같은 기준)."""
+    from mujuthaek_extraction.verify.consistency import DOCUMENT_WORD, _document_table_rows
+
+    return sum(1 for row in _document_table_rows(material.text or "") if DOCUMENT_WORD.search(row))
+
+
 def fill_from_cuts(part: dict[str, Any], cut_raws: list[str], sections: tuple[str, ...]) -> int:
     """잘린 응답들에서 끝까지 적힌 항목 중 part에 없는 것을 더합니다(2026-10-24 여덟 번째 채점: 서류 호출 첫 응답은 일반공급 서류까지
     읽고 잘렸는데, 나중 응답(더 앞에서 잘림)·나눠 부른 결과만 써서 서류 11개가 빠짐). 인용 ref는 응답마다 앞머리(c1-, c2-)를 붙입니다.
@@ -389,6 +400,13 @@ def run_extraction(
             return None
 
         part, reason, repairs, truncations = None, None, 0, 0
+        presplit = dict(rules.runaway_splits).get(call.name)
+        if presplit and number > 0 and PRESPLIT_ROWS and document_rows(material) >= PRESPLIT_ROWS:
+            # 서류 표 행이 많으면 한 번에 부르면 출력 한도로 잘려 두세 번 다시 부르게 됩니다(2026-10-25 비용: 잘려 버린 출력이
+            # 전체의 8%). 처음부터 표 묶음별로 나눠 부르고, 받지 못하면 아래 한 번에 부르기로 돌아갑니다
+            part = run_split(number, call, presplit, known, sink)
+            if part is not None:
+                sink.notes.append(f"{call.name}: 서류 표 행이 많아 처음부터 표 묶음별로 나눠 불렀습니다")
         unrepaired = None  # 형식 위반이 있는 첫 응답. 수정 호출이 실패하면(예산 한도 등) 이것을 넘깁니다
         truncated_raw: str | None = None  # 다시 받아도 잘린 마지막 응답(나눠 부르기·끝까지 적힌 항목 살리기에 씀)
         cut_raws: list[str] = []  # 이 호출에서 잘린 응답 전부(앞 응답이 더 멀리 읽었을 수 있어 모두 모읍니다)

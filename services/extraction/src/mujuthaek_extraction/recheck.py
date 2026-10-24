@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 import re
 from collections import Counter
 from collections.abc import Callable
@@ -39,7 +40,11 @@ from mujuthaek_extraction.verify.consistency import DOCUMENT_OMISSION, omitted_d
 from mujuthaek_extraction.verify.model import VerificationReport
 
 NOTICE_FIELD = re.compile(r"\s/notice(?:/([A-Za-z]+))?")  # 문제 설명 「코드 /notice/announcedOn: …」의 칸 이름
-MAX_ITEMS = 8  # 한 번에 다시 볼 항목 수 (응답 크기·비용 상한)
+# 한 번에 다시 볼 항목 수(응답 크기·비용 상한). 2026-10-25 비용 절감으로 8 → 6(설정 EXTRACTION_RECHECK_MAX_ITEMS, 8이면 이전과 같음)
+MAX_ITEMS = int(os.getenv("EXTRACTION_RECHECK_MAX_ITEMS", "6"))
+# 재확인에 보내지 않는 섹션(설정 EXTRACTION_RECHECK_SKIP_SECTIONS, 쉼표로. 빈 값이면 이전처럼 모두).
+# 안내(guidance)는 판정에 쓰지 않고 화면 안내 글이라, 그 문제만으로 재확인 비용을 쓰지 않습니다(2026-10-25)
+SKIP_SECTIONS = frozenset(s.strip() for s in os.getenv("EXTRACTION_RECHECK_SKIP_SECTIONS", "guidance").split(",") if s.strip())
 MAX_TARGET_CHARS = 40_000  # 다시 볼 항목 글자 수 상한. 호실별 가격 묶음 8개가 한 줄 45만 자가 되어 모델이 읽지 못함(실측 2026-10-18 LH 익산 행복주택)
 LIST_SECTIONS = tuple(s for s in SECTIONS if s != "notice")
 DROPPED_PROBLEM = (
@@ -465,6 +470,7 @@ RECHECK_SECTION_ORDER = ("schedules", "supplyGroups", "requiredDocuments", "noti
 def ordered_problems(problems: dict[tuple[str, str | None], list[str]]) -> list[tuple[tuple[str, str | None], list[str]]]:
     """재확인에 보낼 순서. 섹션 전체 문제(빠진 항목 추가)를 먼저 둬 항목 문제가 많아도 상한(MAX_ITEMS)에 밀려 빠지지 않게 하고,
     항목 문제는 RECHECK_SECTION_ORDER 순서로 섹션마다 하나씩 번갈아 둡니다(한 섹션이 자리를 모두 차지하지 않게)."""
+    problems = {key: value for key, value in problems.items() if key[0] not in SKIP_SECTIONS}
     whole = [kv for kv in problems.items() if kv[0][1] is None and kv[0][0] != "notice"]
     by_section: dict[str, list[tuple[tuple[str, str | None], list[str]]]] = {}
     for kv in problems.items():
