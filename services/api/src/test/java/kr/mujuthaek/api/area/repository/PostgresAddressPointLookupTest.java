@@ -28,6 +28,10 @@ class PostgresAddressPointLookupTest {
     // 같은 도로명·번호가 도로명코드만 달리 두 줄 (어느 것인지 모름)
     address("99110", "겹친로", 0, 5, 0, "a6");
     address("99110", "겹친로", 0, 5, 0, "a7");
+    // 번호가 들어간 길: 10번지는 본오로7길에만 있어요
+    address("99110", "본오로7길", 0, 10, 0, "a8");
+    address("99110", "본오로9길", 0, 3, 0, "a9");
+    address("99110", "본오로길", 0, 10, 0, "c1");
     address("99170", "초량상로", 0, 1, 2, "b1"); // 다른 시군구의 같은 이름
     exec(
         "insert into area.road_names select distinct sigungu_code, road_name from area.address_points"
@@ -74,6 +78,28 @@ class PostgresAddressPointLookupTest {
     assertThat(lookup.find("99110", "겹친로", 0, 5, 0)).isEmpty(); // 같은 조건 주소가 둘
     assertThat(lookup.find("99110", "  ", 0, 1, 2)).isEmpty();
     assertThat(lookup.find(null, "초량상로", 0, 1, 2)).isEmpty();
+  }
+
+  @Test
+  void numberedRoadsAreFixedOnlyForALetterTypo() {
+    // 글자 오타는 고쳐요
+    assertThat(lookup.find("99110", "본오노7길", 0, 10, 0))
+        .map(AddressMatch::addressId)
+        .contains(id("a8"));
+    // 번호가 다르면 다른 길이라 고치지 않아요 (10번지가 있는 본오로7길로 가면 틀린 좌표)
+    assertThat(lookup.find("99110", "본오로8길", 0, 10, 0)).isEmpty();
+    // 번호가 깨져 사라진 이름도 고치지 않아요 (번호 없는 본오로길에도 10번지가 있어서 그리로 가면 틀린 좌표)
+    assertThat(lookup.find("99110", "본오로가길", 0, 10, 0)).isEmpty();
+  }
+
+  @Test
+  void oneLetterApartMeansSameLengthAndOneNonDigitLetter() {
+    assertThat(PostgresAddressPointLookup.oneLetterApart("초량상노", "초량상로")).isTrue();
+    assertThat(PostgresAddressPointLookup.oneLetterApart("초량상로", "초량상로")).isFalse();
+    assertThat(PostgresAddressPointLookup.oneLetterApart("본오로8길", "본오로7길")).isFalse();
+    assertThat(PostgresAddressPointLookup.oneLetterApart("본오로가길", "본오로7길")).isFalse();
+    assertThat(PostgresAddressPointLookup.oneLetterApart("노원로1가길", "노원로1길")).isFalse();
+    assertThat(PostgresAddressPointLookup.oneLetterApart("초랑상노", "초량상로")).isFalse();
   }
 
   @Test

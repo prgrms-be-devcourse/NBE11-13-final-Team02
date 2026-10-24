@@ -18,16 +18,20 @@ import org.springframework.stereotype.Component;
  *
  * <ol>
  *   <li>정확히: 도로명의 띄어쓰기를 지우고 그대로 (address_points_name_idx)
- *   <li>없으면 오타: 같은 시군구 도로명 목록(area.road_names)에서 trigram 유사도가 높은 순 {@value #FUZZY_CANDIDATES}개를 골라
- *       번호까지 같은 주소를 찾아요. 후보 하나에서만 맞을 때만 받아요
+ *   <li>없으면 오타: 같은 시군구 도로명 목록(area.road_names)에서 trigram 유사도가 높은 순 {@value #SIMILAR_CANDIDATES}개 중
+ *       <b>길이가 같고 숫자가 아닌 글자 하나만 다른</b> 도로명으로 번호까지 같은 주소를 찾아요. 후보 하나에서만 맞을 때만 받아요
  * </ol>
+ *
+ * <p>오타 후보를 좁힌 까닭(실제 사전 실험, 정답 케이스 도로명 114개에 일부러 오타 하나씩): 비슷한 이름이면 다 받으면 「대평들5길」의 번호가 깨진 「대평들가길」이
+ * 다른 「대평들○길」의 같은 번지로, 숫자만 같게 하면 「노원로10길」이 깨진 「노원로1가길」이 「노원로1길」로 잘못 찾아졌어요. 번호가 들어간 길(○○로7길)은 번호가 다르면
+ * 다른 길이라, 글자 하나 오타만 고쳐요.
  *
  * <p>같은 조건에 주소가 둘 이상이면(어느 것인지 모름) 고르지 않아요. 틀린 좌표보다 못 찾음이 나아요. JDBC만 써서 테스트에서는 {@code new}로 만들어요.
  */
 @Component
 public final class PostgresAddressPointLookup {
 
-  static final int FUZZY_CANDIDATES = 3;
+  static final int SIMILAR_CANDIDATES = 10;
 
   private static final String EXACT =
       """
@@ -38,7 +42,7 @@ public final class PostgresAddressPointLookup {
       limit 2
       """;
 
-  // % 는 pg_trgm 유사도 기준(기본 0.3)을 넘는 것만이라 road_names_trgm_gix를 써요
+  // % 는 pg_trgm 유사도 기준(기본 0.3)을 넘는 것만이라 road_names_trgm_gix를 써요. 글자 하나 차이는 자바에서 걸러요
   private static final String SIMILAR =
       """
       select road_name from area.road_names
@@ -124,14 +128,36 @@ public final class PostgresAddressPointLookup {
       ps.setString(2, road);
       ps.setString(3, road);
       ps.setString(4, road);
-      ps.setInt(5, FUZZY_CANDIDATES);
+      ps.setInt(5, SIMILAR_CANDIDATES);
       List<String> names = new ArrayList<>();
       try (ResultSet rs = ps.executeQuery()) {
         while (rs.next()) {
-          names.add(rs.getString(1));
+          String name = rs.getString(1);
+          if (oneLetterApart(road, name)) {
+            names.add(name);
+          }
         }
       }
       return names;
     }
+  }
+
+  /** 길이가 같고 한 자리만 다르며, 그 자리의 두 글자가 모두 숫자가 아니면 true (「초량상노」·「초량상로」). */
+  static boolean oneLetterApart(String a, String b) {
+    int[] x = a.codePoints().toArray();
+    int[] y = b.codePoints().toArray();
+    if (x.length != y.length) {
+      return false;
+    }
+    int differ = -1;
+    for (int i = 0; i < x.length; i++) {
+      if (x[i] != y[i]) {
+        if (differ >= 0) {
+          return false;
+        }
+        differ = i;
+      }
+    }
+    return differ >= 0 && !Character.isDigit(x[differ]) && !Character.isDigit(y[differ]);
   }
 }
