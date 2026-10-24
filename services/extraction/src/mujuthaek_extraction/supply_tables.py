@@ -823,8 +823,14 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
     if not groups:
         return None
     merged_counts: dict[str, list[str]] = {}  # 공급 묶음 → 여러 행이 나눠 가진 병합 칸 수량
+    complex_totals: list[dict[str, Any]] = []
     for count, cell in pending_pools:  # 병합된 한 칸의 수량을 여러 묶음이 쓰면 함께 쓰는 모집 물량입니다(합산하지 않음)
         if len(shared.get(cell, ())) > 1:
+            if cell[2] == "TOTAL_HOUSING":
+                # 여러 행에 병합된 건설·총 세대수는 단지 전체 수라 행(묶음)마다의 수가 아닙니다. 묶음 수량 칸 전체를 보류하지 않고 이 수만
+                # 뺍니다(2026-10-24 여덟 번째 채점: 단지 총 세대수 때문에 행마다 따로 적힌 모집 호수까지 숨음)
+                complex_totals.append(count)
+                continue
             count["allocationPoolId"] = f"pool-t{_slug(cell[0])}-c{cell[1]}-{cell[2].lower()}"
             where = pool_column[cell]
             if count["value"] > 0 and subtotals.get(where) != sum(column_values.get(where, {}).values()):
@@ -832,6 +838,10 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     shown_values = merged_counts.setdefault(group_id, [])
                     if str(count["value"]) not in shown_values:
                         shown_values.append(str(count["value"]))
+    if complex_totals:
+        dropped = {id(count) for count in complex_totals}
+        for group in groups:
+            group["counts"] = [count for count in group["counts"] if id(count) not in dropped]
     issues = []
     for group in groups:
         _merge_payment_parts(group)
@@ -1168,6 +1178,18 @@ def _merge_payment_parts(group: dict[str, Any]) -> bool:
     return moved
 
 
+def _type_names(group: dict[str, Any]) -> set[str]:
+    """주택형 이름들: 코드가 칸 둘을 이어 쓴 것(「24 24ABC」 = 공급형 + 청약 구분)이면 글자가 든 낱말(「24ABC」)도 따로 봅니다."""
+    raw = str(group.get("housingTypeCode") or "")
+    lettered = {w.upper() for w in raw.split() if re.search(r"[A-Za-z]", w)}
+    return {_norm(raw).upper(), *lettered} - {""}
+
+
+def _same_type(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """같은 주택형인지: 코드가 같거나, 글자가 든 주택형 이름이 겹침(2026-10-24 여덟 번째 채점: 「24 24ABC」 수량 묶음과 「24ABC」 가격 행이 짝이 안 맞음)."""
+    return bool(_type_names(a) & _type_names(b))
+
+
 def _housing_number(group: dict[str, Any]) -> float | None:
     for text in (group.get("housingTypeCode"), group.get("unitLabel")):
         found = HOUSING_NUMBER.findall(text or "")
@@ -1232,7 +1254,7 @@ def _attach_price_tables(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             and _classes_match(groups_of, set(g["scope"]["targetGroups"]))
         ]
         code = _norm(group.get("housingTypeCode")).upper()
-        exact = [g for g in targets if code and _norm(g.get("housingTypeCode")).upper() == code]
+        exact = [g for g in targets if code and _same_type(group, g)]
         if not exact and re.search(r"[A-Z]", code):
             # 가격 행이 글자까지 있는 주택형(「26C」)인데 똑같은 코드의 모집 묶음이 없으면, 숫자만 같은 다른 주택형(「26AB」)에는 붙이지 않습니다
             # (2026-10-24 일곱 번째 채점: 26C 고령자 가격이 26AB 묶음들에 붙어 위치 의심 156건). 코드가 숫자뿐인 묶음에는 붙입니다
