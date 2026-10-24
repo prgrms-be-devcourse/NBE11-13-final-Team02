@@ -21,6 +21,13 @@ public enum ErrorCode {
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
 
+  // user
+  UNSUPPORTED_SOCIAL_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인이에요"),
+  INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인이 만료됐어요. 다시 로그인해 주세요"),
+  WITHDRAWAL_PROVIDER_NOT_LINKED(HttpStatus.BAD_REQUEST, "연결되지 않은 소셜 계정이에요"),
+  WITHDRAWAL_TICKET_INVALID(HttpStatus.BAD_REQUEST, "탈퇴 요청이 만료됐어요. 다시 시도해 주세요"),
+  WITHDRAWAL_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "탈퇴하려는 계정과 다시 로그인한 계정이 달라요"),
+
   // eligibility
   CRITERIA_NOT_FOUND(HttpStatus.NOT_FOUND, "그 연도의 판정 기준값이 아직 없어요"),
   ;
