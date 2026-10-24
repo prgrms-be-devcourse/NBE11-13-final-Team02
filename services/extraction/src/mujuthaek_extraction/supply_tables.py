@@ -646,7 +646,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     "prices": [],
                     "quoteRefs": [ref],
                     "itemKind": {"HOUSING_TYPE": "HOUSING_TYPE", "HOUSING_UNIT": "HOUSING_UNIT"}.get(entry.get("rowUnit"), "UNKNOWN"),
-                    "unitLabel": named.get("UNIT") or (named.get("COMPLEX") if entry.get("rowUnit") == "BUILDING" else None),
+                    "unitLabel": _unit_label(named, entry.get("rowUnit")),
                     "floor": named.get("FLOOR"),
                     "commonAreaSqm": None,
                     "leaseTerm": None,
@@ -802,6 +802,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                         shown_values.append(str(count["value"]))
     issues = []
     for group in groups:
+        _merge_payment_parts(group)
         for price in group["prices"]:
             price.pop("_attached", None)
         group.pop("_plans")
@@ -1075,6 +1076,59 @@ def _guess_stage(column: dict[str, Any], plan: str, limit_column: int | None, fi
     if after_limit or "전환" in plan or (sign and column["column"] != first_price and "기본" not in plan and "기준" not in plan):
         return "CONVERSION_DEPOSIT_UP"  # 부호가 있으면 아래에서 증액·감액으로 나눕니다
     return "STANDARD"
+
+
+def _with_suffix(value: str, suffix: str) -> str:
+    return f"{value}{suffix}" if re.fullmatch(r"[\dA-Za-z-]+", value) else value
+
+
+def _unit_label(named: dict[str, str], row_unit: Any) -> str | None:
+    """호실 이름. 호실 행에 동 칸도 있으면 「301동 402호」(2026-10-24 여섯 번째 채점: 동마다 같은 호 번호 「402」가 4개 나와 어느 집인지 구분 못 함)."""
+    unit, building = named.get("UNIT"), named.get("BUILDING")
+    if unit and building and building not in unit:
+        return f"{_with_suffix(building, '동')} {_with_suffix(unit, '호')}"
+    return unit or (named.get("COMPLEX") if row_unit == "BUILDING" else None)
+
+
+# 금액 구성(2026-10-24 여섯 번째 채점: 분양가는 「기본 요금안」, 계약금·잔금은 「분양대금 납부 요금안」으로 나뉘어 한 집의 금액이 두 안처럼 보임).
+# 같은 묶음·같은 대상에서 계약금·중도금·잔금의 합이 분양가(또는 보증금)와 같으면 그 금액들을 분양가 요금안으로 옮깁니다
+PART_KINDS = ("CONTRACT_PAYMENT", "BALANCE")
+WHOLE_KINDS = ("SALE_PRICE", "DEPOSIT")
+
+
+def _merge_payment_parts(group: dict[str, Any]) -> bool:
+    plans: dict[str, list[dict[str, Any]]] = {}
+    for price in group["prices"]:
+        plans.setdefault(price.get("pricePlanId") or "", []).append(price)
+
+    def amount(price: dict[str, Any]) -> tuple[float, str] | None:
+        found = AMOUNT_IN_CELL.findall(str(price.get("sourceAmount") or ""))
+        return (float(found[0].replace(",", "")), str(price.get("sourceUnit") or "")) if len(found) == 1 else None
+
+    moved = False
+    for part_id, parts in plans.items():
+        if not parts or any(p.get("kind") not in PART_KINDS for p in parts):
+            continue
+        values = [amount(p) for p in parts]
+        if any(v is None for v in values) or len({v[1] for v in values}) != 1:
+            continue
+        total, unit = sum(v[0] for v in values), values[0][1]
+        stage, targets = parts[0].get("priceStage"), parts[0]["scope"]["targetGroups"]
+        wholes = [
+            plan_id
+            for plan_id, items in plans.items()
+            if plan_id != part_id
+            and not any(p.get("kind") in PART_KINDS for p in items)
+            and any(
+                p.get("kind") in WHOLE_KINDS and p.get("priceStage") == stage and p["scope"]["targetGroups"] == targets and amount(p) == (total, unit)
+                for p in items
+            )
+        ]
+        if len(wholes) == 1:
+            for price in parts:
+                price["pricePlanId"] = wholes[0]
+            moved = True
+    return moved
 
 
 def _housing_number(group: dict[str, Any]) -> float | None:

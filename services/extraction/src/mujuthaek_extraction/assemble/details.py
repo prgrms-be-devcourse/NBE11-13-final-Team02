@@ -48,6 +48,7 @@ CONDITION_AFTER = re.compile(r"^[^.。\n;:]{0,6}?(?:경우|때|시에|시\s)")
 # 「일반우편 접수 불가」는 일반 우편만 막고 등기 우편(MAIL)은 막지 않습니다(2026-10-24 세 번째 채점: 「방문 및 일반우편은 접수 불가」, 등기우편 접수)
 GENERAL_MAIL = re.compile(r"일반\s*$")
 APPLYING_KINDS = {"APPLICATION", "DOCUMENT_SUBMISSION"}
+ONSITE_KINDS = {"CONTRACT", "VIEWING"}
 
 # 시각: 「10:00」「10시」「10시 30분」「오후 6시」「6시 반」. 「24시간」「1시간」 같은 길이는 빼고, 「2026.10.」 뒤 숫자는 보지 않습니다
 TIME = re.compile(r"(오전|오후|아침|낮|저녁|밤)?\s*(?<![\d.])(\d{1,2})\s*(?::\s*(\d{2})|시(?!\s*간)(?:\s*(\d{1,2})\s*분|\s*(반))?)")
@@ -383,6 +384,41 @@ def clue_for_other(document: dict[str, Any], text: str, others: list[str]) -> st
     return None
 
 
+# 날짜–장소 짝(2026-10-24 여섯 번째 채점: 한 표 칸에 「03.25.(수) (14:00~17:00) …주택계약실 | 03.26.(목) … 임대공급운영팀」처럼 날짜·장소가
+# 여럿 섞여 3.25 계약 장소가 3.26 장소로 게시됨). 근거에서 그 일정 날짜 바로 뒤(다음 날짜·칸 구분 전까지)에 장소 낱말이 있는데 결과 장소의
+# 이름 낱말이 그 안에 없고 다른 장소 낱말이 있으면 장소를 비웁니다(틀린 장소보다 빈 장소)
+PLACE_WORD = re.compile(r"[가-힣A-Za-z0-9]+(?:실|팀|지사|센터|본부|사무소|사무실|관리소|접수처|주민센터|세대)")
+DATE_TOKEN = re.compile(r"\d{1,4}\s*[./]\s*\d{1,2}\s*[./]\s*\d{1,2}|\d{1,2}\s*월\s*\d{1,2}\s*일")
+
+
+def _date_forms(day: str) -> list[re.Pattern[str]]:
+    year, month, date = (int(x) for x in day.split("-"))
+    return [
+        re.compile(rf"(?<!\d){month:02d}\s*[./]\s*{date:02d}(?!\d)"),
+        re.compile(rf"(?<![\d.]){month}\s*[./]\s*{date}(?!\d)"),
+        re.compile(rf"(?<!\d){month}\s*월\s*{date}\s*일"),
+    ]
+
+
+def place_pair_conflict(text: str, day: str, place: dict[str, Any]) -> str | None:
+    """근거에서 그 날짜 바로 뒤에 적힌 장소가 결과 장소와 다르면 그 장소 글자. 확인할 수 없으면 None."""
+    words = {w for key in ("name", "detail") for w in PLACE_WORD.findall(str(place.get(key) or ""))}
+    if not words:
+        return None
+    for pattern in _date_forms(day):
+        for found in pattern.finditer(text):
+            rest = text[found.end() :]
+            stop = min([m.start() for m in DATE_TOKEN.finditer(rest)] + [i for i in (rest.find("|"), rest.find("\n")) if i >= 0] + [len(rest)])
+            segment = rest[:stop]
+            there = set(PLACE_WORD.findall(segment))
+            # 결과 장소 낱말 중 그 자리에 없는 것이 있고, 그 자리에 결과에 없는 다른 장소 낱말이 있으면 다른 장소입니다(같은 본부의 다른 실·팀)
+            missing = [w for w in words if not any(w in t or t in w for t in there)]
+            extra = [t for t in there if not any(w in t or t in w for w in words)]
+            if there and missing and extra:
+                return " ".join(sorted(extra))
+    return None
+
+
 def _place_found(place: dict[str, Any], key: str, text: str) -> bool:
     return _address_found(text, place[key]) if key == "address" else _contains(text, place[key])
 
@@ -458,8 +494,9 @@ class _Checker:
             label = f"{schedule.get('rawLabel') or schedule.get('id')}({schedule.get('id')})"
             others = [str(s.get("rawLabel") or "") for s in schedules if s is not schedule]
             near = self.nearby(schedule, str(schedule.get("rawLabel") or ""), others, f"/schedules/{s}")
-            self.channels(schedule, text, label)
             self.places(schedule, self.cited(schedule, rows=True), label, near)
+            self.place_pairs(schedule, f"{self.cited(schedule, rows=True)}\n{near}", label)
+            self.channels(schedule, text, label)
             self.email(schedule, text, label)
             self.hours(schedule, text, label, near)
             self.days(schedule, text, label)
@@ -475,6 +512,20 @@ class _Checker:
         own = self.own_times(schedule)
         return bool(near) and wanted <= times_in(near) and all(token & own for token in time_tokens(near))
 
+    def place_pairs(self, schedule: dict[str, Any], text: str, label: str) -> None:
+        start = schedule.get("startsAt")
+        if not isinstance(start, dict) or not ISO_DAY.match(str(start.get("value") or "")):
+            return
+        day = str(start["value"])[:10]
+        kept = []
+        for place in schedule.get("places") or []:
+            other = place_pair_conflict(text, day, place)
+            if other:
+                self.clear("/schedules", label, f"접수 장소를(근거에서 그 날짜 옆 장소는 「{other}」)")
+            else:
+                kept.append(place)
+        schedule["places"] = kept
+
     def channels(self, schedule: dict[str, Any], text: str, label: str) -> None:
         positive, negative = channel_mentions(f"{schedule.get('rawLabel') or ''}\n{text}")
         # 일정 설명·시각 설명(AI가 쓴 글)에서 막았다고 한 방법도 뺍니다. 빼는 데만 쓰고 더하는 데는 쓰지 않습니다
@@ -483,6 +534,10 @@ class _Checker:
         # 신청 방법이 아닙니다(2026-10-24 세 번째 채점: 서류제출 일정에 ONSITE가 남음). 예외 상황은 timeNote·설명에 적습니다
         blocked = negative | said_blocked
         given = list(schedule.get("channels") or [])
+        if ONSITE_KINDS & set(schedule.get("kinds") or []) and schedule.get("places"):
+            # 계약·열람처럼 그 장소에 가야 하는 일정은 근거로 확인한 장소가 있으면 방문 접수입니다(2026-10-24 여섯 번째 채점: 인용에 「방문」 낱말이
+            # 없다고 계약 일정의 ONSITE를 지움). 위 장소 확인을 거친 뒤라 장소는 근거가 있는 값입니다
+            positive = positive | {"ONSITE"}
         kept = [c for c in given if c in positive and c not in blocked]  # 막는 말과만 나온 방법(「인터넷 신청 불가」)은 positive에 없습니다
         if given and kept != given:
             dropped = ", ".join(c for c in given if c not in kept)

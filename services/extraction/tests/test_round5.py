@@ -289,3 +289,72 @@ def test_proxy_document_without_spouse_split_is_proxy_other():
     result = assembled_extra(lines, {"proxy": "■ 대리 신청 시(배우자 포함 본인 외 모두) 추가 서류"}, documents=[doc])
     [kept] = [d for d in result.candidate["requiredDocuments"] if d["id"] == "proxy"]
     assert kept["group"] == "PROXY_OTHER"
+
+
+# ---- 6차 채점: 동·호 이름, 금액 구성, 날짜–장소 짝, 계약 일정의 방문 ----
+
+
+def test_unit_label_has_building_when_both_cells_exist():
+    assert st._unit_label({"UNIT": "402", "BUILDING": "301"}, "HOUSING_UNIT") == "301동 402호"
+    assert st._unit_label({"UNIT": "402호"}, "HOUSING_UNIT") == "402호"
+
+
+def test_contract_and_balance_summing_to_the_sale_price_join_its_plan():
+    def p(plan, kind, amount):
+        return {"pricePlanId": plan, "priceStage": "STANDARD", "kind": kind, "sourceAmount": amount, "sourceUnit": "원", "scope": {"targetGroups": []}}
+
+    group = {"prices": [p("base", "SALE_PRICE", "172,150,000"), p("pay", "CONTRACT_PAYMENT", "17,215,000"), p("pay", "BALANCE", "154,935,000")]}
+    assert st._merge_payment_parts(group)
+    assert {x["pricePlanId"] for x in group["prices"]} == {"base"}
+    other = {"prices": [p("base", "SALE_PRICE", "172,150,000"), p("pay", "CONTRACT_PAYMENT", "17,215,000"), p("pay", "BALANCE", "100,000,000")]}
+    assert not st._merge_payment_parts(other)
+
+
+def test_place_written_next_to_the_schedule_date_wins():
+    from mujuthaek_extraction.assemble.details import place_pair_conflict
+
+    text = "| 2026.03.25.(수) (14:00 ~ 17:00) 가상본부 주택계약실 | 2026.03.26.(목) (10:00 ~ 17:00) 가상본부 임대공급운영팀 |"
+    wrong = {"name": "가상본부", "detail": "9층 임대공급운영팀"}
+    right = {"name": "가상본부 임대공급운영팀", "detail": "9층"}
+    assert place_pair_conflict(text, "2026-03-25", wrong) == "주택계약실"
+    assert place_pair_conflict(text, "2026-03-26", right) is None
+    assert place_pair_conflict("계약 장소: 가상본부 임대공급운영팀", "2026-03-25", wrong) is None
+
+
+def test_contract_with_a_verified_place_keeps_onsite():
+    from test_schedule_details import visit_schedule
+
+    line = "계약체결 : 2026.03.26.(목) 10:00 ~ 17:00 가상본부 임대공급운영팀 (가상시 가상로 91, 9층)"
+    schedule = visit_schedule(
+        id="contract",
+        kinds=["CONTRACT"],
+        rawLabel="계약체결",
+        channels=["ONSITE"],
+        places=[{"name": "가상본부 임대공급운영팀", "address": "가상시 가상로 91", "detail": "9층"}],
+        startsAt={"precision": "MINUTE", "value": "2026-03-26T10:00:00+09:00"},
+        endsAt={"precision": "MINUTE", "value": "2026-03-26T17:00:00+09:00"},
+        dailyHours=[],
+        breaks=[],
+        excludedDays=[],
+        timeNote=None,
+        quoteRefs=["contract"],
+    )
+    result = assembled_extra([line], {"contract": line}, schedules=[schedule])
+    [kept] = [s for s in result.candidate["schedules"] if s["id"] == "contract"]
+    assert kept["channels"] == ["ONSITE"]
+
+
+def test_quote_joined_from_two_places_is_split_into_found_parts():
+    from mujuthaek_extraction.assemble.quotes import NormalizedText, split_joined_quote
+
+    filler = "가상 안내 문장입니다.\n" * 20  # 두 문장은 원문에서 멀리 떨어져 있음(1쪽·3쪽)
+    text = f"1쪽 머리말\n신청자격 : 공고일 현재 만19세 이상인 가상 성년자\n{filler}3쪽\n가상 주택을 소유하지 않은 세대의 구성원이어야 합니다.\n"
+    quote = "신청자격 : 공고일 현재 만19세 이상인 가상 성년자 가상 주택을 소유하지 않은 세대의 구성원이어야 합니다."
+    index = NormalizedText(text)
+    assert split_joined_quote(text, quote, index) is None  # 문장 경계가 없으면 나누지 않음
+    joined = "신청자격 : 공고일 현재 만19세 이상인 가상 성년자\n가상 주택을 소유하지 않은 세대의 구성원이어야 합니다."
+    assert split_joined_quote(text, joined, index) == [
+        "신청자격 : 공고일 현재 만19세 이상인 가상 성년자",
+        "가상 주택을 소유하지 않은 세대의 구성원이어야 합니다.",
+    ]
+    assert split_joined_quote(text, "신청자격 : 공고일 현재 만19세 이상인 가상 성년자", index) is None  # 이미 원문에 있음

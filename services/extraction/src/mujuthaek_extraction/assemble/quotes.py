@@ -313,6 +313,30 @@ def _distance(a: tuple[int, int], b: tuple[int, int]) -> int:
     return max(0, max(a[0], b[0]) - min(a[1], b[1]))
 
 
+# 이어 붙인 인용(2026-10-24 여섯 번째 채점: AI가 1쪽·3쪽 두 문장을 한 인용으로 이어 써 원문에서 못 찾아 「만 19세 이상」 자격이 빠지고
+# 자격 섹션 전체가 보류됨). 인용이 원문에 없으면 문장·줄 단위로 나눠, 조각마다 원문에 한 곳씩 있으면 조각들을 각각 근거로 씁니다
+SPLIT_JOINED = re.compile(r"(?<=[가-힣][.。!?])\s+|(?<=다)\s+|\s*\n\s*|\s+/\s+|\s*(?:…|\.\.\.)\s*")
+SPLIT_PART_CHARS = 8  # 정규화 뒤 이보다 짧은 조각이 있으면 나누지 않습니다(우연 일치)
+# 조각들이 원문에서 이만큼 떨어져 있어야(다른 곳) 나눕니다. 가까우면 한 문장의 낱말을 빼먹은 것일 수 있어 흩어진 근거 검사로 보냅니다
+SPLIT_APART_CHARS = 200
+
+
+def split_joined_quote(text: str, quote: str, index: NormalizedText) -> list[str] | None:
+    """원문에 없는 인용이 원문에 한 곳씩 있는 문장 조각들을 이어 붙인 것이면 그 조각들, 아니면 None."""
+    if candidates(text, quote, index)[0]:
+        return None
+    parts = [p.strip() for p in SPLIT_JOINED.split(quote) if p and p.strip()]
+    if len(parts) < 2 or any(len(normalize(strip_markers(p))) < SPLIT_PART_CHARS for p in parts):
+        return None
+    spans = [candidates(text, part, index)[0] for part in parts]
+    if not all(len(found) == 1 for found in spans):
+        return None
+    places = [found[0] for found in spans]
+    if any(b[0] >= a[0] and b[0] - a[1] < SPLIT_APART_CHARS for a, b in zip(places, places[1:], strict=False)):
+        return None
+    return parts
+
+
 def resolve_item_quotes(text: str, quotes: list[str], index: NormalizedText | None = None) -> list[QuoteResolution]:
     """한 항목(예: 자격 조건 하나)의 인용문들을 함께 풀어 위치를 정합니다. 결과 순서는 입력 순서와 같습니다."""
     index = index or NormalizedText(text)
