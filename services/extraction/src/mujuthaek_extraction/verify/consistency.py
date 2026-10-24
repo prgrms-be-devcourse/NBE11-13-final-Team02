@@ -204,14 +204,20 @@ def _context_mismatch(found: _Located, evidence_ids: list[str], value: str, labe
     """값이 든 표 칸의 행 제목·열 머리글이 말하는 순위·대상·주택형이 붙인 것과 겹치지 않으면 그 설명을, 아니면 None을 돌려줍니다."""
     want_ranks = set().union(*(_ranks(label) for label in labels)) if labels else set()
     want_groups = set().union(*(_groups(label) for label in labels)) if labels else set()
-    for evidence_id in evidence_ids:
+    own_row_without_value = False
+    for n, evidence_id in enumerate(evidence_ids):
         located = found.row(evidence_id)
         if located is None:
             continue
         cells, headers = located
         column = _value_column(cells, value)
         if column is None:
+            own_row_without_value = own_row_without_value or n == 0
             continue
+        if own_row_without_value:
+            # 첫 근거(자기 행)에는 값이 없고 뒤 근거 행에만 있음: 세로 병합 칸의 값을 그 칸이 시작한 행과 함께 인용한 것입니다
+            # (supply_tables가 병합 칸 값에 원래 행을 근거로 덧붙임). 원래 행의 행 제목은 다른 대상이라 대조하지 않습니다(2026-10-24 다섯 번째 채점: 오탐 14)
+            return None
         row_label = " ".join(cells[: min(column, 3)])
         header = _column_header(headers, column)
         # 행 제목에 표시가 있으면 그것만 봅니다. 머리글 행이 따로 없는 표(| 1순위 | ... | / | 2순위 | ... |)에서는

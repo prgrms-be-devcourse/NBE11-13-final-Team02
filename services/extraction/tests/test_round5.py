@@ -135,3 +135,89 @@ def test_same_amount_on_each_floor_row_is_attached_once_per_floor_with_the_floor
     assert len(loans) == 2
     assert {p["scope"]["description"].split(" ")[0] for p in loans} == {"1층", "2층"}
     assert not any("_attached" in p for p in group["prices"])
+
+
+# ---- 3. 공고 기본 정보 근거 이슈는 칸 단위로 ----
+
+
+def test_short_quote_issue_on_notice_points_at_the_field_it_supports():
+    from mujuthaek_extraction.verify.verifier import held_target, narrow_notice_issues
+
+    candidate = {
+        "notice": {"targetGroups": ["가상청년", "가상신혼부부"], "supplyType": "가상행복주택"},
+        "quality": {
+            "reviewIssues": [
+                {
+                    "code": "EVIDENCE_QUOTE_TOO_SHORT",
+                    "target": "/notice",
+                    "description": "가상공고: 인용문이 너무 짧아 우연히 일치했을 수 있습니다 「① 가상청년」",
+                }
+            ]
+        },
+        "supplyGroups": [],
+    }
+    narrow_notice_issues(candidate)
+    [issue] = candidate["quality"]["reviewIssues"]
+    assert issue["target"] == "/notice/targetGroups"
+    assert held_target(candidate, issue["target"]) == ("/notice/targetGroups", "ITEM")
+
+
+def test_notice_issue_that_supports_no_single_field_stays_on_the_notice():
+    from mujuthaek_extraction.verify.verifier import narrow_notice_issues
+
+    candidate = {
+        "notice": {"targetGroups": ["가상청년"], "supplyType": "가상행복주택"},
+        "quality": {"reviewIssues": [{"code": "EVIDENCE_QUOTE_TOO_SHORT", "target": "/notice", "description": "가상공고: 짧음 「가상 공고」"}]},
+    }
+    narrow_notice_issues(candidate)
+    assert candidate["quality"]["reviewIssues"][0]["target"] == "/notice"
+
+
+# ---- 5. 병합 칸 값은 위치 의심에서 빼기 ----
+
+
+def test_merged_cell_value_cited_with_its_first_row_is_not_position_suspected():
+    from test_consistency import codes, scope
+
+    first = "| 가상청년 | 소득무 | 500 | 12,000 |"
+    own = "| 가상고령자 |  |  | 14,000 |"
+    text = "\n".join(["[표 6-1]", "| 대상 | 구분 | 계약금 | 보증금 |", first, own])
+    evidence = [
+        {"id": "ev-own", "sourceId": "pdf-text", "locator": {"kind": "TEXT_RANGE", "start": text.index(own), "end": text.index(own) + len(own)}, "quote": own},
+        {
+            "id": "ev-first",
+            "sourceId": "pdf-text",
+            "locator": {"kind": "TEXT_RANGE", "start": text.index(first), "end": text.index(first) + len(first)},
+            "quote": first,
+        },
+    ]
+    contract = {
+        "kind": "CONTRACT_PAYMENT",
+        "sourceAmount": "500",
+        "amountKrw": 500,
+        "pricePlanId": "p",
+        "scope": scope("가상고령자"),
+        "evidenceIds": ["ev-own", "ev-first"],
+    }
+    candidate = {
+        "evidence": evidence,
+        "notice": {"counts": []},
+        "locations": [],
+        "supplyGroups": [
+            {
+                "housingTypeCode": None,
+                "unitLabel": None,
+                "exclusiveAreaSqm": None,
+                "itemKind": "HOUSING_TYPE",
+                "scope": scope("가상고령자"),
+                "prices": [contract],
+                "counts": [],
+            }
+        ],
+        "schedules": [],
+        "eligibility": [],
+        "selectionRules": [],
+        "requiredDocuments": [],
+        "quality": {"coverage": {s: {"status": "EXTRACTED"} for s in ("eligibility", "requiredDocuments", "schedules")}},
+    }
+    assert [c for c in codes(candidate, text) if c[0] == "VALUE_POSITION_SUSPECTED"] == []

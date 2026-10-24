@@ -11,6 +11,7 @@ AI 응답의 자기 보고로 PASSED가 되는 경로는 없습니다. 입력 �
 from __future__ import annotations
 
 import copy
+import re
 from collections.abc import Callable
 from datetime import datetime
 from typing import Any
@@ -205,6 +206,7 @@ def verify_extraction(
         if (finding.code, finding.target) not in existing:
             quality["reviewIssues"].append(finding.issue())
             existing.add((finding.code, finding.target))
+    narrow_notice_issues(result)
     for entry in quality["missingFields"]:  # 판정에 쓰지 않는 칸의 미확정 값은 표시만 합니다
         section = entry["target"].lstrip("/").split("/", 1)[0]
         if entry["reason"] not in SETTLED_REASONS and section not in CRITICAL_SECTIONS:
@@ -249,6 +251,39 @@ LIST_SECTIONS = ("locations", "supplyGroups", "schedules", "eligibility", "selec
 # 수량(counts)·가격(prices) 칸의 문제는 그 목록만 보류하고 묶음의 주택형·면적·나머지 칸은 게시합니다. 가격은 요금안끼리 짝(보증금·월세)이라
 # 가격 하나가 아니라 그 묶음의 가격 목록 전체를 보류합니다. 그 밖의 칸(주택형·면적·범위)은 묶음의 정체라 묶음 전체를 보류합니다
 GROUP_FIELD_HOLDS = ("counts", "prices")
+
+
+# 공고 기본 정보 근거 이슈(2026-10-24 다섯 번째 채점: 대상 계층 「청년」의 근거 인용 「① 청년」이 짧다는 이슈가 노드 /notice를 가리켜
+# 보류할 수 없어 공고 전체가 검수로 감 — 맞는 가격 150·서류 66·일정 5가 모두 비공개). 인용이 받치는 칸이 하나로 정해지면 그 칸을 가리키게
+# 바꿔 칸만 보류합니다(대상 계층은 판정에 쓰므로 메모로 내리지 않고 보류). 정해지지 않으면 그대로 둡니다(공고 전체 검수)
+NOTICE_EVIDENCE_CODES = {"EVIDENCE_QUOTE_TOO_SHORT", "EVIDENCE_QUOTE_NOT_FOUND", "EVIDENCE_AMBIGUOUS", "EVIDENCE_SCATTERED"}
+QUOTED = re.compile(r"「([^」]*)」\s*$")
+
+
+def _flat(text: Any) -> str:
+    return "".join(str(text or "").split())
+
+
+def notice_field_of(notice: dict[str, Any], quote: str) -> str | None:
+    """인용이 받치는 공고 칸: 대상 계층 이름이 인용 안에 있으면 targetGroups, 공급 유형 이름이 있으면 supplyType. 둘 다거나 없으면 None."""
+    flat = _flat(quote)
+    fields = set()
+    if any(_flat(group) and _flat(group) in flat for group in notice.get("targetGroups") or []):
+        fields.add("targetGroups")
+    if _flat(notice.get("supplyType")) and _flat(notice.get("supplyType")) in flat:
+        fields.add("supplyType")
+    return fields.pop() if len(fields) == 1 else None
+
+
+def narrow_notice_issues(candidate: dict[str, Any]) -> None:
+    notice = candidate.get("notice") if isinstance(candidate.get("notice"), dict) else {}
+    for issue in candidate["quality"]["reviewIssues"]:
+        if issue.get("target") != "/notice" or issue.get("code") not in NOTICE_EVIDENCE_CODES:
+            continue
+        quoted = QUOTED.search(issue.get("description") or "")
+        field = notice_field_of(notice, quoted[1]) if quoted else None
+        if field:
+            issue["target"] = f"/notice/{field}"
 
 
 def held_target(candidate: dict[str, Any], pointer: str) -> tuple[str, str] | None:
