@@ -10,6 +10,7 @@ import java.util.UUID;
  * 공고 상세 (API 설계 "상세 응답의 묶음"). 현재 공개 버전의 추출 결과에서 만들어요. 첨부는 기관 링크만 주고 파일은 주지 않아요.
  *
  * @param heldItems 원문 확인 전까지 보여 주지 않는 항목 (일정·주택형·위치 등에서 뺐어요). 화면은 「확인 필요」로 알려요
+ * @param areaSummaries 위치별 생활·상업 점수 (area가 계산한 공통 점수, 지금 위치로 계산한 것만)
  * @param followUps 원래 공고에 붙은 후속 안내 (서류 제출·당첨자 발표 등). 공고 버전과 따로 붙어요
  * @param hasUnits 호별 주택목록이 있는지 (없으면 화면이 주택목록·지도 섹션을 숨겨요)
  * @param reviewed 검수자가 확인한 버전인지
@@ -23,6 +24,7 @@ public record NoticeDetailResponse(
     List<Condition> conditions,
     List<FileLink> files,
     List<HeldItem> heldItems,
+    List<AreaSummary> areaSummaries,
     List<FollowUp> followUps,
     boolean hasUnits,
     int version,
@@ -99,6 +101,16 @@ public record NoticeDetailResponse(
    * @param description 확인이 필요한 이유
    */
   public record HeldItem(String section, String target, String description) {}
+
+  /**
+   * 위치 하나의 생활·상업 점수.
+   *
+   * @param siteId 단지·건물 (sites[].id)
+   * @param kind LIVING(생활) 또는 COMMERCIAL(상업)
+   * @param score 0~100
+   */
+  public record AreaSummary(
+      String siteId, String kind, BigDecimal score, OffsetDateTime calculatedAt) {}
 
   /** 후속 안내 글 하나와 그 일정. */
   public record FollowUp(

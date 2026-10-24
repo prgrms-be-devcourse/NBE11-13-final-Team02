@@ -10,6 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import kr.mujuthaek.api.common.event.NoticeClosed;
+import kr.mujuthaek.api.common.event.NoticeLocationsChanged;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.common.id.UuidV7;
@@ -357,7 +358,16 @@ public class NoticeIngestionService {
             nationwide,
             event.title(),
             event.reprocess()));
+    publishLocations(noticeId, 1, event);
     return new NewNotice(noticeId, false);
+  }
+
+  /** area가 위치별 지역 점수를 계산하도록 위치를 알려요. 위치가 없으면 보내지 않아요. */
+  private void publishLocations(UUID noticeId, int version, ExtractionEvent event) {
+    List<NoticeLocationsChanged.Location> locations = NoticeContent.locations(event);
+    if (!locations.isEmpty()) {
+      events.publishEvent(new NoticeLocationsChanged(noticeId, version, locations));
+    }
   }
 
   /**
@@ -595,6 +605,9 @@ public class NoticeIngestionService {
     notices.replaceRegions(
         current.noticeId(), NoticeContent.regions(event), NoticeContent.nationwide(event));
     events.publishEvent(new NoticeUpdated(current.noticeId(), changed, event.reprocess()));
+    if (changed.contains("locations")) {
+      publishLocations(current.noticeId(), version, event);
+    }
     if (!event.reprocess()
         && ApplicationStatusCalculator.justClosed(current.status(), listing.status())) {
       // 정정으로 접수 기간이 끝난 경우 (예: 마감일 앞당김). 재처리(reprocess)는 상태·이력만 갱신하고 사용자 알림용 이벤트는 보내지 않아요

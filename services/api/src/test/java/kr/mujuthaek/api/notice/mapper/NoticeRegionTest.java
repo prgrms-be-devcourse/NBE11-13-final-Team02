@@ -2,6 +2,7 @@ package kr.mujuthaek.api.notice.mapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import kr.mujuthaek.api.common.event.NoticeLocationsChanged;
 import kr.mujuthaek.api.notice.domain.CompletedNotice;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import org.junit.jupiter.api.Test;
@@ -141,6 +142,7 @@ class NoticeRegionTest {
 
     assertThat(NoticeContent.regions(event))
         .containsExactlyInAnyOrderEntriesOf(java.util.Map.of("27000", true, "47000", true));
+    assertThat(NoticeContent.locations(event)).isEmpty(); // 지역 점수 계산 대상 아님
     assertThat(NoticeContent.nationwide(event)).isFalse();
   }
 
@@ -169,15 +171,19 @@ class NoticeRegionTest {
   }
 
   @Test
-  void 보류한_위치의_지역_코드는_색인에_쓰지_않는다() {
+  void 보류한_위치의_지역_코드는_색인과_area_입력에_쓰지_않는다() {
     ExtractionEvent event = withLocations("11000", "1111000000", "1114000000");
 
     ExtractionEvent codeHeld = withHeld(event, "/locations/1/regionCode");
     assertThat(NoticeContent.sigunguCodes(codeHeld)).containsExactly("11110");
     assertThat(NoticeContent.regions(codeHeld)).containsOnlyKeys("11110");
+    assertThat(NoticeContent.locations(codeHeld))
+        .extracting(NoticeLocationsChanged.Location::regionCode)
+        .containsExactly("1111000000", null); // 위치는 보내되 미확정 코드는 빼요
 
     ExtractionEvent locationHeld = withHeld(event, "/locations/1");
     assertThat(NoticeContent.sigunguCodes(locationHeld)).containsExactly("11110");
+    assertThat(NoticeContent.locations(locationHeld)).hasSize(1);
   }
 
   @Test

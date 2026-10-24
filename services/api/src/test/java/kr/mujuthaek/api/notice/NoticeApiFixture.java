@@ -7,6 +7,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.TestDatabase;
 import kr.mujuthaek.api.common.exception.GlobalExceptionHandlerAccess;
 import kr.mujuthaek.api.common.region.RegionQueryService;
+import kr.mujuthaek.api.notice.repository.AreaScoreRepository;
 import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.repository.FollowUpRepository;
 import kr.mujuthaek.api.notice.repository.NoticeQueries;
@@ -44,6 +45,7 @@ public class NoticeApiFixture {
       new NoticeQueryService(
           new NoticeQueries(jdbc),
           new FollowUpRepository(client),
+          new AreaScoreRepository(client),
           new RegionQueryService(jdbc),
           clock,
           NoticeFixtures.JSON);
