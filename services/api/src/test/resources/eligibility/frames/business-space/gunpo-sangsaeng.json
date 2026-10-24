@@ -281,7 +281,7 @@
         "branch": "NO"
       },
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "criteria": {
           "industry-excluded": "UNKNOWN",
           "founder": "MET"

@@ -104,7 +104,7 @@
         "subscription": {"months": 30, "balanceWon": 20000000}
       },
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "criteria": {"rank1-savings": "UNKNOWN"},
         "reasons": {"rank1-savings": "주민등록 거주지가 있어야 예치기준금액을 고를 수 있어요"},
         "criterionMissing": {"rank1-savings": ["residenceRegionCode"]}
@@ -114,7 +114,7 @@
       "name": "아무것도 넣지 않음 (질문 목록 받기) → 가입 개월·주민등록 주소지·예치금을 한 번에 물어봐요",
       "applicant": null,
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "criteria": {"homeless": "UNKNOWN", "rank1-savings": "UNKNOWN"},
         "criterionMissing": {"rank1-savings": ["subscription.months", "residenceRegionCode", "subscription.balanceWon"]},
         "missingInputs": ["household.homeless", "subscription.months", "residenceRegionCode", "subscription.balanceWon"]
@@ -128,7 +128,7 @@
         "subscription": {"months": 30, "balanceWon": 20000000}
       },
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "criteria": {"rank1-savings": "UNKNOWN"},
         "reasons": {"rank1-savings": "거주지 시도가 예치기준금액 표(별표 2)의 어느 지역 열인지 정할 수 없어요 (예: 2026-07-01 출범한 전남광주통합특별시)"},
         "criterionMissing": {"rank1-savings": []}

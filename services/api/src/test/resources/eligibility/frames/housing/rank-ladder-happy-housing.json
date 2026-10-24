@@ -215,7 +215,7 @@
         }
       },
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "rank": null,
         "groups": {
           "rank-1": "UNKNOWN",

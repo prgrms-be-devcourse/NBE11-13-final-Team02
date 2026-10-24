@@ -223,7 +223,7 @@
         }
       },
       "expect": {
-        "result": "CHECK_NEEDED"
+        "result": "NEEDS_INPUT"
       }
     },
     {

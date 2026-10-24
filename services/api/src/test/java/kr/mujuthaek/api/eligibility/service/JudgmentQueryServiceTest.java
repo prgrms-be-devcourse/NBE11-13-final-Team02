@@ -96,7 +96,7 @@ class JudgmentQueryServiceTest {
   void anEmptyApplicantGetsTheQuestionnaire() throws Exception {
     JudgmentResult result = judgments.judgeHousing(frame("housing/seoripul-artown"), null, null);
 
-    assertThat(result.result()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(result.result()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(result.missingInputs())
         .extracting(MissingInput::field)
         .contains("household.monthlyIncomeWon", "birthDate");
