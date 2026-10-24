@@ -15,6 +15,7 @@ from tests.fakes import MemoryFileStore
 
 MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest.csv"
 ADDRESS_MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest_address.csv"
+BOUNDARY_MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest_boundary.csv"
 
 
 class MemoryOutbox:
@@ -160,6 +161,25 @@ def test_the_address_manifest_in_the_repo_follows_the_key_rule():
         assert row["source"] == "ADDRESS_ENTRANCE"
         assert row["s3Key"] == sources.s3_key(row["source"], date.fromisoformat(row["dataDate"]), row["scope"])
         assert row["fileName"] == f"RNENTDATA_2610_{sources.ADDRESS_SCOPES[row['scope']]}.txt"
+
+
+def test_the_boundary_manifest_records_two_csvs_and_skips_raw_zips():
+    # 2026-10-22에 개발 S3에 올린 구역 경계 CSV 2개 + 원본 zip 16개(보관만)
+    with BOUNDARY_MANIFEST.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    loadable = [r for r in rows if r["source"] not in sources.ARCHIVE_ONLY]
+    assert [(r["source"], r["rows"]) for r in loadable] == [("REGION_BOUNDARY_SIG", "256"), ("REGION_BOUNDARY_EMD", "5067")]
+    assert len(rows) - len(loadable) == 16
+    for row in loadable:
+        assert row["s3Key"] == sources.s3_key(row["source"], date.fromisoformat(row["dataDate"]), row["scope"])
+
+    files, outbox = MemoryFileStore(), MemoryOutbox()
+    files.objects = {r["s3Key"]: b"" for r in loadable}
+    files.metadatas = {r["s3Key"]: {"sha256": r["sha256"]} for r in loadable}
+
+    result = command.from_manifest(files, outbox, BOUNDARY_MANIFEST)
+
+    assert (result.recorded, result.archived, result.problems) == (2, 16, [])
 
 
 class RecordingChannel:

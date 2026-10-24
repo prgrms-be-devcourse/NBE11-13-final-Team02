@@ -5,6 +5,7 @@ area-upload --source STORES --scope 강원 --data-date 2026-06-30 --file 상가_
 area-upload --source SUBWAY_STATION --data-date 2026-06-18 --file 역사정보.xlsx   (엑셀은 UTF-8 CSV로 바꿔서 올려요)
 area-upload --source ADDRESS_ENTRANCE --scope 36110 --data-date 2026-09-30 --file RNENTDATA_2610_36110.txt   (원본 그대로)
 area-upload --manifest area/area_manifest.csv --skip-upload   (이미 S3에 있는 파일: sha256 메타데이터만 확인하고 이벤트만)
+area-upload --manifest area/area_manifest_boundary.csv --skip-upload   (구역 경계 CSV 2개. 원본 zip 줄(REGION_BOUNDARY_RAW)은 건너뜀)
 """
 
 import csv
@@ -28,6 +29,7 @@ DLX = "mujuthaek.dlx"
 class Result:
     uploaded: int = 0
     recorded: int = 0
+    archived: int = 0  # 목록에서 보관만 하는 원본이라 건너뛴 줄
     problems: list[str] = field(default_factory=list)
 
 
@@ -50,11 +52,15 @@ def upload_file(files: FileStore, conn, source: str, data_date: date, path: Path
 
 def from_manifest(files: FileStore, conn, manifest: Path) -> Result:
     """이미 S3에 올린 파일 목록(원천, 범위, S3 키, sha256, 기준일, 원본 이름, 줄 수)으로 이벤트만 기록해요.
-    S3 객체가 없거나 sha256 메타데이터가 다르면 그 줄은 건너뛰고 problems에 남겨요."""
+    S3 객체가 없거나 sha256 메타데이터가 다르면 그 줄은 건너뛰고 problems에 남겨요.
+    보관만 하는 원본(sources.ARCHIVE_ONLY, 예: 구역의 도형 zip)은 적재 대상이 아니라 세기만 하고 건너뛰어요."""
     result = Result()
     with manifest.open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
             source, key, sha = row["source"], row["s3Key"], row["sha256"]
+            if source in sources.ARCHIVE_ONLY:
+                result.archived += 1
+                continue
             data_date = date.fromisoformat(row["dataDate"])
             scope = sources.check_scope(source, row["scope"])
             if key != sources.s3_key(source, data_date, scope):

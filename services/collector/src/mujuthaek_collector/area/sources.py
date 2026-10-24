@@ -1,9 +1,11 @@
-"""area 원천 7종과 S3 키 규칙.
+"""area 원천 9종과 S3 키 규칙.
 
 S3 키: area/{원천}/{기준일}/{영문 파일 이름}.csv  (예: area/STORES/2026-06-30/stores_gangwon.csv)
 상가정보는 시도 파일 하나가 적재 한 번이라 범위(scope)가 시도 이름이고, 나머지는 ALL이에요.
 도로명주소 출입구는 시도 파일마다 범위가 시도 코드 두 자리(11, 36 …)이고, 원본 그대로 .txt로 올려요
 (예: area/ADDRESS_ENTRANCE/2026-09-30/address_entrance_36110.txt).
+구역 경계(REGION_BOUNDARY_SIG·EMD)는 구역의 도형 SHP를 전국 CSV 하나씩으로 바꿔(boundary_csv.py) 올려요. 원본 zip은
+REGION_BOUNDARY_RAW로 같이 보관하지만 적재 대상이 아니라 이벤트를 만들지 않아요.
 파일 이름을 영문으로 두는 건 LANG이 없는 서버·컨테이너에서도 키를 그대로 다룰 수 있게 하려는 거예요.
 """
 
@@ -18,10 +20,14 @@ FILE_NAMES = {
     "SCHOOL": "school",
     "PARK": "park",
     "HOSPITAL": "hospital",
+    "REGION_BOUNDARY_SIG": "boundary_sig",
+    "REGION_BOUNDARY_EMD": "boundary_emd",
 }
 STORES = "STORES"
 ADDRESS_ENTRANCE = "ADDRESS_ENTRANCE"
 SOURCES = (*FILE_NAMES, STORES, ADDRESS_ENTRANCE)
+# S3에 보관만 하는 원본 (목록에 있어도 적재 요청을 만들지 않아요)
+ARCHIVE_ONLY = frozenset({"REGION_BOUNDARY_RAW"})
 
 # 상가(상권)정보 시도 파일 이름의 시도 → 영문 이름 (소상공인시장진흥공단 2026-06 기준 16개. 광주는 전남과 한 파일)
 STORES_SCOPES = {

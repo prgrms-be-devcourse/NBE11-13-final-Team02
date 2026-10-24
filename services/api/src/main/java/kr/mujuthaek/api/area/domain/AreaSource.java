@@ -68,13 +68,28 @@ public enum AreaSource {
           "c15", "c16", "c17", "c18", "c19"),
       "address_entrance.sql",
       '|',
-      true);
+      true),
+  /** 시군구 경계: collector가 구역의 도형 SHP를 바꾼 전국 CSV(code, name, wkt — UTM-K). 좌표 찾기의 경계 검사에 써요. */
+  REGION_BOUNDARY_SIG(
+      Target.REGION_BOUNDARIES,
+      null,
+      StandardCharsets.UTF_8,
+      List.of("code", "name", "wkt"),
+      "region_boundary_sig.sql"),
+  /** 법정읍면동 경계: 시군구와 같은 모양, 코드 8자리. */
+  REGION_BOUNDARY_EMD(
+      Target.REGION_BOUNDARIES,
+      null,
+      StandardCharsets.UTF_8,
+      List.of("code", "name", "wkt"),
+      "region_boundary_emd.sql");
 
   /** 적재되는 테이블. */
   public enum Target {
     FACILITIES,
     STORES,
-    ADDRESS_POINTS
+    ADDRESS_POINTS,
+    REGION_BOUNDARIES
   }
 
   private final Target target;
@@ -131,6 +146,15 @@ public enum AreaSource {
   /** classpath area/load/ 아래 변환 SQL 파일 이름. */
   public String mappingSql() {
     return mappingSql;
+  }
+
+  /** area.region_boundaries.level 값 (SIG·EMD). 경계가 아닌 원천은 null. */
+  public String boundaryLevel() {
+    return switch (this) {
+      case REGION_BOUNDARY_SIG -> "SIG";
+      case REGION_BOUNDARY_EMD -> "EMD";
+      default -> null;
+    };
   }
 
   /** 칸 구분자. CSV는 쉼표. */

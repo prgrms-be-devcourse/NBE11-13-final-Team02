@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mujuthaek.kr/contracts/events/area.source.ready.v1.json",
   "title": "area.source.ready v1",
-  "description": "collector가 생활권·상권 원천 파일을 S3 area/ 경로에 올린 뒤 보내요. api의 area 모듈이 받아서 area.facilities·area.stores·area.address_points에 적재해요. 같은 (source, scope, sha256)은 한 번만 적재돼요.",
+  "description": "collector가 생활권·상권 원천 파일을 S3 area/ 경로에 올린 뒤 보내요. api의 area 모듈이 받아서 area.facilities·area.stores·area.address_points·area.region_boundaries에 적재해요. 같은 (source, scope, sha256)은 한 번만 적재돼요.",
   "type": "object",
   "additionalProperties": false,
   "required": ["eventId", "eventType", "schemaVersion", "occurredAt", "producer", "payload"],
@@ -24,7 +24,7 @@
       "additionalProperties": false,
       "required": ["source", "scope", "s3Key", "sha256", "dataDate"],
       "properties": {
-        "source": { "enum": ["SUBWAY_STATION", "BUS_STOP", "SCHOOL", "PARK", "HOSPITAL", "STORES", "ADDRESS_ENTRANCE"] },
+        "source": { "enum": ["SUBWAY_STATION", "BUS_STOP", "SCHOOL", "PARK", "HOSPITAL", "STORES", "ADDRESS_ENTRANCE", "REGION_BOUNDARY_SIG", "REGION_BOUNDARY_EMD"] },
         "scope": {
           "type": "string",
           "minLength": 1,
@@ -32,8 +32,8 @@
         },
         "s3Key": {
           "type": "string",
-          "pattern": "^area/(SUBWAY_STATION|BUS_STOP|SCHOOL|PARK|HOSPITAL|STORES|ADDRESS_ENTRANCE)/\\d{4}-\\d{2}-\\d{2}/[a-z0-9_]+\\.(csv|txt)$",
-          "description": "S3 버킷 안 경로 area/{source}/{dataDate}/{영문 파일 이름} (주소 아님). 도로명주소 출입구는 원본 그대로 .txt(address_entrance_{파일 시도코드}.txt), 나머지는 .csv"
+          "pattern": "^area/(SUBWAY_STATION|BUS_STOP|SCHOOL|PARK|HOSPITAL|STORES|ADDRESS_ENTRANCE|REGION_BOUNDARY_SIG|REGION_BOUNDARY_EMD)/\\d{4}-\\d{2}-\\d{2}/[a-z0-9_]+\\.(csv|txt)$",
+          "description": "S3 버킷 안 경로 area/{source}/{dataDate}/{영문 파일 이름} (주소 아님). 도로명주소 출입구는 원본 그대로 .txt(address_entrance_{파일 시도코드}.txt), 구역 경계는 boundary_sig.csv·boundary_emd.csv(collector가 SHP에서 바꾼 code·name·wkt), 나머지는 .csv"
         },
         "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "올린 파일의 지문. S3 객체 메타데이터 sha256과 같아요" },
         "dataDate": { "type": "string", "format": "date", "description": "원천 기준일" },
@@ -54,6 +54,14 @@
             }
           },
           "else": { "properties": { "s3Key": { "pattern": "\\.csv$" } } }
+        },
+        {
+          "if": { "properties": { "source": { "const": "REGION_BOUNDARY_SIG" } } },
+          "then": { "properties": { "s3Key": { "pattern": "/boundary_sig\\.csv$" } } }
+        },
+        {
+          "if": { "properties": { "source": { "const": "REGION_BOUNDARY_EMD" } } },
+          "then": { "properties": { "s3Key": { "pattern": "/boundary_emd\\.csv$" } } }
         },
         {
           "if": { "properties": { "source": { "enum": ["STORES", "ADDRESS_ENTRANCE"] } } },
