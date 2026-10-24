@@ -369,7 +369,8 @@ class JobStore:
                     (reviewer, note, job_id),
                 )
                 cur.execute(
-                    "update review_queue set status = 'PENDING', reasons = (case when reasons ? 'USER_REPORT' then reasons else reasons || '[\"USER_REPORT\"]'::jsonb end),"
+                    "update review_queue set status = 'PENDING',"
+                    " reasons = (case when reasons ? 'USER_REPORT' then reasons else reasons || '[\"USER_REPORT\"]'::jsonb end),"
                     " note = null, created_at = now(), decided_at = null, decided_by = null, edited = false, edits = null,"
                     " superseded_by_job_id = null, superseded_by_raw_post_id = null, superseded_by_version = null where job_id = %s",
                     (job_id,),
@@ -379,7 +380,8 @@ class JobStore:
     def review_history(self, job_id: str) -> list[dict[str, Any]]:
         """다시 열기 전의 처리 기록(오래된 것부터)."""
         rows = self.conn.execute(
-            "select status, note, decided_at, decided_by, edited, edits, archived_at, reopened_by, reopen_note from review_history where job_id = %s order by id",
+            "select status, note, decided_at, decided_by, edited, edits, archived_at, reopened_by, reopen_note"
+            " from review_history where job_id = %s order by id",
             (job_id,),
         ).fetchall()
         keys = ("reviewStatus", "note", "decidedAt", "decidedBy", "edited", "edits", "reopenedAt", "reopenedBy", "reopenNote")
