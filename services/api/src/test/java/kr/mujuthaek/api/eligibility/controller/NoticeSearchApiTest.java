@@ -22,6 +22,7 @@ import kr.mujuthaek.api.notice.NoticeFixtures;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import tools.jackson.databind.node.ObjectNode;
 
 class NoticeSearchApiTest {
 
@@ -66,14 +67,23 @@ class NoticeSearchApiTest {
 
   @Test
   void alwaysOpenNoticesAreIncludedByDefaultLikeThePublicList() throws Exception {
-    UUID always = f.notice(p -> schedule(p, null, null)); // 접수 시작·마감 둘 다 없음 → 상시
+    UUID always =
+        f.notice(
+            p -> {
+              schedule(p, null, null);
+              ((ObjectNode) p.get("notice").get("schedules").get(0))
+                  .put("applicationMode", "ROLLING"); // 원문이 수시 모집 → 상시
+              NoticeFixtures.project(p);
+            });
+    UUID undated = f.notice(p -> schedule(p, null, null)); // 날짜만 없음 → 확인 필요(UNKNOWN)
 
     mvc.perform(
             post("/api/v1/notices/search")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(body("")))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.items[?(@.id == '%s')].status".formatted(always)).value("ALWAYS"));
+        .andExpect(jsonPath("$.items[?(@.id == '%s')].status".formatted(always)).value("ALWAYS"))
+        .andExpect(jsonPath("$.items[?(@.id == '%s')].status".formatted(undated)).value("UNKNOWN"));
   }
 
   @Test
