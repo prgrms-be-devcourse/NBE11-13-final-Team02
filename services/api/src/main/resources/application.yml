@@ -84,6 +84,13 @@ mujuthaek:
     secret-key: ${MINIO_ROOT_PASSWORD:minio-pass}
   area:
     score-version: "2026.1"             # area.score_rules의 생활권 점수 규칙 버전. 바꾸면 전체 다시 계산
+    juso-search:                        # 도로명주소 검색 API. 키가 비면 부르지 않아요 (주소 사전으로만 찾음)
+      base-url: https://business.juso.go.kr/addrlink/addrLinkApi.do
+      api-key: ${JUSO_SEARCH_API_KEY:}
+      per-second: 5
+      per-day: 10000
+      retries: 2
+      timeout: 5s
 
 management:
   endpoints:
