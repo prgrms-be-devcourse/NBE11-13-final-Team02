@@ -237,6 +237,44 @@ def rejection_reason(first: VerificationReport, second: VerificationReport, sect
     return f"다시 본 섹션({', '.join(sections)})의 문제가 줄지 않음"
 
 
+def _broken_sections(part: dict[str, Any], schema: dict[str, Any]) -> set[str] | None:
+    """형식 위반이 있는 섹션 이름들. 섹션 밖(인용 목록·맨 위)에 위반이 있으면 None(응답 전체를 믿을 수 없음)."""
+    from jsonschema import Draft202012Validator, FormatChecker
+
+    broken: set[str] = set()
+    for error in Draft202012Validator(schema, format_checker=FormatChecker()).iter_errors(part):
+        path = list(error.absolute_path)
+        head = str(path[0]) if path else ""
+        if head == "coverage" and len(path) > 1:
+            head = str(path[1])
+        if head not in SECTIONS:
+            return None
+        broken.add(head)
+    return broken
+
+
+# 값 개수(2026-10-24 다섯 번째 채점: 재확인 답이 병합 칸 계약금 3개를 빼고 돌아왔는데 문제 수만 보고 채택해 맞는 값이 지워짐)
+def _value_counts(report: VerificationReport) -> dict[str, int]:
+    candidate = report.candidate
+    counts = {f"supplyGroups/{g.get('id')}": len(g.get("prices") or []) + len(g.get("counts") or []) for g in candidate.get("supplyGroups") or []}
+    counts["requiredDocuments"] = len(candidate.get("requiredDocuments") or [])
+    counts["schedules"] = len(candidate.get("schedules") or [])
+    return counts
+
+
+def _lost_values(first: VerificationReport, second: VerificationReport) -> list[str]:
+    """재확인 뒤 가격·수량·서류·일정 개수가 줄어든 곳. 문제가 줄어도 맞는 값을 지운 답일 수 있어 받지 않습니다."""
+    before, after = _value_counts(first), _value_counts(second)
+    return [key for key, count in before.items() if key in after and after[key] < count]
+
+
+def _rejection(first: VerificationReport, second: VerificationReport, sections: list[str]) -> str:
+    lost = _lost_values(first, second)
+    if lost and _improved(first, second, sections):
+        return "값이 줄어듦: " + ", ".join(lost[:4])
+    return rejection_reason(first, second, sections)
+
+
 def _improved(first: VerificationReport, second: VerificationReport, sections: list[str]) -> bool:
     """채택 조건: 어느 (코드, 위치)도 새로 생기거나 늘지 않고, 다시 본 섹션의 문제가 하나 이상 줄었을 때.
     개수만 비교하면 한 항목을 고치며 다른 항목에 새 문제를 만든 응답도 채택될 수 있습니다."""
@@ -509,32 +547,53 @@ def recheck_problems(
         return RecheckResult(parts, first, rechecked, False, run, rejected=(("전체", reason),))
     # 수정 호출 뒤에도 형식 위반이 남은 응답(extract가 첫 응답을 살려 넘김)은 고친 결과가 아니므로 섞지 않습니다(검토 2026-10-16)
     schema = one_call.build_request(call, material, structure_summary(parts[0])).output_schema
-    if schema_errors(run.parts[0], schema) is not None:
-        return RecheckResult(parts, first, rechecked, False, run, rejected=(("전체", "재확인 응답 형식 위반"),))
-    answer = _keep_verified_dates(parts, _keep_meaning(parts, run.parts[0], targets))
+    response, format_rejected = run.parts[0], []
+    if schema_errors(response, schema) is not None:
+        # 형식 위반이 있는 섹션만 빼고 나머지 섹션은 시험합니다(2026-10-24 다섯 번째 채점: 재확인 5건 중 2건이 일부 형식 위반으로 통째 버려짐).
+        # 인용 목록처럼 섹션 밖 칸이 틀렸으면 모두 버립니다
+        broken = _broken_sections(response, schema)
+        if broken is None or not set(sections) - broken:
+            return RecheckResult(parts, first, rechecked, False, run, rejected=(("전체", "재확인 응답 형식 위반"),))
+        response = {key: value for key, value in response.items() if key not in broken}
+        format_rejected = [(section, "재확인 응답 형식 위반") for section in sections if section in broken]
+        sections = [section for section in sections if section not in broken]
+        targets = [t for t in targets if t["section"] not in broken]
+    answer = _keep_verified_dates(parts, _keep_meaning(parts, response, targets))
     whole = tuple(t["section"] for t in targets if t["id"] is None and t["section"] != "notice")
     sent = sent_scope(targets)
     merged = merge_recheck(parts, answer, whole, sent)
     second = evaluate(merged)
-    if _improved(first, second, sections):
-        return RecheckResult(merged, second, rechecked, True, run)
-    rejected = [("전체", rejection_reason(first, second, sections))]
-    if len(sections) < 2:
+    if _improved(first, second, sections) and not _lost_values(first, second):
+        return RecheckResult(merged, second, rechecked, True, run, rejected=tuple(format_rejected))
+    rejected = [*format_rejected, ("전체", _rejection(first, second, sections))]
+    if len(sections) < 2 and not format_rejected:
         return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))
-    # 섹션마다 따로: 그 섹션만 합쳐 어디에도 새 문제가 없고 그 섹션 문제가 줄면 받고, 받은 결과 위에 다음 섹션을 봅니다
+    # 섹션마다 따로: 그 섹션만 합쳐 어디에도 새 문제가 없고 그 섹션 문제가 줄면 받고, 받은 결과 위에 다음 섹션을 봅니다.
+    # 거절된 섹션은 다른 섹션을 받은 뒤 한 번 더 봅니다(2026-10-24 다섯 번째 채점: 공고 칸 답이 자격 섹션의 문제 때문에 거절됐는데,
+    # 이어서 자격 섹션을 받은 뒤 다시 보지 않아 공고 전체가 검수로 감)
     current, report, adopted = parts, first, []
-    for section in sections:
-        if section not in answer:
-            rejected.append((section, "재확인 응답에 그 섹션이 없음"))
-            continue
-        only = {key: value for key, value in answer.items() if key not in SECTIONS or key == section}
-        trial = merge_recheck(current, only, tuple(s for s in whole if s == section), sent)
-        trial_report = evaluate(trial)
-        if _improved(report, trial_report, [section]):
-            current, report = trial, trial_report
-            adopted.append(section)
-        else:
-            rejected.append((section, rejection_reason(report, trial_report, [section])))
+    waiting = list(sections)
+    for _ in range(2):
+        still: list[str] = []
+        reasons: dict[str, str] = {}
+        for section in waiting:
+            if section not in answer:
+                reasons[section] = "재확인 응답에 그 섹션이 없음"
+                continue
+            only = {key: value for key, value in answer.items() if key not in SECTIONS or key == section}
+            trial = merge_recheck(current, only, tuple(s for s in whole if s == section), sent)
+            trial_report = evaluate(trial)
+            if _improved(report, trial_report, [section]) and not _lost_values(report, trial_report):
+                current, report = trial, trial_report
+                adopted.append(section)
+            else:
+                still.append(section)
+                reasons[section] = _rejection(report, trial_report, [section])
+        if not still or len(still) == len(waiting) or not adopted:
+            waiting = still
+            break
+        waiting = still
+    rejected += [(section, reasons[section]) for section in waiting if section in reasons]
     if adopted:
         return RecheckResult(current, report, rechecked, True, run, tuple(adopted), tuple(rejected))
     return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))
