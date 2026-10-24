@@ -1233,6 +1233,10 @@ def _attach_price_tables(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ]
         code = _norm(group.get("housingTypeCode")).upper()
         exact = [g for g in targets if code and _norm(g.get("housingTypeCode")).upper() == code]
+        if not exact and re.search(r"[A-Z]", code):
+            # 가격 행이 글자까지 있는 주택형(「26C」)인데 똑같은 코드의 모집 묶음이 없으면, 숫자만 같은 다른 주택형(「26AB」)에는 붙이지 않습니다
+            # (2026-10-24 일곱 번째 채점: 26C 고령자 가격이 26AB 묶음들에 붙어 위치 의심 156건). 코드가 숫자뿐인 묶음에는 붙입니다
+            targets = [g for g in targets if not re.search(r"[A-Z]", _norm(g.get("housingTypeCode")).upper())]
         targets = exact or targets  # 주택형 코드가 똑같은 행이 있으면 그 행에만(59A·59A-1·59C가 모두 59.98)
         same = [g for g in targets if {_norm(x) for x in groups_of} == {_norm(x) for x in g["scope"]["targetGroups"]}]
         targets = same or targets  # 계층 이름이 똑같은 행이 있으면 그 행에만
