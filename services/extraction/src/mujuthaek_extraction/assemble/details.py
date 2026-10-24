@@ -46,6 +46,9 @@ CHANNEL_WORDS = (
 NEGATION = re.compile(r"^[^.。\n;:]{0,12}?(?:불가|안\s*됨|안\s*됩|받지\s*않|하지\s*않|않습니다|않음|불인정|제외|금지)")
 # 막는 말 바로 뒤의 조건 말(「인터넷 접수가 불가능한 경우 방문」「우편 접수가 안 될 때」): 그 방법을 막은 것이 아니라 다른 방법의 조건입니다
 CONDITION_AFTER = re.compile(r"^[^.。\n;:]{0,6}?(?:경우|때|시에|시\s)")
+# 막는 말이 사람을 꾸미는 꼴(「인터넷 청약이 불가한 고령자·장애인은 창구에서」): 그 방법을 막은 것이 아니라 다른 방법을 쓸 대상입니다
+# (2026-10-25 33번: AI 설명의 이 말 때문에 신청 일정 3개의 ONLINE이 지워져 「현장 접수만」으로 보임)
+CONDITION_PERSON = re.compile(r"^(?:능)?한\s*(?:고령자|장애인|정보\s*취약|취약\s*계층|분|사람|신청자|대상자)")
 # 「일반우편 접수 불가」는 일반 우편만 막고 등기 우편(MAIL)은 막지 않습니다(2026-10-24 세 번째 채점: 「방문 및 일반우편은 접수 불가」, 등기우편 접수)
 GENERAL_MAIL = re.compile(r"일반\s*$")
 APPLYING_KINDS = {"APPLICATION", "DOCUMENT_SUBMISSION"}
@@ -123,7 +126,7 @@ def channel_mentions(text: str) -> tuple[set[str], set[str]]:
                 continue
             if blocked is None:
                 positive.add(channel)
-            elif CONDITION_AFTER.match(text[match.end() + blocked.end() :]):
+            elif CONDITION_AFTER.match(rest := text[match.end() + blocked.end() :]) or CONDITION_PERSON.match(rest):
                 continue
             elif not (channel == "MAIL" and GENERAL_MAIL.search(text[: match.start()])):
                 negative.add(channel)
@@ -731,11 +734,21 @@ class _Checker:
 
     def merge_documents(self) -> None:
         documents = self.candidate.get("requiredDocuments") or []
+        # 제출 시점이 빈 서류(재확인 답 등)는 같은 이름·묶음 서류의 제출 시점이 하나뿐이면 그 서류와 같은 것으로 봅니다(2026-10-25 33번:
+        # 잘린 응답 두 개와 재확인 답이 같은 서류 표를 「…제출 시」「…제출」「(빈칸)」으로 적어 같은 서류가 세 번 보임)
+        times: dict[tuple, set[str]] = {}
+        for document in documents:
+            if document.get("submissionTime"):
+                times.setdefault((normalize(str(document.get("name") or "")), document.get("group")), set()).add(_time_key(document["submissionTime"]))
         first: dict[tuple, int] = {}
         index = 0
         while index < len(documents):
             document = documents[index]
-            key = (normalize(str(document.get("name") or "")), document.get("group"), normalize(str(document.get("submissionTime") or "")))
+            name_group = (normalize(str(document.get("name") or "")), document.get("group"))
+            time = _time_key(document.get("submissionTime"))
+            if not time and len(times.get(name_group, ())) == 1:
+                time = next(iter(times[name_group]))
+            key = (*name_group, time)
             kept = first.get(key)
             merged = _merge_document(documents[kept], document) if kept is not None else None
             if merged is None:
@@ -745,6 +758,11 @@ class _Checker:
             documents[kept] = merged
             _remove_merged(self.candidate, "requiredDocuments", index, kept)
             self.notes.append(f"/requiredDocuments/{kept}: 같은 이름·묶음·제출 시점의 서류를 합쳤어요({merged['name']})")
+
+
+def _time_key(value: Any) -> str:
+    """서류 제출 시점 비교용 글: 띄어쓰기와 끝의 「시」「때」를 뺍니다(「당첨자 서류 제출 시」 = 「당첨자 서류 제출」)."""
+    return re.sub(r"(?:시|때)$", "", normalize(str(value or "")))
 
 
 def _join(a: Any, b: Any, sep: str) -> Any:
@@ -788,6 +806,7 @@ def _merge_document(a: dict[str, Any], b: dict[str, Any]) -> dict[str, Any] | No
         return None
     return {
         **a,
+        "submissionTime": a.get("submissionTime") or b.get("submissionTime"),
         "scope": scope,
         "appliesTo": _join(a["appliesTo"], b["appliesTo"], ", "),
         "description": _join(a.get("description"), b.get("description"), " / "),

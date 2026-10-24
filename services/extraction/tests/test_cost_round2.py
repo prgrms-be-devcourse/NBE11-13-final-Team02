@@ -78,3 +78,60 @@ def test_cut_answers_drop_strict_mode_nulls_before_salvage():
     part = {"quotes": [], "requiredDocuments": []}
     assert fill_from_cuts(part, [cut], ("requiredDocuments",), optional) == 2
     assert all("unitRow" not in q for q in part["quotes"])
+
+
+def test_cut_shared_schema_answer_drops_sections_the_call_does_not_own():
+    """같은 날 다시 돌린 33번: 공유 형식으로 받은 잘린 서류 응답의 맨 위 「eligibility」「notice」 null이 형식 오류가 되어 항목을 모두 버림."""
+    import json
+
+    from mujuthaek_extraction.extract import salvage_truncated
+
+    own = {"properties": {"quotes": {}, "requiredDocuments": {}, "coverage": {"properties": {"requiredDocuments": {}}}}}
+    quotes = [{"ref": "q1", "documentId": "t", "text": "가상 신분증"}, {"ref": "q2", "documentId": "t", "text": "가상 등본"}]
+    docs = [{"id": "d1", "name": "가상 신분증", "submissionTime": "계약 시", "quoteRefs": ["q1"]}, {"id": "d2", "name": "가상 등본"}]
+    full = json.dumps({"notice": None, "eligibility": None, "quotes": quotes, "requiredDocuments": docs}, ensure_ascii=False)
+    cut = full[: full.index('{"id": "d2"') + 12]  # 두 번째 서류 중간에서 잘림
+    salvaged = salvage_truncated(cut, ("requiredDocuments",), frozenset(), own)
+    assert "notice" not in salvaged and "eligibility" not in salvaged
+    assert [d["name"] for d in salvaged["requiredDocuments"]] == ["가상 신분증"]
+
+
+def test_refusal_describing_people_does_not_block_the_channel():
+    """같은 날 33번: 근거 인용은 「인터넷 청약」을 적었는데 AI 설명의 「인터넷 청약이 불가한 고령자·장애인 등은 창구에서」 때문에 ONLINE이
+    지워져 「현장 접수만」으로 보임. 사람을 꾸미는 「불가한」은 그 방법을 막은 말이 아니라 다른 방법을 쓸 대상(조건)입니다."""
+    from test_round4 import assembled_extra
+    from test_schedule_details import visit_schedule
+
+    from mujuthaek_extraction.assemble.details import channel_mentions
+
+    assert "ONLINE" not in channel_mentions("인터넷 청약이 불가한 고령자·장애인 등은 가상 은행 창구에서 접수할 수 있어요")[1]
+    assert "ONLINE" in channel_mentions("인터넷 신청 불가")[1]
+    line = "1순위 접수 2026.10.05. 인터넷 청약 (가상청약홈) / 가상 은행 창구 방문 접수"
+    schedule = visit_schedule(
+        id="first",
+        kinds=["APPLICATION"],
+        rawLabel="1순위 접수",
+        channels=["ONLINE", "ONSITE"],
+        places=[],
+        dailyHours=[],
+        breaks=[],
+        excludedDays=[],
+        timeNote=None,
+        description="인터넷 접수는 가상청약홈에서 하고, 인터넷 청약이 불가한 고령자·장애인 등은 가상 은행 창구에서 접수할 수 있어요.",
+        quoteRefs=["first"],
+    )
+    result = assembled_extra([line], {"first": line}, schedules=[schedule])
+    [kept] = [s for s in result.candidate["schedules"] if s["id"] == "first"]
+    assert kept["channels"] == ["ONLINE", "ONSITE"]
+
+
+def test_same_document_key_keeps_targets_apart_and_ignores_trailing_si():
+    """같은 날 33번: 대상을 보지 않아 일반공급 공통 서류가 같은 이름의 특별공급 서류로 여겨져 빠졌고, 「…제출 시」「…제출」만 달라 같은 서류가 두 번 들어감."""
+    from mujuthaek_extraction.assemble.details import _time_key
+    from mujuthaek_extraction.extract import _item_key
+
+    special = {"name": "가상 신분증", "submissionTime": "가상 서류 제출 시", "appliesTo": "특별공급 신청자", "scope": {"targetGroups": ["특별공급"]}}
+    general = {**special, "appliesTo": "일반공급 당첨자", "scope": {"targetGroups": ["일반공급"]}}
+    assert _item_key("requiredDocuments", special) != _item_key("requiredDocuments", general)
+    assert _item_key("requiredDocuments", special) == _item_key("requiredDocuments", {**special, "submissionTime": "가상 서류 제출"})
+    assert _time_key("당첨자 서류 제출 시") == _time_key("당첨자 서류 제출") != _time_key("계약 시")
