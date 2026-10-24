@@ -13,6 +13,7 @@
 | `db` | `connect(url)` | PostgreSQL 연결 (psycopg 3) |
 | `logging` | `setup(service)` | JSON 한 줄 로그. `extra` 값도 칸으로 남김 |
 | `contracts` | `validate_event(event)` | `contracts/events/<eventType>.v<schemaVersion>.json`으로 검사 (테스트용, jsonschema 필요) |
+| `slack` | `SlackNotifier.from_env(name, env_file)` · `send(text)` | 슬랙 수신 웹훅으로 글 하나 보내기. 주소는 환경 변수 → `env_file` 순서로 읽고, 없으면 보내지 않고 경고 로그 한 번. 실패는 `SlackError`, 주소는 로그·예외에 안 남김 |
 
 ## 쓰는 법
 워커의 `pyproject.toml`에 경로로 연결해요.
@@ -35,6 +36,17 @@ with conn.transaction(), conn.cursor() as cur:
 
 channel = outbox.open_channel(broker.connect(url))  # 연결할 때 한 번
 outbox.relay_once(conn, channel)  # 발행기 (5초마다)
+```
+
+```python
+from mujuthaek_platform.slack import SlackError, SlackNotifier
+
+# 서비스 전용 이름을 먼저 쓰려면 ("COLLECTOR_SLACK_WEBHOOK_URL", "SLACK_WEBHOOK_URL")
+notifier = SlackNotifier.from_env("SLACK_WEBHOOK_URL")
+try:
+    notifier.send("[collector] 수집 실패가 이어져요")
+except SlackError:
+    log.warning("슬랙 알림 실패")  # 알림 실패가 본 작업을 막지 않게
 ```
 
 ## 아웃박스 테이블

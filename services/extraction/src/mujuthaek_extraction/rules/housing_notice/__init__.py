@@ -266,3 +266,7 @@ RULES = replace(
     split_calls=(("conditions", (_ELIGIBILITY, _SELECTION, _DOCUMENTS)),),
     supply_tables=True,
 )
+
+# 자동 등록(rules/__init__.py): 수집 이벤트 field가 HOUSING이면 위 규칙, 이전 방식이면 v10
+FIELD = "HOUSING"
+RULES_LEGACY = RULES_V10

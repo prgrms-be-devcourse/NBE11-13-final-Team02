@@ -27,6 +27,24 @@ class AreaLoadRequestTest {
   }
 
   @Test
+  void addressEntranceNeedsSidoCodeScope() {
+    assertThatThrownBy(() -> request(AreaSource.ADDRESS_ENTRANCE, null))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("scope");
+    assertThat(request(AreaSource.ADDRESS_ENTRANCE, "26").scope()).isEqualTo("26");
+  }
+
+  @Test
+  void onlyAddressEntranceIsHeaderlessPipeFile_andStoresAndAddressesNeedScope() {
+    for (AreaSource source : AreaSource.values()) {
+      boolean address = source == AreaSource.ADDRESS_ENTRANCE;
+      assertThat(source.delimiter()).isEqualTo(address ? '|' : ',');
+      assertThat(source.headerless()).isEqualTo(address);
+      assertThat(source.scoped()).isEqualTo(address || source == AreaSource.STORES);
+    }
+  }
+
+  @Test
   void fileKeyAndFingerprintAreRequired() {
     assertThatThrownBy(() -> new AreaLoadRequest(AreaSource.PARK, "ALL", null, "ab", DAY, false))
         .isInstanceOf(NullPointerException.class);
@@ -45,9 +63,10 @@ class AreaLoadRequestTest {
   }
 
   @Test
-  void onlyStoresHaveNoFacilityKind() {
+  void onlyFacilitySourcesHaveFacilityKind() {
     for (AreaSource source : AreaSource.values()) {
-      assertThat(source.facilityKind() == null).isEqualTo(source == AreaSource.STORES);
+      assertThat(source.facilityKind() != null)
+          .isEqualTo(source.target() == AreaSource.Target.FACILITIES);
     }
   }
 

@@ -1186,6 +1186,14 @@
           "type": "string",
           "minLength": 1
         },
+        "rank": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "공고가 정한 신청 순위 (1이 가장 앞 순위). 순위가 없는 대상군은 null. 판정은 충족한 대상군 중 가장 앞 순위를 그 공고의 '내 순위'로 보여 주고 1순위부터 정렬해요. 나중에 더한 칸이라 없어도 돼요(null과 같아요)"
+        },
         "criteria": {
           "type": "array",
           "items": {

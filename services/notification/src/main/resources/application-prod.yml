@@ -1,0 +1,4 @@
+logging:
+  structured:
+    format:
+      console: ecs                      # JSON 한 줄 로그
