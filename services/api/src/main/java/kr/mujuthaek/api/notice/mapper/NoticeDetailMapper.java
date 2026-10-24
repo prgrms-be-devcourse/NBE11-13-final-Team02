@@ -161,7 +161,7 @@ public final class NoticeDetailMapper {
    * 주택형별 묶음: 같은 주택형의 공급 묶음을 합쳐 면적·보증금·월임대료(처음 값)와 공급 호수(합)를 보여줘요. 보류한 공급 묶음이 하나라도 있는 주택형은 빼요(합친
    * 호수·가격이 틀린 값이 되지 않게).
    */
-  static List<UnitType> unitTypes(JsonNode detail) {
+  public static List<UnitType> unitTypes(JsonNode detail) {
     Map<String, Evidence> evidence = evidence(detail);
     Map<String, UnitType> byType = new LinkedHashMap<>();
     // 주택형별로 보여 주는 보증금·월임대료 항목 (근거를 붙이려고 기억해요)

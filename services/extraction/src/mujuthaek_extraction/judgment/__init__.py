@@ -13,6 +13,8 @@ from typing import Any
 
 from mujuthaek_extraction.judgment.business_space import build_business_space
 from mujuthaek_extraction.judgment.housing import build_housing
+from mujuthaek_extraction.judgment.pages import fill_pages, quote_pages
+from mujuthaek_extraction.judgment.sanity import repair
 from mujuthaek_extraction.judgment.schema import frame_errors
 
 BUILDERS = {"HOUSING": build_housing, "BUSINESS_SPACE": build_business_space}
@@ -32,13 +34,17 @@ def default_regions() -> Any:
         return None
 
 
-def build_judgment(candidate: dict[str, Any], regions: Any = None, *, approved: bool = False) -> dict[str, Any] | None:
+def build_judgment(candidate: dict[str, Any], regions: Any = None, *, approved: bool = False, pages: dict[str, int] | None = None) -> dict[str, Any] | None:
     """후보 → 판정 틀 객체. 틀이 없는 분야(정책·창업지원)이거나 틀 검사를 통과하지 못하면 None.
-    approved: 검수자가 승인한 결과(추출 검수 사유로는 inReview를 붙이지 않음)."""
+    approved: 검수자가 승인한 결과(추출 검수 사유로는 inReview를 붙이지 않음).
+    pages: 근거 ID → PDF 쪽 번호(judgment/pages.py). 있으면 조건·안내의 page를 그 항목 근거의 쪽으로 채웁니다."""
     builder = BUILDERS.get(candidate["input"]["field"])
     if builder is None:
         return None
-    frame = builder(candidate, regions if regions is not None else default_regions(), approved=approved)
+    # 거꾸로 된 범위·빈 글자는 그 조건만 확인 필요 질문으로(값 하나 때문에 틀 전체가 버려지지 않게)
+    frame = repair(builder(candidate, regions if regions is not None else default_regions(), approved=approved))
+    if frame is not None and pages:
+        fill_pages(frame, quote_pages(candidate, pages))
     if frame is None or frame_errors(frame):
         return None
     return frame

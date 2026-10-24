@@ -61,7 +61,17 @@ public final class NoticeFixtures {
     ObjectNode application = (ObjectNode) p.get("notice").get("schedules").get(0);
     day(application, "startsAt", start);
     day(application, "endsAt", end);
+    application.put(
+        "endStatus", end == null ? "NOT_IN_SOURCE" : "FIXED"); // 계약: FIXED면 endsAt이 있어야 해요
     project(p);
+  }
+
+  /** 판정 틀을 이 payload와 같은 원본 글·버전으로 맞춰 넣어요 (계약: 틀의 rawPostId·rawVersion = payload의 것). */
+  public static void judgment(ObjectNode p, JsonNode frame) {
+    ObjectNode copy = (ObjectNode) frame.deepCopy();
+    copy.set("rawPostId", p.get("rawPostId"));
+    copy.set("rawVersion", p.get("rawVersion"));
+    p.set("judgment", copy);
   }
 
   /** 모든 위치의 지역을 시군구 5자리로 바꾸고 payload의 지역 코드를 계약대로 다시 만들어요. */

@@ -23,6 +23,7 @@ __pycache__/
 # 공개 데이터로 만든 area 적재 테스트 자료는 올려요
 !services/api/src/test/resources/area/fixtures/*.csv
 !services/collector/area/area_manifest.csv
+!services/collector/area/area_manifest_address.csv
 .aws/
 # 구조 변경 스크립트 백업
 _backup_*/
@@ -32,3 +33,6 @@ _backup_*/
 
 # 개인 문서 (저장소에 올리지 않음)
 .docs/
+
+# area 비교 도구 결과 (커밋하지 않음)
+tools/area-bench/results-*.txt

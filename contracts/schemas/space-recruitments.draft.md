@@ -82,6 +82,9 @@ space_recruitments (공고 1줄)
 | `extendable_months` | int | | 연장 포함 최대 기간 (개월) | `residency.extendableMonths` |
 | `move_in_date` | date | | 입주 예정일 | `residency.moveInDate` |
 | `residency_text` | text | | 입주 기간 원문 | `residency.rawText` |
+| `hq_relocation_required` | boolean | | 입주 후 본점 이전 필수인지 (null 글에 없음). 판정하지 않고 화면에만 보여요 | `hqRelocation.mandatory` |
+| `hq_relocation_months` | int | | 본점 이전 기한 (개월) | `hqRelocation.withinMonths` |
+| `hq_relocation_text` | text | | 본점 이전 원문 | `hqRelocation.rawText` |
 | `apply_start`, `apply_end` | date | | 신청 시작일·마감일 | `schedule.applyStart`·`applyEnd` |
 | `apply_always` | boolean | ✅ (기본 false) | 상시 모집 ('공실 발생 시 수시 모집') | `schedule.applyAlways` |
 | `schedule_text` | text | | 신청 기간 원문 | `schedule.rawText` |
@@ -146,7 +149,7 @@ space_recruitments (공고 1줄)
 | `STARTUP_STAGE` | "예비창업자 또는 창업 후 기업" → `{"in":["PRE_STARTUP","OPERATING"]}` |
 | `BUSINESS_YEARS` | "창업 3년 이내" → `{"max":3}` |
 | `INDUSTRY` | "정보통신·제조 분야" → `{"in":["J","C"]}` |
-| `BUSINESS_LOCATION` | "입주 후 동작구로 사업장 이전" → `{"regions":["11590"]}` |
+| `BUSINESS_LOCATION` | "서울 소재 기업" (신청할 때의 사업장) → `{"regions":["11"]}`. 입주 후 본점 이전 의무는 조건이 아니라 `hq_relocation_*` 칸이에요 |
 | `AGE` | "대표자 만 39세 이하" → `{"max":39}` |
 | `EXCLUSIVE` · `PRIORITY` · `OTHER` | 제외 대상, 우대 사항, 값으로 못 바꾼 조건 (글만 보여줌) |
 
@@ -186,6 +189,9 @@ create table benefit.space_recruitments (
     extendable_months  int,
     move_in_date       date,
     residency_text     text,
+    hq_relocation_required boolean,
+    hq_relocation_months   int,
+    hq_relocation_text     text,
     apply_start        date,
     apply_end          date,
     apply_always       boolean     not null default false,
