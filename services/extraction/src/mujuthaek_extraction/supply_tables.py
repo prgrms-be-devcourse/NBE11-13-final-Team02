@@ -32,6 +32,10 @@ CALL_NAME = "supply_tables"
 # 출력 한도: 실측 최대 2,422(인천 4358, 시도 17건). 표 수에 따라 늘어 1.3배보다 조금 넉넉히 둡니다(이전 16,000).
 # 잘리면 열 의미 없이 이전 방식(구조 호출이 공급까지)으로 돌아갑니다. 설정 EXTRACTION_MAX_OUTPUT_TOKENS의 supply_tables로 바꿀 수 있습니다
 MAX_OUTPUT_TOKENS = 4_000
+# 표가 많으면 한도를 늘립니다(2026-10-24 일곱 번째 채점: 단지가 많은 공고의 표 10개 열 의미가 4,000토큰에서 잘려 답 전체를 버림 →
+# 코드가 표를 옮기는 경로가 꺼지고 공급 묶음 72개 중 16개만 나옴). 표 하나에 약 700토큰, 상한 16,000
+TOKENS_PER_TABLE = 700
+MAX_OUTPUT_TOKENS_CAP = 16_000
 # v7(2026-10-24): 표 전체가 특정 대상의 요금(「상한 임대조건」「수급자 등」「적용 대상자」)이면 모든 가격 열 targetGroup에 그 대상,
 #   주택형이 표 제목에만 있으면 프로그램이 그 표 행에 붙인다는 안내.
 # v6(2026-10-23): 보증금을 내린 전환안·무보증금 월세 열은 CONVERSION_DEPOSIT_DOWN, 적용 대상이 적혀 있으면 targetGroup.
@@ -408,8 +412,38 @@ def mapping_request(base: ModelRequest, tables: list[Table], max_output_tokens: 
         call_name=CALL_NAME,
         instructions=INSTRUCTIONS + "\n\n" + "\n\n".join(listing),
         output_schema=MAPPING_SCHEMA,
-        max_output_tokens=max_output_tokens or output_limit(CALL_NAME, MAX_OUTPUT_TOKENS),
+        max_output_tokens=max_output_tokens or output_limit(CALL_NAME, scaled_limit(len(listing))),
     )
+
+
+def scaled_limit(table_count: int) -> int:
+    """표 수에 맞춘 출력 한도: 기본 MAX_OUTPUT_TOKENS, 표가 많으면 표마다 TOKENS_PER_TABLE(상한 MAX_OUTPUT_TOKENS_CAP)."""
+    return min(MAX_OUTPUT_TOKENS_CAP, max(MAX_OUTPUT_TOKENS, table_count * TOKENS_PER_TABLE))
+
+
+def salvage_mapping(raw: str) -> list[dict[str, Any]]:
+    """출력 한도로 잘린 열 의미 답에서 끝까지 적힌 표 답만 꺼냅니다(「tables」 배열의 완성된 객체들)."""
+    text = raw.strip().removeprefix("```json").removeprefix("```")
+    start = text.find('"tables"')
+    if start < 0:
+        return []
+    at = text.find("[", start)
+    if at < 0:
+        return []
+    decoder = json.JSONDecoder()
+    found: list[dict[str, Any]] = []
+    at += 1
+    while True:
+        while at < len(text) and text[at] in " \t\r\n,":
+            at += 1
+        if at >= len(text) or text[at] != "{":
+            return found
+        try:
+            value, at = decoder.raw_decode(text, at)
+        except ValueError:
+            return found  # 잘린 마지막 객체
+        if isinstance(value, dict):
+            found.append(value)
 
 
 def _filled(table: Table, seed: dict[int, str] | None = None) -> tuple[list[list[str]], list[list[int]]]:
