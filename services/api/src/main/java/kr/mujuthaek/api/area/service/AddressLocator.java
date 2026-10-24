@@ -3,6 +3,7 @@ package kr.mujuthaek.api.area.service;
 import java.util.List;
 import java.util.Optional;
 import kr.mujuthaek.api.area.domain.AddressMatch;
+import kr.mujuthaek.api.area.domain.BoundaryCheck;
 import kr.mujuthaek.api.area.domain.Coordinate;
 import kr.mujuthaek.api.area.domain.GeocodeResult;
 import kr.mujuthaek.api.area.domain.GeocodeResult.FailReason;
@@ -18,6 +19,7 @@ import kr.mujuthaek.api.area.geocode.ParsedAddress.Kind;
 import kr.mujuthaek.api.area.geocode.SearchOutcome;
 import kr.mujuthaek.api.area.repository.PostgresAddressPointLookup;
 import kr.mujuthaek.api.area.repository.PostgresLegalDongCentroid;
+import kr.mujuthaek.api.area.repository.PostgresRegionBoundaryCheck;
 import kr.mujuthaek.api.area.repository.PostgresUtmkTransform;
 import kr.mujuthaek.api.common.region.RegionQueryService;
 import org.springframework.stereotype.Service;
@@ -34,7 +36,8 @@ import org.springframework.stereotype.Service;
  *   <li>그래도 없으면 법정동 대표점 (APPROX, CENTROID): 받은 법정동코드, 없으면 검색 API가 고른 결과의 법정동, 그것도 없으면 주소의 법정동 이름
  * </ol>
  *
- * <p>검색 API 키가 없는 환경은 그 단계를 건너뛰어요(오류 아님). 저장·같은 주소 다시 안 찾기·경계 검사는 공고 위치 저장(3-5)에서 해요.
+ * <p>마지막에 찾은 좌표를 시군구·법정동 경계와 맞춰 봐요(3-4). 검색 API 키가 없는 환경은 그 단계를 건너뛰어요(오류 아님). 저장과 같은 주소 다시 안 찾기는 공고
+ * 위치 저장(NoticeLocationService)에서 해요.
  */
 @Service
 public class AddressLocator {
@@ -44,6 +47,7 @@ public class AddressLocator {
   private final AddressCoordinates coordinates;
   private final PostgresUtmkTransform utmk;
   private final PostgresLegalDongCentroid centroids;
+  private final PostgresRegionBoundaryCheck boundaries;
   private final RegionQueryService regions;
 
   public AddressLocator(
@@ -52,12 +56,14 @@ public class AddressLocator {
       AddressCoordinates coordinates,
       PostgresUtmkTransform utmk,
       PostgresLegalDongCentroid centroids,
+      PostgresRegionBoundaryCheck boundaries,
       RegionQueryService regions) {
     this.dictionary = dictionary;
     this.search = search;
     this.coordinates = coordinates;
     this.utmk = utmk;
     this.centroids = centroids;
+    this.boundaries = boundaries;
     this.regions = regions;
   }
 
@@ -69,6 +75,27 @@ public class AddressLocator {
     ParsedAddress parsed = AddressParser.parse(address == null ? "" : address);
     String bjd = currentBjd(bjdCode);
     String sigungu = bjd != null ? bjd.substring(0, 5) : sigunguByName(parsed);
+    return checked(find(parsed, bjd, sigungu), bjd);
+  }
+
+  /**
+   * 찾은 좌표를 경계와 맞춰 봐요(3-4): 시군구 경계에서 50m 넘게 밖이면 버리고(OUT_OF_REGION), 받은 법정동 경계 밖이면 표시만 해요. 시군구를 모르거나
+   * 경계 자료가 없으면 검사하지 못해서 그대로 둬요.
+   */
+  private GeocodeResult checked(GeocodeResult result, String bjd) {
+    if (result.coordinate() == null || result.sigunguCode() == null) {
+      return result;
+    }
+    BoundaryCheck check =
+        boundaries.check(
+            result.sigunguCode(), bjd, result.coordinate().lat(), result.coordinate().lng());
+    if (!check.passed()) {
+      return GeocodeResult.failed(FailReason.OUT_OF_REGION, result.sigunguCode());
+    }
+    return check.emdMismatch() ? result.withRegionMismatch() : result;
+  }
+
+  private GeocodeResult find(ParsedAddress parsed, String bjd, String sigungu) {
     if (parsed.kind() == Kind.UNKNOWN && bjd == null) {
       return GeocodeResult.failed(FailReason.PARSE_FAILED, sigungu);
     }
