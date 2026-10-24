@@ -34,6 +34,8 @@ public record GeocodeResult(
     FUZZY,
     /** 검색 API로 찾은 도로명·번호로 사전에서 */
     SEARCH_API,
+    /** 사전에 없는 새 건물: 검색 API로 찾은 건물의 좌표제공 API 출입구 좌표 */
+    COORD_API,
     /** 법정동 대표점 */
     CENTROID
   }
@@ -67,6 +69,11 @@ public record GeocodeResult(
 
   public static GeocodeResult bySearch(AddressMatch match, String sigunguCode) {
     return ok(Method.SEARCH_API, match, sigunguCode);
+  }
+
+  /** 사전에 없는 새 건물을 좌표제공 API로 (주소 ID는 사전 것이 아니라 없어요). */
+  public static GeocodeResult byCoordApi(Coordinate point, String bjdCode, String sigunguCode) {
+    return new GeocodeResult(Status.OK, Method.COORD_API, point, bjdCode, sigunguCode, null, null);
   }
 
   public static GeocodeResult approx(Coordinate point, String bjdCode, String sigunguCode) {

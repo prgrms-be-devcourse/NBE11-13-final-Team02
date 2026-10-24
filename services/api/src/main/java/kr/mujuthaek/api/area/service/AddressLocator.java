@@ -6,8 +6,10 @@ import kr.mujuthaek.api.area.domain.AddressMatch;
 import kr.mujuthaek.api.area.domain.Coordinate;
 import kr.mujuthaek.api.area.domain.GeocodeResult;
 import kr.mujuthaek.api.area.domain.GeocodeResult.FailReason;
+import kr.mujuthaek.api.area.geocode.AddressCoordinates;
 import kr.mujuthaek.api.area.geocode.AddressParser;
 import kr.mujuthaek.api.area.geocode.AddressSearch;
+import kr.mujuthaek.api.area.geocode.CoordOutcome;
 import kr.mujuthaek.api.area.geocode.JusoCandidates;
 import kr.mujuthaek.api.area.geocode.JusoCandidates.Hint;
 import kr.mujuthaek.api.area.geocode.JusoResult;
@@ -16,6 +18,7 @@ import kr.mujuthaek.api.area.geocode.ParsedAddress.Kind;
 import kr.mujuthaek.api.area.geocode.SearchOutcome;
 import kr.mujuthaek.api.area.repository.PostgresAddressPointLookup;
 import kr.mujuthaek.api.area.repository.PostgresLegalDongCentroid;
+import kr.mujuthaek.api.area.repository.PostgresUtmkTransform;
 import kr.mujuthaek.api.common.region.RegionQueryService;
 import org.springframework.stereotype.Service;
 
@@ -27,7 +30,7 @@ import org.springframework.stereotype.Service;
  *   <li>시군구: 받은 법정동코드(2026 개편 전 코드는 지금 코드로) 앞 5자리, 없으면 주소의 시도·시군구 이름
  *   <li>도로명 주소면 도로명주소 사전 (FILE·FUZZY)
  *   <li>못 찾았거나 지번이면 도로명주소 검색 API → 결과 하나를 고르고 그 도로명·번호로 사전을 다시 (SEARCH_API). 지하 여부 0·1로 없으면 지하 여부를
- *       빼고 한 번 더 (사전의 섬 주소 코드 3)
+ *       빼고 한 번 더 (사전의 섬 주소 코드 3). 사전에 아직 없는 새 건물이면 좌표제공 API (COORD_API)
  *   <li>그래도 없으면 법정동 대표점 (APPROX, CENTROID): 받은 법정동코드, 없으면 검색 API가 고른 결과의 법정동, 그것도 없으면 주소의 법정동 이름
  * </ol>
  *
@@ -38,16 +41,22 @@ public class AddressLocator {
 
   private final PostgresAddressPointLookup dictionary;
   private final AddressSearch search;
+  private final AddressCoordinates coordinates;
+  private final PostgresUtmkTransform utmk;
   private final PostgresLegalDongCentroid centroids;
   private final RegionQueryService regions;
 
   public AddressLocator(
       PostgresAddressPointLookup dictionary,
       AddressSearch search,
+      AddressCoordinates coordinates,
+      PostgresUtmkTransform utmk,
       PostgresLegalDongCentroid centroids,
       RegionQueryService regions) {
     this.dictionary = dictionary;
     this.search = search;
+    this.coordinates = coordinates;
+    this.utmk = utmk;
     this.centroids = centroids;
     this.regions = regions;
   }
@@ -88,9 +97,19 @@ public class AddressLocator {
           if (picked.isPresent()) {
             JusoResult r = picked.get();
             Optional<AddressMatch> again = fromDictionary(r);
+            String foundSigungu = sigungu != null ? sigungu : r.sigunguCode();
             if (again.isPresent()) {
-              return GeocodeResult.bySearch(
-                  again.get(), sigungu != null ? sigungu : r.sigunguCode());
+              return GeocodeResult.bySearch(again.get(), foundSigungu);
+            }
+            // 사전에 아직 없는 새 건물: 좌표제공 API로 출입구 좌표 (키가 없거나 못 찾으면 대표점으로)
+            switch (coordinates.coordinates(r)) {
+              case CoordOutcome.Found c -> {
+                return GeocodeResult.byCoordApi(
+                    utmk.toWgs84(c.entX(), c.entY()), r.admCd(), foundSigungu);
+              }
+              case CoordOutcome.Failed f -> apiError = f.reason() != SearchOutcome.Reason.NO_KEY;
+              case CoordOutcome.NotFound n -> {}
+              case CoordOutcome.Rejected j -> {}
             }
             searchedBjd = r.admCd();
           }
