@@ -46,8 +46,8 @@ class NoticeSearchApiTest {
     return f.notice(
         p -> {
           schedule(p, "2026-10-01", applyEnd);
-          p.set(
-              "judgment",
+          NoticeFixtures.judgment(
+              p,
               NoticeFixtures.JSON.readTree(
                   """
                   {"schema":"housing-judgment.v1","rawPostId":"x","rawVersion":1,"referenceDate":"2026-10-01",
