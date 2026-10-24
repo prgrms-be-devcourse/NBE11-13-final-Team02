@@ -1,0 +1,124 @@
+{
+  "description": "K-Startup 구조화 칸(창업 기간: 예비창업자·3년미만)을 옮긴 틀 (기준일 2026-10-16)",
+  "frame": {
+    "schema": "startup-support-judgment.v1",
+    "rawPolicyId": "test",
+    "rawVersion": 1,
+    "referenceDate": "2026-10-16",
+    "common": [],
+    "groups": [
+      {
+        "id": "all",
+        "name": "전체",
+        "criteria": [
+          {
+            "id": "stage",
+            "kind": "ANY_OF",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "options": [
+              {
+                "label": "예비창업자",
+                "criteria": [
+                  {
+                    "id": "stage-pre",
+                    "kind": "BUSINESS_REGISTRATION",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "asOf": null,
+                    "require": "NOT_REGISTERED"
+                  }
+                ]
+              },
+              {
+                "label": "창업 3년 미만",
+                "criteria": [
+                  {
+                    "id": "stage-registered",
+                    "kind": "BUSINESS_REGISTRATION",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "asOf": null,
+                    "require": "REGISTERED"
+                  },
+                  {
+                    "id": "stage-under-3y",
+                    "kind": "BUSINESS_AGE",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "asOf": null,
+                    "openedFrom": "2023-10-17",
+                    "openedTo": "2026-10-16"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "preferences": [],
+    "notes": []
+  },
+  "cases": [
+    {
+      "name": "2023-10-17 개업 → 3년 미만 첫날이라 충족",
+      "applicant": {
+        "business": {
+          "history": [
+            {
+              "openedOn": "2023-10-17"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "stage-under-3y": "MET"
+        }
+      }
+    },
+    {
+      "name": "2023-10-16 개업 → 딱 3년이라 '3년미만' 불충족",
+      "applicant": {
+        "business": {
+          "history": [
+            {
+              "openedOn": "2023-10-16"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "stage": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "예비창업자 → 충족",
+      "applicant": {
+        "business": {
+          "history": []
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "stage-pre": "MET"
+        }
+      }
+    }
+  ]
+}

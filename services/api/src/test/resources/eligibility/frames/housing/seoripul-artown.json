@@ -1,0 +1,468 @@
+{
+  "description": "서초구 서리풀 청년아트타운 (주거 틀 전체 예시, 기준일 2026-10-16)",
+  "frame": {
+    "schema": "housing-judgment.v1",
+    "rawPostId": "(서리풀 공고의 rawPostId)",
+    "rawVersion": 1,
+    "referenceDate": "2026-10-16",
+    "common": [],
+    "groups": [
+      {
+        "id": "artist",
+        "name": "문화예술분야 청년예술인",
+        "criteria": [
+          {
+            "id": "arts-proof",
+            "kind": "ASK",
+            "quote": "「문화예술진흥법」에 따른 문화예술 분야에 종사하며, 한국예술인복지재단의예술활동증명서 또는관련협회에서발급한예술인증명서류를통해예술인증명이가능한자",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "question": "문화예술 분야에 종사하고, 예술활동증명서 등으로 예술인임을 증명할 수 있나요?",
+            "metWhen": "YES"
+          },
+          {
+            "id": "age",
+            "kind": "AGE",
+            "quote": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "minAge": 19,
+            "maxAge": 39
+          },
+          {
+            "id": "seoul",
+            "kind": "RESIDENCE",
+            "quote": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "regionCodes": [
+              "1100000000"
+            ],
+            "minMonths": null
+          },
+          {
+            "id": "homeless",
+            "kind": "HOMELESS",
+            "quote": "세대원(신청자 포함) 전원이 무주택 세대구성원",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "scope": "HOUSEHOLD",
+            "minYears": null
+          },
+          {
+            "id": "income-or-assets",
+            "kind": "ANY_OF",
+            "quote": "라. 소득 및 자산기준 : 아래요건 중 하나에 해당하는 자 1) 전년도 도시근로자 월평균 소득 50% 이하 및 총자산가액 2.45억원 이하, 자동차가액 4.542만원 이하인 자 2) 전년도 도시근로자 월평균 소득 70% 이하인 자(자산기준 없음)",
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "options": [
+              {
+                "label": "소득 50%(1인 70%, 2인 60%) 이하 + 자산 기준",
+                "criteria": [
+                  {
+                    "id": "income-50",
+                    "kind": "INCOME",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "basis": "HOUSEHOLD",
+                    "standard": "URBAN_WORKER_INCOME",
+                    "year": 2025,
+                    "percent": 50,
+                    "bonuses": [
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 1,
+                          "max": 1,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 20
+                      },
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 2,
+                          "max": 2,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 10
+                      }
+                    ],
+                    "bonusCombine": "SUM",
+                    "printedTable": [
+                      {
+                        "householdSize": 1,
+                        "maxWon": 2669354
+                      },
+                      {
+                        "householdSize": 2,
+                        "maxWon": 3519762
+                      },
+                      {
+                        "householdSize": 3,
+                        "maxWon": 4084215
+                      },
+                      {
+                        "householdSize": 4,
+                        "maxWon": 4401101
+                      },
+                      {
+                        "householdSize": 5,
+                        "maxWon": 4663493
+                      }
+                    ]
+                  },
+                  {
+                    "id": "assets",
+                    "kind": "ASSET",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "basis": "HOUSEHOLD",
+                    "maxWon": 245000000,
+                    "overrides": []
+                  },
+                  {
+                    "id": "car",
+                    "kind": "CAR",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "maxWon": 45420000,
+                    "overrides": []
+                  }
+                ]
+              },
+              {
+                "label": "소득 70%(1인 90%, 2인 80%) 이하, 자산 기준 없음",
+                "criteria": [
+                  {
+                    "id": "income-70",
+                    "kind": "INCOME",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "basis": "HOUSEHOLD",
+                    "standard": "URBAN_WORKER_INCOME",
+                    "year": 2025,
+                    "percent": 70,
+                    "bonuses": [
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 1,
+                          "max": 1,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 20
+                      },
+                      {
+                        "when": {
+                          "factor": "HOUSEHOLD_SIZE",
+                          "min": 2,
+                          "max": 2,
+                          "since": null,
+                          "countRule": null
+                        },
+                        "addPercent": 10
+                      }
+                    ],
+                    "bonusCombine": "SUM",
+                    "printedTable": [
+                      {
+                        "householdSize": 1,
+                        "maxWon": 3432027
+                      },
+                      {
+                        "householdSize": 2,
+                        "maxWon": 4693016
+                      },
+                      {
+                        "householdSize": 3,
+                        "maxWon": 5717900
+                      },
+                      {
+                        "householdSize": 4,
+                        "maxWon": 6161541
+                      },
+                      {
+                        "householdSize": 5,
+                        "maxWon": 6528890
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "1세대 1주택 신청이 원칙이고, 중복 신청하면 모두 무효예요.",
+        "quote": "금회 모집공고문의 모집대상 주택에 대하여 1세대 1주택 신청을 원칙으로 하며, 중복 신청하는 경우 전부 무효처리 합니다.",
+        "page": null
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "27세 1인 월 300만원, 예술인 → 지원 가능 (70% 길 3,432,027원)",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 3000000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "artist": "MET"
+        },
+        "criteria": {
+          "income-50": "NOT_MET",
+          "income-70": "MET",
+          "income-or-assets": "MET"
+        },
+        "summaries": {
+          "income-70": "세대 월소득 3,432,027원 이하 (도시근로자 가구원수별 월평균소득 2025년 1인 × 90%)"
+        }
+      }
+    },
+    {
+      "name": "1인 월 350만원 → 두 길 모두 넘음 → 지원 불가",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 3500000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "income-or-assets": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "2인 월 450만원 → 70% 길(2인 4,693,016원) 충족",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 2,
+          "homeless": true,
+          "monthlyIncomeWon": 4500000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "income-50": "NOT_MET",
+          "income-70": "MET"
+        }
+      }
+    },
+    {
+      "name": "총자산 3억이라 50% 길은 안 되지만 70% 길(자산 기준 없음)로 지원 가능",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 2600000,
+          "totalAssetWon": 300000000,
+          "carValueWon": 0
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "income-50": "MET",
+          "assets": "NOT_MET",
+          "income-70": "MET"
+        }
+      }
+    },
+    {
+      "name": "1986-10-17생 → 공고일에 만 39세 → 나이 충족 (공고의 출생 범위 첫날)",
+      "applicant": {
+        "birthDate": "1986-10-17",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 3000000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "age": "MET"
+        }
+      }
+    },
+    {
+      "name": "1986-10-16생 → 공고일에 만 40세 → 지원 불가",
+      "applicant": {
+        "birthDate": "1986-10-16",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 3000000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "age": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "경기 수원 거주 → 거주지 불충족",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "4111100000",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 3000000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "seoul": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "주소를 시도만 '11'(서울)로 넣어도 서울 전체 조건이라 충족",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "11",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 3000000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "seoul": "MET"
+        }
+      }
+    },
+    {
+      "name": "세대에 집이 있으면 지원 불가",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 1,
+          "homeless": false,
+          "monthlyIncomeWon": 3000000
+        }
+      },
+      "answers": {
+        "arts-proof": "YES"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "homeless": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "예술인 질문에 답하지 않음 → 확인 필요 (질문 목록에 답 없음으로 나와요)",
+      "applicant": {
+        "birthDate": "1999-05-05",
+        "residenceRegionCode": "1165000000",
+        "household": {
+          "size": 1,
+          "homeless": true,
+          "monthlyIncomeWon": 3000000
+        }
+      },
+      "answers": {},
+      "expect": {
+        "result": "NEEDS_INPUT",
+        "criteria": {
+          "arts-proof": "UNKNOWN"
+        },
+        "missingInputs": [],
+        "questions": {
+          "arts-proof": null
+        }
+      }
+    },
+    {
+      "name": "빈 입력 → 확인 필요 + 이 공고에 필요한 입력 목록",
+      "applicant": {},
+      "answers": {},
+      "expect": {
+        "result": "NEEDS_INPUT",
+        "missingInputs": [
+          "birthDate",
+          "residenceRegionCode",
+          "household.homeless",
+          "household.size",
+          "household.monthlyIncomeWon",
+          "household.totalAssetWon",
+          "household.carValueWon"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,460 @@
+{
+  "description": "총자산·자동차 한도 완화, 혼인·자녀, 신분, 청약통장, 금액표·검수 (기준일 2026-10-01)",
+  "frame": {
+    "schema": "housing-judgment.v1",
+    "rawPostId": "test",
+    "rawVersion": 1,
+    "referenceDate": "2026-10-01",
+    "common": [],
+    "groups": [
+      {
+        "id": "gimje",
+        "name": "김제 국민임대",
+        "criteria": [
+          {
+            "id": "assets",
+            "kind": "ASSET",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "HOUSEHOLD",
+            "maxWon": 345000000,
+            "overrides": [
+              {
+                "when": {
+                  "factor": "NEWBORN_CHILDREN",
+                  "min": 1,
+                  "max": 1,
+                  "since": "2023-03-28",
+                  "countRule": "MINORS_IF_ANY_SINCE"
+                },
+                "maxWon": 379000000
+              },
+              {
+                "when": {
+                  "factor": "NEWBORN_CHILDREN",
+                  "min": 2,
+                  "max": null,
+                  "since": "2023-03-28",
+                  "countRule": "MINORS_IF_ANY_SINCE"
+                },
+                "maxWon": 413000000
+              }
+            ]
+          },
+          {
+            "id": "car",
+            "kind": "CAR",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "maxWon": 45420000,
+            "overrides": [
+              {
+                "when": {
+                  "factor": "NEWBORN_CHILDREN",
+                  "min": 1,
+                  "max": 1,
+                  "since": "2023-03-28",
+                  "countRule": "MINORS_IF_ANY_SINCE"
+                },
+                "maxWon": 49960000
+              },
+              {
+                "when": {
+                  "factor": "NEWBORN_CHILDREN",
+                  "min": 2,
+                  "max": null,
+                  "since": "2023-03-28",
+                  "countRule": "MINORS_IF_ANY_SINCE"
+                },
+                "maxWon": 54510000
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "incheon",
+        "name": "인천 신혼희망타운",
+        "criteria": [
+          {
+            "id": "marriage-or-child",
+            "kind": "ANY_OF",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "options": [
+              {
+                "label": "혼인 7년 이내 (예비신혼부부 포함)",
+                "criteria": [
+                  {
+                    "id": "marriage",
+                    "kind": "MARRIAGE",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "require": "MARRIED",
+                    "maxYears": 7,
+                    "allowEngaged": true
+                  }
+                ]
+              },
+              {
+                "label": "6세 이하 자녀 (태아 포함)",
+                "criteria": [
+                  {
+                    "id": "young-child",
+                    "kind": "CHILDREN",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "minCount": null,
+                    "youngestMaxAge": 6,
+                    "includeUnborn": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "daejeon",
+        "name": "대전 영구임대",
+        "criteria": [
+          {
+            "id": "livelihood",
+            "kind": "STATUS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "anyOf": [
+              "LIVELIHOOD_BENEFIT",
+              "MEDICAL_BENEFIT"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "busan",
+        "name": "부산 50년 공공임대",
+        "criteria": [
+          {
+            "id": "rank1-savings",
+            "kind": "SAVINGS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "minMonths": 6,
+            "minPayments": 6,
+            "minBalanceWon": null
+          }
+        ]
+      },
+      {
+        "id": "extra",
+        "name": "그 밖의 규칙",
+        "criteria": [
+          {
+            "id": "printed-only",
+            "kind": "INCOME",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "HOUSEHOLD",
+            "standard": null,
+            "year": null,
+            "percent": null,
+            "bonuses": [],
+            "bonusCombine": "SUM",
+            "printedTable": [
+              {
+                "householdSize": 1,
+                "maxWon": 3000000
+              }
+            ]
+          },
+          {
+            "id": "future-year",
+            "kind": "INCOME",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "HOUSEHOLD",
+            "standard": "URBAN_WORKER_INCOME",
+            "year": 2030,
+            "percent": 100,
+            "bonuses": [],
+            "bonusCombine": "SUM",
+            "printedTable": []
+          },
+          {
+            "id": "wrong-printed",
+            "kind": "INCOME",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "HOUSEHOLD",
+            "standard": "URBAN_WORKER_INCOME",
+            "year": 2025,
+            "percent": 70,
+            "bonuses": [],
+            "bonusCombine": "SUM",
+            "printedTable": [
+              {
+                "householdSize": 1,
+                "maxWon": 3432027
+              }
+            ]
+          },
+          {
+            "id": "in-review",
+            "kind": "AGE",
+            "quote": null,
+            "page": null,
+            "inReview": true,
+            "reviewReason": "공고 문장이 둘로 읽혀요",
+            "minAge": 19,
+            "maxAge": null
+          },
+          {
+            "id": "applicant-homeless",
+            "kind": "HOMELESS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "scope": "APPLICANT",
+            "minYears": null
+          }
+        ]
+      }
+    ],
+    "notes": []
+  },
+  "cases": [
+    {
+      "name": "김제: 2024년생 자녀 1명 → 총자산 한도 3억7,900만원, 자동차 4,996만원",
+      "applicant": {
+        "childBirthDates": [
+          "2024-02-01"
+        ],
+        "expectingChild": false,
+        "household": {
+          "size": 3,
+          "totalAssetWon": 370000000,
+          "carValueWon": 49000000
+        }
+      },
+      "expect": {
+        "criteria": {
+          "assets": "MET",
+          "car": "MET"
+        },
+        "summaries": {
+          "assets": "세대 총자산 379,000,000원 이하"
+        }
+      }
+    },
+    {
+      "name": "김제: 자녀가 없으면 기본 한도 3억4,500만원이라 총자산 3억7천만원은 불충족",
+      "applicant": {
+        "childBirthDates": [],
+        "expectingChild": false,
+        "household": {
+          "size": 2,
+          "totalAssetWon": 370000000,
+          "carValueWon": 30000000
+        }
+      },
+      "expect": {
+        "criteria": {
+          "assets": "NOT_MET",
+          "car": "MET"
+        }
+      }
+    },
+    {
+      "name": "김제: 자녀 생년월일 미입력 → 총자산 3억6천만원은 한도 완화 여부에 따라 달라져 확인 필요",
+      "applicant": {
+        "household": {
+          "size": 3,
+          "totalAssetWon": 360000000,
+          "carValueWon": 30000000
+        }
+      },
+      "expect": {
+        "criteria": {
+          "assets": "UNKNOWN",
+          "car": "MET"
+        },
+        "criterionMissing": {
+          "assets": [
+            "childBirthDates"
+          ]
+        }
+      }
+    },
+    {
+      "name": "인천: 혼인 6년차 → 혼인 7년 이내로 충족",
+      "applicant": {
+        "maritalStatus": "MARRIED",
+        "marriedOn": "2020-11-01",
+        "childBirthDates": []
+      },
+      "expect": {
+        "criteria": {
+          "marriage": "MET",
+          "marriage-or-child": "MET"
+        }
+      }
+    },
+    {
+      "name": "인천: 혼인 9년차지만 5세 자녀 → 6세 이하 자녀 길로 충족",
+      "applicant": {
+        "maritalStatus": "MARRIED",
+        "marriedOn": "2017-05-01",
+        "childBirthDates": [
+          "2021-06-01"
+        ],
+        "expectingChild": false
+      },
+      "expect": {
+        "criteria": {
+          "marriage": "NOT_MET",
+          "young-child": "MET",
+          "marriage-or-child": "MET"
+        }
+      }
+    },
+    {
+      "name": "인천: 예비신혼부부 → 충족",
+      "applicant": {
+        "maritalStatus": "ENGAGED",
+        "childBirthDates": []
+      },
+      "expect": {
+        "criteria": {
+          "marriage-or-child": "MET"
+        }
+      }
+    },
+    {
+      "name": "인천: 미혼, 자녀 없음, 임신 중 → 태아를 0세 자녀로 세서 충족",
+      "applicant": {
+        "maritalStatus": "SINGLE",
+        "childBirthDates": [],
+        "expectingChild": true
+      },
+      "expect": {
+        "criteria": {
+          "marriage": "NOT_MET",
+          "young-child": "MET",
+          "marriage-or-child": "MET"
+        }
+      }
+    },
+    {
+      "name": "대전: 의료급여 수급자 → 충족 / 유형을 고르지 않음 → 확인 필요",
+      "applicant": {
+        "statuses": [
+          "MEDICAL_BENEFIT"
+        ]
+      },
+      "expect": {
+        "criteria": {
+          "livelihood": "MET"
+        }
+      }
+    },
+    {
+      "name": "대전: 유형을 아직 고르지 않음 → 확인 필요",
+      "applicant": {},
+      "expect": {
+        "criteria": {
+          "livelihood": "UNKNOWN"
+        },
+        "criterionMissing": {
+          "livelihood": [
+            "statuses"
+          ]
+        }
+      }
+    },
+    {
+      "name": "부산: 가입 6개월·납입 6회 → 충족, 납입 5회 → 불충족",
+      "applicant": {
+        "subscription": {
+          "months": 6,
+          "payments": 6
+        }
+      },
+      "expect": {
+        "criteria": {
+          "rank1-savings": "MET"
+        }
+      }
+    },
+    {
+      "name": "부산: 납입 5회 → 불충족",
+      "applicant": {
+        "subscription": {
+          "months": 24,
+          "payments": 5
+        }
+      },
+      "expect": {
+        "criteria": {
+          "rank1-savings": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "금액표만 있는 소득(1인 300만원), 기준값 없는 연도(2030년), 금액표와 계산이 다른 공고, 검수 중 조건",
+      "applicant": {
+        "birthDate": "1990-01-01",
+        "household": {
+          "size": 1,
+          "monthlyIncomeWon": 2900000
+        }
+      },
+      "expect": {
+        "criteria": {
+          "printed-only": "MET",
+          "future-year": "UNKNOWN",
+          "wrong-printed": "UNKNOWN",
+          "in-review": "UNKNOWN"
+        },
+        "reasons": {
+          "future-year": "기준값 표에 도시근로자 가구원수별 월평균소득 2030년 1인 값이 아직 없어요",
+          "wrong-printed": "공고 금액표(3,432,027원)와 기준값으로 계산한 금액(2,669,354원)이 달라요",
+          "in-review": "검수 중인 조건이에요: 공고 문장이 둘로 읽혀요"
+        }
+      }
+    },
+    {
+      "name": "본인 무주택: 본인 답이 없어도 세대 전원 무주택이면 본인도 무주택",
+      "applicant": {
+        "household": {
+          "homeless": true
+        }
+      },
+      "expect": {
+        "criteria": {
+          "applicant-homeless": "MET"
+        }
+      }
+    }
+  ]
+}
