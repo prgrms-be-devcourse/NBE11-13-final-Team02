@@ -34,6 +34,7 @@ class UsageRecorder:
         self._calls: list[dict[str, Any]] = []
         self._sent: dict[str, int] = {}
         self._stages: dict[str, float] = {}
+        self._extra: dict[str, Any] = {}  # 호출·단계 밖의 처리 기록(재확인 채택·거절 등). 원문·사용자 정보는 넣지 않습니다
 
     def next_attempt(self, call_name: str) -> int:
         """같은 호출 이름으로 이 공고에서 몇 번째 보내는 요청인지(일시 오류 재시도·형식 재요청·대체 모델 재추출 포함)."""
@@ -44,6 +45,11 @@ class UsageRecorder:
     def add_call(self, record: dict[str, Any]) -> None:
         with self._lock:
             self._calls.append(record)
+
+    def record(self, key: str, value: Any) -> None:
+        """처리 기록 하나를 summary()의 key 칸에 남깁니다(재확인 채택·거절 요약 등). 같은 key는 덮어씁니다."""
+        with self._lock:
+            self._extra[key] = value
 
     @contextmanager
     def stage(self, name: str) -> Iterator[None]:
@@ -61,6 +67,7 @@ class UsageRecorder:
             calls = [dict(c) for c in self._calls]
             stages = {k: round(v, 3) for k, v in self._stages.items()}
             total = self._clock() - self._started
+            extra = dict(self._extra)
         totals: dict[str, Any] = {
             "calls": len(calls),
             "errors": sum(1 for c in calls if c["error"]),
@@ -69,7 +76,7 @@ class UsageRecorder:
             **{kind: sum(c[kind] or 0 for c in calls) for kind in TOKEN_KINDS},
             "costUsd": round(sum(c["costUsd"] for c in calls), 8),
         }
-        return {"format": FORMAT, "totalSeconds": round(total, 3), "stages": stages, "totals": totals, "calls": calls}
+        return {"format": FORMAT, "totalSeconds": round(total, 3), "stages": stages, "totals": totals, "calls": calls, **extra}
 
 
 def timed(usage: UsageRecorder | None, name: str):
