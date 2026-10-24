@@ -1,0 +1,16 @@
+{
+  "eventId": "741154c6-aceb-5804-b821-25bbeac15d10",
+  "eventType": "area.source.ready",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-22T08:40:00Z",
+  "producer": "collector",
+  "payload": {
+    "source": "ADDRESS_ENTRANCE",
+    "scope": "36",
+    "s3Key": "area/ADDRESS_ENTRANCE/2026-09-30/address_entrance_36110.txt",
+    "sha256": "40640619a5e70a62e20914bd78a6ae58bca3bba479758d62d63d7eb954c96c52",
+    "dataDate": "2026-09-30",
+    "fileName": "RNENTDATA_2610_36110.txt",
+    "rows": 27952
+  }
+}

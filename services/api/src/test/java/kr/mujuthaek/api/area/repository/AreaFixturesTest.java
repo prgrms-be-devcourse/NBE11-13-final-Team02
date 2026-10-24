@@ -12,13 +12,22 @@ import org.junit.jupiter.api.Test;
 
 /**
  * area 테스트 자료가 바이트 그대로인지. 편집기·포매터가 인코딩이나 끝의 빈 줄을 바꾸면 적재 테스트는 통과해도 검사가 조용히 무의미해져서, 여기서 먼저 실패하게 해요.
- * 자료를 일부러 바꿨으면 아래 값도 같이 고쳐요 ({@code shasum -a 256 *.csv}).
+ * 자료를 일부러 바꿨으면 아래 값도 같이 고쳐요 ({@code shasum -a 256 *.csv *.txt}).
  */
 class AreaFixturesTest {
 
   private static final Map<String, String> SHA256 =
       new TreeMap<>(
           Map.ofEntries(
+              Map.entry(
+                  "address_entrance_11.txt",
+                  "446a23e69e56fd0e761832caea54cc52b2aab4f6fbb898181fa7b67b90c201e7"),
+              Map.entry(
+                  "address_entrance_48.txt",
+                  "077280760a75ed353b5e12d2c372a18aff119bccec30eb0cbc6b93c4c12477ae"),
+              Map.entry(
+                  "address_entrance_26.txt",
+                  "952110f28012d30d6ee95073fd494301efcc222bdfd6f6d59aaa75645b63fe97"),
               Map.entry(
                   "bus_stop.csv",
                   "dbcc1b6f1209395d62909f9f95a18f9182d12e326edee9fca9c9d7e79ff9f4ae"),
@@ -56,7 +65,10 @@ class AreaFixturesTest {
     Map<String, String> actual = new TreeMap<>();
     try (Stream<java.nio.file.Path> files =
         Files.list(PostgresAreaBaseDataLoaderTest.fixture("bus_stop.csv").getParent())) {
-      for (var path : files.filter(p -> p.toString().endsWith(".csv")).toList()) {
+      for (var path :
+          files
+              .filter(p -> p.toString().endsWith(".csv") || p.toString().endsWith(".txt"))
+              .toList()) {
         byte[] digest = MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(path));
         actual.put(path.getFileName().toString(), HexFormat.of().formatHex(digest));
       }

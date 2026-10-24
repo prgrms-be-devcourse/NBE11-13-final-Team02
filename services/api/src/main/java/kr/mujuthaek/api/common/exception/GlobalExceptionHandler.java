@@ -1,7 +1,6 @@
 package kr.mujuthaek.api.common.exception;
 
 import jakarta.servlet.http.HttpServletRequest;
-import java.net.URI;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -140,12 +139,7 @@ class GlobalExceptionHandler {
   }
 
   static ProblemDetail problem(ErrorCode code, String detail, HttpServletRequest request) {
-    ProblemDetail problem = ProblemDetail.forStatusAndDetail(code.status(), detail);
-    problem.setType(URI.create(code.type()));
-    problem.setTitle(code.message());
-    problem.setInstance(URI.create(request.getRequestURI()));
-    problem.setProperty("code", code.name());
-    return problem;
+    return Problems.of(code, detail, request);
   }
 
   /** Bean Validation 검사 이름을 대문자 스네이크로 (Min → MIN, NotNull → NOT_NULL, DecimalMax → DECIMAL_MAX). */

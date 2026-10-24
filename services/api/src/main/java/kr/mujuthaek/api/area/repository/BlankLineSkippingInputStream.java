@@ -12,12 +12,19 @@ import java.io.InputStream;
  */
 final class BlankLineSkippingInputStream extends FilterInputStream {
 
+  private final boolean trackQuotes;
   private boolean atLineStart = true;
   private boolean inQuotes = false;
   private int pending = -1;
 
   BlankLineSkippingInputStream(InputStream in) {
+    this(in, true);
+  }
+
+  /** trackQuotes가 false면 따옴표를 신경 쓰지 않아요 (| 구분처럼 값을 따옴표로 감싸지 않아서, 값 안의 "가 그대로 있는 파일). */
+  BlankLineSkippingInputStream(InputStream in, boolean trackQuotes) {
     super(in);
+    this.trackQuotes = trackQuotes;
   }
 
   @Override
@@ -47,7 +54,7 @@ final class BlankLineSkippingInputStream extends FilterInputStream {
           return b;
         }
       }
-      if (b == '"') {
+      if (trackQuotes && b == '"') {
         inQuotes = !inQuotes;
       }
       atLineStart = !inQuotes && b == '\n';
