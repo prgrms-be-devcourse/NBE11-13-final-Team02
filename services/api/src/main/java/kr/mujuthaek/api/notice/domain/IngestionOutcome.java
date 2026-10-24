@@ -22,6 +22,8 @@ public enum IngestionOutcome {
   KEPT_CORRECTION,
   /** 후속 안내(서류 제출·발표 일정 등)를 원래 공고에 붙임 (새로 붙이거나 바뀐 내용으로 교체) */
   FOLLOW_UP_ATTACHED,
+  /** 정책(창업지원·사업공간 모집) 판정 틀을 저장 (공고로 만들지 않음) */
+  POLICY_JUDGMENT_SAVED,
   /** notice가 다루지 않는 분야 */
   UNSUPPORTED_FIELD,
   /** 이미 처리한 이벤트 (기록하지 않음) */

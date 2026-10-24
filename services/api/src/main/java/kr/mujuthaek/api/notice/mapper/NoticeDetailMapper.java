@@ -6,12 +6,15 @@ import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.AreaSummary;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Condition;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Evidence;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FileLink;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FollowUp;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.HeldItem;
@@ -30,7 +33,10 @@ import tools.jackson.databind.node.JsonNodeFactory;
  * <p>칸이 없으면 빈 목록·null로 둬요 (검수 대기 등으로 상세가 빠진 버전도 있어요).
  *
  * <p>원문 확인 전까지 보류한 항목(quality.heldItems)은 보여 주지 않아요: 그 일정·주택형·호·위치·첨부를 빼고, 위치 칸 하나만 보류했으면 그 칸만 비워요.
- * 보류한 자격 조건은 확인 필요(inReview)로 표시해요. 무엇을 뺐는지는 heldItems로 알려요.
+ * 보류한 자격 조건은 확인 필요(inReview)로 표시하고 근거는 비워요. 무엇을 뺐는지는 heldItems로 알려요.
+ *
+ * <p>근거(evidence)는 항목의 evidenceIds로 상세의 evidence에서 찾아 인용·쪽·문서 이름을 붙여요. 쪽은 근거 위치가 PDF 쪽(PDF_PAGE)일
+ * 때만 있어요.
  */
 public final class NoticeDetailMapper {
 
@@ -100,6 +106,7 @@ public final class NoticeDetailMapper {
   }
 
   static List<Schedule> schedules(JsonNode detail, LocalDate today) {
+    Map<String, Evidence> evidence = evidence(detail);
     List<Schedule> out = new ArrayList<>();
     JsonNode all = detail.path("schedules");
     for (int i = 0; i < all.size(); i++) {
@@ -118,7 +125,8 @@ public final class NoticeDetailMapper {
               ends,
               text(s.path("description")),
               text(s.path("applicationUrl")),
-              within(today, starts, ends)));
+              within(today, starts, ends),
+              cite(evidence, s.path("evidenceIds"))));
     }
     return out;
   }
@@ -154,7 +162,11 @@ public final class NoticeDetailMapper {
    * 호수·가격이 틀린 값이 되지 않게).
    */
   public static List<UnitType> unitTypes(JsonNode detail) {
+    Map<String, Evidence> evidence = evidence(detail);
     Map<String, UnitType> byType = new LinkedHashMap<>();
+    // 주택형별로 보여 주는 보증금·월임대료 항목 (근거를 붙이려고 기억해요)
+    Map<String, JsonNode> depositOf = new LinkedHashMap<>();
+    Map<String, JsonNode> rentOf = new LinkedHashMap<>();
     Set<String> heldTypes = new HashSet<>();
     JsonNode groups = detail.path("supplyGroups");
     for (int i = 0; i < groups.size(); i++) {
@@ -171,14 +183,23 @@ public final class NoticeDetailMapper {
       if (count == null && "HOUSING_UNIT".equals(text(g.path("itemKind")))) {
         count = 1; // 호 하나가 공급 묶음 하나
       }
+      JsonNode deposit = priceItem(g, "DEPOSIT");
+      JsonNode rent = priceItem(g, "MONTHLY_RENT");
+      if (deposit != null) {
+        depositOf.putIfAbsent(type, deposit);
+      }
+      if (rent != null) {
+        rentOf.putIfAbsent(type, rent);
+      }
       UnitType next =
           new UnitType(
               type,
               strings(g.path("scope").path("targetGroups")),
               decimal(g.path("exclusiveAreaSqm")),
-              price(g, "DEPOSIT"),
-              price(g, "MONTHLY_RENT"),
-              count);
+              amount(deposit),
+              amount(rent),
+              count,
+              List.of());
       byType.merge(
           type,
           next,
@@ -192,18 +213,36 @@ public final class NoticeDetailMapper {
                   a.supplyCount() == null && b.supplyCount() == null
                       ? null
                       : (a.supplyCount() == null ? 0 : a.supplyCount())
-                          + (b.supplyCount() == null ? 0 : b.supplyCount())));
+                          + (b.supplyCount() == null ? 0 : b.supplyCount()),
+                  List.of()));
     }
     heldTypes.forEach(byType::remove);
-    return List.copyOf(byType.values());
+    return byType.values().stream()
+        .map(
+            t ->
+                new UnitType(
+                    t.houseType(),
+                    t.targetGroups(),
+                    t.exclusiveM2(),
+                    t.depositWon(),
+                    t.rentWon(),
+                    t.supplyCount(),
+                    priceEvidence(
+                        evidence, depositOf.get(t.houseType()), rentOf.get(t.houseType()))))
+        .toList();
   }
 
-  /** 자격 조건. 상세에서 보류한 조건(/eligibility/{i}, 같은 순서)은 확인 필요로 표시해요. */
+  /**
+   * 자격 조건. 상세에서 보류한 조건(/eligibility/{i}, 같은 순서)은 확인 필요로 표시하고 근거를 비워요. 근거는 같은 ID의 상세 자격 조건에서 찾아요.
+   */
   static List<Condition> conditions(JsonNode payload, JsonNode detail) {
+    Map<String, Evidence> evidence = evidence(detail);
     List<Condition> out = new ArrayList<>();
     JsonNode all = payload.path("conditions");
     for (int i = 0; i < all.size(); i++) {
       JsonNode c = all.get(i);
+      boolean held = held(detail, "/eligibility/" + i);
+      JsonNode source = held ? null : eligibility(detail, text(c.path("id")), i);
       out.add(
           new Condition(
               text(c.path("id")),
@@ -212,7 +251,8 @@ public final class NoticeDetailMapper {
               strings(c.path("targetGroups")),
               text(c.path("description")),
               text(c.path("originalText")),
-              c.path("inReview").asBoolean(false) || held(detail, "/eligibility/" + i)));
+              c.path("inReview").asBoolean(false) || held,
+              source == null ? List.of() : cite(evidence, source.path("evidenceIds"))));
     }
     return out;
   }
@@ -237,6 +277,7 @@ public final class NoticeDetailMapper {
    * 호 단위(HOUSING_UNIT) 공급 묶음. siteId가 있으면 그 단지·건물 것만. 주소는 단지·건물 주소예요. 보류한 호는 빼고, 보류한 위치의 주소는 비워요.
    */
   public static List<NoticeUnitResponse> units(JsonNode detail, String siteId) {
+    Map<String, Evidence> evidence = evidence(detail);
     Map<String, String> addresses = new LinkedHashMap<>();
     JsonNode locations = detail.path("locations");
     for (int i = 0; i < locations.size(); i++) {
@@ -258,6 +299,8 @@ public final class NoticeDetailMapper {
           || (siteId != null && !siteId.equals(location))) {
         continue;
       }
+      JsonNode deposit = priceItem(g, "DEPOSIT");
+      JsonNode rent = priceItem(g, "MONTHLY_RENT");
       out.add(
           new NoticeUnitResponse(
               text(g.path("id")),
@@ -267,8 +310,9 @@ public final class NoticeDetailMapper {
               text(g.path("floor")),
               text(g.path("housingTypeCode")),
               decimal(g.path("exclusiveAreaSqm")),
-              price(g, "DEPOSIT"),
-              price(g, "MONTHLY_RENT")));
+              amount(deposit),
+              amount(rent),
+              priceEvidence(evidence, deposit, rent)));
     }
     return out;
   }
@@ -320,13 +364,80 @@ public final class NoticeDetailMapper {
     return total;
   }
 
-  static Long price(JsonNode group, String kind) {
+  /** 이 종류의 첫 가격 항목 (금액이 있는 것). 없으면 null. */
+  private static JsonNode priceItem(JsonNode group, String kind) {
     for (JsonNode p : group.path("prices")) {
       if (kind.equals(text(p.path("kind"))) && p.path("amountKrw").isNumber()) {
-        return p.path("amountKrw").asLong();
+        return p;
       }
     }
     return null;
+  }
+
+  private static Long amount(JsonNode price) {
+    return price == null ? null : price.path("amountKrw").asLong();
+  }
+
+  /** 보여 주는 보증금·월임대료의 근거 (같은 근거는 한 번만). */
+  private static List<Evidence> priceEvidence(
+      Map<String, Evidence> evidence, JsonNode deposit, JsonNode rent) {
+    Set<String> ids = new LinkedHashSet<>();
+    for (JsonNode p : new JsonNode[] {deposit, rent}) {
+      if (p != null) {
+        p.path("evidenceIds").forEach(id -> ids.add(id.asString()));
+      }
+    }
+    return ids.stream().map(evidence::get).filter(Objects::nonNull).toList();
+  }
+
+  /** 같은 ID의 상세 자격 조건 (보통 같은 순서고, 순서가 다르면 ID로 찾아요). 없으면 null. */
+  private static JsonNode eligibility(JsonNode detail, String id, int index) {
+    JsonNode all = detail.path("eligibility");
+    JsonNode same = all.path(index);
+    if (!same.isMissingNode() && (id == null || id.equals(text(same.path("id"))))) {
+      return same;
+    }
+    for (JsonNode e : all) {
+      if (id != null && id.equals(text(e.path("id")))) {
+        return e;
+      }
+    }
+    return null;
+  }
+
+  /** 상세의 근거 ID → 화면에 보여 줄 근거. 문서 이름은 sourceId로 documents에서 찾아요. */
+  private static Map<String, Evidence> evidence(JsonNode detail) {
+    Map<String, String> names = new LinkedHashMap<>();
+    for (JsonNode d : detail.path("documents")) {
+      names.put(text(d.path("id")), text(d.path("name")));
+    }
+    Map<String, Evidence> out = new LinkedHashMap<>();
+    for (JsonNode e : detail.path("evidence")) {
+      JsonNode locator = e.path("locator");
+      // 쪽은 PDF 쪽 근거와, 쪽 표시가 있는 PDF 글자의 글자 범위 근거(추출이 page를 실은 경우)에서 읽어요. 표 행 근거는 쪽이 없어요
+      String kind = text(locator.path("kind"));
+      boolean paged = "PDF_PAGE".equals(kind) || "TEXT_RANGE".equals(kind);
+      out.put(
+          text(e.path("id")),
+          new Evidence(
+              text(e.path("quote")),
+              paged && locator.path("page").isNumber() ? locator.path("page").asInt() : null,
+              paged ? text(locator.path("printedPage")) : null,
+              names.get(text(e.path("sourceId")))));
+    }
+    return out;
+  }
+
+  /** evidenceIds 순서대로 근거를 찾아요. 없는 ID는 건너뛰어요. */
+  private static List<Evidence> cite(Map<String, Evidence> evidence, JsonNode ids) {
+    List<Evidence> out = new ArrayList<>();
+    for (JsonNode id : ids) {
+      Evidence e = evidence.get(id.asString());
+      if (e != null) {
+        out.add(e);
+      }
+    }
+    return out;
   }
 
   private static boolean within(LocalDate today, String starts, String ends) {

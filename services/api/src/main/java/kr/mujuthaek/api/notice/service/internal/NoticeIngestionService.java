@@ -21,6 +21,7 @@ import kr.mujuthaek.api.notice.domain.DuplicateRule;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
 import kr.mujuthaek.api.notice.domain.PublicationPolicy;
 import kr.mujuthaek.api.notice.domain.PublicationPolicy.Decision;
+import kr.mujuthaek.api.notice.domain.ReviewStatus;
 import kr.mujuthaek.api.notice.mapper.ExtractionEvent;
 import kr.mujuthaek.api.notice.mapper.NoticeContent;
 import kr.mujuthaek.api.notice.mapper.NoticeContent.Source;
@@ -61,6 +62,12 @@ public class NoticeIngestionService {
 
   private static final Logger log = LoggerFactory.getLogger(NoticeIngestionService.class);
   private static final Set<String> NOTICE_FIELDS = Set.of("HOUSING", "BUSINESS_SPACE");
+
+  /** 공고가 아니라 판정 틀만 저장하는 정책 분야 (notice.policy_judgments). */
+  private static final Set<String> POLICY_FIELDS = Set.of("STARTUP_SUPPORT", "SPACE_RECRUITMENT");
+
+  /** 검수 대기(IN_REVIEW) 정책 판정 틀을 공개하지 않고 수신 기록에만 둔 까닭 (extraction_results.reason). */
+  static final String POLICY_IN_REVIEW = "POLICY_IN_REVIEW";
 
   /** 후속 안내가 붙거나 바뀌었을 때 NoticeUpdated.changedFields에 넣는 이름. */
   static final String FOLLOW_UPS = "followUps";
@@ -111,6 +118,11 @@ public class NoticeIngestionService {
     }
     Instant now = clock.instant();
     Source source = NoticeContent.source(event);
+    if (POLICY_FIELDS.contains(event.field())) {
+      Decision decision = savePolicy(event, now);
+      record(event, source, decision, null, now);
+      return decision.outcome();
+    }
     if (!NOTICE_FIELDS.contains(event.field())) {
       Decision decision = new Decision(IngestionOutcome.UNSUPPORTED_FIELD, event.field());
       record(event, source, decision, null, now);
@@ -120,6 +132,65 @@ public class NoticeIngestionService {
     record(event, source, applied.decision(), applied.noticeId(), now);
     replayWaiting(event, applied, now);
     return applied.decision().outcome();
+  }
+
+  /**
+   * 정책 판정 틀 저장. 이미 더 높은 버전이 있으면 STALE. 계약 검사가 틀과 지원 지역·원문 주소·상시 여부가 있는지 먼저 봐요.
+   *
+   * <p>검수 상태별 공개 (사용자 결정 2026-10-23, 상태는 추출이 정해요):
+   *
+   * <ul>
+   *   <li>AUTO_PASSED·PARTIALLY_PASSED: 저장하고 공개해요. PARTIALLY_PASSED 틀의 확인 필요(inReview) 조건은 판정이 확인
+   *       필요로 다뤄요.
+   *   <li>IN_REVIEW: 틀 전체를 믿을 수 없어요(구간 칸 규칙 틀 등). 저장하지 않아요 — 공개 중인 이전 버전이 있으면 그것을 그대로 두고, 첫 버전이면 승인
+   *       전까지 공개하지 않아요. 받은 틀은 수신 기록(extraction_results.payload)에 남고, 검수자가 승인하면 추출이 틀 전체를 APPROVED로
+   *       다시 보내 그때 공개본을 바꿔요(따로 대기 칸을 두지 않음).
+   *   <li>APPROVED: 공개본을 바꿔요. 같은 버전의 승인본은 승인 아닌 결과로 덮지 않아요(KEPT_APPROVED).
+   * </ul>
+   */
+  private Decision savePolicy(ExtractionEvent event, Instant now) {
+    if (!event.reviewStatus().publishable()) {
+      Optional<NoticeRepository.PolicyJudgmentState> current =
+          notices.policyJudgmentState(event.rawPostId());
+      if (current.isPresent() && current.get().version() > event.rawVersion()) {
+        return new Decision(IngestionOutcome.STALE, event.field());
+      }
+      if (current.isPresent()
+          && current.get().version() == event.rawVersion()
+          && current.get().reviewStatus() == ReviewStatus.APPROVED) {
+        return new Decision(IngestionOutcome.KEPT_APPROVED, event.field());
+      }
+      return new Decision(IngestionOutcome.HELD, POLICY_IN_REVIEW);
+    }
+    List<String> regions = new java.util.ArrayList<>();
+    event.payload().path("regionCodes").forEach(code -> regions.add(code.asString()));
+    JsonNode detailUrl = event.payload().path("detailUrl");
+    boolean saved =
+        notices.savePolicyJudgment(
+            new NoticeRepository.PolicyJudgmentRow(
+                event.rawPostId(),
+                event.field(),
+                event.rawVersion(),
+                event.eventId(),
+                event.title(),
+                event.applyStartOn(),
+                event.applyEndOn(),
+                regions,
+                json.writeValueAsString(event.judgment()),
+                event.reviewStatus(),
+                detailUrl.isString() ? detailUrl.asString() : null,
+                event.payload().path("applyAlways").asBoolean(false)),
+            now);
+    if (saved) {
+      return new Decision(IngestionOutcome.POLICY_JUDGMENT_SAVED, event.field());
+    }
+    boolean sameVersion =
+        notices
+            .policyJudgmentState(event.rawPostId())
+            .map(current -> current.version() == event.rawVersion())
+            .orElse(false);
+    return new Decision(
+        sameVersion ? IngestionOutcome.KEPT_APPROVED : IngestionOutcome.STALE, event.field());
   }
 
   /**
@@ -266,7 +337,11 @@ public class NoticeIngestionService {
               notices.originalNoticeOf(source.supersedesPostId()).orElse(noticeId.orElseThrow())),
           now);
       events.publishEvent(
-          new NoticeUpdated(noticeId.orElseThrow(), List.of(FOLLOW_UPS), event.reprocess()));
+          new NoticeUpdated(
+              noticeId.orElseThrow(),
+              notices.fieldOf(noticeId.orElseThrow()).orElse(event.field()),
+              List.of(FOLLOW_UPS),
+              event.reprocess()));
     } else if (decision.outcome() == IngestionOutcome.APPROVAL_RECORDED) {
       followUps.markApproved(event.rawPostId(), now);
     }
@@ -566,8 +641,9 @@ public class NoticeIngestionService {
     notices.markNotSame(from, into, "UNMERGED", now); // 다시 훑기·자동 합치기가 이 쌍을 다시 합치지 않게
     rebase(from, true, now, null);
     rebase(into, true, now, null);
-    events.publishEvent(new NoticeUpdated(from, List.of(SOURCES), false));
-    events.publishEvent(new NoticeUpdated(into, List.of(SOURCES), false));
+    String field = notices.fieldOf(into).orElseThrow(); // 같은 분야끼리만 합쳐요
+    events.publishEvent(new NoticeUpdated(from, field, List.of(SOURCES), false));
+    events.publishEvent(new NoticeUpdated(into, field, List.of(SOURCES), false));
     log.info("공고 합치기 되돌림 from={} into={}", from, into);
   }
 
@@ -604,7 +680,8 @@ public class NoticeIngestionService {
         now);
     notices.replaceRegions(
         current.noticeId(), NoticeContent.regions(event), NoticeContent.nationwide(event));
-    events.publishEvent(new NoticeUpdated(current.noticeId(), changed, event.reprocess()));
+    events.publishEvent(
+        new NoticeUpdated(current.noticeId(), event.field(), changed, event.reprocess()));
     if (changed.contains("locations")) {
       publishLocations(current.noticeId(), version, event);
     }
@@ -615,6 +692,7 @@ public class NoticeIngestionService {
       events.publishEvent(
           new NoticeClosed(
               current.noticeId(),
+              event.field(),
               ApplicationStatusCalculator.closedOn(NoticeContent.statusWindows(event), today)));
     }
   }

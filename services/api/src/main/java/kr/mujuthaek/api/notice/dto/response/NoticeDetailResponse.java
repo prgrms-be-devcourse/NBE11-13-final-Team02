@@ -60,6 +60,7 @@ public record NoticeDetailResponse(
 
   /**
    * @param current 오늘이 이 일정 안이면 true (화면의 지금 단계 표시)
+   * @param evidence 이 일정의 근거 원문
    */
   public record Schedule(
       String id,
@@ -69,19 +70,28 @@ public record NoticeDetailResponse(
       String endsAt,
       String description,
       String applicationUrl,
-      boolean current) {}
+      boolean current,
+      List<Evidence> evidence) {}
 
   public record Site(String id, String kind, String name, String address, String regionCode) {}
 
+  /**
+   * @param evidence 보여 주는 보증금·월임대료의 근거 원문
+   */
   public record UnitType(
       String houseType,
       List<String> targetGroups,
       BigDecimal exclusiveM2,
       Long depositWon,
       Long rentWon,
-      Integer supplyCount) {}
+      Integer supplyCount,
+      List<Evidence> evidence) {}
 
-  /** 대상별 자격 조건과 근거 원문. 판정은 POST /eligibility/notices/{id}/evaluate로 해요. */
+  /**
+   * 대상별 자격 조건과 근거 원문. 판정은 POST /eligibility/notices/{id}/evaluate로 해요.
+   *
+   * @param evidence 이 조건의 근거 원문 (원문 확인 전까지 보류한 조건은 비워요)
+   */
   public record Condition(
       String id,
       String category,
@@ -89,7 +99,18 @@ public record NoticeDetailResponse(
       List<String> targetGroups,
       String description,
       String originalText,
-      boolean inReview) {}
+      boolean inReview,
+      List<Evidence> evidence) {}
+
+  /**
+   * 값의 근거가 된 원문 인용. 모델 신뢰도는 계약에 없어서 주지 않아요(contracts/README.md).
+   *
+   * @param quote 원문 인용
+   * @param page PDF의 실제 쪽 (1부터). 글자 범위 근거는 PDF 글자에서 쪽을 정한 경우만, 표 행 근거·쪽을 모르면 null
+   * @param printedPage 그 쪽에 인쇄된 쪽 번호 (없으면 null)
+   * @param documentName 근거 문서 이름 (첨부 파일 이름 또는 원문 글자 묶음 이름)
+   */
+  public record Evidence(String quote, Integer page, String printedPage, String documentName) {}
 
   public record FileLink(String name, String url) {}
 
