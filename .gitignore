@@ -22,6 +22,7 @@ __pycache__/
 *.csv
 # 공개 데이터로 만든 area 적재 테스트 자료는 올려요
 !services/api/src/test/resources/area/fixtures/*.csv
+!services/api/src/test/resources/area/geocode/*.csv
 !services/collector/area/area_manifest.csv
 !services/collector/area/area_manifest_address.csv
 .aws/
