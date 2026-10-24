@@ -25,6 +25,7 @@ from mujuthaek_extraction.model.call_cache import CachedModel, CallCache
 from mujuthaek_extraction.model.local_ai import LocalChatModel
 from mujuthaek_extraction.model.openai_responses import OpenAIResponsesModel
 from mujuthaek_extraction.model.pricing import Budget, BudgetedModel
+from mujuthaek_extraction.model.runaway import runaway
 
 
 class UnavailableModel:
@@ -78,6 +79,8 @@ class ModelFactory:
                     shared_schema=settings.openai_shared_schema,
                     light_calls=frozenset(settings.openai_light_calls),
                     light_effort=settings.openai_light_effort,
+                    stream=settings.openai_stream,
+                    runaway_check=runaway,
                 )
         self._replay = ReplayModel(settings.recorded_dir) if settings.model_mode == "recorded" and settings.recorded_dir else None
 
