@@ -742,11 +742,11 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     # 한 칸에 금액 두 개: 전환 칸이고 한도 칸에 증액·감액 표시가 둘 다 있으면 한도 칸에 적힌 순서대로 나눕니다
                     # (실측: LH 포항 행복주택 「(+) - (-) 10,000」 | 「12,614 2,614」. 화살표 「↑ … ↓ …」·「증액 … 감액 …」도 같은 표시).
                     # 그 밖에는 어느 안의 값인지 몰라 넣지 않고, 조용히 버리지 않도록 검수 이슈로 남깁니다(그 묶음 보류)
-                    order = _sign_order(sign)
-                    if not (base_stage.startswith("CONVERSION") and len(amounts) == 2 and order is not None):
+                    signs_in_order = _sign_order(sign)
+                    if not (base_stage.startswith("CONVERSION") and len(amounts) == 2 and signs_in_order is not None):
                         current.setdefault("_unsplit", []).append(f"{table.columns[c] or column.get('plan') or '가격'} 칸 「{value}」")
                         continue
-                    cells = list(zip(amounts, order, strict=True))
+                    cells = list(zip(amounts, signs_in_order, strict=True))
                     if mapped_twice[(column["column"], column.get("priceKind"))] > 1 and base_stage in ("CONVERSION_DEPOSIT_UP", "CONVERSION_DEPOSIT_DOWN"):
                         down_wanted = base_stage == "CONVERSION_DEPOSIT_DOWN"
                         cells = [cell for cell in cells if (cell[1] == "(-)") == down_wanted]
