@@ -2,6 +2,7 @@ package kr.mujuthaek.api.area.service;
 
 import static kr.mujuthaek.api.area.AreaTestDatabase.exec;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,6 +12,7 @@ import kr.mujuthaek.api.area.domain.GeocodeResult;
 import kr.mujuthaek.api.area.domain.GeocodeResult.FailReason;
 import kr.mujuthaek.api.area.domain.GeocodeResult.Method;
 import kr.mujuthaek.api.area.domain.GeocodeResult.Status;
+import kr.mujuthaek.api.area.geocode.CoordOutcome;
 import kr.mujuthaek.api.area.geocode.JusoResult;
 import kr.mujuthaek.api.area.geocode.SearchOutcome;
 import kr.mujuthaek.api.area.geocode.SearchOutcome.Failed;
@@ -19,6 +21,7 @@ import kr.mujuthaek.api.area.geocode.SearchOutcome.NotFound;
 import kr.mujuthaek.api.area.geocode.SearchOutcome.Reason;
 import kr.mujuthaek.api.area.repository.PostgresAddressPointLookup;
 import kr.mujuthaek.api.area.repository.PostgresLegalDongCentroid;
+import kr.mujuthaek.api.area.repository.PostgresUtmkTransform;
 import kr.mujuthaek.api.common.region.RegionQueryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +37,9 @@ class AddressLocatorTest {
 
   private final List<String> searched = new ArrayList<>();
   private Function<String, SearchOutcome> answer = keyword -> new NotFound();
+  // 좌표제공 API는 기본으로 키 없음 (승인 대기라 대부분 환경이 이래요)
+  private Function<JusoResult, CoordOutcome> coordAnswer =
+      building -> new CoordOutcome.Failed(Reason.NO_KEY, null);
   private final AddressLocator locator =
       new AddressLocator(
           new PostgresAddressPointLookup(AreaTestDatabase.dataSource()),
@@ -41,6 +47,8 @@ class AddressLocatorTest {
             searched.add(keyword);
             return answer.apply(keyword);
           },
+          building -> coordAnswer.apply(building),
+          new PostgresUtmkTransform(AreaTestDatabase.dataSource()),
           new PostgresLegalDongCentroid(AreaTestDatabase.dataSource()),
           new RegionQueryService(new JdbcTemplate(AreaTestDatabase.dataSource())));
 
@@ -150,6 +158,31 @@ class AddressLocatorTest {
   }
 
   @Test
+  void aNewBuildingMissingFromTheDictionaryUsesTheCoordinateApi() {
+    answer = keyword -> found(juso("새길", "0", "9", "0"));
+    coordAnswer = building -> new CoordOutcome.Found(953901.165312, 1952032.080979); // UTM-K
+
+    GeocodeResult r = locator.locate("부산광역시 시험구 새길 9", BJD);
+
+    assertThat(r.status()).isEqualTo(Status.OK);
+    assertThat(r.method()).isEqualTo(Method.COORD_API);
+    assertThat(r.coordinate().lat()).isCloseTo(37.5665, within(0.0001)); // 경위도로 바뀜
+    assertThat(r.bjdCodeFound()).isEqualTo(BJD);
+    assertThat(r.addressId()).isNull(); // 사전 주소가 아니라 주소 ID가 없어요
+  }
+
+  @Test
+  void coordinateApiTroubleWithoutARepresentativePointIsAnApiError() {
+    // 검색 결과의 법정동에 경계가 없고 공고도 코드를 주지 않은 새 건물
+    answer = keyword -> found(jusoAt("2699020100", "새길", "9"));
+    coordAnswer = building -> new CoordOutcome.Failed(Reason.UNAVAILABLE, "-999");
+
+    GeocodeResult r = locator.locate("부산광역시 시험구 새길 9", null);
+
+    assertThat(r.failReason()).isEqualTo(FailReason.API_ERROR);
+  }
+
+  @Test
   void aBuildingMissingFromTheDictionaryUsesTheLegalDongTheSearchApiFound() {
     // 검색 API는 찾았는데 사전에 아직 없는 새 건물, 공고가 법정동코드를 주지 않은 경우
     answer = keyword -> found(juso("새길", "0", "9", "0"));
@@ -218,6 +251,11 @@ class AddressLocatorTest {
 
   private static Found found(JusoResult... results) {
     return new Found(List.of(results), results.length);
+  }
+
+  private static JusoResult jusoAt(String admCd, String road, String main) {
+    return new JusoResult(
+        admCd, road, "0", main, "0", "269904000001", null, "부산광역시", "시험구", null, null, null);
   }
 
   private static JusoResult juso(String road, String underground, String main, String sub) {
