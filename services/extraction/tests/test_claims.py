@@ -5,7 +5,9 @@ import copy
 from test_verify import assembled, clock
 
 from mujuthaek_extraction.verify import verify_extraction
-from mujuthaek_extraction.verify.claims import _has_date, _has_number, check_claims
+from mujuthaek_extraction.verify.claims import _count_bound, _has_date, _has_number, _krw_found, _price_unit_ok, check_claims
+from mujuthaek_extraction.verify.model import SourceBundle
+from mujuthaek_extraction.verify.tables import place_of
 
 
 def age_atoms(candidate):
@@ -46,7 +48,7 @@ def test_number_forms_written_differently_still_match():
     assert _has_number(["혼인 기간 2년 이내"], 24, "MONTH")
     assert _has_number(["두 자녀 이상"], 2, "COUNT")
     assert _has_number(["자동차를 소유하고 있지 않아야 합니다"], 0, "KRW")
-    assert _has_number(["월평균소득 50%(1인 70%, 2인 60%) 이하"], 3, "COUNT", at_least=True)
+    assert _has_number(["월평균소득 50%(1인 70%, 2인 60%) 이하"], 3, "COUNT", at_least=True, attribute="HOUSEHOLD_MEMBER_COUNT")
     assert not _has_number(["만 19세 이상 39세 이하"], 45, "YEAR")
 
 
@@ -230,3 +232,68 @@ def test_confirmed_announced_on_is_note_and_does_not_block():
     assert report.verification["status"] == "PARTIALLY_PASSED"
     assert [h["target"] for h in report.candidate["quality"]["heldItems"]] == ["/notice/announcedOn"]
     assert any(i["code"] == "VALUE_NOT_IN_QUOTE" and i["target"] == "/notice/announcedOn" for i in report.candidate["quality"]["reviewIssues"])
+
+
+def test_household_bracket_rule_is_not_used_for_child_counts():
+    # 2026-10-21 리뷰: 「값 − 1」 규칙이 자녀 수에도 적용되어 「자녀 2명 이상」을 3명 이상으로 뽑아도 통과했음
+    assert not _has_number(["자녀가 2명 이상인 경우 90% 완화"], 3, "COUNT", at_least=True, attribute="CHILD_COUNT")
+
+
+def test_amount_must_match_its_written_unit():
+    # 2026-10-21 리뷰: 「3,708만원」을 3,708,000원으로 뽑아도 「천원 표일 수 있다」로 통과했음
+    assert not _krw_found([("자동차가액 3,708만원 이하", None)], 3_708_000)
+    assert _krw_found([("자동차가액 3,708만원 이하", None)], 37_080_000)
+    assert _krw_found([("개별 자동차가액 ( 4,563 )만원 이하", None)], 45_630_000)
+    table = "(단위: 만원)\n| 출생자녀수 | 총자산 | 자동차 |\n| 1명 | 37,900 | 4,996 |"
+    row = "| 1명 | 37,900 | 4,996 |"
+    assert _krw_found([(row, place_of(table, table.index(row)))], 379_000_000)  # 같은 표 위 단위 표시
+    assert not _krw_found([(row, None)], 379_000_000)  # 단위 근거 없음
+
+
+def test_price_unit_must_come_from_the_same_column_or_table():
+    # 2026-10-21 리뷰: 원 단위 칸을 천원으로 읽어 보증금 100만원이 10억이 됨
+    assert not _price_unit_ok("1,000,000", "천원", [("임대보증금 1,000,000원", None)])
+    table = "| 주택형 | 임대보증금(천원) | 임대료(원) |\n| 52C | 38,025 | 391,800 |"
+    row = "| 52C | 38,025 | 391,800 |"
+    place = place_of(table, table.index(row))
+    assert _price_unit_ok("38,025", "천원", [(row, place)])
+    assert not _price_unit_ok("391,800", "천원", [(row, place)])  # 옆 칸 머리글의 단위를 쓰지 않음
+
+
+def test_child_and_household_counts_must_be_tied_to_their_column_or_words():
+    # 2026-10-21 리뷰: txt 「3인 이상 2인 이상 120%」에서 가구원 수 3을 자녀 수로 뽑아도 숫자 3이 있어 통과했음
+    assert not _count_bound("CHILD_COUNT", 3, [("3인 이상 2인 이상 120% 301,000,000원", None)])
+    assert not _count_bound("CHILD_COUNT", 2, [("3인 이상 2인 이상 120% 301,000,000원", None)])  # 칸 구분이 없으면 어느 쪽인지 모름
+    table = "| 가구원수 | 출생자녀수 | 비율 |\n| 3인 이상 | 2인 이상 | 120% |"
+    row = "| 3인 이상 | 2인 이상 | 120% |"
+    place = place_of(table, table.index(row))
+    assert _count_bound("CHILD_COUNT", 2, [(row, place)]) and not _count_bound("CHILD_COUNT", 3, [(row, place)])
+    assert _count_bound("HOUSEHOLD_MEMBER_COUNT", 3, [(row, place)])
+    assert _count_bound("CHILD_COUNT", 2, [("2023. 3. 28. 이후 출생한 자녀가 2명 이상인 경우", None)])
+    assert _count_bound("HOUSEHOLD_MEMBER_COUNT", 1, [("70%(1인 90%, 2인 80%) 이하", None)])
+
+
+def test_exception_values_are_checked_like_the_base_condition():
+    # 2026-10-21 리뷰: 예외 조건의 값은 원문과 대조하지 않았음
+    quote = "2023. 3. 28. 이후 출생한 자녀가 2명 이상인 경우 자동차가액 5,451만원 이하"
+    child = {"kind": "ATOMIC", "attribute": "CHILD_COUNT", "operator": "GTE", "value": 3, "unit": "COUNT", "evidenceIds": ["ev-1"]}
+    car = {"kind": "ATOMIC", "attribute": "CAR_ASSETS_KRW", "operator": "LTE", "value": 5_451_000, "unit": "KRW", "evidenceIds": ["ev-1"]}
+    base = {"kind": "ATOMIC", "attribute": "CAR_ASSETS_KRW", "operator": "LTE", "value": 45_420_000, "unit": "KRW", "evidenceIds": ["ev-2"]}
+    candidate = {
+        "evidence": [
+            {"id": "ev-1", "sourceId": "t", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": len(quote)}, "quote": quote},
+            {"id": "ev-2", "sourceId": "t", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": 1}, "quote": "자동차가액 4,542만원 이하"},
+        ],
+        "eligibility": [
+            {
+                "rule": {"expression": base},
+                "evidenceIds": ["ev-2"],
+                "exceptions": [{"when": {"expression": child}, "effectExpression": car, "evidenceIds": ["ev-1"]}],
+            }
+        ],
+        "notice": {},
+        "schedules": [],
+        "supplyGroups": [],
+    }
+    targets = {f.target for f in check_claims(candidate, SourceBundle(texts={"t": quote}))}
+    assert targets == {"/eligibility/0/exceptions/0/when/expression/value", "/eligibility/0/exceptions/0/effectExpression/value"}

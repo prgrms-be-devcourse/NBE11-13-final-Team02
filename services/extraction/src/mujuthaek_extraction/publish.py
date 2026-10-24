@@ -67,7 +67,7 @@ def sigungu_code(candidate: dict[str, Any]) -> str | None:
     return tools().event_region_code(candidate["locations"], held)
 
 
-def completed_payload(candidate: dict[str, Any], *, provider: str | None = None, regions: Any = None) -> dict[str, Any]:
+def completed_payload(candidate: dict[str, Any], *, provider: str | None = None, regions: Any = None, pages: dict[str, int] | None = None) -> dict[str, Any]:
     """검증 결과로 reviewStatus를 정해 extraction.completed payload를 만듭니다. 검증 통과에 검수 중인 조건이 없을 때만 AUTO_PASSED입니다."""
     status = candidate["quality"]["verification"]["status"]
     items = conditions(candidate)
@@ -94,7 +94,7 @@ def completed_payload(candidate: dict[str, Any], *, provider: str | None = None,
         "reprocess": candidate["input"]["reprocess"],
         "notice": candidate,
         # 판정 틀(사용자 결정 2026-10-20: 이 이벤트에 칸을 더해 틀 객체를 그대로 담음). 틀이 없는 분야·틀 검사 실패면 null
-        "judgment": build_judgment(candidate, regions),
+        "judgment": build_judgment(candidate, regions, pages=pages),
     }
 
 
