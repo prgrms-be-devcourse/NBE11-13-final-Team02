@@ -52,3 +52,29 @@ def test_presplit_off_keeps_the_single_documents_call(monkeypatch):
     model = RecordedModel(split_script(data, [good]))
     extract.run_extraction(RULES, source.material, model)
     assert "documents" in [r.call_name for r in model.requests]
+
+
+def test_cut_answers_drop_strict_mode_nulls_before_salvage():
+    """2026-10-25 33번: 잘린 응답은 어댑터가 엄격 모드 null 칸을 지우지 못해, 살린 인용의 「unitRow」: null이 형식 오류가 되어
+    서류 전체를 버렸습니다. 살릴 때 선택 칸 null을 지웁니다."""
+    import json
+
+    from mujuthaek_extraction.assemble import ai_output
+    from mujuthaek_extraction.extract import fill_from_cuts, salvage_truncated, schema_errors
+    from mujuthaek_extraction.model.strict_schema import to_strict
+
+    optional = to_strict(ai_output.schema())[1]
+    assert "unitRow" in optional
+    quotes = [{"ref": f"q{i}", "documentId": "t", "text": t, "unitRow": None} for i, t in ((1, "가상 신분증"), (2, "가상 등본"), (3, "가상 초본"))]
+    docs = [
+        {"id": f"d{i}", "name": n, "submissionTime": "계약 시", "quoteRefs": [f"q{i}"]} for i, n in ((1, "가상 신분증"), (2, "가상 등본"), (3, "가상 초본"))
+    ]
+    full = json.dumps({"quotes": quotes, "requiredDocuments": docs}, ensure_ascii=False)
+    cut = full[: full.index('"가상 초본", "submissionTime"')]
+    salvaged = salvage_truncated(cut, ("requiredDocuments",), optional)
+    assert all("unitRow" not in q for q in salvaged["quotes"])
+    assert len(salvaged["requiredDocuments"]) == 2
+    assert "unitRow" not in (schema_errors(salvaged, ai_output.schema()) or "")
+    part = {"quotes": [], "requiredDocuments": []}
+    assert fill_from_cuts(part, [cut], ("requiredDocuments",), optional) == 2
+    assert all("unitRow" not in q for q in part["quotes"])
