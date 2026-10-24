@@ -12,7 +12,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Stream;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.mapper.ApplicantMapper;
 import kr.mujuthaek.api.eligibility.mapper.FrameReader;
 import kr.mujuthaek.api.eligibility.mapper.FrameSpec;
@@ -105,7 +105,8 @@ class FrameCasesTest {
   }
 
   private static void check(Frame frame, JsonNode c, JsonNode expect, LocalDate judgedOn) {
-    ApplicantRequest request = JSON.treeToValue(c.get("applicant"), ApplicantRequest.class);
+    JudgmentApplicantRequest request =
+        JSON.treeToValue(c.get("applicant"), JudgmentApplicantRequest.class);
     Map<String, Answer> answers =
         c.has("answers")
             ? JSON.convertValue(c.get("answers"), new TypeReference<Map<String, Answer>>() {})

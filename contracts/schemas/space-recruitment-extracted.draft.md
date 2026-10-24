@@ -7,7 +7,7 @@
 - 보내는 쪽: extraction `rules/space_recruitment` (담당자3), 공통 추출·검증 코드 (담당자2)
 - 받는 쪽: api `benefit` 모듈 (담당자3)
 - 조건 한 줄의 모양과 type 목록은 [benefit-condition-types.draft.md](benefit-condition-types.draft.md)를 따라요 (창업 조건 type은 그 문서 6장 4번)
-- 상태: **이벤트 계약 확정** (2026-10-22) → [`contracts/events/space-recruitment.extracted.v1.json`](../events/space-recruitment.extracted.v1.json). 칸·필수 여부·값 범위는 그 파일이 기준이에요. 4장 테이블은 아직 초안이에요 (api 마이그레이션 전)
+- 상태: **이벤트 계약 확정** (2026-10-22, 같은 날 `hqRelocation` 추가. 아직 보내고 받는 코드가 없어 v1을 고쳤어요) → [`contracts/events/space-recruitment.extracted.v1.json`](../events/space-recruitment.extracted.v1.json). 칸·필수 여부·값 범위는 그 파일이 기준이에요. 4장 테이블은 아직 초안이에요 (api 마이그레이션 전)
 
 ## 1. 나누는 기준
 
@@ -49,6 +49,7 @@ extraction은 `field`로 추출 규칙을 골라요 (`RULES_BY_FIELD`). 이벤�
 | `units` | array | 모집하는 공간 (3-2). 종류·크기·임대료가 다르면 줄을 나눠요 | AI |
 | `recruitCount` | int \| null | 모집 기업·팀 수 | AI |
 | `residency` | object | 입주 기간 (3-3) | AI |
+| `hqRelocation` | object | 입주 후 본점 이전 의무 (3-4, 2026-10-22 추가) | AI |
 | `schedule` | object | 신청 기간 (`policy.extracted` 3-3과 같아요) | 규칙 → 없으면 AI |
 | `selectionMethod` | string \| null | 선정 방법 요약 (서류·발표 평가 등) | AI |
 | `support` | string[] | 입주하면 함께 받는 지원 (멘토링, 투자 연계 …) | AI |
@@ -89,6 +90,17 @@ extraction은 `field`로 추출 규칙을 골라요 (`RULES_BY_FIELD`). 이벤�
 | `moveInDate` | date \| null | 입주 예정일 |
 | `rawText` | string \| null | 원문 |
 
+### 3-4. `hqRelocation` (2026-10-22 추가)
+
+'입주 확정 시 3개월 이내 본점 소재지 이전'처럼 **입주 후 지킬 의무**예요. 입주 자격(`conditions`의 `BUSINESS_LOCATION`)으로 넣으면
+아직 다른 지역에 있는 기업이 '지원 불가'로 나와서 따로 둬요. 판정하지 않고 화면에 보여만 줘요. 2026-10-22 기준 사업공간 모집 29건 중 10건에 있어요.
+
+| 칸 | 모양 | 뜻 |
+| --- | --- | --- |
+| `mandatory` | bool \| null | true 이전 필수, false 이전하지 않아도 됨이 글에 있음, null 글에 없음 |
+| `withinMonths` | int \| null | 이전 기한 (입주·계약 후 개월). 기한이 없으면 null |
+| `rawText`, `evidence` | string \| null | 원문, 원문이 들어 있는 문장 |
+
 ## 4. 테이블 (api DB, 스키마 `benefit`)
 
 3장의 추출 칸 + 지역(`source.regionScope`·`regionNames`·`regionCodes`)으로 저장해요 (2026-10-22 결정). 테이블 설명은 [space-recruitments.draft.md](space-recruitments.draft.md)에 있어요.
@@ -96,6 +108,6 @@ extraction은 `field`로 추출 규칙을 골라요 (`RULES_BY_FIELD`). 이벤�
 ## 5. 결정이 필요한 것
 
 1. ~~이벤트 이름~~: `space-recruitment.extracted`로 따로 둬요 (2026-10-22 확정)
-2. **판정**: 입주 자격(업력·업종·지역)을 eligibility가 판정할지. type은 condition-types 3-5의 `STARTUP_STAGE`·`BUSINESS_YEARS`·`INDUSTRY`·`BUSINESS_LOCATION`을 써요
+2. **판정**: 입주 자격(업력·업종·지역)을 eligibility가 판정할지. type은 condition-types 3-5의 `STARTUP_STAGE`·`BUSINESS_YEARS`·`INDUSTRY`·`BUSINESS_LOCATION`을 써요 (본점 이전 의무는 판정 대상이 아니에요, 3-4)
 3. **관심 공고·알림**: 회원의 관심 공고(요구사항 3-12)에 사업공간 모집도 넣을지. 넣으면 관심 공고 테이블이 `benefits`·`space_recruitments` 둘을 가리킬 수 있어야 해요
 4. **공고(notice) 모듈의 사업공간 공고(PR #33 `BUSINESS_SPACE`)와의 관계**: LH 상가·업무시설 공고는 notice, 창업지원 API의 입주 모집은 여기예요. 화면에서 함께 보여줄지 담당자2와 정해요

@@ -25,7 +25,7 @@
       "additionalProperties": false,
       "required": [
         "rawPolicyId", "version", "sourceCode", "provider", "policyId", "reprocess", "source", "relevant", "relevanceReason", "summary",
-        "facility", "units", "recruitCount", "residency", "schedule", "selectionMethod", "support", "howToApply", "documents", "contact",
+        "facility", "units", "recruitCount", "residency", "hqRelocation", "schedule", "selectionMethod", "support", "howToApply", "documents", "contact",
         "conditions", "quality"
       ],
       "properties": {
@@ -43,6 +43,7 @@
         "units": { "type": "array", "items": { "$ref": "#/$defs/unit" }, "description": "모집하는 공간. 종류·크기·임대료가 다르면 줄을 나눠요. 글에 공간 정보가 없으면 빈 목록" },
         "recruitCount": { "$ref": "#/$defs/nullableCount", "description": "모집 기업·팀 수 ('10개사 내외'면 10)" },
         "residency": { "$ref": "#/$defs/residency" },
+        "hqRelocation": { "$ref": "#/$defs/hqRelocation" },
         "schedule": { "$ref": "#/$defs/schedule" },
         "selectionMethod": { "$ref": "#/$defs/nullableString", "description": "선정 방법 요약 (서류 평가 → 발표 평가 등)" },
         "support": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "입주하면 함께 받는 지원 (멘토링, 투자 연계, 장비 사용 …). 없으면 빈 목록" },
@@ -110,6 +111,18 @@
         "rawText": { "$ref": "#/$defs/nullableString", "description": "입주 기간 원문" }
       }
     },
+    "hqRelocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "입주 후 본점·사업장 주소를 시설로 옮겨야 하는 의무 ('입주 확정 시 3개월 이내 본점 소재지 이전'). 입주 자격(conditions)이 아니라 입주 후 지킬 일이라 판정하지 않아요 (2026-10-22 추가)",
+      "required": ["mandatory", "withinMonths", "rawText", "evidence"],
+      "properties": {
+        "mandatory": { "type": ["boolean", "null"], "description": "true 이전 필수, false 이전하지 않아도 됨이 글에 있음, null 글에 없음" },
+        "withinMonths": { "$ref": "#/$defs/nullableCount", "description": "이전 기한 (입주·계약 후 개월). '1개월 내'면 1, 기한이 없으면 null" },
+        "rawText": { "$ref": "#/$defs/nullableString", "description": "본점 이전 원문" },
+        "evidence": { "$ref": "#/$defs/nullableString", "description": "원문이 들어 있는 문장 (text에 그대로 있어야 해요)" }
+      }
+    },
     "schedule": {
       "type": "object",
       "additionalProperties": false,
@@ -134,7 +147,7 @@
             "LEASE", "FIRST_HOME", "EMPLOYMENT", "EDUCATION", "OCCUPATION", "WORKPLACE", "STARTUP_STAGE", "BUSINESS_YEARS", "INDUSTRY",
             "REVENUE", "EMPLOYEES", "BUSINESS_LOCATION", "EXCLUSIVE", "PRIORITY", "OTHER"
           ],
-          "description": "사업공간 모집에서 주로 나오는 type: STARTUP_STAGE(예비·창업 후), BUSINESS_YEARS(업력), INDUSTRY(업종), BUSINESS_LOCATION(사업장 소재지), AGE(대표자 나이), EXCLUSIVE(제외 대상), PRIORITY(우대)"
+          "description": "사업공간 모집에서 주로 나오는 type: STARTUP_STAGE(예비·창업 후), BUSINESS_YEARS(업력), INDUSTRY(업종), BUSINESS_LOCATION(신청할 때의 사업장 소재지. 입주 후 본점 이전 의무는 hqRelocation), AGE(대표자 나이), EXCLUSIVE(제외 대상), PRIORITY(우대)"
         },
         "value": { "type": ["object", "null"], "description": "type마다 정해진 모양 ({\"max\":7} 등). known=false면 null" },
         "group": { "type": "integer", "minimum": 1 },

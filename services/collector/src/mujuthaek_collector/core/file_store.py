@@ -7,6 +7,7 @@ S3 위치: raw/<출처>/<글 키>/v<버전>/<순번>-<파일명>
 
 import re
 from datetime import date
+from pathlib import Path
 from typing import Protocol
 
 CONTENT_TYPES = {
@@ -17,6 +18,7 @@ CONTENT_TYPES = {
     "xlsm": "application/vnd.ms-excel.sheet.macroEnabled.12",
     "xls": "application/vnd.ms-excel",
     "txt": "text/plain; charset=utf-8",
+    "csv": "text/csv",
 }
 
 
@@ -24,6 +26,10 @@ class FileStore(Protocol):
     def put(self, key: str, data: bytes, content_type: str) -> str: ...
 
     def delete(self, key: str) -> None: ...
+
+    def put_file(self, key: str, path: Path, content_type: str, metadata: dict[str, str]) -> str: ...
+
+    def metadata(self, key: str) -> dict[str, str] | None: ...
 
 
 class S3FileStore:
@@ -39,6 +45,24 @@ class S3FileStore:
 
     def delete(self, key: str) -> None:
         self._s3.delete_object(Bucket=self._bucket, Key=key)
+
+    def put_file(self, key: str, path: Path, content_type: str, metadata: dict[str, str]) -> str:
+        """큰 파일(상가 시도 파일 수십 MB)을 메모리에 올리지 않고 올려요. 일정 크기를 넘으면 여러 조각(multipart)으로 나눠 보내요.
+        메타데이터 값은 ASCII만 돼요 (S3 규칙)."""
+        with path.open("rb") as f:
+            self._s3.upload_fileobj(f, self._bucket, key, ExtraArgs={"ContentType": content_type, "Metadata": metadata})
+        return key
+
+    def metadata(self, key: str) -> dict[str, str] | None:
+        """객체 메타데이터 (키는 소문자). 객체가 없으면 None."""
+        from botocore.exceptions import ClientError
+
+        try:
+            return self._s3.head_object(Bucket=self._bucket, Key=key)["Metadata"]
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+                return None
+            raise
 
 
 def safe_part(text: str, limit: int = 80) -> str:

@@ -11,7 +11,7 @@ import java.util.Map;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
@@ -45,8 +45,8 @@ class JudgmentQueryServiceTest {
     }
   }
 
-  private static ApplicantRequest applicant(String json) {
-    return JSON.readValue(json, ApplicantRequest.class);
+  private static JudgmentApplicantRequest applicant(String json) {
+    return JSON.readValue(json, JudgmentApplicantRequest.class);
   }
 
   private static void rejected(Runnable call, ErrorCode code, String detail) {
@@ -61,7 +61,7 @@ class JudgmentQueryServiceTest {
 
   @Test
   void housingJudgesTheSeoripulNotice() throws Exception {
-    ApplicantRequest applicant =
+    JudgmentApplicantRequest applicant =
         applicant(
             """
             {"birthDate": "1999-05-05", "residenceRegionCode": "1165000000",
@@ -106,7 +106,7 @@ class JudgmentQueryServiceTest {
 
   @Test
   void businessSpaceJudgesTheYangsanNotice() throws Exception {
-    ApplicantRequest applicant =
+    JudgmentApplicantRequest applicant =
         applicant(
             """
             {"birthDate": "1996-02-01", "korean": true,
@@ -130,7 +130,7 @@ class JudgmentQueryServiceTest {
 
   @Test
   void startupSupportShowsPreferencesSeparately() throws Exception {
-    ApplicantRequest applicant =
+    JudgmentApplicantRequest applicant =
         applicant(
             """
             {"birthDate": "1993-04-10", "business": {"history": [{"openedOn": "2024-05-02"}], "industryCode": "58222"},
@@ -183,10 +183,11 @@ class JudgmentQueryServiceTest {
   @Test
   void aWrongApplicantValueIsRejectedWithoutEchoingIt() throws Exception {
     JsonNode frame = frame("housing/seoripul-artown");
-    ApplicantRequest applicant = applicant("{\"household\": {\"monthlyIncomeWon\": -7654321}}");
+    JudgmentApplicantRequest applicant =
+        applicant("{\"household\": {\"monthlyIncomeWon\": -7654321}}");
     rejected(
         () -> judgments.judgeHousing(frame, applicant, null),
-        ErrorCode.INVALID_REQUEST,
+        ErrorCode.VALIDATION_FAILED,
         "profile.household.monthlyIncomeWon");
     assertThatThrownBy(() -> judgments.judgeHousing(frame, applicant, null))
         .hasMessageNotContaining("7654321");
@@ -194,6 +195,6 @@ class JudgmentQueryServiceTest {
 
   @Test
   void theFrameIsRequired() {
-    rejected(() -> judgments.judgeHousing(null, null, null), ErrorCode.INVALID_REQUEST, "frame");
+    rejected(() -> judgments.judgeHousing(null, null, null), ErrorCode.VALIDATION_FAILED, "frame");
   }
 }

@@ -12,7 +12,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
@@ -142,8 +142,8 @@ class MatchQueryServiceTest {
     }
   }
 
-  private static ApplicantRequest applicant(String json) {
-    return JSON.readValue(json, ApplicantRequest.class);
+  private static JudgmentApplicantRequest applicant(String json) {
+    return JSON.readValue(json, JudgmentApplicantRequest.class);
   }
 
   private static List<UUID> ids(MatchResult result) {
@@ -287,12 +287,12 @@ class MatchQueryServiceTest {
             () -> matches.matchHousing(applicant("{\"household\": {\"monthlyIncomeWon\": -1}}")))
         .isInstanceOfSatisfying(
             CustomException.class,
-            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
   }
 
   @Test
   void personalInputsNeverReachTheLogs(CapturedOutput output) {
-    ApplicantRequest applicant =
+    JudgmentApplicantRequest applicant =
         applicant(
             """
             {"birthDate": "1987-06-05", "residenceRegionCode": "1165000000",
