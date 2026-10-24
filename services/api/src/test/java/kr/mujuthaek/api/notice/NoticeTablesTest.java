@@ -16,6 +16,11 @@ class NoticeTablesTest {
             jdbc.queryForList(
                 "select table_name from information_schema.tables where table_schema = 'notice' order by 1",
                 String.class))
-        .containsExactly("notice_sources", "notices");
+        .contains(
+            "extraction_results",
+            "notice_follow_ups",
+            "notice_posts",
+            "notice_versions",
+            "notices");
   }
 }

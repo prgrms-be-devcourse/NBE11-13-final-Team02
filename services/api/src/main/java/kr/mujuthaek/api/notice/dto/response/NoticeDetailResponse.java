@@ -9,6 +9,7 @@ import java.util.UUID;
 /**
  * 공고 상세 (API 설계 "상세 응답의 묶음"). 현재 공개 버전의 추출 결과에서 만들어요. 첨부는 기관 링크만 주고 파일은 주지 않아요.
  *
+ * @param followUps 원래 공고에 붙은 후속 안내 (서류 제출·당첨자 발표 등). 공고 버전과 따로 붙어요
  * @param hasUnits 호별 주택목록이 있는지 (없으면 화면이 주택목록·지도 섹션을 숨겨요)
  * @param reviewed 검수자가 확인한 버전인지
  */
@@ -20,6 +21,7 @@ public record NoticeDetailResponse(
     List<UnitType> unitTypes,
     List<Condition> conditions,
     List<FileLink> files,
+    List<FollowUp> followUps,
     boolean hasUnits,
     int version,
     boolean reviewed,
@@ -85,4 +87,8 @@ public record NoticeDetailResponse(
       boolean inReview) {}
 
   public record FileLink(String name, String url) {}
+
+  /** 후속 안내 글 하나와 그 일정. */
+  public record FollowUp(
+      String title, String detailUrl, LocalDate postedOn, List<Schedule> schedules) {}
 }

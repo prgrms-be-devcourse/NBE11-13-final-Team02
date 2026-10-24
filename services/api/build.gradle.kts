@@ -34,6 +34,7 @@ dependencies {
     implementation(platform("software.amazon.awssdk:bom:2.55.9"))
     implementation("software.amazon.awssdk:s3") // area 원천 파일 읽기 (로컬은 MinIO)
     implementation("org.postgresql:postgresql") // area 적재기가 COPY(CopyManager)를 직접 써요
+    implementation("com.networknt:json-schema-validator:3.0.8") // notice가 받은 이벤트를 계약 스키마로 검사해요
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.boot:spring-boot-starter-security-test")
@@ -57,6 +58,21 @@ spotless {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+}
+
+// 저장소의 계약을 그대로 패키징해요. 실행 중 네트워크나 Python 프로세스로 검증하지 않아요.
+tasks.processResources {
+    from("../../contracts") {
+        include("schemas/*.json", "events/extraction.completed.v1.json", "mappings/*.json")
+        into("contracts")
+    }
+}
+
+tasks.processTestResources {
+    from("../../contracts") {
+        include("examples/*.json", "tests/fixtures/*.json", "tests/fixtures/judgment/*.json")
+        into("contracts")
+    }
 }
 
 // 커버리지는 각 모듈의 service 패키지와 eligibility/rule만 재요 (controller·repository·dto 등은 제외)

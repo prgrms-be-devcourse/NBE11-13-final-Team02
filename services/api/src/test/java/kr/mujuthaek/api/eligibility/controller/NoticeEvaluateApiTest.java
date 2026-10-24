@@ -86,7 +86,7 @@ class NoticeEvaluateApiTest {
     return f.notice(
         p -> {
           try {
-            p.set("judgment", JudgmentReaderTest.example());
+            NoticeFixtures.judgment(p, JudgmentReaderTest.example());
           } catch (Exception e) {
             throw new IllegalStateException(e);
           }

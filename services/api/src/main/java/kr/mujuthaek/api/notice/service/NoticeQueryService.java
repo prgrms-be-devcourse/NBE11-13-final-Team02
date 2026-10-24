@@ -19,6 +19,7 @@ import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeVersionResponse;
 import kr.mujuthaek.api.notice.mapper.NoticeDetailMapper;
+import kr.mujuthaek.api.notice.repository.FollowUpRepository;
 import kr.mujuthaek.api.notice.repository.NoticeQueries;
 import kr.mujuthaek.api.notice.repository.NoticeQueries.CurrentRow;
 import kr.mujuthaek.api.notice.repository.NoticeQueries.ListRow;
@@ -35,13 +36,19 @@ public class NoticeQueryService {
   private static final String UNITS_SORT = "UNITS";
 
   private final NoticeQueries queries;
+  private final FollowUpRepository followUps;
   private final RegionQueryService regions;
   private final Clock clock;
   private final JsonMapper json;
 
   public NoticeQueryService(
-      NoticeQueries queries, RegionQueryService regions, Clock clock, JsonMapper json) {
+      NoticeQueries queries,
+      FollowUpRepository followUps,
+      RegionQueryService regions,
+      Clock clock,
+      JsonMapper json) {
     this.queries = queries;
+    this.followUps = followUps;
     this.regions = regions;
     this.clock = clock;
     this.json = json;
@@ -83,6 +90,16 @@ public class NoticeQueryService {
     return NoticeDetailMapper.map(
         header,
         payload(current),
+        followUps.findByNotice(noticeId).stream()
+            .map(
+                f ->
+                    NoticeDetailMapper.followUp(
+                        f.title(),
+                        f.detailUrl(),
+                        f.postedOn(),
+                        json.readTree(f.schedulesJson()),
+                        today))
+            .toList(),
         current.version(),
         current.reviewed(),
         local(current.updatedAt()),
@@ -121,7 +138,7 @@ public class NoticeQueryService {
       out.add(
           new NoticeVersionResponse(
               row.version(),
-              row.kind(),
+              now.kind(),
               row.reviewStatus(),
               before == null ? List.of() : now.changedFrom(before),
               local(row.receivedAt())));
