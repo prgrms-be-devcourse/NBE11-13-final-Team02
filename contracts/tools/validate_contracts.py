@@ -296,8 +296,28 @@ def event_errors(payload):
     return errors
 
 
-# 분야별 판정 틀(판정 담당이 준 원본 그대로, contracts/schemas/*-judgment.v1.json). 정책·창업지원은 아직 이 이벤트에 틀이 없습니다
-JUDGMENT_SCHEMAS = {"HOUSING": "housing-judgment.v1", "BUSINESS_SPACE": "business-space-judgment.v1"}
+# 분야별 판정 틀(판정 담당이 준 원본 그대로, contracts/schemas/*-judgment.v1.json). 정책(POLICY)은 틀이 없습니다
+JUDGMENT_SCHEMAS = {
+    "HOUSING": "housing-judgment.v1",
+    "BUSINESS_SPACE": "business-space-judgment.v1",
+    "STARTUP_SUPPORT": "startup-support-judgment.v1",
+    "SPACE_RECRUITMENT": "business-space-judgment.v1",
+}
+# 정책 수집에서 만든 판정 틀만 실어 오는 분야: 틀과 지원 지역(regionCodes)이 있어야 하고 상세(notice)는 없습니다
+POLICY_FRAME_FIELDS = {"STARTUP_SUPPORT", "SPACE_RECRUITMENT"}
+# 틀이 가리키는 원본 칸: 창업지원 틀은 수집 이벤트 raw.policy.collected의 rawPolicyId를 씁니다
+JUDGMENT_SOURCE_KEY = {"STARTUP_SUPPORT": "rawPolicyId"}
+# 정책 이벤트에만 있고 반드시 있는 칸: 원문 주소(없으면 null)와 상시 모집 여부. 공고 분야에는 넣지 않습니다
+POLICY_ONLY_KEYS = ("regionCodes", "detailUrl", "applyAlways")
+
+
+def _any_in_review(node):
+    """판정 틀 어디든(안내 notes 제외) inReview가 true인 조건이 있는지."""
+    if isinstance(node, dict):
+        return node.get("inReview") is True or any(_any_in_review(v) for k, v in node.items() if k != "notes")
+    if isinstance(node, list):
+        return any(_any_in_review(v) for v in node)
+    return False
 
 
 def _judgment_ids(node):
@@ -312,12 +332,27 @@ def _judgment_ids(node):
 def judgment_errors(payload):
     """판정 틀(judgment): 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(group·조건·우대)."""
     judgment = payload.get("judgment")
+    policy = payload["field"] in POLICY_FRAME_FIELDS
+    if policy and (
+        judgment is None
+        or any(key not in payload for key in POLICY_ONLY_KEYS)
+        or "notice" in payload
+        or "heldItems" in payload
+        or payload["conditions"]
+    ):
+        return ["EVENT_POLICY_FRAME_SHAPE /payload"]
+    if not policy and (extra := [key for key in POLICY_ONLY_KEYS if key in payload]):
+        return [f"EVENT_POLICY_FRAME_SHAPE /payload/{extra[0]}"]
     if judgment is None:
         return []
     errors = []
+    # 정책 틀의 검수 상태는 틀 전체로 정합니다(heldItems 없음): 확인 필요 조건이 있는 틀은 자동 통과가 아님(PARTIALLY_PASSED 이상)
+    if policy and payload["reviewStatus"] == "AUTO_PASSED" and _any_in_review(judgment):
+        errors.append("EVENT_POLICY_REVIEW_STATUS /payload/reviewStatus")
     if judgment.get("schema") != JUDGMENT_SCHEMAS.get(payload["field"]):
         errors.append("EVENT_JUDGMENT_FIELD_CONFLICT /payload/judgment/schema")
-    if (judgment.get("rawPostId"), judgment.get("rawVersion")) != (payload["rawPostId"], payload["rawVersion"]):
+    source_key = JUDGMENT_SOURCE_KEY.get(payload["field"], "rawPostId")
+    if (judgment.get(source_key), judgment.get("rawVersion")) != (payload["rawPostId"], payload["rawVersion"]):
         errors.append("EVENT_JUDGMENT_IDENTITY_CONFLICT /payload/judgment")
     ids = _judgment_ids({k: v for k, v in judgment.items() if k != "notes"})
     if len(ids) != len(set(ids)):
@@ -650,8 +685,13 @@ def semantic_errors(data, ready=False):
                 error("PAGE_OUT_OF_RANGE", path)
             if ready and document["pageCount"] is None:
                 error("PAGE_COUNT_REQUIRED", path)
-        if locator["kind"] == "TEXT_RANGE" and locator["start"] >= locator["end"]:
-            error("EMPTY_TEXT_RANGE", path)
+        if locator["kind"] == "TEXT_RANGE":
+            if locator["start"] >= locator["end"]:
+                error("EMPTY_TEXT_RANGE", path)
+            # 쪽 표시가 있는 PDF 글자의 쪽 번호(선택): 문서 쪽 수를 알면 그 안이어야 합니다
+            page = locator.get("page")
+            if page is not None and document["pageCount"] is not None and page > document["pageCount"]:
+                error("PAGE_OUT_OF_RANGE", path)
     for count_id, count in counts.items():
         count_path = count_paths[count_id]
         parent_id = count["parentCountId"]

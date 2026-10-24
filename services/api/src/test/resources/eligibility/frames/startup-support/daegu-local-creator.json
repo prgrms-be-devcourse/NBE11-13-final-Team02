@@ -1,0 +1,250 @@
+{
+  "description": "2026 대구 청년 로컬크리에이터: 대구 주소 청년, 예비·초기, 남구·서구 가점 (기준일 2026-03-16)",
+  "frame": {
+    "schema": "startup-support-judgment.v1",
+    "rawPolicyId": "test",
+    "rawVersion": 1,
+    "referenceDate": "2026-03-16",
+    "common": [
+      {
+        "id": "daegu-resident",
+        "kind": "REGION",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "basis": "RESIDENCE",
+        "regionCodes": [
+          "2700000000"
+        ]
+      },
+      {
+        "id": "youth-age",
+        "kind": "AGE",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "minAge": 19,
+        "maxAge": 39
+      },
+      {
+        "id": "daegu-registration",
+        "kind": "ASK",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "question": "지원기간 안에 대구시에 사업자 등록을 할 수 있나요?",
+        "metWhen": "YES"
+      }
+    ],
+    "groups": [
+      {
+        "id": "pre-local",
+        "name": "예비로컬창업자",
+        "criteria": [
+          {
+            "id": "pre-local-none",
+            "kind": "BUSINESS_REGISTRATION",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "require": "NOT_REGISTERED"
+          }
+        ]
+      },
+      {
+        "id": "early-local",
+        "name": "초기 로컬창업자",
+        "criteria": [
+          {
+            "id": "early-local-registered",
+            "kind": "BUSINESS_REGISTRATION",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "require": "REGISTERED"
+          },
+          {
+            "id": "early-local-window",
+            "kind": "BUSINESS_AGE",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "openedFrom": "2023-03-17",
+            "openedTo": "2026-03-16"
+          }
+        ]
+      }
+    ],
+    "preferences": [
+      {
+        "id": "nam-seo-gu",
+        "label": "대구 남구·서구 사업자 또는 등록 예정 (가점 5점)",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 5,
+        "criteria": [
+          {
+            "id": "nam-seo-gu-paths",
+            "kind": "ANY_OF",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "options": [
+              {
+                "label": "남구·서구에 사업장이 있음",
+                "criteria": [
+                  {
+                    "id": "nam-seo-gu-site",
+                    "kind": "REGION",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "asOf": null,
+                    "basis": "BUSINESS_SITE",
+                    "regionCodes": [
+                      "2720000000",
+                      "2717000000"
+                    ]
+                  }
+                ]
+              },
+              {
+                "label": "남구·서구에 등록 예정",
+                "criteria": [
+                  {
+                    "id": "nam-seo-gu-plan",
+                    "kind": "ASK",
+                    "quote": null,
+                    "page": null,
+                    "inReview": false,
+                    "reviewReason": null,
+                    "asOf": null,
+                    "question": "대구 남구나 서구에 사업자 등록을 할 예정인가요?",
+                    "metWhen": "YES"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "quote": null,
+        "page": null
+      }
+    ],
+    "notes": [
+      {
+        "kind": "OBLIGATION",
+        "groupId": null,
+        "text": "남구·서구 가점을 받고 다른 곳에 사업자 등록을 하면 선정이 취소될 수 있어요.",
+        "quote": null,
+        "page": null
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "달서구 주소, 만 25세 예비창업자 → 지원 가능",
+      "applicant": {
+        "birthDate": "2000-08-08",
+        "residenceRegionCode": "2729000000",
+        "business": {
+          "history": [],
+          "hasSite": false
+        }
+      },
+      "answers": {
+        "daegu-registration": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "pre-local": "MET"
+        },
+        "preferences": {
+          "nam-seo-gu": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "name": "경북 주소 → 지원 불가",
+      "applicant": {
+        "birthDate": "2000-08-08",
+        "residenceRegionCode": "4711100000",
+        "business": {
+          "history": []
+        }
+      },
+      "answers": {
+        "daegu-registration": "YES"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "daegu-resident": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "주소를 시도만 '27'(대구)로 넣어도 대구 전체 조건이라 충족",
+      "applicant": {
+        "birthDate": "2000-08-08",
+        "residenceRegionCode": "27",
+        "business": {
+          "history": []
+        }
+      },
+      "answers": {
+        "daegu-registration": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "daegu-resident": "MET"
+        }
+      }
+    },
+    {
+      "name": "남구 사업장(2720010300) → 남구·서구 가점 우대 해당",
+      "applicant": {
+        "birthDate": "1995-08-08",
+        "residenceRegionCode": "2720000000",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2024-01-01"
+            }
+          ],
+          "hasSite": true,
+          "siteRegionCode": "2720010300"
+        }
+      },
+      "answers": {
+        "daegu-registration": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "early-local": "MET"
+        },
+        "preferences": {
+          "nam-seo-gu": "MET"
+        }
+      }
+    }
+  ]
+}

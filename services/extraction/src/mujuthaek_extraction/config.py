@@ -25,6 +25,11 @@
   EXTRACTION_PARALLEL_STAGGER_SECONDS=1.5  병렬 섹션 호출을 이 간격(초)으로 하나씩 내보냅니다(한꺼번에 보내면 1개가 원문 캐시를 못 읽음).
                                  응답은 기다리지 않아 늘어나는 시간은 최대 (호출 수-1)×간격. 0이면 한꺼번에
 
+비용 경고 (2026-10-23, cost_alert.py)
+  EXTRACTION_SLACK_WEBHOOK_URL   슬랙 수신 웹훅 주소(없으면 services/extraction/.env에서 읽음).
+                                 이번 달 유료 비용이 EXTRACTION_MONTHLY_BUDGET_USD의 80%를 넘으면 달마다 한 번 보냅니다.
+                                 비우면 보내지 않고 경고 로그만 남깁니다. 주소는 출력·로그에 남기지 않습니다
+
 호출별 출력 한도 (2026-10-20, rules/housing_notice OUTPUT_LIMITS)
   EXTRACTION_MAX_OUTPUT_TOKENS   비우면 기본 한도(실측 최대의 약 1.3배). "selection=32000,documents=24000"처럼 호출 이름=토큰 수로 바꿉니다.
                                  바꾸면 그 호출은 성공한 호출 다시 쓰기의 요청 열쇠가 달라져 한 번 새로 호출합니다
@@ -33,7 +38,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from mujuthaek_extraction.method import extraction_method
@@ -70,6 +75,7 @@ class Settings:
     notice_budget_usd: float = 0.5  # 공고 1건 유료 비용 상한. 큰 공고가 중간에 멈추지 않게 넉넉히(실제 $0.03~0.06, 사용자 결정 2026-10-16)
     daily_budget_usd: float = 30.0  # 유료 비용 하루 전체 상한(한국 시간 기준, 사용자 결정 2026-10-21). 넘을 처리는 다음 날까지 미룹니다
     monthly_budget_usd: float = 600.0  # 유료 비용 월 전체 상한(사용자 결정 2026-10-21)
+    slack_webhook_url: str | None = field(default=None, repr=False)  # 월 상한 80% 경고 (EXTRACTION_SLACK_WEBHOOK_URL, 비우면 로그만)
     review_host: str = "127.0.0.1"  # 검수 API에는 인증이 없어 기본은 이 컴퓨터에서만 열립니다 (Docker에서는 0.0.0.0)
     review_port: int = 8092
     review_token: str | None = None  # 있으면 검수 API에 Bearer 토큰 필요, 없으면 같은 컴퓨터 요청만 (로그에 남기지 않음)
@@ -121,6 +127,7 @@ class Settings:
             notice_budget_usd=float(os.getenv("EXTRACTION_NOTICE_BUDGET_USD", "0.5")),
             daily_budget_usd=float(os.getenv("EXTRACTION_DAILY_BUDGET_USD", "30")),
             monthly_budget_usd=float(os.getenv("EXTRACTION_MONTHLY_BUDGET_USD", "600")),
+            slack_webhook_url=os.getenv("EXTRACTION_SLACK_WEBHOOK_URL") or _from_env_file("EXTRACTION_SLACK_WEBHOOK_URL"),
             review_host=os.getenv("EXTRACTION_REVIEW_HOST", "127.0.0.1"),
             review_port=int(os.getenv("EXTRACTION_REVIEW_PORT", "8092")),
             review_token=os.getenv("EXTRACTION_REVIEW_TOKEN") or None,
@@ -138,3 +145,11 @@ class Settings:
         from mujuthaek_extraction.model.openai_responses import read_api_key
 
         return os.getenv("OPENAI_API_KEY") or (read_api_key(self.env_file) if self.env_file.exists() else None)
+
+
+def _from_env_file(name: str) -> str | None:
+    """services/extraction/.env 파일에서 값 하나를 읽습니다(OPENAI_API_KEY와 같은 방식). 값은 출력하지 않습니다."""
+    from mujuthaek_extraction.model.openai_responses import read_api_key
+
+    env_file = SERVICE_DIR / ".env"
+    return read_api_key(env_file, name) if env_file.exists() else None

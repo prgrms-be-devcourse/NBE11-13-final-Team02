@@ -15,6 +15,7 @@ from typing import Any
 
 from psycopg.types.json import Jsonb
 
+from mujuthaek_extraction.cost_alert import monthly_costs
 from mujuthaek_extraction.pipeline import Outcome
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
@@ -22,6 +23,20 @@ from mujuthaek_platform.ids import uuid7
 REVIEW_STATUSES = {"IN_REVIEW", "INTAKE_REVIEW"}
 PARTIAL = "PARTIAL"  # 부분 게시: 이미 발행했고, 보류 항목은 사람이 확인해 승인할 수 있게 검수 목록에도 넣습니다(게시를 막지 않음)
 SUPERSEDED = "SUPERSEDED"
+JUDGMENT_NAMESPACE = uuid.UUID("5b0c8f9e-2f0a-4f41-9d7e-3f1c2a6b9d10")  # 창업지원 판정 틀 처리 기록 ID를 만드는 이름공간(고정값)
+
+
+def _judgment_keys(raw_event: dict[str, Any], *, with_version: bool) -> list[str]:
+    """판정 틀 처리 기록 ID: 수집 eventId에서 하나, with_version이면 정책·버전에서 하나 더(재처리 이벤트는 버전 기록을 보지 않음)."""
+    keys = []
+    source = _uuid_or_none(raw_event.get("eventId"))
+    if source:
+        keys.append(str(uuid.uuid5(JUDGMENT_NAMESPACE, source)))
+    payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+    policy, version = _uuid_or_none(payload.get("rawPolicyId")), payload.get("version")
+    if with_version and policy and isinstance(version, int) and not payload.get("reprocess"):
+        keys.append(str(uuid.uuid5(JUDGMENT_NAMESPACE, f"{policy}/v{version}")))
+    return keys
 
 
 class DuplicateEvent(Exception):
@@ -125,6 +140,28 @@ class JobStore:
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(held)))
         return job_id
 
+    def judged(self, raw_event: dict[str, Any]) -> bool:
+        """이 수집 이벤트, 또는 같은 정책·버전(재처리가 아니면)으로 판정 틀 이벤트를 이미 넣었는지. AI를 다시 부르지 않게 처리 전에 봅니다
+        (리뷰 2026-10-22: 수집기가 같은 버전을 새 eventId로 다시 보내면 AI를 또 불렀음. 공고의 version_published와 같은 규칙)."""
+        return any(self.already_processed(key) for key in _judgment_keys(raw_event, with_version=True))
+
+    def save_judgment(self, raw_event: dict[str, Any], event: dict[str, Any]) -> bool:
+        """정책 판정 틀 이벤트를 아웃박스에 넣습니다(AI 작업이 아니라 작업 기록은 없음). 같은 수집 이벤트로 이미 넣었으면 False.
+        처리 기록은 수집 eventId에서 만든 별도 ID로 남겨, 같은 수집 이벤트를 정책 추출이 따로 처리하는 것과 겹치지 않게 합니다."""
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            keys = _judgment_keys(raw_event, with_version=False)
+            if keys:
+                claimed = cur.execute(
+                    "insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing returning event_id",
+                    (keys[0], "startup-judgment"),
+                ).fetchone()
+                if claimed is None:
+                    return False
+            for key in _judgment_keys(raw_event, with_version=True)[len(keys) :]:  # 정책·버전 기록(재처리로 다시 와도 오류 없이)
+                cur.execute("insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing", (key, "startup-judgment"))
+            outbox.add(cur, event)
+        return True
+
     # ---- 원본 버전 처리권 (migrations/V202610201200__extraction_claims.sql) ----
     def claim(self, raw_post_id: str, raw_version: int, owner: str, lease_seconds: float) -> bool:
         """처리권을 잡습니다. 아무도 없거나 기한이 지났으면 잡고 True, 다른 처리가 기한 안에 잡고 있으면 False."""
@@ -203,6 +240,11 @@ class JobStore:
             )
             if cur.rowcount != 1:
                 raise LookupError("대기 중인 검수가 아닙니다.")
+
+    # ---- 비용 ----
+    def monthly_costs(self, month: str | None = None, budget_usd: float | None = None) -> dict[str, Any]:
+        """그 달의 분야별 유료 AI 호출 수·비용(cost_alert.monthly_costs)."""
+        return monthly_costs(self.conn, month, budget_usd)
 
     # ---- 다시 처리 ----
     def spent_before(self, raw_event: dict[str, Any]) -> float:
