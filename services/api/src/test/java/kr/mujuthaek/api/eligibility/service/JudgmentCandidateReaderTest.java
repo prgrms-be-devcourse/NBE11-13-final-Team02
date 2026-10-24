@@ -142,13 +142,4 @@ class JudgmentCandidateReaderTest {
                 STARTUP_FRAME,
                 "https://example.org/programs/pre-startup"));
   }
-
-  @Test
-  void stubsGiveNothingUntilDataIsStored() {
-    NoticeQueryService stub = new NoticeQueryService(null, null, null, null, null, null);
-    for (NoticeField field : NoticeField.values()) {
-      assertThat(stub.findOpenForJudgment(field)).as(field.name()).isEmpty();
-    }
-    assertThat(stub.findOpenProgramsForJudgment()).isEmpty();
-  }
 }

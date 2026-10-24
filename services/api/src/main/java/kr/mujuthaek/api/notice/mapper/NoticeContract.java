@@ -164,20 +164,52 @@ public final class NoticeContract {
     }
   }
 
-  /** 분야별 판정 틀(판정 담당이 준 형식 그대로). 정책·창업지원은 아직 이 이벤트에 틀이 없어요. */
+  /** 분야별 판정 틀(판정 담당이 준 형식 그대로). 정책(POLICY)은 틀이 없어요. */
   private static final Map<String, String> JUDGMENT_SCHEMAS =
-      Map.of("HOUSING", "housing-judgment.v1", "BUSINESS_SPACE", "business-space-judgment.v1");
+      Map.of(
+          "HOUSING", "housing-judgment.v1",
+          "BUSINESS_SPACE", "business-space-judgment.v1",
+          "STARTUP_SUPPORT", "startup-support-judgment.v1",
+          "SPACE_RECRUITMENT", "business-space-judgment.v1");
+
+  /** 정책 수집에서 만든 판정 틀만 실어 오는 분야: 틀과 지원 지역(regionCodes)이 있어야 하고 상세(notice)는 없어요. */
+  private static final Set<String> POLICY_FRAME_FIELDS =
+      Set.of("STARTUP_SUPPORT", "SPACE_RECRUITMENT");
+
+  /** 틀이 가리키는 원본 칸: 창업지원 틀은 수집 이벤트(raw.policy.collected)의 rawPolicyId예요. */
+  private static final Map<String, String> JUDGMENT_SOURCE_KEY =
+      Map.of("STARTUP_SUPPORT", "rawPolicyId");
+
+  /** 정책 이벤트에만 있고 반드시 있는 칸: 지원 지역, 원문 주소(없으면 null), 상시 모집 여부 (계약 검사기 POLICY_ONLY_KEYS). */
+  private static final java.util.List<String> POLICY_ONLY_KEYS =
+      java.util.List.of("regionCodes", "detailUrl", "applyAlways");
 
   /** 판정 틀: 분야에 맞는 틀인지, 같은 공고·버전인지, 스키마로 못 잡는 ID 유일성(계약 검사기 judgment_errors와 같게). */
   private static void checkJudgment(JsonNode payload) {
     JsonNode judgment = payload.path("judgment");
+    boolean policy = POLICY_FRAME_FIELDS.contains(payload.path("field").asString());
+    if (policy
+        && (!judgment.isObject()
+            || POLICY_ONLY_KEYS.stream().anyMatch(key -> !payload.has(key))
+            || payload.has("notice")
+            || payload.has("heldItems")
+            || !payload.path("conditions").isEmpty())) fail("EVENT_POLICY_FRAME_SHAPE", "/payload");
+    if (!policy)
+      for (String key : POLICY_ONLY_KEYS)
+        if (payload.has(key)) fail("EVENT_POLICY_FRAME_SHAPE", "/payload/" + key);
     if (!judgment.isObject()) return;
+    // 정책 틀의 검수 상태는 틀 전체로 정해요(heldItems 없음): 확인 필요 조건이 있는 틀은 자동 통과가 아니에요
+    if (policy
+        && "AUTO_PASSED".equals(payload.path("reviewStatus").asString(""))
+        && anyInReview(judgment)) fail("EVENT_POLICY_REVIEW_STATUS", "/payload/reviewStatus");
     if (!judgment
         .path("schema")
         .asString("")
         .equals(JUDGMENT_SCHEMAS.get(payload.path("field").asString())))
       fail("EVENT_JUDGMENT_FIELD_CONFLICT", "/payload/judgment/schema");
-    if (!sameValue(judgment.path("rawPostId"), payload.path("rawPostId"))
+    String sourceKey =
+        JUDGMENT_SOURCE_KEY.getOrDefault(payload.path("field").asString(), "rawPostId");
+    if (!sameValue(judgment.path(sourceKey), payload.path("rawPostId"))
         || !sameValue(judgment.path("rawVersion"), payload.path("rawVersion")))
       fail("EVENT_JUDGMENT_IDENTITY_CONFLICT", "/payload/judgment");
     java.util.List<String> ids = new java.util.ArrayList<>();
@@ -185,6 +217,18 @@ public final class NoticeContract {
       if (!field.getKey().equals("notes")) collectIds(field.getValue(), ids);
     if (ids.size() != new java.util.HashSet<>(ids).size())
       fail("JUDGMENT_DUPLICATE_ID", "/payload/judgment");
+  }
+
+  /** 판정 틀 어디든(안내 notes 제외) inReview가 true인 조건이 있는지 (계약 검사기 _any_in_review). */
+  private static boolean anyInReview(JsonNode node) {
+    if (node.isObject()) {
+      if (node.path("inReview").isBoolean() && node.path("inReview").asBoolean()) return true;
+      for (var field : node.properties())
+        if (!field.getKey().equals("notes") && anyInReview(field.getValue())) return true;
+    } else if (node.isArray()) {
+      for (JsonNode item : node) if (anyInReview(item)) return true;
+    }
+    return false;
   }
 
   private static void collectIds(JsonNode node, java.util.List<String> ids) {

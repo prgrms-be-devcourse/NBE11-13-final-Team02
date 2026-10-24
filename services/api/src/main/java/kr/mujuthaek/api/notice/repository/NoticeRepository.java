@@ -26,6 +26,73 @@ public class NoticeRepository {
 
   private final JdbcClient jdbc;
 
+  /** 정책 판정 틀 한 건 (notice.policy_judgments). regionCodes는 시군구 5자리, 빈 목록은 전국. */
+  public record PolicyJudgmentRow(
+      UUID rawPolicyId,
+      String field,
+      int rawVersion,
+      UUID sourceEventId,
+      String title,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      List<String> regionCodes,
+      String frameJson,
+      ReviewStatus reviewStatus,
+      String detailUrl,
+      boolean applyAlways) {}
+
+  /** 저장된(공개 중인) 정책 판정 틀의 버전과 검수 상태. */
+  public record PolicyJudgmentState(int version, ReviewStatus reviewStatus) {}
+
+  /**
+   * 정책 판정 틀을 저장해요. 더 높은 버전이 있거나, 같은 버전의 승인본(APPROVED)을 승인 아닌 결과로 덮으려 하면 바꾸지 않고 false (공고의
+   * KEPT_APPROVED와 같은 규칙).
+   */
+  public boolean savePolicyJudgment(PolicyJudgmentRow row, Instant now) {
+    return jdbc.sql(
+                "insert into notice.policy_judgments (raw_policy_id, field, raw_version, source_event_id,"
+                    + " title, apply_start, apply_end, region_codes, frame, review_status, detail_url,"
+                    + " apply_always, created_at, updated_at) values (:id, :field, :version, :eventId,"
+                    + " :title, :applyStart, :applyEnd, cast(:regions as text[]), cast(:frame as jsonb),"
+                    + " :reviewStatus, :detailUrl, :applyAlways, :now, :now)"
+                    + " on conflict (raw_policy_id) do update set field = excluded.field,"
+                    + " raw_version = excluded.raw_version, source_event_id = excluded.source_event_id,"
+                    + " title = excluded.title, apply_start = excluded.apply_start,"
+                    + " apply_end = excluded.apply_end, region_codes = excluded.region_codes,"
+                    + " frame = excluded.frame, review_status = excluded.review_status,"
+                    + " detail_url = excluded.detail_url, apply_always = excluded.apply_always,"
+                    + " updated_at = excluded.updated_at"
+                    + " where notice.policy_judgments.raw_version < excluded.raw_version"
+                    + " or (notice.policy_judgments.raw_version = excluded.raw_version"
+                    + " and (notice.policy_judgments.review_status <> 'APPROVED'"
+                    + " or excluded.review_status = 'APPROVED'))")
+            .param("id", row.rawPolicyId())
+            .param("field", row.field())
+            .param("version", row.rawVersion())
+            .param("eventId", row.sourceEventId())
+            .param("title", row.title())
+            .param("applyStart", row.applyStart())
+            .param("applyEnd", row.applyEnd())
+            .param("regions", row.regionCodes().toArray(String[]::new))
+            .param("frame", row.frameJson())
+            .param("reviewStatus", row.reviewStatus().name())
+            .param("detailUrl", row.detailUrl())
+            .param("applyAlways", row.applyAlways())
+            .param("now", now.atOffset(ZoneOffset.UTC))
+            .update()
+        == 1;
+  }
+
+  /** 저장된 정책 판정 틀의 버전과 검수 상태 (없으면 비어 있음). */
+  public Optional<PolicyJudgmentState> policyJudgmentState(UUID rawPolicyId) {
+    return jdbc.sql(
+            "select raw_version, review_status from notice.policy_judgments where raw_policy_id = :id")
+        .param("id", rawPolicyId)
+        .query(
+            (rs, i) -> new PolicyJudgmentState(rs.getInt(1), ReviewStatus.valueOf(rs.getString(2))))
+        .optional();
+  }
+
   public NoticeRepository(JdbcClient jdbc) {
     this.jdbc = jdbc;
   }
@@ -270,7 +337,8 @@ public class NoticeRepository {
   /** 다시 계산할 시각이 지난 공고를 잠그고 읽어요. 다른 서버가 이미 잡은 공고는 건너뛰어요(skip locked). 일정은 현재 버전의 원문 일정(상세)에서 읽어요. */
   public List<StatusCheckRow> lockDueForStatusCheck(Instant now, int limit) {
     return jdbc.sql(
-            "select n.id, n.status, (v.payload -> 'notice')::text as detail, v.review_status"
+            "select n.id, n.field, n.status, (v.payload -> 'notice')::text as detail,"
+                + " v.review_status"
                 + " from notice.notices n join notice.notice_versions v"
                 + " on v.notice_id = n.id and v.version = n.current_version"
                 + " where n.next_status_check_at <= :now and n.merged_into is null"
@@ -282,6 +350,7 @@ public class NoticeRepository {
             (rs, i) ->
                 new StatusCheckRow(
                     rs.getObject("id", UUID.class),
+                    rs.getString("field"),
                     NoticeStatus.valueOf(rs.getString("status")),
                     rs.getString("detail"),
                     ReviewStatus.valueOf(rs.getString("review_status"))))
@@ -352,6 +421,14 @@ public class NoticeRepository {
     for (UUID rawPost : rawPosts) {
       lockRawPost(rawPost);
     }
+  }
+
+  /** 공고 분야 (공고 이벤트에 실어요). 없는 공고면 빈 값. */
+  public Optional<String> fieldOf(UUID noticeId) {
+    return jdbc.sql("select field from notice.notices where id = :id")
+        .param("id", noticeId)
+        .query(String.class)
+        .optional();
   }
 
   /** 합쳐진 공고면 합친 공고 ID(합침이 이어져도 마지막 공고), 아니면 그대로. */
@@ -709,7 +786,11 @@ public class NoticeRepository {
 
   /** 접수 상태를 다시 계산할 공고. detailJson은 현재 버전의 상세(원문 일정·보류 항목). */
   public record StatusCheckRow(
-      UUID noticeId, NoticeStatus status, String detailJson, ReviewStatus reviewStatus) {}
+      UUID noticeId,
+      String field,
+      NoticeStatus status,
+      String detailJson,
+      ReviewStatus reviewStatus) {}
 
   /** 공고의 현재 공개 버전 (새 결과와 비교할 때 써요). */
   public record CurrentVersion(

@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.notice.controller;
 
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -41,6 +42,11 @@ class NoticeDetailApiTest {
         .andExpect(jsonPath("$.unitTypes[0].depositWon").value(1000000))
         .andExpect(jsonPath("$.unitTypes[0].rentWon").value(100000))
         .andExpect(jsonPath("$.unitTypes[0].supplyCount").value(1))
+        .andExpect(
+            jsonPath("$.unitTypes[0].evidence[0].documentName").value("housing.synthetic.txt"))
+        .andExpect(jsonPath("$.schedules[0].evidence[0].quote").value(startsWith("테스트 전용 가상 공고")))
+        .andExpect(jsonPath("$.schedules[0].evidence[0].page").doesNotExist())
+        .andExpect(jsonPath("$.conditions[0].evidence.length()").value(1))
         .andExpect(jsonPath("$.conditions.length()").value(3))
         .andExpect(jsonPath("$.conditions[0].category").value("AGE"))
         .andExpect(

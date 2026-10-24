@@ -75,6 +75,29 @@ class NoticeContractTest {
   }
 
   @Test
+  void 글자_범위_근거의_쪽_번호는_선택이고_쪽_수_안이어야_한다() {
+    // 추출이 PDF 글자 근거의 글자 범위에 쪽 번호(page·printedPage)를 함께 실어요(요구 2-07)
+    JsonNode event = resource("/notice/extraction-completed-seoripul.json");
+    JsonNode notice = event.path("payload").path("notice");
+    ObjectNode locator = (ObjectNode) notice.path("evidence").get(0).path("locator");
+    assertThat(locator.path("kind").asString()).isEqualTo("TEXT_RANGE");
+    locator.put("page", 4).put("printedPage", "- 3 -");
+    assertThatCode(() -> ExtractionEvent.from(event)).doesNotThrowAnyException();
+    locator.putNull("printedPage");
+    assertThatCode(() -> ExtractionEvent.from(event)).doesNotThrowAnyException();
+
+    for (JsonNode d : notice.path("documents"))
+      if (d.path("id").asString().equals("pdf-text")) ((ObjectNode) d).put("pageCount", 3);
+    assertThatThrownBy(() -> ExtractionEvent.from(event))
+        .isInstanceOf(ExtractionEvent.InvalidEventException.class)
+        .hasMessageStartingWith("PAGE_OUT_OF_RANGE");
+
+    locator.put("page", 0);
+    assertThatThrownBy(() -> ExtractionEvent.from(event))
+        .isInstanceOf(ExtractionEvent.InvalidEventException.class);
+  }
+
+  @Test
   void 하위_필드를_보류한_상시_모집은_재계산에서도_제외한다() {
     ObjectNode detail =
         (ObjectNode)

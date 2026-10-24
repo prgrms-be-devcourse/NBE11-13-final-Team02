@@ -103,7 +103,7 @@ public class NoticeMergeService {
     notices.mergeInto(from, into, now);
     followUps.moveToNotice(from, into, now);
     notices.decideCandidates(from, into, "MERGED", now);
-    events.publishEvent(new NoticeUpdated(into, List.of(SOURCES), reprocess));
+    events.publishEvent(new NoticeUpdated(into, target.field(), List.of(SOURCES), reprocess));
     log.info("공고 합침 from={} into={}", from, into);
     return Optional.empty();
   }

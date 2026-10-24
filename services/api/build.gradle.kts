@@ -70,7 +70,12 @@ tasks.processResources {
 
 tasks.processTestResources {
     from("../../contracts") {
-        include("examples/*.json", "tests/fixtures/*.json", "tests/fixtures/judgment/*.json")
+        include(
+            "examples/*.json",
+            "tests/fixtures/*.json",
+            "tests/fixtures/judgment/*.json",
+            "openapi/*.json",
+        )
         into("contracts")
     }
 }
