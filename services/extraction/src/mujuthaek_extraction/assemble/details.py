@@ -34,7 +34,8 @@ KST = timezone(timedelta(hours=9))
 
 # 신청 방법 낱말. 이메일을 먼저 찾아 지운 뒤 우편을 찾습니다(「전자우편」이 우편으로 읽히지 않게)
 CHANNEL_WORDS = (
-    ("EMAIL", re.compile(r"이\s*메일|e\s*-?\s*mail|전자\s*우편", re.IGNORECASE)),
+    # 「메일로 송부」·전자우편 주소도 이메일입니다(2026-10-24 일곱 번째 채점: 「메일 (gh@…)로 송부」를 못 알아봄)
+    ("EMAIL", re.compile(r"이\s*메일|e\s*-?\s*mail|전자\s*우편|(?<![가-힣])메일|[\w.+-]+@[\w-]+\.[\w.]+", re.IGNORECASE)),
     ("FAX", re.compile(r"팩스|팩시밀리|fax", re.IGNORECASE)),
     ("ONLINE", re.compile(r"인터넷|온라인|홈페이지|누리집|모바일|웹\s*사이트|on\s*-?\s*line", re.IGNORECASE)),
     ("ONSITE", re.compile(r"방문|현장|창구|내방")),
@@ -86,6 +87,18 @@ def _day_word(day: str) -> re.Pattern[str]:
 DAY_PATTERNS = {code: _day_word(word) for code, word in DAY_WORDS.items()}
 
 
+# 막는 말처럼 보이지만 방법을 막지 않는 꼴(2026-10-24 일곱 번째 채점): 괄호 안의 예외 대상(「우편접수만 가능 (고령자 제외)」), 앞에 「가능」이
+# 있는 말, 시간·날 조건(「점심시간과 휴일에는 현장접수를 하지 않아요」 — 그 시간만 안 받음)
+TIME_CONDITION = re.compile(r"점심|휴일|공휴일|주말|야간|토요일|일요일|시간\s*외")
+
+
+def _not_a_block(text: str, start: int, between: str) -> bool:
+    if "(" in between or "（" in between or "가능" in between:
+        return True
+    before = re.split(r"[.。\n;]", text[max(0, start - 20) : start])[-1]  # 같은 문장 안에서만 봅니다
+    return bool(TIME_CONDITION.search(before))
+
+
 def channel_mentions(text: str) -> tuple[set[str], set[str]]:
     """글에서 찾은 신청 방법: (막는 말 없이 나온 방법, 막는 말과 함께 나온 방법).
     막는 말 뒤에 조건 말이 오면(「…불가한 경우」) 막은 것이 아니므로 그 낱말은 어느 쪽에도 넣지 않습니다.
@@ -95,6 +108,9 @@ def channel_mentions(text: str) -> tuple[set[str], set[str]]:
     for channel, pattern in CHANNEL_WORDS:
         for match in pattern.finditer(text):
             blocked = NEGATION.match(text[match.end() :])
+            if blocked is not None and _not_a_block(text, match.start(), text[match.end() : match.end() + blocked.end()]):
+                positive.add(channel)  # 「우편접수만 가능 (고령자 제외)」「점심시간·휴일에는 현장접수 안 함」은 그 방법을 막은 말이 아닙니다
+                continue
             if blocked is None:
                 positive.add(channel)
             elif CONDITION_AFTER.match(text[match.end() + blocked.end() :]):

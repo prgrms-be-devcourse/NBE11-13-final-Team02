@@ -98,3 +98,19 @@ def test_recheck_keeps_the_fixed_item_even_if_another_item_got_worse():
     assert result.accepted
     assert f"eligibility/{data['eligibility'][1]['id']}" in result.adopted_sections
     assert f"eligibility/{other['id']}" not in result.adopted_sections
+
+
+# ---- 4. 접수 방식 낱말 ----
+
+
+def test_channel_words_for_mail_address_and_exceptions():
+    from mujuthaek_extraction.assemble.details import channel_mentions
+
+    assert "EMAIL" in channel_mentions("서류는 메일 (gasang@gh.or.kr)로 송부")[0]
+    assert "EMAIL" in channel_mentions("gasang@example.com 으로 보내 주세요")[0]
+    positive, negative = channel_mentions("등기우편 접수만 가능 (고령자 제외)")
+    assert "MAIL" in positive and "MAIL" not in negative
+    positive, negative = channel_mentions("점심시간과 휴일에는 현장접수를 하지 않아요")
+    assert "ONSITE" not in negative
+    assert "ONSITE" in channel_mentions("방문 접수 불가")[1]  # 진짜로 막은 말은 그대로
+    assert "MAIL" in channel_mentions("우편 접수는 받지 않습니다")[1]
