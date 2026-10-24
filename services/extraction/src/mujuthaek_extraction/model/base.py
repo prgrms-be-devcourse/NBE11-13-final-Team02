@@ -13,6 +13,7 @@ from typing import Any, Protocol
 class StopReason(Enum):
     END = "END"  # 정상 종료
     MAX_TOKENS = "MAX_TOKENS"  # 출력 한도로 잘림
+    RUNAWAY = "RUNAWAY"  # 받는 도중 반복 폭주를 보고 끊음(스트리밍 호출). 잘림처럼 처리합니다
     REFUSED = "REFUSED"  # 제공자가 응답을 거부함
     OTHER = "OTHER"
 
