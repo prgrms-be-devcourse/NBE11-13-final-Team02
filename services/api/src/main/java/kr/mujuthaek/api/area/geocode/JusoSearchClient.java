@@ -30,7 +30,7 @@ import org.springframework.web.client.RestClientResponseException;
  * Rejected}.
  */
 @Component
-public class JusoSearchClient {
+public class JusoSearchClient implements AddressSearch {
 
   private static final Logger log = LoggerFactory.getLogger(JusoSearchClient.class);
   private static final Set<String> KEY_ERRORS = Set.of("E0001", "E0014");
@@ -58,6 +58,7 @@ public class JusoSearchClient {
    * 검색어로 첫 쪽(최대 10개)을 받아요. 검색어는 주소 정리 결과를 넘기고, 여기서 API가 받지 않는 글자를 걸러요({@link JusoKeyword}). 거르고 나서
    * 비면 부르지 않고 E0005(검색어 없음)예요.
    */
+  @Override
   public SearchOutcome search(String keyword) {
     if (!properties.hasKey()) {
       return new Failed(Reason.NO_KEY, null);
