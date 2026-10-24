@@ -95,6 +95,19 @@ class NoticeUnitsApiTest {
   }
 
   @Test
+  void craftedPositionCursorIs400Not500() throws Exception {
+    UUID id = threeUnits();
+
+    // 커서는 Base64라 위치 값을 바꿔 보낼 수 있어요. 음수나 아주 큰 값이면 목록 범위를 벗어나 500이 났어요
+    for (String position : List.of("-5", String.valueOf(Integer.MAX_VALUE), "abc")) {
+      String cursor = CursorCodec.encode(new CursorKey("UNITS", position, id));
+      mvc.perform(get("/api/v1/notices/{id}/units", id).param("cursor", cursor))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
+    }
+  }
+
+  @Test
   void noticesWithoutUnitsGiveAnEmptyList() throws Exception {
     UUID id =
         f.notice(

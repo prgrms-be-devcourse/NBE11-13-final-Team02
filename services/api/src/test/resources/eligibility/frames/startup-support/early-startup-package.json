@@ -1,0 +1,548 @@
+{
+  "description": "2026 초기창업패키지(일반형) (창업지원 틀 전체 예시, 기준일 2026-01-23)",
+  "frame": {
+    "schema": "startup-support-judgment.v1",
+    "rawPolicyId": "(초기창업패키지 공고의 rawPolicyId)",
+    "rawVersion": 1,
+    "referenceDate": "2026-01-23",
+    "common": [
+      {
+        "id": "sme",
+        "kind": "STATUS",
+        "quote": "｢중소기업기본법｣ 제2조 제1호에 따른 중소기업의 대표자이자, ｢중소기업창업 지원법｣ 제2조제2호부터 제2조제3의2까지의 각 호의 정의에 따른 창업기업의 대표자로서 모집공고일 기준 창업 3년 이내인 자",
+        "page": 5,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "anyOf": [
+          "SME"
+        ]
+      },
+      {
+        "id": "registered",
+        "kind": "BUSINESS_REGISTRATION",
+        "quote": "신청가능 업력 : 2023년 1월 23일 ~ 2026년 1월 22일 • 개인사업자 : 사업자등록증 상 '개업연월일' 기준 • 법인사업자 : 법인등기부등본 상 '법인설립등기일' 기준 * 개인‧법인사업자 모두 사업 개시 및 사업자 등록을 완료하여야 함",
+        "page": 5,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "require": "REGISTERED"
+      },
+      {
+        "id": "business-age",
+        "kind": "BUSINESS_AGE",
+        "quote": "신청가능 업력 : 2023년 1월 23일 ~ 2026년 1월 22일 • 개인사업자 : 사업자등록증 상 '개업연월일' 기준 • 법인사업자 : 법인등기부등본 상 '법인설립등기일' 기준 * 개인‧법인사업자 모두 사업 개시 및 사업자 등록을 완료하여야 함",
+        "page": 5,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "openedFrom": "2023-01-23",
+        "openedTo": "2026-01-22"
+      },
+      {
+        "id": "startup-recognized",
+        "kind": "ASK",
+        "quote": "다수의 사업자등록증(개인‧법인)을 보유한 경우, 창업여부 기준표에 따라 신청 자격 적합 여부 결정",
+        "page": 5,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "question": "창업기업확인서를 받을 수 있나요? (다른 사업자를 가진 적이 있으면 [붙임 2] 창업 여부 기준표로 확인)",
+        "metWhen": "YES"
+      },
+      {
+        "id": "industry-excluded",
+        "kind": "INDUSTRY",
+        "quote": "「중소기업창업 지원법 시행령」 제4조(창업에서 제외되는 업종)의 업종을 영위하고 있거나 영위하고자 하는 자(기업) / [붙임 3] 일반유흥주점업 56211, 무도유흥주점업 56212, 카지노 운영업 91242, 기타 사행시설 관리 및 운영업 91249",
+        "page": 24,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "mode": "EXCLUDE",
+        "revision": 11,
+        "codes": [
+          "56211",
+          "56212",
+          "91242",
+          "91249"
+        ],
+        "maybeCodes": []
+      },
+      {
+        "id": "industry-other",
+        "kind": "ASK",
+        "quote": "그 밖에 경제질서 및 미풍양속에 현저히 어긋나는 업종으로서 중소벤처기업부령으로 정하는 업종 / ⑩ 창업진흥원이 지정한 은행 계좌(사업비 계좌) 개설 및 거래가 불가한 자(기업) … (블록체인 기반 암호화 자산 매매 및 중개업, 가상화폐 거래소업, 가상화폐 개발업, 가상화폐 거래소 투자 및 자문업 등)",
+        "page": 6,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "question": "그 밖에 경제질서·미풍양속에 어긋나는 업종(중소벤처기업부령)이거나, 암호화 자산 매매·중개, 가상화폐 거래소·개발·투자자문 업종인가요?",
+        "metWhen": "NO"
+      },
+      {
+        "id": "restricted",
+        "kind": "EXCLUDED_STATUS",
+        "quote": "① 금융기관 등으로부터 채무불이행으로 규제 중인 자(기업) ② 국세 또는 지방세 체납 중인 자(기업) ③ 창업진흥원으로부터 발생한 환수금등의 반환이 종결되지 않은 자(기업) ⑧ 중소벤처기업부 창업지원사업에 참여 제한으로 제재 중인 자 ⑨ 신청일 기준 동 사업에 신청하는 사업자가 휴‧폐업 중인 자(기업) ⑫ 「근로기준법」에 따라 고용노동부가 공개하는 체불사업주 명단에 포함된 자(기업) ⑬ 「보조금 관리에 관한 법률」 제31조의2(보조사업 수행 배제 등)에 따라 수행대상에서 배제된 자(기업)",
+        "page": 5,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "anyOf": [
+          "CREDIT_DELINQUENT",
+          "TAX_ARREARS",
+          "CLAWBACK_UNPAID",
+          "PROGRAM_SANCTION",
+          "BUSINESS_SUSPENDED",
+          "WAGE_ARREARS",
+          "SUBSIDY_EXCLUDED"
+        ]
+      },
+      {
+        "id": "program-history",
+        "kind": "ASK",
+        "quote": "⑤ 중소벤처기업부 창업사업화 지원사업[붙임4-1]에 총 3회 이상 선정되어 협약을 체결했던 이력이 있는 자(기업) ⑥ 사업연도를 불문하고, [붙임4-2]에 명시된 사업에 선정되어 협약을 체결했던 이력이 있는 자(기업) ⑦ 2026년 중소벤처기업부 및 타 중앙정부·공공기관의 '창업사업화 지원사업'에 선정되어 사업을 수행 중인 자(기업)",
+        "page": 6,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "question": "중기부 창업사업화 지원사업(예비·초기·도약 패키지 등)에 3번 이상 선정됐거나, 초기창업패키지·창업도약패키지·청년창업사관학교·창업중심대학에 선정된 적이 있거나, 올해 다른 창업사업화 지원사업을 하고 있나요?",
+        "metWhen": "NO"
+      },
+      {
+        "id": "host-staff",
+        "kind": "ASK",
+        "quote": "⑪ 2026년 동 사업 주관기관의 전담조직의 장, 전담/겸직인력으로 참여 중 또는 참여 예정인 자(기업)",
+        "page": 6,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "question": "올해 이 사업 주관기관의 전담조직 장이나 전담·겸직 인력인가요?",
+        "metWhen": "NO"
+      }
+    ],
+    "groups": [
+      {
+        "id": "all",
+        "name": "전체 (창업 3년 이내 기업)",
+        "criteria": []
+      }
+    ],
+    "preferences": [
+      {
+        "id": "ces-award",
+        "label": "CES 2026 혁신상 수상 (K-스타트업 통합관 참가 기업)",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 2,
+        "criteria": [
+          {
+            "id": "ces-award-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "2026년 1월 CES에서 K-스타트업 통합관으로 참가해 혁신상을 받았나요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": "'26.1월에 개최한 CES에서 혁신상을 수상한 기업 * 단, 중소벤처기업부 K-스타트업 통합관에 참가한 기업 중 수상 아이템, 수상기업, 수상자가 동일한 경우에 한함",
+        "page": 10
+      },
+      {
+        "id": "opendata-ai",
+        "label": "2025 OpenData X AI 챌린지 본선 진출",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 2,
+        "criteria": [
+          {
+            "id": "opendata-ai-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "2025년 중기부 OpenData X AI 챌린지 본선에 진출했나요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": "'25년 중기부 OpenData X AI챌린지 본선 진출자",
+        "page": 10
+      },
+      {
+        "id": "kbeauty",
+        "label": "2025 K-뷰티 크리에이터 챌린지 우수기업",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 2,
+        "criteria": [
+          {
+            "id": "kbeauty-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "2025년 K-뷰티 크리에이터 챌린지 우수기업인가요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": "'25년 K-뷰티 크리에이터 챌린지 우수기업",
+        "page": 10
+      },
+      {
+        "id": "climate-tech",
+        "label": "기후테크 분야 창업기업",
+        "groupId": null,
+        "effect": "BONUS_POINTS",
+        "points": 1,
+        "criteria": [
+          {
+            "id": "climate-tech-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "기후테크(클린·카본·에코·푸드·지오테크) 분야 창업기업인가요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": "기후테크 분야 창업기업 - (클린테크) 재생에너지, 에너지신산업, 탈탄소에너지 (카본테크) … (지오테크) 우주기상, 기후적응, AI·데이터금융",
+        "page": 10
+      },
+      {
+        "id": "review-exempt",
+        "label": "서류평가 면제 대상",
+        "groupId": null,
+        "effect": "OTHER",
+        "points": null,
+        "criteria": [
+          {
+            "id": "review-exempt-ask",
+            "kind": "ASK",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "question": "서류평가 면제 대상(BI 등 유망기업 추천, CES 최고혁신상, 2025 왕중왕전 진출, 민간기관 추천, 성실경영 심층평가 통과 청년기업, 예비창업·재도전 최우수 판정)에 해당하나요?",
+            "metWhen": "YES"
+          }
+        ],
+        "quote": "< 서류평가 가점 및 면제 대상 > … 서류평가 면제",
+        "page": 10
+      }
+    ],
+    "notes": [
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "가점은 최대 3점까지예요.",
+        "quote": "가점 (최대 3점)",
+        "page": 10
+      },
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "대표자 본인이 신청해야 해요. 공동대표·각자대표면 대표자 모두 자격을 갖추고 제외 대상이 아니어야 해요.",
+        "quote": "공동대표 또는 각자대표로 구성된 기업의 경우, 대표자 전원이 '신청자격'에 해당되고, '신청 제외 대상'에 해당되지 않아야 함",
+        "page": 5
+      },
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "본점과 지점이 있으면 본점 사업자로만 신청해요.",
+        "quote": "본점과 지점이 있는 경우 본점 사업자로만 신청 가능하며",
+        "page": 5
+      },
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "본점 소재지 권역의 주관기관 1곳을 골라 신청해요. 다른 권역으로 신청하면 평가에서 빠질 수 있어요.",
+        "quote": "창업기업 본점 소재지에 해당하는 권역 내 주관기관 중 1개를 선택하여 신청 필수이며, 타 권역 내 주관기관으로 신청할 경우 평가대상 및 선정에서 제외 될 수 있음",
+        "page": 2
+      },
+      {
+        "kind": "RULE",
+        "groupId": null,
+        "text": "일반형·딥테크 특화형·투자연계형에 중복 신청은 되지만 하나만 수행할 수 있어요.",
+        "quote": "3개 유형에 중복 신청은 가능하나 1개 유형만 수행 가능(동시수행 불가)합니다.",
+        "page": 1
+      },
+      {
+        "kind": "OTHER",
+        "groupId": null,
+        "text": "사업장(본점) 소재지에 따라 자기부담 비율이 달라요 (특별지원 지역 10%, 우대지원 20%, 일반지역 25%, 그 밖 30% 이상).",
+        "quote": "창업기업 사업장 소재지를 기준으로 (1)지방우대 지역(특별지원 지역, 우대지원 지역, 일반지역)과 (2)지방우대 비해당 지역으로 구분하여 차등 적용",
+        "page": 3
+      },
+      {
+        "kind": "OTHER",
+        "groupId": null,
+        "text": "그 밖에 중소벤처기업부 장관이 참여를 제한할 정당한 사유가 있으면 제외될 수 있어요.",
+        "quote": "⑭ 기타 중소벤처기업부 장관이 참여를 제한할 정당한 사유가 있다고 인정하는 자(기업)",
+        "page": 6
+      },
+      {
+        "kind": "SELECTION",
+        "groupId": null,
+        "text": "요건검토 → 서류평가 → 심층 인터뷰 → 발표평가로 뽑아요.",
+        "quote": "평가 절차 : 3단계 평가 (서류 →심층인터뷰→발표)를 통해 최종 선정",
+        "page": 9
+      }
+    ]
+  },
+  "cases": [
+    {
+      "name": "A: 2024-05-02 개업, 응용 소프트웨어 개발(58222), 중소기업 → 지원 가능",
+      "applicant": {
+        "birthDate": "1993-04-10",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2024-05-02"
+            }
+          ],
+          "industryCode": "58222"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "business-age": "MET"
+        }
+      }
+    },
+    {
+      "name": "B: 2023-01-23 개업 → 공고가 찍은 범위의 첫날이라 충족",
+      "applicant": {
+        "birthDate": "1990-01-01",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2023-01-23"
+            }
+          ],
+          "industryCode": "62010"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "criteria": {
+          "business-age": "MET"
+        }
+      }
+    },
+    {
+      "name": "C: 2022-11-01 개업 → 업력 3년 넘음 → 지원 불가",
+      "applicant": {
+        "birthDate": "1988-07-07",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2022-11-01"
+            }
+          ],
+          "industryCode": "58222"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "business-age": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "D: 예비창업자 → 사업자 등록이 없어 지원 불가",
+      "applicant": {
+        "birthDate": "1999-09-09",
+        "business": {
+          "history": [],
+          "industryCode": "58222"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "registered": "NOT_MET",
+          "business-age": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "E: 신청 제외 사유를 아직 고르지 않음 → 확인 필요",
+      "applicant": {
+        "birthDate": "1995-03-03",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2025-07-15"
+            }
+          ],
+          "industryCode": "56221"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": null
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO"
+      },
+      "expect": {
+        "result": "NEEDS_INPUT",
+        "criteria": {
+          "restricted": "UNKNOWN"
+        },
+        "missingInputs": [
+          "restrictions"
+        ]
+      }
+    },
+    {
+      "name": "F: 영업 중인 사업이 둘 → 어느 사업의 업력인지 몰라 확인 필요",
+      "applicant": {
+        "birthDate": "1991-05-05",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2024-01-02"
+            },
+            {
+              "openedOn": "2025-03-01"
+            }
+          ],
+          "industryCode": "58222"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO"
+      },
+      "expect": {
+        "result": "NEEDS_INPUT",
+        "criteria": {
+          "business-age": "UNKNOWN"
+        }
+      }
+    },
+    {
+      "name": "G: 일반 유흥주점업(56211) → 창업 제외 업종이라 지원 불가",
+      "applicant": {
+        "birthDate": "1990-01-01",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2024-05-02"
+            }
+          ],
+          "industryCode": "56211"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO"
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "industry-excluded": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "H: CES 혁신상 질문에 '예' → 가점 우대 해당 (지원 가능 여부는 그대로)",
+      "applicant": {
+        "birthDate": "1993-04-10",
+        "business": {
+          "history": [
+            {
+              "openedOn": "2024-05-02"
+            }
+          ],
+          "industryCode": "58222"
+        },
+        "statuses": [
+          "SME"
+        ],
+        "restrictions": []
+      },
+      "answers": {
+        "startup-recognized": "YES",
+        "industry-other": "NO",
+        "program-history": "NO",
+        "host-staff": "NO",
+        "ces-award-ask": "YES"
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "preferences": {
+          "ces-award": "MET",
+          "climate-tech": "UNKNOWN"
+        }
+      }
+    }
+  ]
+}

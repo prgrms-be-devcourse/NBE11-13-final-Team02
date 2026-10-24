@@ -9,8 +9,6 @@ import org.springframework.http.HttpStatus;
  */
 public enum ErrorCode {
   VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않아요"),
-  /** dev에 먼저 있던 코드. 다른 모듈(eligibility 등)이 쓰므로 남겨 둬요. */
-  INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않아요"),
   INVALID_CURSOR(HttpStatus.BAD_REQUEST, "목록 위치(cursor)가 올바르지 않아요. 처음부터 다시 받아 주세요"),
   UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요"),
   FORBIDDEN(HttpStatus.FORBIDDEN, "권한이 없어요"),
@@ -26,6 +24,18 @@ public enum ErrorCode {
 
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
+
+  // user
+  UNSUPPORTED_SOCIAL_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인이에요"),
+  INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인이 만료됐어요. 다시 로그인해 주세요"),
+  WITHDRAWAL_PROVIDER_NOT_LINKED(HttpStatus.BAD_REQUEST, "연결되지 않은 소셜 계정이에요"),
+  WITHDRAWAL_TICKET_INVALID(HttpStatus.BAD_REQUEST, "탈퇴 요청이 만료됐어요. 다시 시도해 주세요"),
+  WITHDRAWAL_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "탈퇴하려는 계정과 다시 로그인한 계정이 달라요"),
+
+  // eligibility
+  CRITERIA_NOT_FOUND(HttpStatus.NOT_FOUND, "그 연도의 판정 기준값이 아직 없어요"),
+  ELIGIBILITY_FIELD_MISMATCH(HttpStatus.BAD_REQUEST, "판정하려는 분야와 판정 틀의 분야(schema)가 달라요"),
+  ELIGIBILITY_INVALID_FRAME(HttpStatus.BAD_REQUEST, "판정 틀 형식이 올바르지 않아요"),
   ;
 
   private static final String TYPE_BASE = "https://mujuthaek.kr/problems/";

@@ -42,10 +42,10 @@ CALL_TIMEOUT_SECONDS = {
 QUOTES_SUFFIX = "-quotes"
 
 
-def read_api_key(env_file: Path) -> str | None:
-    """KEY=VALUE 형식 파일에서 OPENAI_API_KEY만 읽습니다. 값은 돌려주기만 하고 출력하지 않습니다."""
+def read_api_key(env_file: Path, name: str = "OPENAI_API_KEY") -> str | None:
+    """KEY=VALUE 형식 파일에서 이름이 name인 값 하나만 읽습니다(기본 OPENAI_API_KEY). 값은 돌려주기만 하고 출력하지 않습니다."""
     for line in env_file.read_text(encoding="utf-8-sig").splitlines():
-        match = re.match(r"^\s*(?:export\s+)?OPENAI_API_KEY\s*=\s*(.*?)\s*$", line)
+        match = re.match(rf"^\s*(?:export\s+)?{re.escape(name)}\s*=\s*(.*?)\s*$", line)
         if match:
             return match.group(1).strip().strip("\"'") or None
     return None

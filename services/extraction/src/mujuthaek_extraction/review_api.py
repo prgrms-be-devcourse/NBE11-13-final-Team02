@@ -6,6 +6,7 @@
   POST /reviews/{jobId}/approve      승인 → extraction.completed(reviewStatus APPROVED) 다시 발행
                                      본문(선택): {"candidate": 고친 표준 공고, "note": "메모"}
   POST /reviews/{jobId}/reject       반려 (발행 없음). 본문(선택): {"note": "메모"}
+  GET  /costs?month=2026-10          분야별 유료 AI 호출 수·비용과 월 상한 대비 비율(한국 시간 달, month 없으면 이번 달, cost_alert.py)
 
 인증(검토 2026-10-16): EXTRACTION_REVIEW_TOKEN이 있으면 /health 밖의 모든 요청에 'Authorization: Bearer <토큰>'이 필요합니다.
 토큰이 없으면 같은 컴퓨터(127.0.0.1·::1)에서 온 요청만 받습니다 — Docker처럼 0.0.0.0에 열어도 밖에서는 못 씁니다.
@@ -34,6 +35,7 @@ EVENT_SCHEMA = "events/extraction.completed.v1.json"
 REVIEW_PATH = re.compile(r"^/reviews/([0-9a-fA-F-]{36})(?:/(approve|reject))?$")
 MAX_BODY = 5 * 1024 * 1024
 LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
+MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
 
 def _same_notice(candidate: dict[str, Any], raw_payload: dict[str, Any]) -> bool:
@@ -49,9 +51,22 @@ def _same_notice(candidate: dict[str, Any], raw_payload: dict[str, Any]) -> bool
 class ReviewService:
     """HTTP와 분리한 검수 동작. store_session은 JobStore를 여는 컨텍스트입니다(요청마다 DB 연결)."""
 
-    def __init__(self, store_session: Callable[[], AbstractContextManager[Any]], new_event: Callable[[str, str, dict[str, Any]], dict[str, Any]]):
+    def __init__(
+        self,
+        store_session: Callable[[], AbstractContextManager[Any]],
+        new_event: Callable[[str, str, dict[str, Any]], dict[str, Any]],
+        monthly_budget_usd: float | None = None,
+    ):
         self.store_session = store_session
         self.new_event = new_event
+        self.monthly_budget_usd = monthly_budget_usd  # 비용 집계에 상한 대비 비율을 붙일 때 씁니다
+
+    def costs(self, month: str | None) -> tuple[int, Any]:
+        """그 달의 분야별 유료 AI 호출 수·비용. month는 'YYYY-MM'."""
+        if month is not None and not MONTH.match(month):
+            return 400, {"error": "month는 YYYY-MM 형식입니다."}
+        with self.store_session() as store:
+            return 200, store.monthly_costs(month, self.monthly_budget_usd)
 
     def list(self, status: str) -> tuple[int, Any]:
         if status not in {"PENDING", "APPROVED", "REJECTED"}:
@@ -159,6 +174,8 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
                 return self._send(401, {"error": "인증이 필요합니다."})
             if url.path == "/reviews":
                 return self._send(*service.list(parse_qs(url.query).get("status", ["PENDING"])[0]))
+            if url.path == "/costs":
+                return self._send(*service.costs(parse_qs(url.query).get("month", [None])[0]))
             match = REVIEW_PATH.match(url.path)
             if match and not match[2]:
                 job_id = self._job_id(match)
