@@ -28,7 +28,7 @@ import org.springframework.stereotype.Service;
  *   <li>도로명 주소면 도로명주소 사전 (FILE·FUZZY)
  *   <li>못 찾았거나 지번이면 도로명주소 검색 API → 결과 하나를 고르고 그 도로명·번호로 사전을 다시 (SEARCH_API). 지하 여부 0·1로 없으면 지하 여부를
  *       빼고 한 번 더 (사전의 섬 주소 코드 3)
- *   <li>그래도 없으면 법정동 대표점 (APPROX, CENTROID): 받은 법정동코드, 없으면 검색 API가 고른 결과의 법정동
+ *   <li>그래도 없으면 법정동 대표점 (APPROX, CENTROID): 받은 법정동코드, 없으면 검색 API가 고른 결과의 법정동, 그것도 없으면 주소의 법정동 이름
  * </ol>
  *
  * <p>검색 API 키가 없는 환경은 그 단계를 건너뛰어요(오류 아님). 저장·같은 주소 다시 안 찾기·경계 검사는 공고 위치 저장(3-5)에서 해요.
@@ -106,6 +106,11 @@ public class AddressLocator {
     Optional<Coordinate> point = centroids.find(centroidBjd);
     if (point.isPresent()) {
       return GeocodeResult.approx(point.get(), centroidBjd, sigungu);
+    }
+    // 법정동코드를 모르면 주소의 법정동 이름으로 (지번 주소의 동·리, 도로명 주소의 괄호 안 동)
+    Optional<PostgresLegalDongCentroid.Named> named = centroids.findByName(sigungu, parsed.dong());
+    if (named.isPresent()) {
+      return GeocodeResult.approx(named.get().point(), named.get().bjdCode(), sigungu);
     }
     if (parsed.kind() == Kind.UNKNOWN) {
       return GeocodeResult.failed(FailReason.PARSE_FAILED, sigungu);

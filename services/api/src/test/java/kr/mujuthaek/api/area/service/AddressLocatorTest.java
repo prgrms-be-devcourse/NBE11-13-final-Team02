@@ -162,6 +162,17 @@ class AddressLocatorTest {
   }
 
   @Test
+  void withoutACodeTheLegalDongNameGivesTheRepresentativePoint() {
+    // 공고가 법정동코드를 주지 않았고 검색 API도 못 찾은 지번 (건물 없는 개발 부지)
+    GeocodeResult r = locator.locate("부산광역시 시험구 시험동 656-6", null);
+
+    assertThat(r.status()).isEqualTo(Status.APPROX);
+    assertThat(r.bjdCodeFound()).isEqualTo(BJD);
+    assertThat(r.sigunguCode()).isEqualTo("26990");
+    assertThat(searched).hasSize(1);
+  }
+
+  @Test
   void withoutASearchKeyTheStepIsSkippedNotAnError() {
     answer = keyword -> new Failed(Reason.NO_KEY, null);
 
