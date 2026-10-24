@@ -66,3 +66,35 @@ def test_joined_table_rows_quote_is_found_cell_by_cell():
     # 칸 안에서 낱말을 빼먹은 조각이 있으면 나누지 않습니다
     broken = "가상 개인정보 동의서 [붙임1] | 대상자 : 가상 세대 * 가상급여수급자는 작성 제외 | 1통"
     assert split_joined_quote(text, broken, NormalizedText(text)) is None
+
+
+# ---- 3. 재확인 항목 단위 채택 ----
+
+
+def test_recheck_keeps_the_fixed_item_even_if_another_item_got_worse():
+    import copy
+    import json as _json
+
+    from helpers import to_ai
+    from test_recheck import setup
+
+    from mujuthaek_extraction.model import RecordedModel
+    from mujuthaek_extraction.recheck import recheck_problems
+    from mujuthaek_extraction.rules.housing_notice import RULES
+
+    data, source, parts, evaluate = setup()
+    other = parts[0]["eligibility"][2]
+    other["quoteRefs"].append("fake")  # 두 번째 문제 항목
+    fixed = _json.loads(_json.dumps(to_ai(data["eligibility"][1])).replace('"e1"', '"q1"'))
+    worse = copy.deepcopy(other)
+    worse["quoteRefs"] = ["q9"]  # 원문에 없는 인용만 남겨 항목이 빠짐(새 문제)
+    quotes = [
+        {"ref": "q1", "documentId": "text1", "text": data["evidence"][0]["quote"]},
+        {"ref": "q9", "documentId": "text1", "text": "원문에 전혀 없는 가상 문장입니다"},
+    ]
+    answer = {"quotes": quotes, "eligibility": [fixed, worse], "coverage": {"eligibility": {"status": "EXTRACTED", "reason": None}}}
+    model = RecordedModel({"recheck": [_json.dumps(answer, ensure_ascii=False)], "recheck-quotes": [_json.dumps({"quotes": []})]})
+    result = recheck_problems(RULES, source.material, model, parts, evaluate)
+    assert result.accepted
+    assert f"eligibility/{data['eligibility'][1]['id']}" in result.adopted_sections
+    assert f"eligibility/{other['id']}" not in result.adopted_sections
