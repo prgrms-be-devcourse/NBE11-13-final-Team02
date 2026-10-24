@@ -48,6 +48,29 @@ class IncomingEventListenerTest {
   void brokenEnvelopeGoesToDeadLetterQueue() throws Exception {
     publish("notification.requested", "{\"eventType\":\"notification.requested\"}"); // eventId 없음
 
+    assertDeadAndNotRecorded();
+  }
+
+  @Test
+  void unknownSchemaVersionGoesToDeadLetterQueue() throws Exception {
+    // 모양이 다를 수 있는 다음 버전을 처리했다고 기록하면 조용히 사라져요
+    publish(
+        "notification.requested",
+        event(UUID.randomUUID(), "notification.requested")
+            .replace("\"schemaVersion\":1", "\"schemaVersion\":2"));
+
+    assertDeadAndNotRecorded();
+  }
+
+  @Test
+  void eventTypeThisServerDoesNotHandleGoesToDeadLetterQueue() throws Exception {
+    // 라우팅 키는 받는 종류인데 봉투의 eventType이 다른 경우
+    publish("notification.requested", event(UUID.randomUUID(), "notice.published"));
+
+    assertDeadAndNotRecorded();
+  }
+
+  private void assertDeadAndNotRecorded() {
     Message dead = null;
     Instant until = Instant.now().plus(WAIT);
     while (dead == null && Instant.now().isBefore(until)) {
