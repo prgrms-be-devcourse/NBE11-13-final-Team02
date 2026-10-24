@@ -41,6 +41,8 @@ import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -193,7 +195,7 @@ class SecurityIntegrationTest {
     loginSuccessHandler.onAuthenticationSuccess(
         request, response, new TestingAuthenticationToken(user, null));
 
-    assertThat(response.getRedirectedUrl()).isEqualTo("http://localhost:3000/");
+    assertThat(response.getRedirectedUrl()).isEqualTo("http://localhost:3000/auth/callback");
     assertThat(response.getHeader("Set-Cookie"))
         .startsWith(RefreshTokenCookies.NAME + "=")
         .contains("Path=/api/auth", "HttpOnly", "SameSite=Lax", "Max-Age=1209600");
@@ -245,6 +247,33 @@ class SecurityIntegrationTest {
 
     mvc.perform(post("/api/auth/refresh").cookie(cookie)).andExpect(status().isUnauthorized());
     mvc.perform(post("/api/auth/logout")).andExpect(status().isNoContent()); // 쿠키가 없어도 204
+  }
+
+  @Test
+  void firstLoginGoesToCallbackWithNewFlag() throws Exception {
+    var kakao =
+        new DefaultOAuth2User(
+            List.of(), Map.of("id", 778L, "properties", Map.of("nickname", "새회원")), "id");
+    var callback = new MockHttpServletRequest();
+    RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(callback));
+    try {
+      var first = (LoginUser) socialUserService.toLoginUser("kakao", kakao);
+      var response = new MockHttpServletResponse();
+      loginSuccessHandler.onAuthenticationSuccess(
+          callback, response, new TestingAuthenticationToken(first, null));
+      assertThat(response.getRedirectedUrl())
+          .isEqualTo("http://localhost:3000/auth/callback?new=1");
+
+      var again = new MockHttpServletRequest();
+      RequestContextHolder.setRequestAttributes(new ServletRequestAttributes(again));
+      var second = (LoginUser) socialUserService.toLoginUser("kakao", kakao);
+      var response2 = new MockHttpServletResponse();
+      loginSuccessHandler.onAuthenticationSuccess(
+          again, response2, new TestingAuthenticationToken(second, null));
+      assertThat(response2.getRedirectedUrl()).isEqualTo("http://localhost:3000/auth/callback");
+    } finally {
+      RequestContextHolder.resetRequestAttributes();
+    }
   }
 
   @Test

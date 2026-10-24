@@ -24,8 +24,9 @@ import org.springframework.stereotype.Component;
  * 소셜 로그인 성공 뒤.
  *
  * <ul>
- *   <li>로그인: refresh token을 HttpOnly 쿠키로 주고 프론트로 돌려보내요. access token은 주소에 싣지 않아요(브라우저 기록·로그에 남음).
- *       프론트는 돌아오자마자 {@code POST /api/auth/refresh}로 access token을 받아요. 토큰 발급이 실패하면 실패 처리기로 넘겨요.
+ *   <li>로그인: refresh token을 HttpOnly 쿠키로 주고 프론트 {@code /auth/callback}으로 돌려보내요(처음 가입이면 {@code
+ *       ?new=1}). access token은 주소에 싣지 않아요(브라우저 기록·로그에 남음). 프론트는 돌아오자마자 {@code POST
+ *       /api/auth/refresh}로 access token을 받아요. 토큰 발급이 실패하면 실패 처리기로 넘겨요.
  *   <li>탈퇴 재인증: 티켓 확인 → 계정 일치 확인·회원 삭제(커밋) → 소셜 연결 끊기 → {@code FRONTEND_URL/withdrawn}. 실패하면 {@code
  *       FRONTEND_URL/mypage?withdraw=expired|account_mismatch|failed}.
  * </ul>
@@ -34,6 +35,9 @@ import org.springframework.stereotype.Component;
 class LoginSuccessHandler implements AuthenticationSuccessHandler {
 
   static final String TOKEN_ISSUE_FAILED = "token_issue_failed";
+
+  /** 로그인 뒤 돌아갈 프론트 화면. 처음 가입이면 ?new=1 (프론트가 약관 동의 화면으로 보내요) */
+  static final String CALLBACK_PATH = "/auth/callback";
 
   private static final Logger log = LoggerFactory.getLogger(LoginSuccessHandler.class);
 
@@ -78,7 +82,9 @@ class LoginSuccessHandler implements AuthenticationSuccessHandler {
       return;
     }
     cookies.write(response, pair.refreshToken(), pair.refreshTokenTtl());
-    response.sendRedirect(props.frontendUrl() + "/");
+    boolean joined =
+        Boolean.TRUE.equals(request.getAttribute(SocialOAuth2UserService.JOINED_ATTRIBUTE));
+    response.sendRedirect(props.frontendUrl() + CALLBACK_PATH + (joined ? "?new=1" : ""));
   }
 
   /** 순서: 우리 DB 삭제가 먼저 커밋돼야 연결을 끊어요. 연결 끊기가 실패해도 탈퇴는 끝난 상태로 두고 로그만 남겨요. */
