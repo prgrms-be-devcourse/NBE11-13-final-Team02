@@ -269,13 +269,15 @@ def test_issuer_and_copies_are_found_in_the_whole_table_row_of_the_quote():
     documents = [
         document(id="school", name="가상 재학증명서", copies=1, issuer="해당 대학", quoteRefs=["cell"]),  # 같은 행의 발급처·부수 칸
         document(id="wrong", name="가상 입학증명서", copies=2, issuer="다른 기관", quoteRefs=["cell"]),  # 행에 없는 값
-        document(id="grad", name="가상 졸업증명서", copies=None, issuer="해당 학교", quoteRefs=["line"]),  # 표 행이 아닌 글 줄은 인용문만
+        # 인용 밖이어도 같은 줄·앞뒤 줄에 있으면 남깁니다(2026-10-24 네 번째 채점). 다른 서류 이름이 나오는 줄에서는 멈춥니다
+        document(id="grad", name="가상 졸업증명서", copies=None, issuer="해당 학교", quoteRefs=["line"]),
     ]
     result = assembled_with(documents=documents)
     by_id = {d["id"]: d for d in result.candidate["requiredDocuments"]}
     assert (by_id["school"]["copies"], by_id["school"]["issuer"]) == (1, "해당 대학")
     assert (by_id["wrong"]["copies"], by_id["wrong"]["issuer"]) == (None, None)
-    assert by_id["grad"]["issuer"] is None
+    assert by_id["grad"]["issuer"] == "해당 학교"
+    assert any("앞뒤 줄에서 확인" in n for n in result.notes)
 
 
 def test_place_address_matches_full_and_short_province_names_and_table_row():
