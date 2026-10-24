@@ -9,6 +9,12 @@
 - 병렬 호출(2026-10-20, parallel·설정 EXTRACTION_PARALLEL_CALLS): 구조 호출이 끝난 뒤 나머지 섹션 호출을 함께 보냅니다.
   호출마다 기록을 따로 모아 원래 순서대로 붙이므로, 같은 응답이면 결과가 순서대로 부른 것과 같습니다. 1이면 이전처럼 하나씩.
 - 병렬 호출 간격(2026-10-20, stagger·설정 EXTRACTION_PARALLEL_STAGGER_SECONDS): 섹션 호출을 이 간격을 두고 하나씩 내보냅니다(응답은 기다리지 않음).
+- 반복 폭주(2026-10-24 세 번째 채점, runaway): 응답 글자 안에 같은 긴 조각이 되풀이되거나 글 하나가 지나치게 길면 폭주로 봅니다.
+  제공자 호출이 스트리밍이 아니라 도중에 끊을 수는 없어, 응답을 받은 뒤 검사합니다. 잘림(MAX_TOKENS)·폭주 뒤 다시 보낼 때는 같은 요청이
+  아니라 「표 한 행씩, 인용 300자 이내, 같은 행 반복 금지」 지시를 덧붙인 요청을 보냅니다(같은 요청은 같은 곳에서 다시 폭주했음).
+  다시 받아도 잘리면, 나눠 부를 호출(FieldRules.runaway_splits, 주거 서류)은 서류 표 묶음별로 나눠 부르고, 그 밖에는 잘린 JSON에서
+  끝까지 적힌 항목만 살립니다(salvage_truncated, 그 섹션은 PARTIAL). 정상 종료인데 폭주가 보이면 바꾼 요청으로 한 번 더 받고,
+  그래도 같으면 받은 응답을 씁니다(근거를 못 찾은 항목은 결합기가 뺍니다).
 """
 
 from __future__ import annotations
@@ -74,6 +80,7 @@ class CallAttempt:
     cached_input_tokens: int | None
     error: str | None
     cache_write_tokens: int | None = None
+    runaway: str | None = None  # 응답에서 본 반복 폭주(extract.runaway). 이 시도 뒤 바꾼 요청으로 다시 보냈거나 나눠 불렀습니다
 
 
 @dataclass
@@ -82,6 +89,211 @@ class ExtractionRun:
     attempts: list[CallAttempt] = field(default_factory=list)
     failed_calls: list[tuple[str, str]] = field(default_factory=list)
     raw_responses: list[tuple[str, str]] = field(default_factory=list)
+    notes: list[str] = field(default_factory=list)  # 잘림 뒤 나눠 부르기·항목 살리기처럼 결과를 만든 방법 (로그·작업 기록용)
+
+
+# 반복 폭주 판단(문자열 값 안에서만 봅니다. JSON 틀 「"scope":{"level":…}」은 항목마다 같은 글이 되풀이되는 것이 정상입니다)
+RUNAWAY_CHUNK = 200  # 이 길이의 같은 조각이
+RUNAWAY_REPEATS = 3  # 한 문자열 값 안에서 이만큼 나오면 폭주
+RUNAWAY_STEP = 100  # 조각을 뽑는 간격
+MAX_STRING_CHARS = 2_000  # 인용·설명 글 하나가 이보다 길면 폭주(인용은 원문 한 줄 안이고 지시는 300자 이내)
+GUARD_NOTE = (
+    "# 다시 요청하는 이유\n앞 응답이 같은 표 행을 되풀이하거나 인용 하나를 지나치게 길게 쓰다 출력 한도에 닿았습니다. "
+    "이번에는 표를 한 행씩 인용하고(인용 하나는 표 한 행 또는 한 줄, 300자 이내), 같은 행·같은 글을 두 번 쓰지 않습니다. "
+    "긴 칸은 값이 든 부분만 인용하되, 서류 표 행은 그 행의 발급처·부수 칸까지 함께 인용합니다(빠지면 그 값을 확인하지 못해 지웁니다). "
+    "나머지 지시는 그대로 따릅니다."
+)
+JSON_STRING = re.compile(r'"((?:[^"\\]|\\.)*)(?:"|$)', re.S)
+
+
+def runaway(raw: str) -> str | None:
+    """응답 글의 반복 폭주 이유(없으면 None). 잘린 응답의 마지막(닫히지 않은) 문자열 값도 봅니다."""
+    for match in JSON_STRING.finditer(raw):
+        value = match[1]
+        if len(value) > MAX_STRING_CHARS:
+            return f"글 하나가 {len(value):,}자입니다(한도 {MAX_STRING_CHARS:,}자)"
+        if len(value) < RUNAWAY_CHUNK * RUNAWAY_REPEATS:
+            continue
+        for start in range(0, len(value) - RUNAWAY_CHUNK + 1, RUNAWAY_STEP):
+            chunk = value[start : start + RUNAWAY_CHUNK]
+            if value.count(chunk) >= RUNAWAY_REPEATS:
+                return f"같은 {RUNAWAY_CHUNK}자 글이 {value.count(chunk)}번 되풀이됩니다"
+    return None
+
+
+def guarded(request: ModelRequest) -> ModelRequest:
+    """잘림·폭주 뒤 다시 보낼 요청: 같은 요청 대신 짧게 인용하라는 지시를 덧붙입니다(이미 붙였으면 그대로)."""
+    if GUARD_NOTE in request.instructions:
+        return request
+    return replace(request, instructions=f"{request.instructions}\n\n{GUARD_NOTE}")
+
+
+def salvage_truncated(raw: str, sections: tuple[str, ...]) -> dict[str, Any] | None:
+    """출력 한도로 잘린 JSON에서 끝까지 적힌 항목만 살립니다. 인용(quotes) 목록이 끝까지 적혀 있고 맡은 섹션 목록 안에서 잘렸을 때만
+    살립니다(인용 안에서 잘리면 항목이 없어 None). 잘린 섹션은 coverage PARTIAL(AI가 다 옮기지 못한 것과 같이 재확인·검수로),
+    끝까지 적힌 섹션은 EXTRACTED, 시작도 못 한 섹션은 FAILED입니다."""
+    text = raw.strip()
+    if text.startswith("```"):
+        text = text.split("\n", 1)[1] if "\n" in text else ""
+    stack: list[str] = []  # 열린 괄호들
+    keys: list[str | None] = []  # 열린 괄호마다 그 값의 키(객체 안의 값일 때)
+    last_string: str | None = None  # 바로 앞에 닫힌 문자열(다음 글자가 「:」이면 키)
+    pending_key: str | None = None
+    last_item_end: tuple[int, str] | None = None  # (자른 위치, 섹션 이름)
+    i, n = 0, len(text)
+    while i < n:
+        char = text[i]
+        if char == '"':
+            end = i + 1
+            while end < n and text[end] != '"':
+                end += 2 if text[end] == "\\" else 1
+            if end >= n:
+                break  # 닫히지 않은 문자열에서 잘림
+            last_string = text[i + 1 : end]
+            i = end + 1
+            continue
+        if char == ":":
+            pending_key, last_string = last_string, None
+        elif char in "{[":
+            keys.append(pending_key if stack and stack[-1] == "{" else None)
+            pending_key = None
+            stack.append(char)
+        elif char in "}]":
+            if not stack:
+                return None
+            stack.pop()
+            keys.pop()
+            # 맨 위 객체 안 섹션 목록 안의 항목 하나가 닫힘
+            if char == "}" and stack == ["{", "["] and keys[1] in sections:
+                last_item_end = (i + 1, str(keys[1]))
+        elif char == ",":
+            pending_key = None
+        i += 1
+    if last_item_end is None or not stack:
+        return None
+    cut, truncated = last_item_end
+    try:
+        part = json.loads(text[:cut] + "]}")
+    except ValueError:
+        return None
+    if not isinstance(part, dict) or not isinstance(part.get("quotes"), list):
+        return None
+    coverage = {}
+    for section in sections:
+        if section == truncated:
+            coverage[section] = {"status": "PARTIAL", "reason": "출력 한도로 응답이 잘려 끝까지 적힌 항목만 받았어요."}
+        elif isinstance(part.get(section), list) and section != truncated:
+            coverage[section] = {"status": "EXTRACTED", "reason": None}
+        else:
+            part[section] = []
+            coverage[section] = {"status": "FAILED", "reason": "출력 한도로 응답이 잘려 이 섹션을 받지 못했어요."}
+    part["coverage"] = coverage
+    part.setdefault("missingFields", [])
+    return part
+
+
+SHORT_QUOTES = "인용은 표 한 행씩(한 행 또는 한 줄, 300자 이내) 적고, 같은 행·같은 글을 두 번 쓰지 않습니다."
+SPLIT_PARTIAL = "서류를 표 묶음별로 나눠 다시 불렀지만 일부 묶음을 받지 못했어요."
+
+
+def _item_key(section: str, item: dict[str, Any]) -> str:
+    """같은 항목인지 볼 열쇠: 서류는 이름·제출 시점, 일정은 이름·시작, 그 밖에는 이름·설명 글."""
+    if section == "requiredDocuments":
+        parts = [item.get("name"), item.get("submissionTime")]
+    elif section == "schedules":
+        parts = [item.get("rawLabel"), json.dumps(item.get("startsAt"), sort_keys=True)]
+    else:
+        parts = [item.get("name") or item.get("rawLabel") or item.get("title") or item.get("description") or item.get("originalText")]
+    return "|".join(re.sub(r"\s+", "", str(p or "")) for p in parts)
+
+
+def fill_from_cuts(part: dict[str, Any], cut_raws: list[str], sections: tuple[str, ...]) -> int:
+    """잘린 응답들에서 끝까지 적힌 항목 중 part에 없는 것을 더합니다(2026-10-24 여덟 번째 채점: 서류 호출 첫 응답은 일반공급 서류까지
+    읽고 잘렸는데, 나중 응답(더 앞에서 잘림)·나눠 부른 결과만 써서 서류 11개가 빠짐). 인용 ref는 응답마다 앞머리(c1-, c2-)를 붙입니다.
+    더한 항목 수를 돌려줍니다. 형식이 틀린 항목은 결합기가 뺍니다."""
+    added = 0
+    for number, raw in enumerate(cut_raws, start=1):
+        salvaged = salvage_truncated(raw, sections)
+        if not salvaged:
+            continue
+        prefix = f"c{number}-"
+        rename = {q["ref"]: prefix + q["ref"] for q in salvaged.get("quotes") or [] if isinstance(q, dict) and isinstance(q.get("ref"), str)}
+        used: set[str] = set()
+        for section in sections:
+            if not isinstance(part.get(section), list) or not isinstance(salvaged.get(section), list):
+                continue
+            have = {_item_key(section, item) for item in part[section] if isinstance(item, dict)}
+            ids = {item.get("id") for item in part[section] if isinstance(item, dict)}
+            for item in copy.deepcopy(salvaged[section]):
+                if not isinstance(item, dict) or _item_key(section, item) in have:
+                    continue
+                _rename_quote_refs(item, rename)
+                used |= set(_used_refs(item))
+                if item.get("id") in ids:
+                    item["id"] = f"{item['id']}~c{number}"
+                ids.add(item.get("id"))
+                have.add(_item_key(section, item))
+                part[section].append(item)
+                added += 1
+        part.setdefault("quotes", [])
+        part["quotes"] += [{**q, "ref": rename[q["ref"]]} for q in salvaged.get("quotes") or [] if isinstance(q, dict) and rename.get(q.get("ref")) in used]
+    return added
+
+
+def merge_split_parts(parts: list[dict[str, Any]], sections: tuple[str, ...]) -> dict[str, Any] | None:
+    """나눠 부른 호출들의 조각을 한 조각으로 합칩니다. 인용 ref는 조각마다 앞머리(s1-, s2-)를 붙이고, 겹치는 항목 id는 뒤에 「~s2」를 붙이며,
+    누락 기록 위치는 붙인 자리만큼 옮깁니다. 섹션 범위: 모두 EXTRACTED면 EXTRACTED, 하나라도 받지 못했거나 PARTIAL이면 PARTIAL(재확인·검수로),
+    모두 원문에 없음이면 그대로. 받은 조각이 하나도 없으면 None."""
+    merged: dict[str, Any] = {"quotes": [], **{s: [] for s in sections}, "missingFields": [], "coverage": {}}
+    statuses: dict[str, list[dict[str, Any]]] = {s: [] for s in sections}
+    received = False
+    for number, part in enumerate(parts, start=1):
+        coverage = part.get("coverage") or {}
+        for section in sections:
+            statuses[section].append(coverage.get(section) or {"status": "FAILED", "reason": None})
+        if not part.get("quotes") and not any(part.get(s) for s in sections):
+            continue
+        received = True
+        prefix = f"s{number}-"
+        rename = {q["ref"]: prefix + q["ref"] for q in part.get("quotes") or [] if isinstance(q, dict) and isinstance(q.get("ref"), str)}
+        merged["quotes"] += [{**q, "ref": rename[q["ref"]]} for q in part.get("quotes") or [] if isinstance(q, dict) and q.get("ref") in rename]
+        for section in sections:
+            offset = len(merged[section])
+            taken = {item.get("id") for item in merged[section] if isinstance(item, dict)}
+            for item in copy.deepcopy(part.get(section) or []):
+                if isinstance(item, dict):
+                    _rename_quote_refs(item, rename)
+                    if item.get("id") in taken:
+                        item["id"] = f"{item['id']}~s{number}"
+                    taken.add(item.get("id"))
+                merged[section].append(item)
+            for entry in part.get("missingFields") or []:
+                found = re.match(rf"^/{section}/(\d+)", str(entry.get("target", ""))) if isinstance(entry, dict) else None
+                if found:
+                    target = f"/{section}/{int(found[1]) + offset}{entry['target'][found.end() :]}"
+                    merged["missingFields"].append({**entry, "target": target})
+    if not received:
+        return None
+    for section, found in statuses.items():
+        kinds = {entry.get("status") for entry in found}
+        if kinds <= {"EXTRACTED", "NOT_IN_SOURCE", "NOT_APPLICABLE"} and "EXTRACTED" in kinds:
+            merged["coverage"][section] = {"status": "EXTRACTED", "reason": None}
+        elif len(kinds) == 1 and kinds <= {"NOT_IN_SOURCE", "NOT_APPLICABLE"}:
+            merged["coverage"][section] = dict(found[0])
+        else:
+            merged["coverage"][section] = {"status": "PARTIAL", "reason": SPLIT_PARTIAL}
+    return merged
+
+
+def _rename_quote_refs(node: Any, rename: dict[str, str]) -> None:
+    if isinstance(node, dict):
+        if isinstance(node.get("quoteRefs"), list):
+            node["quoteRefs"] = [rename.get(ref, ref) for ref in node["quoteRefs"]]
+        for value in node.values():
+            _rename_quote_refs(value, rename)
+    elif isinstance(node, list):
+        for value in node:
+            _rename_quote_refs(value, rename)
 
 
 def _failed_part(call: CallSpec, reason: str) -> dict[str, Any]:
@@ -197,16 +409,30 @@ def run_extraction(
 
         part, reason, repairs, truncations = None, None, 0, 0
         unrepaired = None  # 형식 위반이 있는 첫 응답. 수정 호출이 실패하면(예산 한도 등) 이것을 넘깁니다
+        truncated_raw: str | None = None  # 다시 받아도 잘린 마지막 응답(나눠 부르기·끝까지 적힌 항목 살리기에 씀)
+        cut_raws: list[str] = []  # 이 호출에서 잘린 응답 전부(앞 응답이 더 멀리 읽었을 수 있어 모두 모읍니다)
         while part is None and reason is None:
             response, reason = call_model(request, repairs > 0, sink)
             if response is None:
                 break
-            if response.stop_reason is StopReason.MAX_TOKENS:
-                if truncations < policy.truncation_retries and (budget is None or budget(request)):
+            cut = response.stop_reason is StopReason.MAX_TOKENS
+            loop = runaway(response.raw_text) if cut or response.stop_reason is StopReason.END else None
+            if loop is not None:
+                sink.attempts[-1] = replace(sink.attempts[-1], runaway=loop)
+            if cut:
+                cut_raws.append(response.raw_text)
+            if cut or loop is not None:
+                # 잘렸거나 폭주한 응답: 짧게 인용하라는 지시를 덧붙인 요청으로 다시 받습니다(같은 요청은 같은 곳에서 다시 폭주했음)
+                if truncations < policy.truncation_retries and (budget is None or budget(guarded(request))):
                     truncations += 1
+                    request = guarded(request)
                     continue
-                reason = "출력 한도로 응답이 잘렸습니다."
-            elif response.stop_reason is StopReason.REFUSED:
+                if cut:
+                    truncated_raw = response.raw_text
+                    reason = "출력 한도로 응답이 잘렸습니다."
+                    continue
+                # 정상 종료인데 폭주가 보이고 다시 받을 수 없으면 받은 응답을 씁니다(근거를 못 찾은 항목은 결합기가 뺍니다)
+            if response.stop_reason is StopReason.REFUSED:
                 reason = "모델이 응답을 거부했습니다."
             else:
                 try:
@@ -225,12 +451,30 @@ def run_extraction(
                         unrepaired = unrepaired if part is None else part
                         part = None
                         request = rules.build_request(call, material, known, repair_error=problem)
+                        request = guarded(request) if truncations else request
 
         if part is None and unrepaired is not None:
             # 수정 호출이 어떤 이유로든(예산 차단·출력 한도로 잘림·거부·호출 실패) 답을 못 주면 첫 응답을 넘깁니다.
             # 실측(GH 800 유료): 감점 행 2개의 형식 위반 때문에 자격·선정·서류가 통째로 사라졌습니다.
             # 결합기가 위반한 섹션만 FAILED로 처리하므로 나머지 섹션은 살립니다.
             part, reason = unrepaired, None
+        if part is None and truncated_raw is not None:
+            # 다시 받아도 잘림: 나눠 부를 호출이면 표 묶음별로 나눠 부르고(한 조각이 폭주해도 나머지는 남음), 아니면(또는 모두 실패하면)
+            # 잘린 응답에서 끝까지 적힌 항목만 살립니다. 살린 섹션은 PARTIAL이라 재확인·검수로 갑니다
+            splits = dict(rules.runaway_splits).get(call.name)
+            how = None
+            if splits and number > 0:
+                part = run_split(number, call, splits, known, sink)
+                how = "표 묶음별로 나눠 부른 결과" if part is not None else None
+            if part is None:
+                salvaged = salvage_truncated(truncated_raw, call.sections)
+                if salvaged is not None and (schema_errors(salvaged, request.output_schema) is None or bad_items(salvaged, request.output_schema) is not None):
+                    part, how = fix_format_slips(salvaged), "잘린 응답에서 끝까지 적힌 항목"
+            if part is not None:
+                reason = None
+                added = fill_from_cuts(part, cut_raws, call.sections)
+                more = f", 앞서 잘린 응답에서 끝까지 적힌 항목 {added}개를 더했습니다" if added else ""
+                sink.notes.append(f"{call.name}: 다시 받아도 출력 한도로 잘려 {how}를 썼습니다{more}")
         if part is None:
             sink.failed_calls.append((call.name, reason))
             sink.parts.append(_failed_part(call, reason))
@@ -249,6 +493,18 @@ def run_extraction(
                 return structure_summary({**part, "locations": shown, "supplyGroups": table_part["supplyGroups"]})
             return structure_summary(part)
         return None
+
+    def run_split(number: int, call: CallSpec, splits: tuple[CallSpec, ...], known: dict[str, Any] | None, sink: ExtractionRun) -> dict[str, Any] | None:
+        """잘린 호출을 나눠 부를 호출들(splits)로 다시 불러 한 조각으로 합칩니다. 하나도 받지 못하면 None.
+        나눈 호출마다 잘림 재요청·형식 재요청·끝까지 적힌 항목 살리기를 따로 거칩니다(더 나누지는 않음)."""
+        sub = ExtractionRun()
+        for spec in splits:
+            one_call(number, replace(spec, instructions=f"{spec.instructions}\n{SHORT_QUOTES}"), known, sub)
+        sink.attempts.extend(sub.attempts)
+        sink.raw_responses.extend(sub.raw_responses)
+        sink.failed_calls.extend(sub.failed_calls)
+        sink.notes.extend(sub.notes)
+        return merge_split_parts(sub.parts, call.sections)
 
     def run_calls() -> None:
         nonlocal structure
@@ -282,6 +538,7 @@ def run_extraction(
             run.attempts.extend(sink.attempts)
             run.failed_calls.extend(sink.failed_calls)
             run.raw_responses.extend(sink.raw_responses)
+            run.notes.extend(sink.notes)
 
     with timed(usage, "sections"):
         run_calls()
@@ -293,19 +550,40 @@ def _supply_from_tables(rules: FieldRules, material: ExtractionMaterial, first: 
     tables = supply_tables.candidates(material)
     if not tables:
         return None
-    request = supply_tables.mapping_request(rules.build_request(first, material), tables)
+    base = rules.build_request(first, material)
+    request = supply_tables.mapping_request(base, tables)
     if budget is not None and not budget(request):
         return None
     response, _ = call_model(request, repair=False)
-    if response is None or response.stop_reason is not StopReason.END:
+    if response is None:
         return None
-    mapping = supply_tables.parse_mapping(response.raw_text)
+    if response.stop_reason in (StopReason.MAX_TOKENS, StopReason.RUNAWAY):
+        # 잘린 답: 끝까지 적힌 표 답은 쓰고 남은 표만 한 번 더 묻습니다(2026-10-24 일곱 번째 채점: 잘린 답 전체를 버려 표 옮기기가 꺼짐)
+        done = supply_tables.salvage_mapping(response.raw_text)
+        answered = {str(e.get("table")) for e in done}
+        rest = [t for t in tables if t.label not in answered and not t.continues]
+        more: list[dict[str, Any]] = []
+        if done and rest:
+            follow = supply_tables.mapping_request(base, rest)
+            if budget is None or budget(follow):
+                again, _ = call_model(follow, repair=False)
+                if again is not None and again.stop_reason is StopReason.END:
+                    parsed = supply_tables.parse_mapping(again.raw_text)
+                    more = list(parsed["tables"]) if parsed else []
+                elif again is not None:
+                    more = supply_tables.salvage_mapping(again.raw_text)
+        mapping = {"tables": [*done, *more]} if done else None
+    elif response.stop_reason is StopReason.END:
+        mapping = supply_tables.parse_mapping(response.raw_text)
+    else:
+        return None
     if mapping is None or schema_errors(mapping, supply_tables.MAPPING_SCHEMA) is not None:
         return None
     part = supply_tables.build_part(tables, mapping, material.text_document_id)
     if part is None:
         return None
-    check = {k: v for k, v in part.items() if k != "locations"}  # 주소 위치는 구조 호출 조각으로 옮겨 그쪽에서 검사합니다
+    # 주소 위치는 구조 호출 조각으로 옮겨 그쪽에서 검사하고, 코드가 남긴 검수 이슈는 결합기가 꺼내 씁니다(계약 칸 아님)
+    check = {k: v for k, v in part.items() if k not in ("locations", supply_tables.ISSUES_KEY)}
     check["supplyGroups"] = [{k: v for k, v in g.items() if k != "_complex"} for g in part["supplyGroups"]]
     if schema_errors(check, call_schema(("supplyGroups",), document_ids(material))) is not None:
         return None

@@ -120,6 +120,18 @@ case("api_mismatch_outside_hold", [*notice_hold("/notice/supplyType"), (D + "/qu
 section_note = [{"code": "ITEM_DROPPED_NO_EVIDENCE", "target": "/schedules", "description": "근거를 확인하지 못한 항목 1개를 뺐습니다."}]
 case("section_note_keeps_application_windows", [(D + "/quality/notes", section_note)], valid=True)
 
+# 일정 장소·시각·제외 요일·신청 방법, 서류 묶음(2026-10-23). 신청 방법은 정해진 값만, 공고 전체 신청 방법은 신청 일정에서 계산한 값과 같아야 함
+place = [{"name": "가상주거공사 1층 접수처", "address": None, "detail": None}]
+case(
+    "schedule_place_hours_and_days",
+    [(D + "/schedules/0/places", place), (D + "/schedules/0/dailyHours", [{"start": "10:00", "end": "17:00"}]), (D + "/schedules/0/excludedDays", ["SAT", "SUN", "HOLIDAY"])],
+    valid=True,
+)
+case("free_text_channel_rejected", [(D + "/schedules/0/channels", ["인터넷"])], code="SCHEMA")
+case("invalid_application_email", [(D + "/schedules/0/applicationEmail", {"address": "접수 메일", "subjectFormat": None})], code="SCHEMA")
+case("application_channels_conflict", [(D + "/notice/applicationChannels", ["ONLINE", "FAX"])], code="APPLICATION_CHANNELS_CONFLICT")
+case("document_group_and_copies", [(D + "/requiredDocuments/0/group", "COMMON"), (D + "/requiredDocuments/0/copies", 1)], valid=True)
+
 output = ROOT / "tests/fixtures/extraction-boundaries.json"
 output.parent.mkdir(parents=True, exist_ok=True)
 output.write_text(json.dumps({"base": "extraction.completed.json", "cases": CASES}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")

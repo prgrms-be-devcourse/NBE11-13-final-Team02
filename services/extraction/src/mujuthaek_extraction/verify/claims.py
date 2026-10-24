@@ -37,6 +37,10 @@ KOREAN_OF = {v: k for k, v in KOREAN_NUMBERS.items() if len(k) == 1}
 Cited = list[tuple[str, Place | None]]
 
 
+# LH 주택형 코드: 전용면적(소수 넷째 자리까지) + 형 문자(supply_tables.TYPE_CODE_AREA와 같음. 검증 모듈이 추출 모듈을 가져오지 않게 따로 둠)
+TYPE_CODE_AREA = re.compile(r"\s*0*(\d{1,3}\.\d{2})\d{2}[A-Z]")
+
+
 def _clean(text: str) -> str:
     return re.sub(r"(?<=\d)\s+(?=[,.]\d)|(?<=[,.])\s+(?=\d)", "", text)
 
@@ -219,6 +223,9 @@ def _has_date(texts: list[str], value: dict[str, str] | None, *, end: bool = Fal
     return bool(year_ok and end and re.search(rf"(?:[~∼-]|부터)\s*0?{d}(?!\d)\s*(?:\.|일|\(|$)", rest))
 
 
+has_date = _has_date  # 재확인 채택(recheck._keep_verified_dates)에서도 같은 날짜 확인 규칙을 씁니다
+
+
 def _written_dates(text: str) -> set[date]:
     """연도까지 적힌 날짜들(「2026. 10. 7.」「2026년 10월 7일」「'26.10.07」)."""
     found = set()
@@ -362,7 +369,11 @@ def check_claims(candidate: dict[str, Any], sources: SourceBundle | None = None,
     for g, group in enumerate(candidate["supplyGroups"]):
         area = group.get("exclusiveAreaSqm")
         cited = texts(group["evidenceIds"])
-        if isinstance(area, int | float) and cited and not _has_number(cited + whole, float(area)):
+        # LH 주택형 코드(「084.9079A」)에서 옮긴 면적은 그 코드가 근거입니다(2026-10-24 여덟 번째 채점: 병합된 주택형 칸 아래 층별 행의
+        # 인용에 코드가 없어 맞는 면적 때문에 가격 묶음 13개가 통째로 숨음)
+        coded = TYPE_CODE_AREA.match(str(group.get("housingTypeCode") or ""))
+        from_code = coded is not None and isinstance(area, int | float) and abs(float(coded[1]) - float(area)) < 0.01
+        if isinstance(area, int | float) and cited and not from_code and not _has_number(cited + whole, float(area)):
             miss(f"/supplyGroups/{g}/exclusiveAreaSqm", "전용면적", area, cited)
         for c, count in enumerate(group["counts"]):
             cited = texts(count["evidenceIds"])

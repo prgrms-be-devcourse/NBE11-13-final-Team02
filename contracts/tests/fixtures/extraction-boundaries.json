@@ -973,6 +973,96 @@
       ],
       "valid": true,
       "errorCode": null
+    },
+    {
+      "name": "schedule_place_hours_and_days",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/places",
+          "value": [
+            {
+              "name": "가상주거공사 1층 접수처",
+              "address": null,
+              "detail": null
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/schedules/0/dailyHours",
+          "value": [
+            {
+              "start": "10:00",
+              "end": "17:00"
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/schedules/0/excludedDays",
+          "value": [
+            "SAT",
+            "SUN",
+            "HOLIDAY"
+          ]
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "free_text_channel_rejected",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/channels",
+          "value": [
+            "인터넷"
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "invalid_application_email",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/applicationEmail",
+          "value": {
+            "address": "접수 메일",
+            "subjectFormat": null
+          }
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "application_channels_conflict",
+      "operations": [
+        {
+          "path": "/payload/notice/notice/applicationChannels",
+          "value": [
+            "ONLINE",
+            "FAX"
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "APPLICATION_CHANNELS_CONFLICT"
+    },
+    {
+      "name": "document_group_and_copies",
+      "operations": [
+        {
+          "path": "/payload/notice/requiredDocuments/0/group",
+          "value": "COMMON"
+        },
+        {
+          "path": "/payload/notice/requiredDocuments/0/copies",
+          "value": 1
+        }
+      ],
+      "valid": true,
+      "errorCode": null
     }
   ]
 }

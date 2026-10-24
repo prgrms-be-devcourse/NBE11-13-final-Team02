@@ -845,6 +845,70 @@ class NoticeContractTest(unittest.TestCase):
         notice["payload"].pop("heldItems", None)
         self.assert_error("SCHEMA", "/payload", "required", value=notice, schema=EVENT)
 
+    def test_schedule_place_time_days_and_channels(self):
+        # 프론트 요청(2026-10-23): 접수 장소·이메일·접수 시각·쉬는 시각·제외 요일, 신청 방법은 정해진 값만
+        schedule = self.notice["schedules"][0]
+        schedule.update(
+            places=[{"name": "가상주거공사 1층 접수처", "address": "서울특별시 종로구 가상로 1", "detail": None}],
+            applicationEmail={"address": "apply@example.org", "subjectFormat": "[신청] 성명_주택형"},
+            dailyHours=[{"start": "10:00", "end": "17:00"}],
+            breaks=[{"start": "12:00", "end": "13:00"}],
+            excludedDays=["SAT", "SUN", "HOLIDAY"],
+            timeNote="마감일은 16시까지예요.",
+        )
+        self.assert_valid()
+        schedule["kinds"] = ["VIEWING"]
+        schedule["applicationMode"] = "NOT_APPLICABLE"
+        self.notice["notice"]["applicationChannels"] = []
+        self.notice["applicationSummary"].update(status="UNKNOWN", basisScheduleIds=[])
+        self.assert_no_error("SCHEMA")
+
+    def test_schedule_time_ranges_places_and_days_are_checked(self):
+        schedule = self.notice["schedules"][0]
+        schedule["dailyHours"] = [{"start": "18:00", "end": "09:00"}]
+        schedule["breaks"] = [{"start": "12:00", "end": "12:00"}]
+        schedule["places"] = [{"name": None, "address": None, "detail": None}]
+        self.assert_error("TIME_RANGE_REVERSED", "/schedules/0/dailyHours/0")
+        self.assert_error("TIME_RANGE_REVERSED", "/schedules/0/breaks/0")
+        self.assert_error("EMPTY_PLACE", "/schedules/0/places/0")
+        schedule["dailyHours"] = [{"start": "9:00", "end": "18:00"}]
+        self.assert_error("SCHEMA", "/schedules/0/dailyHours/0/start", "pattern")
+        schedule["dailyHours"] = []
+        schedule["excludedDays"] = ["SAT", "SAT"]
+        self.assert_error("SCHEMA", "/schedules/0/excludedDays", "uniqueItems")
+
+    def test_channels_are_enum_and_notice_channels_follow_application_schedules(self):
+        schedule = self.notice["schedules"][0]
+        schedule["channels"] = ["인터넷"]
+        self.assert_error("SCHEMA", "/schedules/0/channels/0", "enum")
+        schedule["channels"] = ["MAIL", "ONLINE"]
+        self.assert_error("APPLICATION_CHANNELS_CONFLICT", "/notice/applicationChannels")
+        self.notice["notice"]["applicationChannels"] = ["ONLINE", "MAIL"]  # 정해진 순서
+        self.assert_valid()
+        self.assertEqual(["ONLINE", "MAIL"], contract.application_channels(self.notice))
+
+    def test_notice_channels_follow_contract_schedules_when_there_is_no_application(self):
+        # 별도 접수 없이 계약으로 바로 신청받는 선착순 공고: 신청 일정이 없으면 계약 일정의 방법을 공고 전체 신청 방법으로 셉니다
+        notice = copy.deepcopy(self.notice)
+        for schedule in notice["schedules"]:
+            if "APPLICATION" in schedule["kinds"]:
+                schedule["kinds"] = ["CONTRACT"]
+                schedule["applicationMode"] = "NOT_APPLICABLE"
+                schedule["channels"] = ["ONSITE"]
+        self.assertEqual(["ONSITE"], contract.application_channels(notice))
+        notice["schedules"][0]["kinds"] = ["APPLICATION"]
+        notice["schedules"][0]["channels"] = ["MAIL"]
+        self.assertEqual(["MAIL"], contract.application_channels(notice))  # 신청 일정이 하나라도 있으면 그 일정만
+
+    def test_required_document_group_copies_and_issuer(self):
+        document = self.notice["requiredDocuments"][0]
+        document.update(group="PROXY_SPOUSE", copies=2, issuer="주민센터")
+        self.assert_valid()
+        document["copies"] = 0
+        self.assert_error("SCHEMA", "/requiredDocuments/0/copies", "anyOf")
+        document.update(copies=None, group="SPOUSE")
+        self.assert_error("SCHEMA", "/requiredDocuments/0/group", "enum")
+
 
 if __name__ == "__main__":
     unittest.main()

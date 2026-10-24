@@ -12,15 +12,19 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.ApplicationEmail;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.AreaSummary;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Condition;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Evidence;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FileLink;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FollowUp;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.HeldItem;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Place;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.RequiredDocument;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Schedule;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Site;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Summary;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.TimeRange;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.UnitType;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import tools.jackson.databind.JsonNode;
@@ -33,7 +37,8 @@ import tools.jackson.databind.node.JsonNodeFactory;
  * <p>칸이 없으면 빈 목록·null로 둬요 (검수 대기 등으로 상세가 빠진 버전도 있어요).
  *
  * <p>원문 확인 전까지 보류한 항목(quality.heldItems)은 보여 주지 않아요: 그 일정·주택형·호·위치·첨부를 빼고, 위치 칸 하나만 보류했으면 그 칸만 비워요.
- * 보류한 자격 조건은 확인 필요(inReview)로 표시하고 근거는 비워요. 무엇을 뺐는지는 heldItems로 알려요.
+ * 공급 묶음의 수량이나 가격만 보류했으면 그 값만 비우고 주택형·호는 보여 줘요. 보류한 자격 조건은 확인 필요(inReview)로 표시하고 근거는 비워요. 무엇을 뺐는지는
+ * heldItems로 알려요.
  *
  * <p>근거(evidence)는 항목의 evidenceIds로 상세의 evidence에서 찾아 인용·쪽·문서 이름을 붙여요. 쪽은 근거 위치가 PDF 쪽(PDF_PAGE)일
  * 때만 있어요.
@@ -60,6 +65,7 @@ public final class NoticeDetailMapper {
         sites(detail),
         unitTypes,
         conditions(payload, detail),
+        requiredDocuments(detail),
         files(detail),
         heldItems(detail),
         areaSummaries,
@@ -81,8 +87,9 @@ public final class NoticeDetailMapper {
     }
     boolean countsHeld = held(detail, "/notice/counts");
     Integer total = countsHeld ? null : offered(detail.path("notice").path("counts"));
-    // 공고에 적힌 수가 없을 때만 주택형별 합을 써요. 공고에 적힌 수를 보류했거나 보류한 공급 묶음이 있으면 합이 다른 값일 수 있어 쓰지 않아요
-    if (total == null && !countsHeld && !unitTypes.isEmpty() && !held(detail, "/supplyGroups")) {
+    // 공고에 적힌 수가 없을 때만 주택형별 합을 써요. 공고에 적힌 수를 보류했거나, 공급 수량을 보류했거나 통째로 뺀 공급 묶음이 있으면
+    // 합이 다른 값일 수 있어 쓰지 않아요 (가격만 보류한 묶음은 수량이 확정이라 합에 넣어요)
+    if (total == null && !countsHeld && !unitTypes.isEmpty() && !supplyCountsHeld(detail)) {
       total = unitTypes.stream().mapToInt(t -> t.supplyCount() == null ? 0 : t.supplyCount()).sum();
     }
     return new Summary(
@@ -92,7 +99,19 @@ public final class NoticeDetailMapper {
             : strings(detail.path("notice").path("targetGroups")),
         total,
         min,
-        max);
+        max,
+        applicationChannels(detail));
+  }
+
+  /**
+   * 공고 전체 신청 방법. 추출이 계산해 보낸 값(notice.applicationChannels)을 쓰고, 그 칸이 없는 이전 저장본은 신청 일정에서 같은 규칙으로
+   * 계산해요.
+   */
+  static List<String> applicationChannels(JsonNode detail) {
+    JsonNode given = detail.path("notice").path("applicationChannels");
+    return given.isArray()
+        ? NoticeProjection.channels(given)
+        : NoticeProjection.applicationChannels(detail);
   }
 
   /** 후속 안내 한 건. schedules는 후속 안내 글의 일정(상세의 schedules와 같은 모양)이에요. */
@@ -125,9 +144,74 @@ public final class NoticeDetailMapper {
               ends,
               text(s.path("description")),
               text(s.path("applicationUrl")),
+              NoticeProjection.channels(s.path("channels")),
+              places(s.path("places")),
+              email(s.path("applicationEmail")),
+              times(s.path("dailyHours")),
+              times(s.path("breaks")),
+              strings(s.path("excludedDays")),
+              text(s.path("timeNote")),
               within(today, starts, ends),
               cite(evidence, s.path("evidenceIds"))));
     }
+    return out;
+  }
+
+  private static List<Place> places(JsonNode array) {
+    List<Place> out = new ArrayList<>();
+    for (JsonNode p : array) {
+      out.add(new Place(text(p.path("name")), text(p.path("address")), text(p.path("detail"))));
+    }
+    return out;
+  }
+
+  private static ApplicationEmail email(JsonNode node) {
+    return node.isObject() && text(node.path("address")) != null
+        ? new ApplicationEmail(text(node.path("address")), text(node.path("subjectFormat")))
+        : null;
+  }
+
+  private static List<TimeRange> times(JsonNode array) {
+    List<TimeRange> out = new ArrayList<>();
+    for (JsonNode t : array) {
+      out.add(new TimeRange(text(t.path("start")), text(t.path("end"))));
+    }
+    return out;
+  }
+
+  /** 서류 묶음 순서 (공통 → 해당자 → 본인 방문 → 배우자 대리 → 그 밖의 대리 → 묶음 없음). */
+  private static final List<String> DOCUMENT_GROUPS =
+      List.of("COMMON", "CONDITIONAL", "DIRECT", "PROXY_SPOUSE", "PROXY_OTHER");
+
+  /** 제출 서류. 보류한 서류(/requiredDocuments/{i})는 빼고, 서류 묶음 순서로 놓아요 (같은 묶음 안은 원문 순서). */
+  static List<RequiredDocument> requiredDocuments(JsonNode detail) {
+    Map<String, Evidence> evidence = evidence(detail);
+    List<RequiredDocument> out = new ArrayList<>();
+    JsonNode all = detail.path("requiredDocuments");
+    for (int i = 0; i < all.size(); i++) {
+      if (held(detail, "/requiredDocuments/" + i)) {
+        continue;
+      }
+      JsonNode d = all.get(i);
+      out.add(
+          new RequiredDocument(
+              text(d.path("id")),
+              text(d.path("name")),
+              text(d.path("group")),
+              text(d.path("appliesTo")),
+              text(d.path("submissionTime")),
+              d.path("copies").isInt() ? d.path("copies").asInt() : null,
+              text(d.path("issuer")),
+              text(d.path("description")),
+              strings(d.path("scope").path("targetGroups")),
+              cite(evidence, d.path("evidenceIds"))));
+    }
+    out.sort(
+        java.util.Comparator.comparingInt(
+            d -> {
+              int order = d.group() == null ? -1 : DOCUMENT_GROUPS.indexOf(d.group());
+              return order < 0 ? DOCUMENT_GROUPS.size() : order;
+            }));
     return out;
   }
 
@@ -158,8 +242,16 @@ public final class NoticeDetailMapper {
   }
 
   /**
-   * 주택형별 묶음: 같은 주택형의 공급 묶음을 합쳐 면적·보증금·월임대료(처음 값)와 공급 호수(합)를 보여줘요. 보류한 공급 묶음이 하나라도 있는 주택형은 빼요(합친
-   * 호수·가격이 틀린 값이 되지 않게).
+   * 주택형별 묶음: 같은 주택형의 공급 묶음을 합쳐 면적·보증금·월임대료(처음 값)와 공급 호수(합)를 보여줘요.
+   *
+   * <p>보류 범위에 따라 다르게 가려요(합친 호수·가격이 틀린 값이 되지 않게):
+   *
+   * <ul>
+   *   <li>공급 묶음 전체(/supplyGroups/{i}이나 그 위)나 수량·가격 밖의 칸(면적·주택형 등)을 보류한 묶음이 하나라도 있으면 그 주택형은 빼요.
+   *   <li>수량만 보류(/supplyGroups/{i}/counts나 그 안)했으면 주택형은 보여 주고 그 주택형의 공급 호수만 null이에요.
+   *   <li>가격만 보류(/supplyGroups/{i}/prices나 가격 항목 하나)했으면 그 가격 종류(보증금·월임대료)만 null이고 근거도 빼요. 가격 항목의
+   *       종류를 모르면(항목 전체나 종류 칸 보류) 보증금·월임대료 모두 null이에요.
+   * </ul>
    */
   public static List<UnitType> unitTypes(JsonNode detail) {
     Map<String, Evidence> evidence = evidence(detail);
@@ -168,6 +260,10 @@ public final class NoticeDetailMapper {
     Map<String, JsonNode> depositOf = new LinkedHashMap<>();
     Map<String, JsonNode> rentOf = new LinkedHashMap<>();
     Set<String> heldTypes = new HashSet<>();
+    // 수량·보증금·월임대료를 보류한 묶음이 있는 주택형 (그 값만 null로 보여 줘요)
+    Set<String> countHeldTypes = new HashSet<>();
+    Set<String> depositHeldTypes = new HashSet<>();
+    Set<String> rentHeldTypes = new HashSet<>();
     JsonNode groups = detail.path("supplyGroups");
     for (int i = 0; i < groups.size(); i++) {
       JsonNode g = groups.get(i);
@@ -175,20 +271,32 @@ public final class NoticeDetailMapper {
       if (type == null) {
         continue;
       }
-      if (held(detail, "/supplyGroups/" + i)) {
+      String at = "/supplyGroups/" + i;
+      if (groupHeld(detail, at)) {
         heldTypes.add(type);
         continue;
       }
-      Integer count = offered(g.path("counts"));
-      if (count == null && "HOUSING_UNIT".equals(text(g.path("itemKind")))) {
-        count = 1; // 호 하나가 공급 묶음 하나
+      Integer count = null;
+      if (held(detail, at + "/counts")) {
+        countHeldTypes.add(type);
+      } else {
+        count = offered(g.path("counts"));
+        if (count == null && "HOUSING_UNIT".equals(text(g.path("itemKind")))) {
+          count = 1; // 호 하나가 공급 묶음 하나
+        }
       }
-      JsonNode deposit = priceItem(g, "DEPOSIT");
-      JsonNode rent = priceItem(g, "MONTHLY_RENT");
-      if (deposit != null) {
+      JsonNode deposit = priceItem(detail, at, g, "DEPOSIT");
+      JsonNode rent = priceItem(detail, at, g, "MONTHLY_RENT");
+      if (deposit == HELD_PRICE) {
+        depositHeldTypes.add(type);
+        deposit = null;
+      } else if (deposit != null) {
         depositOf.putIfAbsent(type, deposit);
       }
-      if (rent != null) {
+      if (rent == HELD_PRICE) {
+        rentHeldTypes.add(type);
+        rent = null;
+      } else if (rent != null) {
         rentOf.putIfAbsent(type, rent);
       }
       UnitType next =
@@ -217,6 +325,8 @@ public final class NoticeDetailMapper {
                   List.of()));
     }
     heldTypes.forEach(byType::remove);
+    depositHeldTypes.forEach(depositOf::remove);
+    rentHeldTypes.forEach(rentOf::remove);
     return byType.values().stream()
         .map(
             t ->
@@ -224,9 +334,9 @@ public final class NoticeDetailMapper {
                     t.houseType(),
                     t.targetGroups(),
                     t.exclusiveM2(),
-                    t.depositWon(),
-                    t.rentWon(),
-                    t.supplyCount(),
+                    depositHeldTypes.contains(t.houseType()) ? null : t.depositWon(),
+                    rentHeldTypes.contains(t.houseType()) ? null : t.rentWon(),
+                    countHeldTypes.contains(t.houseType()) ? null : t.supplyCount(),
                     priceEvidence(
                         evidence, depositOf.get(t.houseType()), rentOf.get(t.houseType()))))
         .toList();
@@ -274,7 +384,8 @@ public final class NoticeDetailMapper {
   }
 
   /**
-   * 호 단위(HOUSING_UNIT) 공급 묶음. siteId가 있으면 그 단지·건물 것만. 주소는 단지·건물 주소예요. 보류한 호는 빼고, 보류한 위치의 주소는 비워요.
+   * 호 단위(HOUSING_UNIT) 공급 묶음. siteId가 있으면 그 단지·건물 것만. 주소는 단지·건물 주소예요. 보류한 호(묶음 전체나 수량·가격 밖의 칸)는 빼고,
+   * 가격만 보류한 호는 그 보증금·월임대료만 비우고(근거도 빼요) 보여 줘요. 보류한 위치의 주소는 비워요.
    */
   public static List<NoticeUnitResponse> units(JsonNode detail, String siteId) {
     Map<String, Evidence> evidence = evidence(detail);
@@ -291,7 +402,8 @@ public final class NoticeDetailMapper {
     JsonNode groups = detail.path("supplyGroups");
     for (int i = 0; i < groups.size(); i++) {
       JsonNode g = groups.get(i);
-      if (held(detail, "/supplyGroups/" + i)) {
+      String at = "/supplyGroups/" + i;
+      if (groupHeld(detail, at)) {
         continue;
       }
       String location = text(g.path("locationId"));
@@ -299,8 +411,10 @@ public final class NoticeDetailMapper {
           || (siteId != null && !siteId.equals(location))) {
         continue;
       }
-      JsonNode deposit = priceItem(g, "DEPOSIT");
-      JsonNode rent = priceItem(g, "MONTHLY_RENT");
+      JsonNode deposit = priceItem(detail, at, g, "DEPOSIT");
+      JsonNode rent = priceItem(detail, at, g, "MONTHLY_RENT");
+      deposit = deposit == HELD_PRICE ? null : deposit;
+      rent = rent == HELD_PRICE ? null : rent;
       out.add(
           new NoticeUnitResponse(
               text(g.path("id")),
@@ -364,14 +478,71 @@ public final class NoticeDetailMapper {
     return total;
   }
 
-  /** 이 종류의 첫 가격 항목 (금액이 있는 것). 없으면 null. */
-  private static JsonNode priceItem(JsonNode group, String kind) {
-    for (JsonNode p : group.path("prices")) {
+  /** 가격을 보류해 보여 줄 수 없음을 나타내는 표시 값 (priceItem의 결과). */
+  private static final JsonNode HELD_PRICE = JsonNodeFactory.instance.missingNode();
+
+  /**
+   * 이 종류의 첫 가격 항목 (금액이 있는 것). 없으면 null. 그 앞이나 그 자리에 이 종류의 보류한 항목이 있으면(종류를 모르는 보류 항목 포함) 보여 줄 값을 정할
+   * 수 없어 HELD_PRICE예요. 뒤에 있는 다른 항목으로 대신하지 않아요(다른 조건의 금액일 수 있어요).
+   */
+  private static JsonNode priceItem(JsonNode detail, String at, JsonNode group, String kind) {
+    if (heldWhole(detail, at + "/prices")) {
+      return HELD_PRICE;
+    }
+    JsonNode prices = group.path("prices");
+    for (int j = 0; j < prices.size(); j++) {
+      JsonNode p = prices.get(j);
+      String item = at + "/prices/" + j;
+      if (held(detail, item)) {
+        boolean kindUnknown = heldWhole(detail, item) || held(detail, item + "/kind");
+        if (kindUnknown || kind.equals(text(p.path("kind")))) {
+          return HELD_PRICE;
+        }
+        continue;
+      }
       if (kind.equals(text(p.path("kind"))) && p.path("amountKrw").isNumber()) {
         return p;
       }
     }
     return null;
+  }
+
+  /**
+   * 공급 묶음을 통째로 빼야 하는지: 묶음 자체나 그 위 섹션을 보류했거나, 수량(counts)·가격(prices) 밖의 칸(주택형·면적 등)을 보류함. 수량·가격만
+   * 보류했으면 그 값만 가리고 묶음은 보여 줘요.
+   */
+  private static boolean groupHeld(JsonNode detail, String at) {
+    if (heldWhole(detail, at)) {
+      return true;
+    }
+    for (JsonNode h : detail.path("quality").path("heldItems")) {
+      String target = h.path("target").asString("");
+      if (target.startsWith(at + "/")
+          && !inside(target, at + "/counts")
+          && !inside(target, at + "/prices")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static boolean inside(String target, String pointer) {
+    return target.equals(pointer) || target.startsWith(pointer + "/");
+  }
+
+  /** 공급 수량을 모르는 묶음이 있는지: 묶음을 통째로 빼거나 수량을 보류한 묶음. 이때 주택형별 합을 공고 모집 수로 쓰지 않아요. */
+  private static boolean supplyCountsHeld(JsonNode detail) {
+    if (heldWhole(detail, "/supplyGroups")) {
+      return true;
+    }
+    JsonNode groups = detail.path("supplyGroups");
+    for (int i = 0; i < groups.size(); i++) {
+      String at = "/supplyGroups/" + i;
+      if (groupHeld(detail, at) || held(detail, at + "/counts")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private static Long amount(JsonNode price) {

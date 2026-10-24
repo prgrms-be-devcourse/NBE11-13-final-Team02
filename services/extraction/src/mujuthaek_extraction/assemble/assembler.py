@@ -18,7 +18,9 @@ from typing import Any
 from jsonschema import Draft202012Validator, FormatChecker
 
 from mujuthaek_extraction.assemble import ai_output
+from mujuthaek_extraction.assemble.coerce import COERCIBLE, coerce_item
 from mujuthaek_extraction.assemble.coverage import DROPPED_INVALID, DROPPED_NO_EVIDENCE
+from mujuthaek_extraction.assemble.details import check_details
 from mujuthaek_extraction.assemble.missing_prices import fill_missing_prices
 from mujuthaek_extraction.assemble.quotes import (
     NormalizedText,
@@ -30,6 +32,7 @@ from mujuthaek_extraction.assemble.quotes import (
     normalize,
     quote_in_unit_row,
     resolve_item_quotes,
+    split_joined_quote,
     strip_markers,
 )
 from mujuthaek_extraction.assemble.regions import RegionCodeTable
@@ -129,6 +132,14 @@ def _pointer(tokens: list[str | int]) -> str:
     return "".join("/" + str(t).replace("~", "~0").replace("/", "~1") for t in tokens)
 
 
+# AI가 「합계·총수가 원문에 따로 없어 적지 않음」을 이유로 공고 기본 정보를 PARTIAL로 적은 경우(원문에 없는 값이지 덜 뽑은 것이 아님)
+TOTAL_NOT_WRITTEN = re.compile(r"(?:합계|합산|총\s*(?:모집|공급|세대|호|수))[^.]{0,40}(?:없|적혀\s*있지\s*않|기재되지\s*않|나와\s*있지\s*않)")
+
+
+def _total_not_written(entry: dict[str, Any]) -> bool:
+    return entry.get("status") == "PARTIAL" and bool(TOTAL_NOT_WRITTEN.search(str(entry.get("reason") or "")))
+
+
 def _walk(value: Any, tokens: list[str | int]):
     if isinstance(value, dict):
         yield tokens, value
@@ -170,11 +181,14 @@ class _Assembler:
     def merge(self) -> None:
         validator = Draft202012Validator(ai_output.schema(), format_checker=FormatChecker())
         failed = {"status": "FAILED", "reason": "AI 응답 형식이 맞지 않습니다."}
+        code_issues: list[dict[str, Any]] = []
         for number, part in enumerate(self.parts):
             if not isinstance(part, dict):
                 self.issue([], "AI_OUTPUT_INVALID", f"{number}번째 응답이 객체가 아닙니다.")
                 continue
-            part = self.salvage(number, self.repair(number, copy.deepcopy(part)), validator)
+            part = copy.deepcopy(part)
+            code_issues += [i for i in part.pop(ai_output.CODE_ISSUES, None) or [] if isinstance(i, dict)]
+            part = self.salvage(number, self.repair(number, part), validator)
             broken: set[str] = set()
             for error in validator.iter_errors(part):
                 top = error.absolute_path[0] if error.absolute_path else None
@@ -207,6 +221,14 @@ class _Assembler:
                     adopted.add(section)
                     if section in reported:
                         self.coverage[section] = dict(reported[section])
+                        if section == "notice" and _total_not_written(reported[section]):
+                            # 공고 전체 합계가 원문에 따로 없어 적지 않은 것은 덜 뽑은 것이 아닙니다(원문에 없는 값). 공고 기본 정보 PARTIAL은
+                            # 공고 전체 검수가 되므로(2026-10-24 일곱 번째 채점: 「주택형별 모집호수는 있지만 공고 전체 합계는 따로 없어」로
+                            # 맞는 공고가 통째로 비공개) 메모만 남기고 다 뽑은 것으로 봅니다
+                            self.notes.append(
+                                f"/notice: AI가 「{reported[section].get('reason')}」로 일부라고 적었지만 원문에 없는 합계라 다 뽑은 것으로 봤어요"
+                            )
+                            self.coverage[section] = {"status": "EXTRACTED", "reason": None}
                     elif self.coverage.get(section, {}).get("status") == "FAILED":  # 앞 응답이 깨져 남긴 FAILED는 이 응답 내용과 맞지 않습니다
                         del self.coverage[section]
                 elif section in reported and reported[section]["status"] in {"NOT_IN_SOURCE", "NOT_APPLICABLE", "FAILED"}:
@@ -222,12 +244,23 @@ class _Assembler:
                         )
                         continue
                     self.missing.append(copy.deepcopy(entry))
+        # 코드 조각의 검수 이슈: 가리키는 공급 묶음 자리로(묶음을 못 찾으면 공급 섹션)
+        groups = self.sections.get("supplyGroups")
+        positions = {g.get("id"): i for i, g in enumerate(groups) if isinstance(g, dict)} if isinstance(groups, list) else {}
+        # field가 있으면(수량만 애매함 counts, 가격만 애매함 prices) 그 칸을 가리켜 그 칸만 보류합니다(2026-10-24, verifier.held_target)
+        for entry in code_issues:
+            at = positions.get(entry.get("supplyGroupId"))
+            field = entry.get("field") if entry.get("field") in ("counts", "prices") else None
+            tokens: list[str | int] = ["supplyGroups", at, *([field] if field else [])] if at is not None else ["supplyGroups"]
+            self.issue(tokens, str(entry.get("code")), str(entry.get("description")))
 
     def repair(self, number: int, part: dict[str, Any]) -> dict[str, Any]:
         """뜻이 분명한 형식 실수를 고쳐 항목이 빠지지 않게 합니다(실측 2026-10-17 OpenAI dcco-24788).
         - 같은 응답 안에서 id가 겹치면(가점표 행마다 같은 id) 뒤 항목에 「.2」「.3」을 붙입니다. 예전에는 DUPLICATE_ID로 7행이 빠졌습니다.
           다른 항목이 id로 가리키는 섹션(공급 묶음·위치)은 고치지 않습니다.
-        - 하루짜리 일정(공고일·발표일)을 endStatus FIXED로 적고 endsAt을 비우면 시작값을 종료값으로 씁니다. 예전에는 형식 오류로 빠졌습니다."""
+        - 하루짜리 일정(공고일·발표일)을 endStatus FIXED로 적고 endsAt을 비우면 시작값을 종료값으로 씁니다. 예전에는 형식 오류로 빠졌습니다.
+          시작이 시각(MINUTE)·월(MONTH)이면 복사하지 않고 끝을 「원문에 없음」(NOT_IN_SOURCE)으로 둡니다: 「14:00 이후 발표」가
+          「14:00~14:00」으로 보였습니다(2026-10-23). 날짜(DAY)만 있는 하루짜리 일정만 시작값을 끝으로 씁니다."""
         for section in ("schedules", "selectionRules", "requiredDocuments", "guidance", "eligibility"):
             items = part.get(section)
             if not isinstance(items, list):
@@ -248,7 +281,10 @@ class _Assembler:
                     item["id"] = new_id
         for item in part.get("schedules") or []:
             if isinstance(item, dict) and item.get("endStatus") == "FIXED" and item.get("endsAt") is None and isinstance(item.get("startsAt"), dict):
-                item["endsAt"] = copy.deepcopy(item["startsAt"])
+                if item["startsAt"].get("precision") == "DAY":
+                    item["endsAt"] = copy.deepcopy(item["startsAt"])
+                elif item.get("endCondition") is None:  # 시각(MINUTE)·월(MONTH)
+                    item["endStatus"] = "NOT_IN_SOURCE"
         fix_format_slips(part)  # 엄격 모드가 채운 빈 사유·추첨 순서 번호 등(slips.py). 예전엔 가점표 12행이 형식 오류로 빠졌습니다
         # 소득 기준 연도가 항목 원문에 「전년도」「당해연도」처럼 공고일 기준으로만 있으면 버전에 그 원문 표현을 적습니다. 연도·버전이 둘 다 비면
         # 계약 검사(INCOMPLETE_INCOME_BENCHMARK)에 걸려 소득 조건이 통째로 빠졌습니다(실측 2026-10-17 dcco-24788).
@@ -269,10 +305,14 @@ class _Assembler:
 
     def salvage(self, number: int, part: dict[str, Any], validator: Draft202012Validator) -> dict[str, Any]:
         """형식 오류가 난 곳만 빼서 섹션을 살립니다 (2026-10-16 항목 격리). 예전에는 오류 하나로 섹션 전체(예: 자격 조건 12개)를 버렸습니다.
-        자격 조건의 예외 하나가 틀리면 그 예외만 빼고(조건은 사람 확인), 그 밖에는 틀린 항목만 뺍니다."""
-        for _ in range(3):
+        자격 조건의 예외 하나가 틀리면 그 예외만 빼고(조건은 사람 확인), 그 밖에는 틀린 항목만 뺍니다.
+        일정·서류는 틀린 칸만 안전한 값으로 바꿔 항목을 남깁니다(coerce.py, 2026-10-23). 일정의 종류·날짜·범위처럼 뜻이 있는 칸을 바꿨으면
+        보류(AI_OUTPUT_ITEM_COERCED → 화면 「확인 필요」), 접수 장소·시각 같은 덧붙인 칸만 비웠으면 표시 메모입니다. 바꿔도 틀리면 뺍니다."""
+        coerced: dict[int, tuple[str, dict[str, Any], list[str], bool]] = {}  # 항목 객체 id → (섹션, 항목, 바꾼 칸, 뜻 있는 칸을 바꿨는지)
+        for _ in range(4):
             items: dict[str, set[int]] = defaultdict(set)
             exceptions: dict[int, set[int]] = defaultdict(set)
+            errors: dict[tuple[str, int], list[Any]] = defaultdict(list)
             for error in validator.iter_errors(part):
                 path = list(error.absolute_path)
                 if len(path) < 2 or path[0] not in SECTIONS or path[0] == "notice" or not isinstance(path[1], int):
@@ -281,8 +321,20 @@ class _Assembler:
                     exceptions[path[1]].add(path[3])
                 else:
                     items[path[0]].add(path[1])
+                    errors[(path[0], path[1])].append(error)
             if not items and not exceptions:
                 break
+            for section in COERCIBLE:
+                for index in sorted(items.get(section, set())):
+                    item = part[section][index]
+                    if id(item) in coerced or not isinstance(item, dict):
+                        continue  # 이미 한 번 바꿨는데도 틀리면 아래에서 뺍니다
+                    fixed = coerce_item(section, item, errors[(section, index)], part)
+                    if fixed is not None:
+                        coerced[id(item)] = (section, item, *fixed)
+                        items[section].discard(index)
+                if section in items and not items[section]:
+                    del items[section]
             for index, positions in exceptions.items():
                 if index in items["eligibility"]:
                     continue
@@ -297,6 +349,8 @@ class _Assembler:
                     f"{_label(condition)}: 형식이 맞지 않는 예외 {len(positions)}개를 뺐습니다. 원문의 예외를 확인해야 합니다",
                 )
             for section, indexes in items.items():
+                for index in indexes:
+                    coerced.pop(id(part[section][index]), None)
                 labels = [_label(part[section][i]) for i in sorted(indexes) if isinstance(part[section][i], dict)]
                 for index in sorted(indexes, reverse=True):
                     del part[section][index]
@@ -306,6 +360,18 @@ class _Assembler:
                 coverage = part.get("coverage") if isinstance(part.get("coverage"), dict) else {}
                 if isinstance(coverage.get(section), dict) and coverage[section].get("status") == "EXTRACTED":
                     coverage[section] = {"status": "PARTIAL", "reason": DROPPED_INVALID}
+        for section, item, fields, meaningful in coerced.values():
+            index = next(i for i, x in enumerate(part[section]) if x is item)
+            names = ", ".join(fields)
+            if meaningful:
+                self.issue(
+                    [section, index],
+                    "AI_OUTPUT_ITEM_COERCED",
+                    f"{number}번째 응답의 {_label(item)}: 형식이 맞지 않는 칸({names})을 안전한 값으로 바꿨어요. 원문 확인 전까지 쓰지 않아요",
+                )
+            else:  # 일정 항목을 가리키면 그 일정이 접수 기간에서 빠지므로 섹션을 가리킵니다(details.py와 같음)
+                target = [section] if section == "schedules" else [section, index]
+                self.issue(target, "AI_OUTPUT_FIELD_CLEARED", f"{number}번째 응답의 {_label(item)}: 형식이 맞지 않는 칸({names})을 비웠어요")
         return part
 
     # 2. 인용문 → 근거 위치
@@ -347,6 +413,13 @@ class _Assembler:
                         self.issue(tokens, "EVIDENCE_SOURCE_UNSUPPORTED", f"{quote['documentId']} 문서 근거는 아직 위치를 계산하지 않습니다.")
                     else:
                         self.issue(tokens, "EVIDENCE_SOURCE_UNKNOWN", f"전달되지 않은 문서입니다: {quote['documentId']}")
+                split_quotes = []
+                for quote in text_quotes:  # 이어 붙인 인용은 원문에 있는 조각들로 나눠 각각 근거로 씁니다(quotes.split_joined_quote)
+                    parts = split_joined_quote(material.text, quote["text"], index)
+                    if parts:
+                        self.notes.append(f"{_pointer(tokens)}: 원문의 두 곳 이상을 이어 쓴 인용을 조각 {len(parts)}개로 나눠 근거로 썼습니다.")
+                    split_quotes += [{**quote, "text": part} for part in parts] if parts else [quote]
+                text_quotes = split_quotes
                 resolutions = resolve_item_quotes(material.text, [q["text"] for q in text_quotes], index)
                 groups = self._target_groups(tokens)
                 resolutions = [choose_by_target_groups(material.text, r, groups) for r in resolutions]
@@ -676,6 +749,9 @@ class _Assembler:
         result = AssemblyResult(candidate, issues, self.notes)
         if candidate is not None:
             candidate["quality"]["reviewIssues"] = issues
+            # 일정 접수 방법·장소·시각과 서류 묶음을 근거로 확인하고 같은 서류를 합칩니다(details.py). 합칠 때 위의 이슈 위치도 맞춥니다
+            material = self.source.material
+            self.notes.extend(check_details(candidate, material.text, material.text_document_id))
             result.contract_errors = tools().validate(candidate, "schemas/extracted-notice.v1.json")
         return result
 

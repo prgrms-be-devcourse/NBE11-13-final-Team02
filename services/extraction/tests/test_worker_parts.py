@@ -197,6 +197,26 @@ def test_partially_published_notice_can_be_approved():
     assert candidate["quality"]["heldItems"]  # 작업 기록의 후보는 받은 그대로
 
 
+def test_old_stored_candidate_is_upgraded_before_approval():
+    # 2026-10-23 이전 저장본(일정 새 칸 없음, 자유 글자 신청 방법)도 승인할 수 있어야 합니다
+    item = pending_item()
+    candidate = item["candidate"]
+    for schedule in candidate["schedules"]:
+        for key in ("places", "applicationEmail", "dailyHours", "breaks", "excludedDays", "timeNote"):
+            schedule.pop(key, None)
+        schedule["channels"] = ["온라인 신청"] if "APPLICATION" in schedule["kinds"] else []
+    for document in candidate["requiredDocuments"]:
+        for key in ("group", "copies", "issuer"):
+            document.pop(key, None)
+    candidate["notice"].pop("applicationChannels", None)
+    service, store = service_with(item)
+    status, body = service.approve("job", {})
+    assert status == 200, body
+    approved, event, _ = store.approved
+    assert tools().validate(event, "events/extraction.completed.v1.json") == []
+    assert approved["notice"]["applicationChannels"] == ["ONLINE"]
+
+
 def test_approve_with_broken_candidate_is_refused():
     service, store = service_with(pending_item())
     status, body = service.approve("job", {"candidate": {"schemaVersion": "1.0.0"}})

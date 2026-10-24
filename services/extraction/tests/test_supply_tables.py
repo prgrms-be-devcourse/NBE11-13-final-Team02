@@ -192,12 +192,11 @@ def test_conversion_cell_holding_up_and_down_amounts_is_split_by_both_signs():
         ]
     }
     [group] = st.build_part([table], mapping, "pdf-text")["supplyGroups"]
+    # 「(+) -」 쪽 금액(12,614 / 57,810)은 기본과 같아 증액 전환이 없는 것이므로 증액안을 만들지 않습니다(2026-10-24 네 번째 채점)
     assert [(p["kind"], p["sourceAmount"], p["priceStage"]) for p in group["prices"]] == [
         ("DEPOSIT", "12,614", "STANDARD"),
         ("MONTHLY_RENT", "57,810", "STANDARD"),
-        ("DEPOSIT", "12,614", "CONVERSION_DEPOSIT_UP"),
         ("DEPOSIT", "2,614", "CONVERSION_DEPOSIT_DOWN"),
-        ("MONTHLY_RENT", "57,810", "CONVERSION_DEPOSIT_UP"),
         ("MONTHLY_RENT", "86,970", "CONVERSION_DEPOSIT_DOWN"),
     ]
 
@@ -598,3 +597,129 @@ def test_large_unit_list_spreadsheet_rows_are_all_copied_by_code():
     assert [p["sourceAmount"] for p in groups[-1]["prices"]] == ["1000300"]
     quotes = {q["ref"]: q["text"] for q in part["quotes"]}
     assert all(quotes[ref] in intake.material.text for g in groups for ref in g["quoteRefs"])  # 근거가 원문 행 그대로
+
+
+def test_conversion_direction_comes_from_column_and_plan_words():
+    # 전환 보증금 점검(2026-10-23): 열 의미 답이 전환안의 방향을 비워 두거나(「전환」만 보고 모두 증액으로 봄) 기본안으로 적어도,
+    # 열 제목·요금안 이름의 「보증금 증액·감액」으로 방향을 정합니다. 부호 칸이 없는 표
+    head = ("형", "임대보증금", "월임대료", "보증금 증액 시 보증금", "보증금 증액 시 월임대료", "보증금 감액 시 보증금", "보증금 감액 시 월임대료")
+    rows = (head, ("26A", "20,000", "300,000", "40,000", "200,000", "10,000", "350,000"))
+    table = st.Table("8-1", 8, "임대조건", head, rows, (tuple(range(7)), tuple(range(7, 14))))
+    columns = [
+        column(1, "HOUSING_TYPE"),
+        column(2, "PRICE", pk="DEPOSIT", unit="천원", plan="기본", stage="STANDARD"),
+        column(3, "PRICE", pk="MONTHLY_RENT", unit="원", plan="기본", stage="STANDARD"),
+        column(4, "PRICE", pk="DEPOSIT", unit="천원", plan="증액 전환"),
+        column(5, "PRICE", pk="MONTHLY_RENT", unit="원", plan="증액 전환"),
+        column(6, "PRICE", pk="DEPOSIT", unit="천원", plan="감액", stage="STANDARD"),
+        column(7, "PRICE", pk="MONTHLY_RENT", unit="원", plan="감액", stage="CONVERSION_DEPOSIT_UP"),
+    ]
+    mapping = {"tables": [{"table": "8-1", "role": "SUPPLY", "rowUnit": "HOUSING_TYPE", "complex": None, "columns": columns}]}
+    [group] = st.build_part([table], mapping, "pdf-text")["supplyGroups"]
+    assert [(p["sourceAmount"], p["priceStage"]) for p in group["prices"]] == [
+        ("20,000", "STANDARD"),
+        ("300,000", "STANDARD"),
+        ("40,000", "CONVERSION_DEPOSIT_UP"),
+        ("200,000", "CONVERSION_DEPOSIT_UP"),
+        ("10,000", "CONVERSION_DEPOSIT_DOWN"),
+        ("350,000", "CONVERSION_DEPOSIT_DOWN"),
+    ]
+    plans = {p["priceStage"]: p["pricePlanId"] for p in group["prices"]}
+    assert len(set(plans.values())) == 3  # 기본·증액·감액은 서로 다른 요금안
+
+
+def test_conversion_direction_words():
+    assert st._stage_words("보증금 감액 시 월임대료") == "CONVERSION_DEPOSIT_DOWN"
+    assert st._stage_words("전환(증액) 보증금") == "CONVERSION_DEPOSIT_UP"
+    assert st._stage_words("최대 전환") is None  # 방향 낱말 없음: 부호 칸·답을 따름
+    assert st._stage_words("보증금 증액·감액 전환 한도") is None
+
+
+def conversion_mapping(label, conversion_columns):
+    return {
+        "tables": [
+            {
+                "table": label,
+                "role": "SUPPLY",
+                "rowUnit": "HOUSING_TYPE",
+                "complex": None,
+                "columns": [
+                    column(1, "HOUSING_TYPE"),
+                    column(2, "PRICE", pk="DEPOSIT", unit="천원", plan="기본", stage="STANDARD"),
+                    column(3, "PRICE", pk="MONTHLY_RENT", unit="원", plan="기본", stage="STANDARD"),
+                    column(4, "CONVERSION_LIMIT"),
+                    *conversion_columns,
+                ],
+            }
+        ]
+    }
+
+
+CONVERSION_HEAD = ("형", "보증금", "월세", "전환 한도", "전환 보증금", "전환 월세")
+UP_COLUMNS = [
+    column(5, "PRICE", pk="DEPOSIT", unit="천원", plan="최대 전환", stage="CONVERSION_DEPOSIT_UP"),
+    column(6, "PRICE", pk="MONTHLY_RENT", unit="원", plan="최대 전환", stage="CONVERSION_DEPOSIT_UP"),
+]
+
+
+def conversion_prices(limit, deposit_cell, rent_cell, columns=UP_COLUMNS):
+    rows = (CONVERSION_HEAD, ("26A", "20,000", "300,000", limit, deposit_cell, rent_cell))
+    table = st.Table("9-1", 9, "임대조건", CONVERSION_HEAD, rows, (tuple(range(6)), tuple(range(6, 12))))
+    part = st.build_part([table], conversion_mapping("9-1", columns), "pdf-text")
+    [group] = part["supplyGroups"]
+    return [(p["kind"], p["sourceAmount"], p["priceStage"]) for p in group["prices"][2:]], part
+
+
+def test_two_amount_cell_is_split_by_arrow_and_word_signs_in_written_order():
+    # 한도 칸의 증액·감액 표시가 「(+)」「(-)」가 아니라 화살표·낱말이어도 나눕니다(2026-10-23, 합성 표)
+    expected = [
+        ("DEPOSIT", "30,000", "CONVERSION_DEPOSIT_UP"),
+        ("DEPOSIT", "15,000", "CONVERSION_DEPOSIT_DOWN"),
+        ("MONTHLY_RENT", "250,000", "CONVERSION_DEPOSIT_UP"),
+        ("MONTHLY_RENT", "350,000", "CONVERSION_DEPOSIT_DOWN"),
+    ]
+    assert conversion_prices("↑ 10,000 ↓ 5,000", "30,000 15,000", "250,000 350,000")[0] == expected
+    assert conversion_prices("▲10,000 ▼5,000", "30,000 15,000", "250,000 350,000")[0] == expected
+    assert conversion_prices("+10,000 -5,000", "30,000 15,000", "250,000 350,000")[0] == expected
+    # 감액이 먼저 적혀 있으면 첫 금액이 감액안입니다
+    reversed_order = conversion_prices("감액 5,000 증액 10,000", "15,000 30,000", "350,000 250,000")[0]
+    assert sorted(reversed_order) == sorted(expected)
+    assert st._sign_order("(+) - (-) 10,000") == ["(+)", "(-)"]  # 가운데 맨 「-」는 빈 값이라 표시가 아님
+    assert st._sign_order("10,000") is None and st._sign_order("↑ 10,000") is None
+
+
+def test_column_answered_twice_as_up_and_down_takes_only_its_own_amount():
+    columns = [
+        column(5, "PRICE", pk="DEPOSIT", unit="천원", plan="최대 전환 증액", stage="CONVERSION_DEPOSIT_UP"),
+        column(5, "PRICE", pk="DEPOSIT", unit="천원", plan="최대 전환 감액", stage="CONVERSION_DEPOSIT_DOWN"),
+    ]
+    prices, _ = conversion_prices("↑ 10,000 ↓ 5,000", "30,000 15,000", "", columns)
+    assert prices == [("DEPOSIT", "30,000", "CONVERSION_DEPOSIT_UP"), ("DEPOSIT", "15,000", "CONVERSION_DEPOSIT_DOWN")]
+
+
+def test_two_amount_cell_without_both_signs_is_reported_not_dropped_silently():
+    prices, part = conversion_prices("10,000", "30,000 15,000", "250,000")
+    assert prices == [("MONTHLY_RENT", "250,000", "CONVERSION_DEPOSIT_UP")]  # 나누지 못한 칸은 넣지 않음
+    [issue] = part[st.ISSUES_KEY]
+    assert issue["code"] == "SUPPLY_PRICE_MISSING" and issue["supplyGroupId"] == part["supplyGroups"][0]["id"]
+    assert "30,000 15,000" in issue["description"]
+    # 나눌 수 있으면 이슈가 없습니다
+    assert st.ISSUES_KEY not in conversion_prices("↑ 10,000 ↓ 5,000", "30,000 15,000", "250,000 350,000")[1]
+
+
+def test_no_deposit_rent_column_is_a_deposit_down_plan():
+    # 보증금 없이 월세만 내는 요금안을 기본안(STANDARD)으로 답해도 열 제목·요금안 이름으로 보증금을 내린 전환안으로 둡니다
+    head = ("호", "임대보증금", "월임대료", "무보증 전환 임대료")
+    rows = (head, ("101", "5,000,000", "100,000", "120,000"))
+    table = st.Table("엑셀1", 0, "", head, rows, None)
+    columns = [
+        column(1, "UNIT"),
+        column(2, "PRICE", pk="DEPOSIT", unit="원", plan="기본", stage="STANDARD"),
+        column(3, "PRICE", pk="MONTHLY_RENT", unit="원", plan="기본", stage="STANDARD"),
+        column(4, "PRICE", pk="MONTHLY_RENT", unit="원", plan="무보증금 월세", stage="STANDARD", group="수급자"),
+    ]
+    mapping = {"tables": [{"table": "엑셀1", "role": "SUPPLY", "rowUnit": "HOUSING_UNIT", "complex": None, "columns": columns}]}
+    [group] = st.build_part([table], mapping, "pdf-text")["supplyGroups"]
+    rent = group["prices"][-1]
+    assert (rent["sourceAmount"], rent["priceStage"], rent["scope"]["targetGroups"]) == ("120,000", "CONVERSION_DEPOSIT_DOWN", ["수급자"])
+    assert st._stage_words("무보증금 월세") == "CONVERSION_DEPOSIT_DOWN"

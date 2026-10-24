@@ -21,6 +21,8 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Any
 
+from mujuthaek_extraction.assemble.ai_output import CODE_ISSUES
+from mujuthaek_extraction.assemble.conversion import SAME_AS_BASE, UNCHECKED, plan_directions
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 from mujuthaek_extraction.intake.pdf_reader import NUMERIC_VALUE
 from mujuthaek_extraction.model.base import ModelRequest
@@ -30,8 +32,15 @@ CALL_NAME = "supply_tables"
 # 출력 한도: 실측 최대 2,422(인천 4358, 시도 17건). 표 수에 따라 늘어 1.3배보다 조금 넉넉히 둡니다(이전 16,000).
 # 잘리면 열 의미 없이 이전 방식(구조 호출이 공급까지)으로 돌아갑니다. 설정 EXTRACTION_MAX_OUTPUT_TOKENS의 supply_tables로 바꿀 수 있습니다
 MAX_OUTPUT_TOKENS = 4_000
+# 표가 많으면 한도를 늘립니다(2026-10-24 일곱 번째 채점: 단지가 많은 공고의 표 10개 열 의미가 4,000토큰에서 잘려 답 전체를 버림 →
+# 코드가 표를 옮기는 경로가 꺼지고 공급 묶음 72개 중 16개만 나옴). 표 하나에 약 700토큰, 상한 16,000
+TOKENS_PER_TABLE = 700
+MAX_OUTPUT_TOKENS_CAP = 16_000
+# v7(2026-10-24): 표 전체가 특정 대상의 요금(「상한 임대조건」「수급자 등」「적용 대상자」)이면 모든 가격 열 targetGroup에 그 대상,
+#   주택형이 표 제목에만 있으면 프로그램이 그 표 행에 붙인다는 안내.
+# v6(2026-10-23): 보증금을 내린 전환안·무보증금 월세 열은 CONVERSION_DEPOSIT_DOWN, 적용 대상이 적혀 있으면 targetGroup.
 # v5(2026-10-20): 표마다 절 제목. v4: 주소 칸 ADDRESS. v3: 행마다 다른 요금안 칸 PLAN_NAME. v2: 첨부 엑셀 공급주택목록 표, 공고문 요약표와 중복 방지 안내
-PROMPT_VERSION = "supply_tables/v5"
+PROMPT_VERSION = "supply_tables/v7"
 # 옵션 가격표의 절 제목(가장 안쪽 제목). 본 가격표 제목에도 「발코니 확장비 별도」가 붙으므로 주택가격·공급금액·별도가 있으면 아님
 # (실측 2026-10-20 LH 대전대동2 「5. 발코니 확장 및 추가선택품목 › ■ 발코니 확장 안내」 표를 AI가 공급표로 답해 확장비 계약금·잔금 32개가
 #  59A 등의 계약금·잔금으로 자동 게시됨. 수집 공고 72건의 후보 표 182개 중 이 규칙에 맞는 것은 옵션 표 3개뿐)
@@ -59,6 +68,28 @@ LABEL_NOISE = re.compile(r"^\s*표\s*|\s*\(\s*\d+\s*쪽\s*\)\s*$")
 SIGN_CELL = re.compile(r"\(?\s*([+\-−])\s*\)?")  # 전환 구분 칸 「(+)」「(-)」
 SUPPLY_COUNT_KINDS = {"OFFERED", "RESERVE", "WAITLIST", "CURRENT_VACANCIES"}
 HOUSING_NUMBER = re.compile(r"\d+(?:\.\d+)?")
+ABOVE_LINES = 3  # 표 위에서 볼 글 줄 수
+# 표 제목에만 있는 주택형(2026-10-24 채점: 「【31A】 구간별 임대조건」 표의 구간별 가격 18묶음이 주택형 없이 따로 남음).
+# 짧은 제목 줄(※·- 같은 안내 표시로 시작하지 않음)의 주택형 낱말만 봅니다. 줄에 주택형이 여럿이면 정하지 않고 검수 이슈로 둡니다
+TITLE_TYPE = re.compile(r"(?<![\d.A-Za-z])(\d{2,3}[A-Z]{1,2}\d?|\d{2,3}\s*형)(?![\d.A-Za-z])")
+TITLE_CHARS = 40
+NOTE_MARK = re.compile(r"^\s*[※*＊\-·•▶]")
+TYPE_AMBIGUOUS = "SUPPLY_TYPE_AMBIGUOUS"
+# 표 전체(또는 열)가 특정 대상의 요금임을 말하는 낱말(2026-10-24 채점: 「[주거급여 수급자가 아닌 경우] 상한 임대조건」 표가 대상 없는
+# 기본 요금으로 그 주택형에 붙음). 이런 표·열의 가격을 AI가 대상 없이 STANDARD로 답하면 기본 요금 자리에 두지 않고 보류합니다.
+# 「분양가상한제」는 대상 낱말이 아닙니다
+RESTRICTED_PRICE = re.compile(r"(?<!분양가)(?<!분양가 )상한(?!\s*제)|수급자|적용\s*대상|해당자에\s*한|에\s*한하여|에\s*한함|만\s*해당|만\s*적용")
+SCOPE_UNCERTAIN = "PRICE_SCOPE_UNCERTAIN"
+# 대상 한정 낱말을 찾을 표 위 글(2026-10-24 네 번째 채점: 표 위 입지 설명 「「경제자유구역…법」 제2조…(산업단지 근로자인 경우에만 해당)에
+# 건설되거나」의 「만 해당」에 걸려 임대조건 12묶음이 통째로 숨음). 요금을 말하는 줄만 보고, 법령 인용 줄은 보지 않습니다
+PRICE_TITLE_WORDS = re.compile(r"임대\s*조건|임대료|요금|보증금|월\s*세|가격|분양가|전환")
+LAW_TEXT = re.compile(r"「[^」]*법[^」]*」|제\s*\d+\s*조")
+# 병합된 한 칸의 수량을 여러 공급 행이 나눠 가짐: 행마다 그 수 전체로 보이므로(2026-10-24 채점: 49형 두 행이 「금회 모집 60」을 둘 다 가져
+# 합이 120으로 보임) 표의 합계 행이 그 칸을 한 번만 센 합과 같을 때만 그대로 두고, 아니면 그 묶음들을 보류합니다
+COUNT_MERGED = "COUNT_MERGED_AMBIGUOUS"
+# 전환안 방향 검산(2026-10-24 세 번째 채점: 부호 「(+)」만 보고 기본 보증금보다 줄어든 감액안을 증액안으로 둠). assemble.conversion
+DIRECTION_CORRECTED = "CONVERSION_DIRECTION_CORRECTED"  # 숫자로 분명해 고침(표시만)
+DIRECTION_UNCERTAIN = "CONVERSION_DIRECTION_UNCERTAIN"  # 숫자로도 정할 수 없음(그 묶음 가격 보류)
 
 
 def _nullable(schema: dict[str, Any]) -> dict[str, Any]:
@@ -121,7 +152,8 @@ INSTRUCTIONS = """# 이번 호출에서 할 일 (supply_tables)
     수량 열이 공급 유형별(일반공급·우선공급·특별공급 등)로 나뉘면 targetGroup에 그 유형 이름
   - PRICE 금액 — priceKind(보증금 DEPOSIT·월임대료 MONTHLY_RENT·분양가 SALE_PRICE·계약금 CONTRACT_PAYMENT·잔금 BALANCE·그 밖 OTHER),
     unit(열 제목·표 위의 [단위] 표시), plan(요금안 이름: 기본, 보증금 최대 전환 등 — 같은 요금안의 보증금·월세는 같은 이름),
-    priceStage(기본 STANDARD, 보증금을 올리거나 내린 전환안 CONVERSION_DEPOSIT_UP, 지원 전(당초) BEFORE_SUPPORT, 지원 후(반값 등) AFTER_SUPPORT),
+    priceStage(기본 STANDARD, 보증금을 올린 전환안 CONVERSION_DEPOSIT_UP, 보증금을 내린 전환안 CONVERSION_DEPOSIT_DOWN, 지원 전(당초) BEFORE_SUPPORT,
+    지원 후(반값 등) AFTER_SUPPORT),
     targetGroup(이 열이 특정 순위·계층에만 해당하면 그 이름, 예: 1순위·수급자 등)
   - CONVERSION_LIMIT 전환 가능 보증금 한도·증감액 칸(「(+)5,000」「(-)16,000」). 가격이 아닙니다. 프로그램이 이 칸의 부호로 보증금 증액·감액 전환안을 나눕니다
   - PLAN_NAME 같은 주택형·층의 가격이 행마다 다른 안으로 나뉠 때 그 안 이름 칸(「구분」 열의 기본형·마이너스옵션 등). 가격 열이 아닙니다
@@ -129,6 +161,12 @@ INSTRUCTIONS = """# 이번 호출에서 할 일 (supply_tables)
 - 표마다 하나씩, table에는 아래 「표 번호」 값만 씁니다(예: "3-1". 「표」 글자·쪽 번호는 붙이지 않음).
 - 수량·가격이 표 여러 개에 나뉘어 있으면(호수 표와 임대료 표) 표마다 답합니다. 프로그램이 같은 단지·같은 면적 묶음에 가격을 붙입니다.
 - 전환안 열은 priceStage를 반드시 적습니다. 한 행에 증액·감액이 「(+)」「(-)」 칸으로 나뉘면 그 칸을 CONVERSION_LIMIT로 넣습니다.
+- 보증금 없이 월세만 내는 요금안 열(「무보증금 월세」「무보증 전환 임대료」)은 보증금을 내린 전환안이라 priceStage CONVERSION_DEPOSIT_DOWN입니다.
+  공고문이 그 요금안의 적용 대상을 정해 두었으면(「적용 대상자」「○○만 해당」) targetGroup에 그 대상 이름을 적습니다(STANDARD로 두지 않음).
+- 표 전체가 특정 대상의 요금이면(절·앞 글·열 제목이 「상한 임대조건」「수급자 등의 임대조건」「○○인 경우」「적용 대상자」「○○에 한하여」)
+  그 표의 **모든 가격 열** targetGroup에 그 대상 이름을 적습니다(행마다 「1인」「2인」 같은 대상 칸이 있어도 적음).
+  대상을 정할 수 없으면 targetGroup을 비워 둡니다. 프로그램이 그 가격을 기본 요금으로 게시하지 않고 사람 확인으로 보냅니다.
+- 주택형이 열에 없고 표 제목(앞 글의 「【31A】 구간별 임대조건」)에만 있으면 주택형 열을 만들지 않습니다. 프로그램이 제목의 주택형을 그 표 행에 붙입니다.
 - 첨부 엑셀 공급주택목록(표 번호 「엑셀1」 등)이 있으면 호실·주택별 공급은 그 엑셀 표로 답합니다. 같은 주택을 주택형·지역별로 다시 센
   공고문 요약표는 role OTHER로 둡니다(같은 공급이 두 번 들어가지 않게)."""
 
@@ -143,6 +181,7 @@ class Table:
     cells: tuple[tuple[int, ...], ...] | None
     continues: str | None = None  # 앞 쪽 표가 머리 행 없이 이어진 표면 그 표 번호(열 의미를 물려받음)
     section: str = ""  # 표가 속한 절 제목(「5. 발코니 확장 및 추가선택품목 › ■ 발코니 확장 안내」). 쪽을 넘어 이어집니다
+    above: tuple[str, ...] = ()  # 표 바로 위 글 줄(가까운 줄부터 최대 ABOVE_LINES개). 표 제목의 주택형(「【31A】 구간별 임대조건」)을 찾습니다
 
 
 # 절 제목 줄: 「5. 발코니 확장…」 「■ 분양가격 납부조건」 「Ⅲ. 공급대상」. 「※」 안내·「- 4 -」 쪽 번호는 아님
@@ -177,10 +216,12 @@ def candidates(material: ExtractionMaterial) -> list[Table]:
         top = sub = ""
         for page in document.get("pages") or []:
             heading = ""
+            above: tuple[str, ...] = ()
             first_table = True
             for block in page.get("blocks") or []:
                 if block.get("type") == "text":
                     heading = " ".join(block.get("text", "").strip().split("\n")[-2:])[-160:]
+                    above = tuple(line.strip() for line in reversed(block.get("text", "").split("\n")) if line.strip())[:ABOVE_LINES]
                     top, sub = _section(block.get("text", ""), top, sub)
                     continue
                 section = " › ".join(x for x in (top, sub) if x)
@@ -196,6 +237,7 @@ def candidates(material: ExtractionMaterial) -> list[Table]:
                         rows, cells = aligned, aligned_cells
                 continues = first_table and _continues(last, page_number, columns, rows) and numeric
                 first_table = False
+                table_above, above = above, ()  # 다음 표는 그 사이 글 줄만 봅니다
                 if not continues and columns and len(set(c for c in columns if c)) == 1:
                     columns, rows, cells = _recovered(columns, rows, cells)
                 if continues and last is not None:
@@ -210,10 +252,11 @@ def candidates(material: ExtractionMaterial) -> list[Table]:
                         tuple(tuple(r) for r in cells) if cells else None,
                         last.continues or last.label,
                         last.section,
+                        last.above,
                     )
                     found.append(last)
                 elif columns and any(SUPPLY_HINT.search(c) for c in columns) and numeric:
-                    last = Table(label, page_number, heading, columns, rows, tuple(tuple(r) for r in cells) if cells else None, None, section)
+                    last = Table(label, page_number, heading, columns, rows, tuple(tuple(r) for r in cells) if cells else None, None, section, table_above)
                     found.append(last)
                 else:
                     last = None
@@ -369,8 +412,38 @@ def mapping_request(base: ModelRequest, tables: list[Table], max_output_tokens: 
         call_name=CALL_NAME,
         instructions=INSTRUCTIONS + "\n\n" + "\n\n".join(listing),
         output_schema=MAPPING_SCHEMA,
-        max_output_tokens=max_output_tokens or output_limit(CALL_NAME, MAX_OUTPUT_TOKENS),
+        max_output_tokens=max_output_tokens or output_limit(CALL_NAME, scaled_limit(len(listing))),
     )
+
+
+def scaled_limit(table_count: int) -> int:
+    """표 수에 맞춘 출력 한도: 기본 MAX_OUTPUT_TOKENS, 표가 많으면 표마다 TOKENS_PER_TABLE(상한 MAX_OUTPUT_TOKENS_CAP)."""
+    return min(MAX_OUTPUT_TOKENS_CAP, max(MAX_OUTPUT_TOKENS, table_count * TOKENS_PER_TABLE))
+
+
+def salvage_mapping(raw: str) -> list[dict[str, Any]]:
+    """출력 한도로 잘린 열 의미 답에서 끝까지 적힌 표 답만 꺼냅니다(「tables」 배열의 완성된 객체들)."""
+    text = raw.strip().removeprefix("```json").removeprefix("```")
+    start = text.find('"tables"')
+    if start < 0:
+        return []
+    at = text.find("[", start)
+    if at < 0:
+        return []
+    decoder = json.JSONDecoder()
+    found: list[dict[str, Any]] = []
+    at += 1
+    while True:
+        while at < len(text) and text[at] in " \t\r\n,":
+            at += 1
+        if at >= len(text) or text[at] != "{":
+            return found
+        try:
+            value, at = decoder.raw_decode(text, at)
+        except ValueError:
+            return found  # 잘린 마지막 객체
+        if isinstance(value, dict):
+            found.append(value)
 
 
 def _filled(table: Table, seed: dict[int, str] | None = None) -> tuple[list[list[str]], list[list[int]]]:
@@ -423,6 +496,28 @@ def _unit(column: dict[str, Any], title: str) -> str:
     return (match.group(1) or match.group(2)) if match else "원"
 
 
+def _title_types(table: Table) -> list[str]:
+    """표 위 글 줄 중 가장 가까운 짧은 제목 줄의 주택형 낱말들(겹침 없이). 주택형이 적힌 제목 줄이 없으면 빈 목록."""
+    for line in table.above:
+        if len(line) > TITLE_CHARS or NOTE_MARK.match(line):
+            continue
+        found = list(dict.fromkeys(re.sub(r"\s+", "", t).removesuffix("형") for t in TITLE_TYPE.findall(line)))
+        if found:
+            return found
+    return []
+
+
+def _restricted(text: str) -> str | None:
+    found = RESTRICTED_PRICE.search(text or "")
+    return found[0] if found else None
+
+
+def _table_restriction(table: Table) -> str | None:
+    """표 전체가 특정 대상의 요금임을 말하는 낱말. 표 제목·바로 위 글 중 요금을 말하고 법령 인용이 아닌 줄과 절 제목에서만 찾습니다."""
+    lines = [line for line in (table.heading, *table.above) if PRICE_TITLE_WORDS.search(line or "") and not LAW_TEXT.search(line or "")]
+    return _restricted(" ".join([*lines, table.section.split(" › ")[-1]]))
+
+
 def _scope(group_id: str, groups: list[str], description: str) -> dict[str, Any]:
     return {
         "level": "SUPPLY_GROUP",
@@ -443,6 +538,9 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
     groups: list[dict[str, Any]] = []
     shared: dict[tuple[str, int, str], set[str]] = {}  # (표, 칸 번호, 수량 종류) → 그 칸의 수량을 쓰는 공급 묶음
     pending_pools: list[tuple[dict[str, Any], tuple[str, int, str]]] = []
+    pool_column: dict[tuple[str, int, str], tuple[str, int, str]] = {}  # 병합 칸 → (첫 표, 열, 수량 종류)
+    column_values: dict[tuple[str, int, str], dict[tuple[str, Any], int]] = {}  # (첫 표, 열, 종류) → 칸마다 한 번씩 센 수량
+    subtotals: dict[tuple[str, int, str], int] = {}  # (첫 표, 열, 종류) → 합계 행의 수
 
     def quote(line: str) -> str:
         if line not in quote_of:
@@ -471,6 +569,9 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
         keys = [c for c in columns if c["meaning"] in KEY_MEANINGS]
         if not keys or not any(c["meaning"] in ("PRICE", "COUNT", "AREA_EXCLUSIVE") for c in columns):
             continue
+        root = table.continues or table.label
+        title_types = [] if any(c["meaning"] == "HOUSING_TYPE" for c in keys) else _title_types(table)
+        table_restriction = _table_restriction(table)
         if option_table(table) and not any(c["meaning"] in ("COUNT", "AREA_EXCLUSIVE") for c in columns):
             continue  # 발코니 확장·선택품목 가격표는 주택 가격이 아닙니다(AI가 공급표로 답해도)
         # 앞 쪽에서 이어진 표는 앞 조각의 마지막 묶음을 이어 갑니다(쪽 첫 행이 앞 쪽 주택형·층의 둘째 행일 수 있음: 실측 LH 대전대동2
@@ -492,6 +593,11 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
             if c["meaning"] == "CONVERSION_LIMIT" and c.get("priceKind") and not LIMIT_WORDS.search(table.columns[c["column"] - 1]):
                 c["meaning"] = "PRICE"
         limit_column = next((c["column"] - 1 for c in columns if c["meaning"] == "CONVERSION_LIMIT"), None)
+        after_limit_kinds = {
+            (c.get("priceKind"), True) for c in columns if c["meaning"] == "PRICE" and limit_column is not None and c["column"] - 1 > limit_column
+        }
+        # 같은 가격 열을 증액·감액 안으로 두 번 답한 경우(두 금액이 한 칸): 답마다 그 방향의 금액만 씁니다
+        mapped_twice = Counter((c["column"], c.get("priceKind")) for c in columns if c["meaning"] == "PRICE")
         first_price = min((c["column"] for c in columns if c["meaning"] == "PRICE"), default=0)
         for c in columns:  # 종류를 비운 수량 열은 열 제목으로 정합니다(실측: 인천 「호수」 열을 COUNT로만 답해 대상 주택 수가 모두 빠짐)
             if c["meaning"] != "COUNT":
@@ -511,7 +617,13 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
             row = filled[r]
             values = {c["column"] - 1: row[c["column"] - 1] if c["column"] - 1 < len(row) else "" for c in columns}
             key = tuple(values[c["column"] - 1] for c in keys)
-            if any(SUBTOTAL.match(v or "") for v in key) or not any(_numeric(v) for v in values.values()):
+            if any(SUBTOTAL.match(v or "") for v in key):
+                for c in columns:  # 합계 행의 수량: 병합 칸 수량을 한 번만 센 합과 맞는지 봅니다
+                    total = _number(values[c["column"] - 1] or "") if c["meaning"] == "COUNT" and c.get("countKind") else None
+                    if total is not None:
+                        subtotals[(root, c["column"] - 1, c["countKind"])] = int(total)
+                continue
+            if not any(_numeric(v) for v in values.values()):
                 continue
             if not any(key):
                 key = current_key or key  # 이름 칸이 비어 있으면(병합 정보 없는 이어지는 행) 앞 묶음의 행
@@ -551,6 +663,8 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                 parts = list(dict.fromkeys(values[c["column"] - 1] for c in keys if c["meaning"] == "TARGET_GROUP" and values[c["column"] - 1]))
                 if parts:
                     named["TARGET_GROUP"] = " ".join(parts)
+                if len(title_types) == 1:  # 주택형 열이 없고 표 제목에 주택형 하나: 이 표의 행은 그 주택형
+                    named = {"HOUSING_TYPE": title_types[0], **named}
                 group_id = f"sg-t{_slug(table.label)}-r{r}"
                 target = named.get("TARGET_GROUP")
                 name = " ".join(v for m, v in named.items() if m != "TARGET_GROUP") or table.label
@@ -566,7 +680,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     "prices": [],
                     "quoteRefs": [ref],
                     "itemKind": {"HOUSING_TYPE": "HOUSING_TYPE", "HOUSING_UNIT": "HOUSING_UNIT"}.get(entry.get("rowUnit"), "UNKNOWN"),
-                    "unitLabel": named.get("UNIT") or (named.get("COMPLEX") if entry.get("rowUnit") == "BUILDING" else None),
+                    "unitLabel": _unit_label(named, entry.get("rowUnit")),
                     "floor": named.get("FLOOR"),
                     "commonAreaSqm": None,
                     "leaseTerm": None,
@@ -575,6 +689,8 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     "_address": named.get("ADDRESS"),
                     "_plans": {},
                 }
+                if len(title_types) > 1:
+                    current["_type_ambiguous"] = title_types
                 groups.append(current)
                 current_key, current_rows = key, set()
                 if unit_rows:
@@ -618,13 +734,20 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                                 "aggregationRole": "STANDALONE",
                                 "parentCountId": None,
                                 "aggregationComplete": False,
-                                "quoteRefs": [quote(_row_line(table.rows[origin[r][c]]))],
+                                # 세로 병합 칸의 수량은 자기 행과 칸이 시작한 행을 함께 인용합니다(2026-10-24 일곱 번째 채점: 시작한 행만 인용해
+                                # 그 행의 주택형과 달라 위치 의심 151건). 가격의 병합 칸과 같은 방식입니다
+                                "quoteRefs": list(dict.fromkeys([ref, quote(_row_line(table.rows[origin[r][c]]))]))
+                                if origin[r][c] != r and origin[r][c] >= 0
+                                else [quote(_row_line(table.rows[origin[r][c]]))],
                             }
                             current["counts"].append(count)
                             cell = (table.label, _cell_id(table, origin[r][c], c), kind)  # 「7/8」처럼 한 칸의 두 수는 종류별로 따로 묶음
+                            once = (table.label, cell[1] if cell[1] >= 0 else f"r{origin[r][c]}")
+                            column_values.setdefault((root, c, kind), {})[once] = int(number)
                             if cell[1] >= 0:
                                 shared.setdefault(cell, set()).add(group_id)
                                 pending_pools.append((count, cell))
+                                pool_column[cell] = (root, c, kind)
             current_rows.add(r)
             sign = _sign(row, limit_column)
             row_plan = " ".join(dict.fromkeys(values[c["column"] - 1] for c in columns if c["meaning"] == "PLAN_NAME" and values[c["column"] - 1]))
@@ -639,24 +762,59 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     continue
                 if origin[r][c] != r and origin[r][c] in current_rows:
                     continue  # 같은 묶음의 위 행에서 세로로 이어진 값: 이미 넣음
+                price_refs = [ref]
+                if origin[r][c] != r:
+                    # 다른 행에서 세로로 병합된 칸의 값(2026-10-24 세 번째 채점: 표 전체에 병합된 계약금 「500 (정액)」이 전환안 줄·거주기간 줄
+                    # 같은 보조 줄마다 다시 붙어 묶음마다 계약금이 셋까지 생기고, 그 줄 인용에 「500」이 없어 묶음 전체가 보류됨).
+                    # 한 묶음에는 병합 칸 하나의 값을 한 번만 붙이고, 값이 적힌 원래 행도 근거로 함께 인용합니다
+                    used = current.setdefault("_merged_cells", set())
+                    if (c, origin[r][c]) in used:
+                        continue
+                    used.add((c, origin[r][c]))
+                    if origin[r][c] >= 0:
+                        price_refs.append(quote(_row_line(table.rows[origin[r][c]])))
                 base_plan = f"{row_plan} {column['plan']}" if row_plan and column.get("plan") else row_plan or column.get("plan") or "기본"
                 base_stage = column.get("priceStage") or _guess_stage(column, base_plan, limit_column, first_price, sign)
+                if base_stage in ("STANDARD", "CONVERSION_DEPOSIT_UP", "CONVERSION_DEPOSIT_DOWN"):
+                    # 열 제목·요금안 이름이 보증금을 올리는지 내리는지 말하면 그 방향을 씁니다(아래 부호 칸이 있으면 부호가 우선)
+                    base_stage = _stage_words(f"{table.columns[c]} {base_plan}") or base_stage
+                if limit_column is not None and c < limit_column and (column.get("priceKind"), True) in after_limit_kinds:
+                    # 전환 금액 칸이 한도 칸 뒤에 따로 있으면 한도 칸 앞의 금액은 전환 전 기본 조건입니다(2026-10-24 다섯 번째 채점:
+                    # 「임대보증금 감액시 임대조건 › 임대보증금·월임대료 | 한도 | 전환보증금 | 전환임대료」의 앞 두 칸이 감액안으로 게시됨)
+                    base_stage, base_plan = "STANDARD", row_plan or "기본"
                 amounts = AMOUNT_IN_CELL.findall(value) if SPACED_AMOUNTS.search(value) else [value]  # 범위(「1,000~2,000」)는 한 값
                 if len(amounts) > 1:
-                    # 한 칸에 금액 두 개: 전환 칸이고 한도 칸에 (+)와 (-)가 함께 있으면 위가 증액·아래가 감액(실측: LH 포항 행복주택
-                    # 「(+) - (-) 10,000」 | 「12,614 2,614」). 그 밖에는 어느 안의 값인지 몰라 넣지 않습니다(빠진 가격으로 검수)
-                    if not (base_stage.startswith("CONVERSION") and len(amounts) == 2 and "(+)" in sign and "(-)" in sign.replace("−", "-")):
+                    # 한 칸에 금액 두 개: 전환 칸이고 한도 칸에 증액·감액 표시가 둘 다 있으면 한도 칸에 적힌 순서대로 나눕니다
+                    # (실측: LH 포항 행복주택 「(+) - (-) 10,000」 | 「12,614 2,614」. 화살표 「↑ … ↓ …」·「증액 … 감액 …」도 같은 표시).
+                    # 그 밖에는 어느 안의 값인지 몰라 넣지 않고, 조용히 버리지 않도록 검수 이슈로 남깁니다(그 묶음 보류)
+                    signs_in_order = _sign_order(sign)
+                    if not (base_stage.startswith("CONVERSION") and len(amounts) == 2 and signs_in_order is not None):
+                        current.setdefault("_unsplit", []).append(f"{table.columns[c] or column.get('plan') or '가격'} 칸 「{value}」")
                         continue
-                    cells = [(amounts[0], "(+)"), (amounts[1], "(-)")]
+                    cells = list(zip(amounts, signs_in_order, strict=True))
+                    if mapped_twice[(column["column"], column.get("priceKind"))] > 1 and base_stage in ("CONVERSION_DEPOSIT_UP", "CONVERSION_DEPOSIT_DOWN"):
+                        down_wanted = base_stage == "CONVERSION_DEPOSIT_DOWN"
+                        cells = [cell for cell in cells if (cell[1] == "(-)") == down_wanted]
                 else:
                     cells = [(value, sign)]
+                restriction = table_restriction or _restricted(table.columns[c])
                 for cell_value, cell_sign in cells:
                     plan, stage = base_plan, base_stage
                     if stage.startswith("CONVERSION") and cell_sign:
                         down = cell_sign.startswith(("(-)", "-", "−", "(−)"))
                         stage = "CONVERSION_DEPOSIT_DOWN" if down else "CONVERSION_DEPOSIT_UP"
                         plan = f"{plan} (보증금 {'감액' if down else '증액'})"
-                    _add_price(current, column, table.columns[c], ref, cell_value, plan, stage)
+                    direction = "(-)" if stage == "CONVERSION_DEPOSIT_DOWN" else "(+)"
+                    if stage.startswith("CONVERSION") and limit_column is not None and _direction_amounts(sign).get(direction) is False:
+                        # 한도 칸이 그 방향을 「-」로 적었으면(「(+) -」「(+) - (-) 10,000」) 그 방향 전환이 없는 행입니다. 옆 칸에는 기본 조건이
+                        # 그대로 적혀 있어 전환안으로 넣으면 기본과 같은 가짜 전환안이 됩니다(2026-10-24 네·다섯 번째 채점).
+                        # 부호만 적는 「증감 구분」 칸(「(+)」)은 금액이 옆 칸에 있으므로 빼지 않습니다(일곱 번째 채점: 전환안 전부가 빠짐)
+                        continue
+                    if restriction and stage == "STANDARD" and not column.get("targetGroup") and not current["scope"]["targetGroups"]:
+                        # 특정 대상의 요금표인데 대상 없이 기본 요금으로 답함: 다른 표의 모집 묶음에 붙이지 않고 보류합니다.
+                        # 행의 대상 칸에서 대상이 이미 정해진 묶음은 대상 미정이 아닙니다(2026-10-24 네 번째 채점)
+                        current.setdefault("_scope_uncertain", {})[f"{table.columns[c] or plan} 칸"] = restriction
+                    _add_price(current, column, table.columns[c], price_refs, cell_value, plan, stage)
     for group in groups:  # 전용면적 열이 없거나 비면 LH 주택형 코드(「059.9800A」 → 59.98)로 채웁니다(실측: LH 충북혁신)
         code = TYPE_CODE_AREA.match(group.get("housingTypeCode") or "")
         if code and group["exclusiveAreaSqm"] is None and group["exclusiveAreaRange"] is None:
@@ -664,21 +822,131 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
     groups = _attach_price_tables(groups)
     if not groups:
         return None
+    merged_counts: dict[str, list[str]] = {}  # 공급 묶음 → 여러 행이 나눠 가진 병합 칸 수량
+    complex_totals: list[dict[str, Any]] = []
     for count, cell in pending_pools:  # 병합된 한 칸의 수량을 여러 묶음이 쓰면 함께 쓰는 모집 물량입니다(합산하지 않음)
         if len(shared.get(cell, ())) > 1:
+            if cell[2] == "TOTAL_HOUSING":
+                # 여러 행에 병합된 건설·총 세대수는 단지 전체 수라 행(묶음)마다의 수가 아닙니다. 묶음 수량 칸 전체를 보류하지 않고 이 수만
+                # 뺍니다(2026-10-24 여덟 번째 채점: 단지 총 세대수 때문에 행마다 따로 적힌 모집 호수까지 숨음)
+                complex_totals.append(count)
+                continue
             count["allocationPoolId"] = f"pool-t{_slug(cell[0])}-c{cell[1]}-{cell[2].lower()}"
+            where = pool_column[cell]
+            if count["value"] > 0 and subtotals.get(where) != sum(column_values.get(where, {}).values()):
+                for group_id in sorted(shared[cell]):
+                    shown_values = merged_counts.setdefault(group_id, [])
+                    if str(count["value"]) not in shown_values:
+                        shown_values.append(str(count["value"]))
+    if complex_totals:
+        dropped = {id(count) for count in complex_totals}
+        for group in groups:
+            group["counts"] = [count for count in group["counts"] if id(count) not in dropped]
+    issues = []
     for group in groups:
+        _merge_payment_parts(group)
+        for price in group["prices"]:
+            price.pop("_attached", None)
         group.pop("_plans")
+        group.pop("_merged_cells", None)
+        name = group.get("unitLabel") or group.get("housingTypeCode") or group["id"]
+        uncertain = group.pop("_scope_uncertain", None)
+        if uncertain:
+            shown = ", ".join(f"{where}(「{word}」)" for where, word in list(uncertain.items())[:3])
+            issues.append(
+                {
+                    "supplyGroupId": group["id"],
+                    "code": SCOPE_UNCERTAIN,
+                    "field": "prices",  # 요금의 적용 대상만 애매하므로 가격만 보류합니다(수량은 그대로 게시)
+                    "description": f"「{name}」 가격표 {shown}가 특정 대상의 요금으로 보이는데 대상이 정해지지 않아 기본 요금으로 게시하지 않았습니다. "
+                    "원문에서 적용 대상을 확인해야 합니다",
+                }
+            )
+        types = group.pop("_type_ambiguous", None)
+        if types:
+            issues.append(
+                {
+                    "supplyGroupId": group["id"],
+                    "code": TYPE_AMBIGUOUS,
+                    "description": f"「{name}」 표 제목에 주택형이 여럿({', '.join(types)})이라 이 행의 주택형을 정하지 못했습니다. 원문 확인이 필요합니다",
+                }
+            )
+        if group["id"] in merged_counts:
+            issues.append(
+                {
+                    "supplyGroupId": group["id"],
+                    "code": COUNT_MERGED,
+                    "field": "counts",  # 수량만 애매하므로 그 묶음의 수량 칸만 보류합니다(가격은 그대로 게시)
+                    "description": f"「{name}」 수량 {', '.join(merged_counts[group['id']])}은(는) 병합된 한 칸을 여러 행이 나눠 가진 값이라 "
+                    "이 행만의 수인지 정하지 못했습니다(표 합계로도 확인되지 않음). 원문 확인이 필요합니다",
+                }
+            )
+        siblings = [
+            g for g in groups if g is not group and _norm(g.get("housingTypeCode")) == _norm(group.get("housingTypeCode")) and group.get("housingTypeCode")
+        ]
+        issues += _direction_issues(group, name, [p for g in siblings for p in g["prices"]])
+        cells = group.pop("_unsplit", None)
+        if cells:
+            issues.append(
+                {
+                    "supplyGroupId": group["id"],
+                    "code": UNSPLIT_ISSUE,
+                    "field": "prices",  # 못 나눈 금액은 가격만 보류합니다(수량은 게시, 2026-10-24 다섯 번째 채점)
+                    "description": f"「{name}」 {', '.join(cells[:3])}에 금액이 둘인데 어느 요금안(보증금 증액·감액)의 값인지 정하지 못해 넣지 않았습니다. "
+                    "원문 확인이 필요합니다",
+                }
+            )
     part: dict[str, Any] = {
         "quotes": quotes,
         "supplyGroups": groups,
         "missingFields": [],
         "coverage": {"supplyGroups": {"status": "EXTRACTED", "reason": None}},
     }
+    if issues:
+        part[ISSUES_KEY] = issues
     locations = _address_locations(groups)
     if locations:
         part["locations"] = locations
     return part
+
+
+def _direction_issues(group: dict[str, Any], name: str, fallback: list[dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """전환안 방향을 기본 요금과 숫자로 검산합니다(assemble.conversion). 부호와 숫자가 어긋나고 숫자로 방향이 분명하면 숫자를 따르고
+    표시 메모(CONVERSION_DIRECTION_CORRECTED)를, 숫자로도 정할 수 없으면 그 묶음의 가격만 보류하는 검수 이슈를 남깁니다."""
+    issues = []
+    for plan_id, (stage, numeric) in plan_directions(group["prices"], fallback).items():
+        if numeric == UNCHECKED or numeric == stage:
+            continue
+        if numeric == SAME_AS_BASE:  # 기본 조건을 그대로 옮긴 가짜 전환안: 보류하지 않고 뺍니다(같은 묶음의 맞는 가격까지 숨기지 않게)
+            group["prices"] = [p for p in group["prices"] if p.get("pricePlanId") != plan_id]
+            continue
+        if numeric is None:
+            issues.append(
+                {
+                    "supplyGroupId": group["id"],
+                    "code": DIRECTION_UNCERTAIN,
+                    "field": "prices",
+                    "description": f"「{name}」 전환안({plan_id})의 보증금·월세가 기본 요금과 비교해 증액·감액 어느 쪽으로도 맞지 않습니다. "
+                    "원문 확인이 필요합니다",
+                }
+            )
+            continue
+        down = numeric == "CONVERSION_DEPOSIT_DOWN"
+        for price in group["prices"]:
+            if price.get("pricePlanId") == plan_id:
+                price["priceStage"] = numeric
+                scope = price["scope"]
+                scope["description"] = re.sub(r"\(보증금 (?:증액|감액)\)", f"(보증금 {'감액' if down else '증액'})", scope["description"])
+        issues.append(
+            {
+                "supplyGroupId": group["id"],
+                "code": DIRECTION_CORRECTED,
+                "field": "prices",
+                "description": f"「{name}」 전환안({plan_id})의 표 부호는 {'증액' if down else '감액'}이지만 기본 요금보다 보증금이 "
+                f"{'줄고 월세가 늘어' if down else '늘고 월세가 줄어'} 보증금 {'감액' if down else '증액'}안으로 고쳤습니다",
+            }
+        )
+    return issues
 
 
 def _address_locations(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -713,6 +981,35 @@ AMOUNT_IN_CELL = re.compile(r"\d[\d,]*(?:\.\d+)?")
 LIMIT_WORDS = re.compile(r"한도|가능\s*금|전환\s*금")
 TYPE_CODE_AREA = re.compile(r"\s*0*(\d{1,3}\.\d{2})\d{2}[A-Z]")  # LH 주택형 코드: 전용면적(소수 넷째 자리까지) + 형 문자
 SPACED_AMOUNTS = re.compile(r"\d[\d,.]*\s+\d")  # 공백으로 떨어진 두 금액(위아래 두 줄이 한 칸)
+# 전환 한도 칸의 증액·감액 표시(2026-10-23). 「(+)」「(-)」만 보던 것을 화살표·낱말까지 넓혔습니다(「↑ 2,000 ↓ 1,000」「증액 2,000 감액 1,000」.
+# 예전엔 이런 한도 칸 옆의 두 금액 칸을 조용히 버렸음). 맨 「-」은 금액 앞에 붙을 때만 감액 표시입니다(「(+) - (-) 10,000」의 가운데 「-」는 빈 값)
+SIGN_MARK = re.compile(r"(?P<up>\(\s*\+\s*\)|\+|[↑▲△]|증액|상향)|(?P<down>\(\s*[-−–]\s*\)|[-−–](?=\s*\d)|[↓▼▽]|감액|하향)")
+UNSPLIT_ISSUE = "SUPPLY_PRICE_MISSING"  # 못 나눈 두 금액 칸: 금액 빈칸과 같은 검수 이슈(그 묶음 보류, AI 재확인 안 함)
+ISSUES_KEY = CODE_ISSUES  # 코드 조각이 결합기에 넘기는 검수 이슈(공급 묶음 id로 가리킴). 계약 칸이 아니라 결합기가 꺼내 씁니다
+
+
+def _direction_amounts(sign: str) -> dict[str, bool]:
+    """한도 칸의 부호마다 그 방향 전환이 있는지: 바로 뒤에 금액이 있으면 True, 「-」(없음)이면 False, 아무것도 없으면(부호만 적는
+    「증감 구분」 칸) 정하지 않습니다(사전에 넣지 않음). 「(+) - (-) 10,000」 → {「(+)」: False, 「(-)」: True}, 「(+)」 → {}."""
+    marks = list(SIGN_MARK.finditer(sign or ""))
+    out: dict[str, bool] = {}
+    for n, mark in enumerate(marks):
+        end = marks[n + 1].start() if n + 1 < len(marks) else len(sign)
+        key = "(+)" if mark["up"] else "(-)"
+        rest = sign[mark.end() : end].strip()
+        if AMOUNT_IN_CELL.search(rest):
+            out[key] = True
+        elif re.fullmatch(r"[-−–]+", rest) and key not in out:
+            out[key] = False
+    return out
+
+
+def _sign_order(sign: str) -> list[str] | None:
+    """한도 칸에 증액·감액 표시가 둘 다 있으면 적힌 순서대로 [「(+)」, 「(-)」](또는 반대), 아니면 None."""
+    marks = [("(+)" if m["up"] else "(-)") for m in SIGN_MARK.finditer(sign or "")]
+    if "(+)" not in marks or "(-)" not in marks:
+        return None
+    return ["(+)", "(-)"] if marks.index("(+)") < marks.index("(-)") else ["(-)", "(+)"]
 
 
 def _borrow_keys(entries: list[dict[str, Any]], by_label: dict[str, Table]) -> None:
@@ -748,11 +1045,13 @@ def _split_shifted_pairs(values: dict[int, str], columns: list[dict[str, Any]]) 
     for c in sorted(prices):
         value = values.get(c) or ""
         amounts = AMOUNT_IN_CELL.findall(value)
-        if len(amounts) == 2 and SPACED_AMOUNTS.search(value) and c + 1 in prices and not (values.get(c + 1) or "").strip():
+        right = (values.get(c + 1) or "").strip()
+        # 옆 칸이 같은 값의 복제(가로 병합 칸이 풀려 두 칸에 같은 글이 들어감, 2026-10-24 다섯 번째 채점)여도 빈칸으로 봅니다
+        if len(amounts) == 2 and SPACED_AMOUNTS.search(value) and c + 1 in prices and (not right or right == value.strip()):
             values[c], values[c + 1] = amounts[0], amounts[1]
 
 
-def _add_price(group: dict[str, Any], column: dict[str, Any], title: str, ref: str, value: str, plan: str, stage: str) -> None:
+def _add_price(group: dict[str, Any], column: dict[str, Any], title: str, refs: list[str], value: str, plan: str, stage: str) -> None:
     """공급 묶음에 표 칸 하나의 가격을 붙입니다. 같은 요금안·단계·대상이면 같은 요금안 ID를 쓰고, 금액 앞 증감 부호는 뗍니다."""
     groups_for_price = [column["targetGroup"]] if column.get("targetGroup") else group["scope"]["targetGroups"]
     plan_id = group["_plans"].setdefault((plan, stage, tuple(groups_for_price)), f"{group['id']}.plan{len(group['_plans']) + 1}")
@@ -765,7 +1064,7 @@ def _add_price(group: dict[str, Any], column: dict[str, Any], title: str, ref: s
             "scope": _scope(group["id"], list(groups_for_price), f"{plan} 요금안입니다."),
             "sourceAmount": amount,
             "sourceUnit": _unit(column, title),
-            "quoteRefs": [ref],
+            "quoteRefs": list(dict.fromkeys(refs)),
             "taxTreatment": "UNKNOWN",
             "vatRate": None,
             "billingPeriod": "MONTHLY" if kind == "MONTHLY_RENT" else "ONCE",
@@ -798,12 +1097,97 @@ def _sign(row: list[str], limit_column: int | None) -> str:
     return next((v.strip() for v in row if v and SIGN_CELL.fullmatch(v.strip())), "")
 
 
+# 전환 방향 낱말(2026-10-23 전환 보증금 점검). 예전엔 priceStage를 비워 답한 전환 열을 이름에 「전환」만 보고 모두 증액(UP)으로 두어,
+# 「보증금 감액 시 월임대료」 같은 열이 증액안으로, 「감액」이라고만 적힌 열(「전환」 낱말 없음)은 기본(STANDARD)으로 게시될 수 있었습니다
+DEPOSIT_DOWN_WORDS = re.compile(
+    r"보증금\s*(?:을|를)?\s*(?:감액|하향|인하|낮)|(?:감액|하향)\s*(?:전환|시|형|안)|전환\s*\(?\s*(?:감액|하향)|최소\s*보증금|보증금\s*최소"
+    # 보증금 없이 월세만 내는 안(「무보증금 월세」「무보증전환 임대료」)도 보증금을 내린 전환안입니다(2026-10-23: STANDARD로 답해 기본 요금처럼 보였음)
+    r"|무\s*보증"
+)
+DEPOSIT_UP_WORDS = re.compile(
+    r"보증금\s*(?:을|를)?\s*(?:증액|상향|인상|올)|(?:증액|상향)\s*(?:전환|시|형|안)|전환\s*\(?\s*(?:증액|상향)|최대\s*보증금|보증금\s*최대"
+)
+
+
+def _stage_words(text: str) -> str | None:
+    """열 제목·요금안 이름이 말하는 전환 방향. 두 방향 낱말이 함께 있으면(「보증금 증액·감액」) 정하지 않습니다(None)."""
+    down, up = bool(DEPOSIT_DOWN_WORDS.search(text)), bool(DEPOSIT_UP_WORDS.search(text))
+    if down == up:
+        return None
+    return "CONVERSION_DEPOSIT_DOWN" if down else "CONVERSION_DEPOSIT_UP"
+
+
 def _guess_stage(column: dict[str, Any], plan: str, limit_column: int | None, first_price: int, sign: str) -> str:
     """priceStage를 비워 답한 열(실측: 인천 행복주택 「최대전환」 열): 한도 칸 오른쪽·이름에 「전환」·첫 가격 열이 아니면서 부호 행이면 전환안."""
     after_limit = limit_column is not None and column["column"] - 1 > limit_column
     if after_limit or "전환" in plan or (sign and column["column"] != first_price and "기본" not in plan and "기준" not in plan):
         return "CONVERSION_DEPOSIT_UP"  # 부호가 있으면 아래에서 증액·감액으로 나눕니다
     return "STANDARD"
+
+
+def _with_suffix(value: str, suffix: str) -> str:
+    return f"{value}{suffix}" if re.fullmatch(r"[\dA-Za-z-]+", value) else value
+
+
+def _unit_label(named: dict[str, str], row_unit: Any) -> str | None:
+    """호실 이름. 호실 행에 동 칸도 있으면 「301동 402호」(2026-10-24 여섯 번째 채점: 동마다 같은 호 번호 「402」가 4개 나와 어느 집인지 구분 못 함)."""
+    unit, building = named.get("UNIT"), named.get("BUILDING")
+    if unit and building and building not in unit:
+        return f"{_with_suffix(building, '동')} {_with_suffix(unit, '호')}"
+    return unit or (named.get("COMPLEX") if row_unit == "BUILDING" else None)
+
+
+# 금액 구성(2026-10-24 여섯 번째 채점: 분양가는 「기본 요금안」, 계약금·잔금은 「분양대금 납부 요금안」으로 나뉘어 한 집의 금액이 두 안처럼 보임).
+# 같은 묶음·같은 대상에서 계약금·중도금·잔금의 합이 분양가(또는 보증금)와 같으면 그 금액들을 분양가 요금안으로 옮깁니다
+PART_KINDS = ("CONTRACT_PAYMENT", "BALANCE")
+WHOLE_KINDS = ("SALE_PRICE", "DEPOSIT")
+
+
+def _merge_payment_parts(group: dict[str, Any]) -> bool:
+    plans: dict[str, list[dict[str, Any]]] = {}
+    for price in group["prices"]:
+        plans.setdefault(price.get("pricePlanId") or "", []).append(price)
+
+    def amount(price: dict[str, Any]) -> tuple[float, str] | None:
+        found = AMOUNT_IN_CELL.findall(str(price.get("sourceAmount") or ""))
+        return (float(found[0].replace(",", "")), str(price.get("sourceUnit") or "")) if len(found) == 1 else None
+
+    moved = False
+    for part_id, parts in plans.items():
+        if not parts or any(p.get("kind") not in PART_KINDS for p in parts):
+            continue
+        values = [amount(p) for p in parts]
+        if any(v is None for v in values) or len({v[1] for v in values}) != 1:
+            continue
+        total, unit = sum(v[0] for v in values), values[0][1]
+        stage, targets = parts[0].get("priceStage"), parts[0]["scope"]["targetGroups"]
+        wholes = [
+            plan_id
+            for plan_id, items in plans.items()
+            if plan_id != part_id
+            and not any(p.get("kind") in PART_KINDS for p in items)
+            and any(
+                p.get("kind") in WHOLE_KINDS and p.get("priceStage") == stage and p["scope"]["targetGroups"] == targets and amount(p) == (total, unit)
+                for p in items
+            )
+        ]
+        if len(wholes) == 1:
+            for price in parts:
+                price["pricePlanId"] = wholes[0]
+            moved = True
+    return moved
+
+
+def _type_names(group: dict[str, Any]) -> set[str]:
+    """주택형 이름들: 코드가 칸 둘을 이어 쓴 것(「24 24ABC」 = 공급형 + 청약 구분)이면 글자가 든 낱말(「24ABC」)도 따로 봅니다."""
+    raw = str(group.get("housingTypeCode") or "")
+    lettered = {w.upper() for w in raw.split() if re.search(r"[A-Za-z]", w)}
+    return {_norm(raw).upper(), *lettered} - {""}
+
+
+def _same_type(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    """같은 주택형인지: 코드가 같거나, 글자가 든 주택형 이름이 겹침(2026-10-24 여덟 번째 채점: 「24 24ABC」 수량 묶음과 「24ABC」 가격 행이 짝이 안 맞음)."""
+    return bool(_type_names(a) & _type_names(b))
 
 
 def _housing_number(group: dict[str, Any]) -> float | None:
@@ -853,7 +1237,8 @@ def _attach_price_tables(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
     kept: list[dict[str, Any]] = []
     for group in groups:
-        if offered(group) or not group["prices"]:
+        # 대상이 정해지지 않은 대상 한정 요금표·주택형을 정하지 못한 행은 다른 표의 모집 묶음에 붙이지 않습니다(따로 남아 보류)
+        if offered(group) or not group["prices"] or group.get("_scope_uncertain") or group.get("_type_ambiguous"):
             kept.append(group)
             continue
         number, name = _housing_number(group), _norm(group.get("_complex"))
@@ -869,7 +1254,11 @@ def _attach_price_tables(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             and _classes_match(groups_of, set(g["scope"]["targetGroups"]))
         ]
         code = _norm(group.get("housingTypeCode")).upper()
-        exact = [g for g in targets if code and _norm(g.get("housingTypeCode")).upper() == code]
+        exact = [g for g in targets if code and _same_type(group, g)]
+        if not exact and re.search(r"[A-Z]", code):
+            # 가격 행이 글자까지 있는 주택형(「26C」)인데 똑같은 코드의 모집 묶음이 없으면, 숫자만 같은 다른 주택형(「26AB」)에는 붙이지 않습니다
+            # (2026-10-24 일곱 번째 채점: 26C 고령자 가격이 26AB 묶음들에 붙어 위치 의심 156건). 코드가 숫자뿐인 묶음에는 붙입니다
+            targets = [g for g in targets if not re.search(r"[A-Z]", _norm(g.get("housingTypeCode")).upper())]
         targets = exact or targets  # 주택형 코드가 똑같은 행이 있으면 그 행에만(59A·59A-1·59C가 모두 59.98)
         same = [g for g in targets if {_norm(x) for x in groups_of} == {_norm(x) for x in g["scope"]["targetGroups"]}]
         targets = same or targets  # 계층 이름이 똑같은 행이 있으면 그 행에만
@@ -880,7 +1269,10 @@ def _attach_price_tables(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         for target in targets:
             by_range = _housing_number(target) != number  # 면적 범위 안의 행: 면적마다 다른 임대 조건이므로 요금안을 면적으로 나눕니다
-            seen = {(p["kind"], p["sourceAmount"], p["priceStage"], tuple(p["scope"]["targetGroups"])) for p in target["prices"]}
+            # 그 묶음의 원래 가격과 같은 값만 거릅니다. 다른 행(층)에서 붙인 가격과 비교하면 층마다 같은 융자금이 둘째 층부터 빠졌음
+            # (2026-10-24 다섯 번째 채점: 층별 5행 가격표의 융자금 16개 누락)
+            seen = {(p["kind"], p["sourceAmount"], p["priceStage"], tuple(p["scope"]["targetGroups"])) for p in target["prices"] if not p.get("_attached")}
+            floor = group.get("floor") or group.get("unitLabel")
             plans: dict[str, str] = {}
             for price in group["prices"]:
                 groups_for_price = price["scope"]["targetGroups"] or target["scope"]["targetGroups"]
@@ -889,15 +1281,20 @@ def _attach_price_tables(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 suffix = f"-{_slug(str(number))}" if by_range else ""
                 plan_id = plans.setdefault(price["pricePlanId"], f"{target['id']}.plan-{_slug(price['pricePlanId'])}{suffix}")
                 description = f"전용 {number:g}㎡ {price['scope']['description']}" if by_range else price["scope"]["description"]
+                if floor and floor not in description:
+                    description = f"{floor} {description}"  # 층·호 구간이 다른 요금안을 구분합니다
                 target["prices"].append(
                     {
                         **price,
+                        "_attached": True,
                         "id": f"{target['id']}.price{len(target['prices']) + 1}",
                         "scope": _scope(target["id"], list(groups_for_price), description),
                         "pricePlanId": plan_id,
                     }
                 )
             target["quoteRefs"] = list(dict.fromkeys([*target["quoteRefs"], *group["quoteRefs"]]))
+            if group.get("_unsplit"):
+                target.setdefault("_unsplit", []).extend(group["_unsplit"])
     return kept
 
 
@@ -906,7 +1303,7 @@ CLASS_NOTE = re.compile(r"\([^)]*\)")
 
 def _class_words(name: str) -> set[str]:
     """계층 이름의 낱말. 괄호 설명은 빼고 「·」「,」「/」로 나눕니다: 「대학생· 청년(소득無)」 → {대학생, 청년}."""
-    return {_norm(w) for w in re.split(r"[·,/]", CLASS_NOTE.sub("", name)) if _norm(w)}
+    return {_norm(w) for w in re.split(r"[·․ㆍ・‧,/]", CLASS_NOTE.sub("", name)) if _norm(w)}
 
 
 def _classes_match(a: set[str], b: set[str]) -> bool:
@@ -1028,7 +1425,7 @@ def _move_quotes(source: dict[str, Any], target: dict[str, Any], items: list[Any
 
 
 def _norm(text: str | None) -> str:
-    return re.sub(r"[\s·.,()\[\]\-~]", "", text or "")
+    return re.sub(r"[\s·․ㆍ・‧.,()\[\]\-~]", "", text or "")
 
 
 ALIAS = re.compile(r"\(([^)]*)\)")

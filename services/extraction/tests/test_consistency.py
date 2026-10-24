@@ -1,7 +1,9 @@
 """정답표 없이 하는 검사(V6 표 위치·V7 일관성·V8 누락). 실측 공고 모양을 줄인 작은 원문과 후보로 확인합니다."""
 
-from mujuthaek_extraction.verify.consistency import check_consistency
+from mujuthaek_extraction.recheck import RECHECK_NOTE_CODES
+from mujuthaek_extraction.verify.consistency import check_consistency, omitted_document_rows
 from mujuthaek_extraction.verify.model import SourceBundle
+from mujuthaek_extraction.verify.verifier import is_note
 
 # 경북개발공사 천원주택 목록 표 모양: 1순위 / 2, 3순위 보증금이 같은 행의 다른 열
 TABLE = "\n".join(
@@ -410,3 +412,57 @@ def test_prices_left_in_a_group_without_counts_next_to_the_same_type_are_flagged
     other_type = {**loose, "housingTypeCode": "46"}  # 다른 주택형의 가격만 있는 행(입주 완료 등)은 걸지 않습니다
     c["supplyGroups"] = [counted, loose, other_type]
     assert [f for f in codes(c) if f[0] == "SUPPLY_PRICE_UNATTACHED"] == [("SUPPLY_PRICE_UNATTACHED", "/supplyGroups/1")]
+
+
+DOCUMENT_TABLE = "\n".join(
+    [
+        "5. 제출서류",
+        "[표 9-1]",
+        "| 구 분 | 제 출 서 류 | 발급처 |",
+        "| 공통 | 가상 신청서 | 가상공사 |",
+        "| 청년 | · 가상 재직증명서 · 가상 소득확인서 | 회사 |",
+        "| 신혼 | · 가상 혼인관계증명서 | 행정복지센터 |",
+        "- 9 -",
+        "--- 10쪽 ---",
+        "[표 10-1]",
+        "| 수급자 | · 가상 수급자증명서 | 행정복지센터 |",
+        "6. 유의사항",
+        "[표 10-2]",
+        "| 안내 | 신분증을 지참하세요 |",
+    ]
+)
+
+
+def document_item(name, evidence):
+    return {"name": name, "scope": scope(), "evidenceIds": [evidence]}
+
+
+def document_candidate(text, names):
+    evidence = [{"id": "ev-row", "sourceId": "pdf-text", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": 1}, "quote": ROW}]
+    documents = []
+    for n, name in enumerate(names):
+        evidence.append({"id": f"ev-doc{n}", "sourceId": "pdf-text", "locator": {"kind": "TEXT_RANGE", "start": 0, "end": 1}, "quote": name})
+        documents.append(document_item(name, f"ev-doc{n}"))
+    return candidate(text=text, evidence=evidence, requiredDocuments=documents)
+
+
+def test_document_table_rows_not_cited_by_any_document_are_suspected():
+    text = TABLE + "\n" + DOCUMENT_TABLE
+    findings = check_consistency(document_candidate(text, ["가상 신청서"]), SourceBundle(texts={"pdf-text": text}))
+    [finding] = [f for f in findings if f.code == "DOCUMENT_OMISSION_SUSPECTED"]
+    # 머리 행(띄어 쓴 「제 출 서 류」)으로 찾은 표 3행 + 쪽 표시만 사이에 둔 이어진 표 1행. 다른 절의 표(유의사항)는 세지 않습니다
+    assert finding.target == "/quality/coverage/requiredDocuments"
+    assert omitted_document_rows(finding.description) == 3
+    assert "가상 재직증명서" in finding.description and "신분증" not in finding.description
+    # 행마다 서류가 있으면(이름이나 근거 인용이 그 행에 있으면) 알리지 않습니다
+    complete = document_candidate(text, ["가상 신청서", "가상 재직증명서", "가상 혼인관계증명서", "가상 수급자증명서"])
+    assert ("DOCUMENT_OMISSION_SUSPECTED", "/quality/coverage/requiredDocuments") not in codes(complete, text)
+    # 한 행만 빠지면 알리지 않습니다(다른 곳에서 넣은 서류일 때가 많음)
+    one_missing = document_candidate(text, ["가상 신청서", "가상 재직증명서", "가상 혼인관계증명서"])
+    assert ("DOCUMENT_OMISSION_SUSPECTED", "/quality/coverage/requiredDocuments") not in codes(one_missing, text)
+
+
+def test_document_omission_is_a_note_that_is_still_rechecked():
+    issue = {"code": "DOCUMENT_OMISSION_SUSPECTED", "target": "/quality/coverage/requiredDocuments", "description": "서류 표 행 3개"}
+    assert is_note(issue)
+    assert "DOCUMENT_OMISSION_SUSPECTED" in RECHECK_NOTE_CODES

@@ -7,7 +7,7 @@ V6 표 위치 대조: 값이 원문에 "있는지"(V2·V3)가 아니라 "제자�
 V7 앞뒤 일관성: 일정 순서(공고 ≤ 접수 시작 ≤ 당첨 발표 ≤ 계약 ≤ 입주, 시작 ≤ 끝), 값의 정상 범위(금액·면적·나이·소득 비율),
     월임대료가 보증금보다 큰 가격안, 주택형별 모집 수 합과 공고 전체 모집 수.
 V8 누락 탐지: AI가 "다 뽑았다(EXTRACTED)"고 한 섹션이 비었는데 원문에 그 절 제목이 있는 경우, 배점표가 있는데 가점 행이 없는 경우,
-    첨부 엑셀 주택 목록의 행 수보다 위치·공급 묶음이 크게 적은 경우.
+    첨부 엑셀 주택 목록의 행 수보다 위치·공급 묶음이 크게 적은 경우, 원문 서류 표의 행을 어느 서류도 인용하지 않은 경우(2026-10-23).
 모두 사람 확인 후보(의심)이며, 판정에 쓰는 섹션(공고·자격)이 아니면 화면 표시 메모로 갑니다(verifier.NOTE_CODES).
 """
 
@@ -26,8 +26,8 @@ IMAGE_BLOCK_HEAD = "=== 그림 판독 "  # image_reading.BLOCK_HEAD와 같음 (�
 # ---- 공통: 근거 인용문이 있는 원문 줄과 그 표 ----
 
 RANK_SPAN = re.compile(r"(\d)\s*[~∼-]\s*(\d)\s*순위")
-RANK_LIST = re.compile(r"(\d(?:\s*[·,ㆍ]\s*\d)+)\s*순위")
-RANK_ONE = re.compile(r"(?<![\d~∼·,ㆍ-])\s*(\d)\s*순위")
+RANK_LIST = re.compile(r"(\d(?:\s*[·․ㆍ・‧,]\s*\d)+)\s*순위")
+RANK_ONE = re.compile(r"(?<![\d~∼·․ㆍ・‧,-])\s*(\d)\s*순위")
 # 표에 자주 나오는 대상군 표시 → 같은 대상으로 보는 이름. 추출 결과의 targetGroups 글자에서도 같은 낱말로 찾습니다.
 GROUP_WORDS = {
     "청년": "청년",
@@ -204,14 +204,20 @@ def _context_mismatch(found: _Located, evidence_ids: list[str], value: str, labe
     """값이 든 표 칸의 행 제목·열 머리글이 말하는 순위·대상·주택형이 붙인 것과 겹치지 않으면 그 설명을, 아니면 None을 돌려줍니다."""
     want_ranks = set().union(*(_ranks(label) for label in labels)) if labels else set()
     want_groups = set().union(*(_groups(label) for label in labels)) if labels else set()
-    for evidence_id in evidence_ids:
+    own_row_without_value = False
+    for n, evidence_id in enumerate(evidence_ids):
         located = found.row(evidence_id)
         if located is None:
             continue
         cells, headers = located
         column = _value_column(cells, value)
         if column is None:
+            own_row_without_value = own_row_without_value or n == 0
             continue
+        if own_row_without_value:
+            # 첫 근거(자기 행)에는 값이 없고 뒤 근거 행에만 있음: 세로 병합 칸의 값을 그 칸이 시작한 행과 함께 인용한 것입니다
+            # (supply_tables가 병합 칸 값에 원래 행을 근거로 덧붙임). 원래 행의 행 제목은 다른 대상이라 대조하지 않습니다(2026-10-24 다섯 번째 채점: 오탐 14)
+            return None
         row_label = " ".join(cells[: min(column, 3)])
         header = _column_header(headers, column)
         # 행 제목에 표시가 있으면 그것만 봅니다. 머리글 행이 따로 없는 표(| 1순위 | ... | / | 2순위 | ... |)에서는
@@ -666,6 +672,55 @@ def _check_unattached_prices(candidate: dict[str, Any], find: Any) -> None:
             find("V8", "SUPPLY_PRICE_UNATTACHED", f"/supplyGroups/{g}", f"「{label}」 가격이 같은 주택형의 모집 묶음에 붙지 않고 따로 남았습니다.")
 
 
+# 특정 대상의 요금표(2026-10-24 채점: 「[주거급여 수급자가 아닌 경우] 상한 임대조건」 표의 가격이 대상 없는 기본 요금으로 그 주택형에 붙음).
+# 가격의 근거 행이 든 표 바로 위 글 줄이나 그 값의 열 제목이 적용 대상을 정하는데 가격이 대상 없이 STANDARD면, 기본 요금으로 게시하지 않게
+# 그 공급 묶음을 보류합니다(supply_tables.RESTRICTED_PRICE와 같은 낱말. 검증 모듈이 추출 모듈을 가져오지 않도록 따로 둡니다)
+PRICE_SCOPE_UNCERTAIN = "PRICE_SCOPE_UNCERTAIN"
+RESTRICTED_PRICE = re.compile(r"(?<!분양가)(?<!분양가 )상한(?!\s*제)|수급자|적용\s*대상|해당자에\s*한|에\s*한하여|에\s*한함|만\s*해당|만\s*적용")
+PRICE_HEADING_LINES = 3  # 표 위로 볼 글 줄 수(쪽 표시·빈 줄 제외)
+# 표 위 글은 요금을 말하고 법령 인용이 아닌 줄만 봅니다(2026-10-24 네 번째 채점: 입지 설명 속 「(산업단지 근로자인 경우에만 해당)」에 걸림)
+PRICE_TITLE_WORDS = re.compile(r"임대\s*조건|임대료|요금|보증금|월\s*세|가격|분양가|전환")
+LAW_TEXT = re.compile(r"「[^」]*법[^」]*」|제\s*\d+\s*조")
+
+
+def _price_restriction(found: _Located, price: dict[str, Any]) -> str | None:
+    for evidence_id in price.get("evidenceIds") or []:
+        located = found.line_of(evidence_id)
+        if located is None or not _row_line(found.lines[located[0]][located[1]]):
+            continue
+        lines = found.lines[located[0]]
+        top, _ = _table_bounds(lines, located[1])
+        above = [line for line in reversed(lines[max(top - 12, 0) : top]) if line.strip() and not PAGE_MARK.match(line)][:PRICE_HEADING_LINES]
+        word = RESTRICTED_PRICE.search(" ".join(line for line in above if PRICE_TITLE_WORDS.search(line) and not LAW_TEXT.search(line)))
+        if word:
+            return word[0]
+        row = found.row(evidence_id)
+        column = _value_column(row[0], price.get("sourceAmount")) if row else None
+        if row and column is not None and row[1]:
+            word = RESTRICTED_PRICE.search(_column_header(row[1], column))
+            if word:
+                return word[0]
+    return None
+
+
+def _check_price_scope(candidate: dict[str, Any], found: _Located, find: Any) -> None:
+    for g, group in enumerate(candidate["supplyGroups"]):
+        if (group.get("scope") or {}).get("targetGroups"):
+            continue  # 행의 대상 칸에서 대상이 정해진 묶음은 대상 미정이 아닙니다(2026-10-24 네 번째 채점)
+        for price in group["prices"]:
+            if price.get("priceStage") != "STANDARD" or price["scope"]["targetGroups"]:
+                continue
+            word = _price_restriction(found, price)
+            if word:
+                label = group.get("housingTypeCode") or group.get("unitLabel") or group.get("id")
+                description = (
+                    f"「{label}」 가격 {price.get('sourceAmount')}의 표가 특정 대상의 요금으로 보이는데(「{word}」) 대상 없이 기본 요금으로 적혔습니다. "
+                    "원문에서 적용 대상을 확인해야 합니다"
+                )
+                find("V8", PRICE_SCOPE_UNCERTAIN, f"/supplyGroups/{g}/prices", description)  # 요금 대상만 애매: 가격만 보류
+                break
+
+
 def _check_price_tables(candidate: dict[str, Any], sources: SourceBundle, found: _Located, find: Any) -> None:
     """V8: 가격표로 쓴 표(이어진 표 포함)에서 가격으로 넣지 않은 금액과 어느 공급 묶음에도 없는 금액 행을 찾습니다."""
     used_by: dict[str, set[int]] = {}  # 원문 금액(숫자만) → 그 금액을 쓴 공급 묶음
@@ -747,6 +802,109 @@ def _check_price_tables(candidate: dict[str, Any], sources: SourceBundle, found:
         )
 
 
+# ---- V8 서류 표 행 누락 (2026-10-23) ----
+# 계층·대상별 서류 표처럼 행이 많은 표를 AI가 중간에서 멈추면(잘림 없이 정상 종료) 나머지 행의 서류가 통째로 빠졌고, 잡는 검사가 없었습니다.
+# 서류 표: 머리 행이나 표 바로 위 제목 줄(띄어 쓴 「구 비 서 류」 포함)에 서류 표 낱말이 있는 표, 그리고 쪽 표시만 사이에 두고 이어진 표.
+# 행에 서류 낱말이 있는데 어느 서류의 근거 인용·이름도 그 행에 없으면 빠진 행으로 셉니다. 의심이라 화면 메모로 두고(verifier.NOTE_CODES),
+# AI 재확인에는 서류 섹션 전체 문제로 보냅니다(recheck.RECHECK_NOTE_CODES).
+DOCUMENT_OMISSION = "DOCUMENT_OMISSION_SUSPECTED"
+DOCUMENT_TABLE_WORDS = re.compile(r"제출서류|구비서류|증빙서류|신청서류|확인서류|발급처|발급기관")  # 띄어쓰기를 뺀 글에서 찾음
+DOCUMENT_HEADING_WORDS = re.compile(r"제출서류|구비서류|증빙서류|신청서류|확인서류")
+DOCUMENT_WORD = re.compile(
+    r"증명서|확인서|증명원|확인원|등본|초본|사본|신분증|동의서|신청서|위임장|인감|통장|계약서|서약서|확약서|진단서|명세서|요구서|각서|등록증|자격증|수급자증"
+)
+HEADING_LOOKBACK = 3  # 표 위로 볼 글 줄 수(쪽 표시·빈 줄 제외)
+DOCUMENT_OMISSION_MIN_ROWS = 2  # 이만큼 빠져야 알립니다(한 행은 다른 표·글로 넣은 서류일 때가 많음)
+OMITTED_ROWS = re.compile(r"서류 표 행 (\d+)개")
+# 서류 표의 머리 행(2026-10-24 오탐: 표 위 제목으로 서류 표가 된 표의 「| 구 분 | 계약서류 |」 머리 행을 빠진 서류로 셈).
+# 모든 칸이 머리 낱말(구분·서류·발급처·비고 등)뿐인 행은 서류 행이 아닙니다
+HEADER_CELL = re.compile(
+    r"^(?:구분|항목|순번|번호|비고|대상|내용|유의사항|참고사항|제출대상|발급처|발급기관|발급기준|부수|서류유형|유형|.{0,6}서류|서류.{0,4})$"
+)
+# 절차 표(「5단계 | 청약신청서 작성」): 단계 이름이 첫 칸인 행이 둘 이상인 표는 서류 표가 아닙니다
+STEP_CELL = re.compile(r"^(?:\d{1,2}\s*단계|STEP\s*\d{1,2}|\d{1,2}\s*step)$", re.IGNORECASE)
+
+
+# 자산·소득 산정 기준 표의 행(2026-10-24 네 번째 채점: 「총 자 산 | 부 동 산 • 사회보장정보시스템에서…」「기타 자산 • 「지방세법」 제104조…」가
+# 서류 표에 이어진 표로 읽혀 빠진 서류로 셈 — 4건 모두 재확인 자리 하나를 늘 차지함). 첫 칸이 자산·소득 항목 이름이면 서류 행이 아닙니다
+ASSET_CELL = re.compile(r"^(?:총자산|자산|부동산|토지|건축물|자동차|금융자산|일반자산|기타자산|부채|소득|근로소득|사업소득|재산소득|기타소득|연금소득)\S{0,4}$")
+
+
+def _asset_row(row: str) -> bool:
+    first = next((c for c in _cells(row) if c.strip()), "")
+    plain = "".join(first.split())
+    return bool(ASSET_CELL.match(plain.split("•")[0]))
+
+
+def _header_row(row: str) -> bool:
+    cells = ["".join(c.split()) for c in _cells(row) if c.strip()]
+    return bool(cells) and all(HEADER_CELL.match(c) for c in cells)
+
+
+def _step_row(row: str) -> bool:
+    first = next((c for c in _cells(row) if c.strip()), "")
+    return bool(STEP_CELL.match(first.strip()))
+
+
+def omitted_document_rows(description: str) -> int:
+    """DOCUMENT_OMISSION_SUSPECTED 설명의 빠진 행 수(재확인이 일부만 채웠는지 비교하는 데 씀). 없으면 1."""
+    found = OMITTED_ROWS.search(description or "")
+    return int(found[1]) if found else 1
+
+
+def _document_table_rows(text: str) -> list[str]:
+    """원문 서류 표의 행(머리 행 제외)."""
+    lines = text.split(SHEET_START, 1)[0].split("\n")
+    out: list[str] = []
+    previous_end: int | None = None  # 바로 앞 서류 표가 끝난 줄
+    i = 0
+    while i < len(lines):
+        if not (_row_line(lines[i]) and (i == 0 or not _in_table(lines[i - 1]))):
+            i += 1
+            continue
+        start = i
+        rows = []
+        while i < len(lines) and _in_table(lines[i]):
+            if _row_line(lines[i]):
+                rows.append(lines[i])
+            i += 1
+        above = [line for line in reversed(lines[:start]) if line.strip() and not PAGE_MARK.match(line)][:HEADING_LOOKBACK]
+        header = bool(rows) and bool(DOCUMENT_TABLE_WORDS.search("".join(rows[0].split())))
+        titled = any(DOCUMENT_HEADING_WORDS.search("".join(line.split())) for line in above)
+        continued = previous_end is not None and all(not line.strip() or PAGE_MARK.match(line) for line in lines[previous_end:start])
+        if (header or titled or continued) and sum(map(_step_row, rows)) < 2:
+            out += [row for row in (rows[1:] if header else rows) if not _header_row(row) and not _asset_row(row)]
+            previous_end = i
+        else:
+            previous_end = None
+    return out
+
+
+def _check_document_rows(candidate: dict[str, Any], sources: SourceBundle, find) -> None:
+    documents = candidate.get("requiredDocuments") or []
+    if not documents:
+        return  # 서류가 하나도 없으면 섹션 누락 검사(SECTION_OMISSION_SUSPECTED)가 봅니다
+    quotes = {ev["id"]: normalize(ev["quote"]) for ev in candidate.get("evidence") or []}
+    cited = [quotes[i] for d in documents for i in d.get("evidenceIds") or [] if len(quotes.get(i, "")) >= 4]
+    names = [n for n in (normalize(str(d.get("name") or "")) for d in documents) if len(n) >= 2]
+    missed = []
+    for row in _document_table_rows("\n".join(sources.texts.values())):
+        if not DOCUMENT_WORD.search(row):
+            continue
+        plain = normalize(row)
+        if any(q in plain or plain in q for q in cited) or any(n in plain for n in names):
+            continue
+        missed.append(" ".join(c for c in _cells(row) if c)[:60])
+    if len(missed) >= DOCUMENT_OMISSION_MIN_ROWS:
+        shown = ", ".join(f"「{row}」" for row in missed[:3])
+        find(
+            "V8",
+            DOCUMENT_OMISSION,
+            "/quality/coverage/requiredDocuments",
+            f"원문 서류 표 행 {len(missed)}개를 근거로 쓴 서류가 없습니다(빠진 서류 의심): {shown}{' …' if len(missed) > 3 else ''}",
+        )
+
+
 def check_consistency(candidate: dict[str, Any], sources: SourceBundle) -> list[Finding]:
     """정답표 없이 원문과 결과만으로 하는 V6·V7·V8 검사를 모두 돌려 결과를 돌려줍니다."""
     findings: list[Finding] = []
@@ -758,8 +916,10 @@ def check_consistency(candidate: dict[str, Any], sources: SourceBundle) -> list[
     _check_positions(candidate, found, find)
     _check_price_tables(candidate, sources, found, find)
     _check_unattached_prices(candidate, find)
+    _check_price_scope(candidate, found, find)
     _check_consistency(candidate, find)
     _check_omissions(candidate, sources, find)
+    _check_document_rows(candidate, sources, find)
     _check_image_content(candidate, sources, find)
     _check_image_evidence(candidate, sources, find)
     _check_notice_document(candidate, find)

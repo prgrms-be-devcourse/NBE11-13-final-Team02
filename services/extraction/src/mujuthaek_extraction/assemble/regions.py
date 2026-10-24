@@ -44,6 +44,19 @@ SIDO_ALIASES = {
     "제주도": "제주특별자치도",
 }
 # "광주"만 있으면 광주광역시와 경기도 광주시를 구별할 수 없어 약칭으로 쓰지 않습니다.
+
+
+def _same_sido_names() -> dict[str, frozenset[str]]:
+    groups: dict[str, set[str]] = {}
+    for alias, full in SIDO_ALIASES.items():
+        groups.setdefault(full, {full}).add(alias)
+    groups.setdefault("광주광역시", {"광주광역시"})
+    return {name: frozenset(same) for same in groups.values() for name in same}
+
+
+# 시도 이름 → 같은 시도를 가리키는 이름들(정식 이름·약칭: 「충청남도」↔「충남」, 「서울특별시」↔「서울시」↔「서울」).
+# 근거 문장의 지역·주소를 비교할 때 씁니다(판정 틀의 지역 확인, 일정 접수 장소 주소 확인)
+SIDO_NAMES: dict[str, frozenset[str]] = _same_sido_names()
 # 통합으로 폐지된 시도 → 이어받은 시도. 코드표에 옛 이름이 현존하면(이전 기준일 코드표) 쓰지 않습니다.
 # 실측: 코드표 2026-09-29 기준 광주광역시·전라남도 폐지 → 전남광주통합특별시. 공고문은 옛 이름을 그대로 써서 시군구 코드가 비었음.
 SIDO_SUCCESSORS = {

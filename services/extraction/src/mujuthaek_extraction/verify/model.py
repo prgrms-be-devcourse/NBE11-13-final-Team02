@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 
-RULES_VERSION = "verify-1.13.0"  # 검사 규칙이 바뀌면 올립니다
+RULES_VERSION = "verify-1.14.0"  # 검사 규칙이 바뀌면 올립니다
 
 
 class PdfTextExtractor(Protocol):
