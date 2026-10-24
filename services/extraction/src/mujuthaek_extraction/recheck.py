@@ -6,6 +6,10 @@
 나빠졌는지는 개수가 아니라 (코드, 항목)별로 봅니다. 한 항목을 고치며 다른 항목에 새 문제가 생기면 채택하지 않습니다(2026-10-20).
 근거(인용) 문제만 보낸 자격 조건은 조건의 뜻(대상·종류·조건식·예외)이 바뀌면 그 항목만 처음 것을 그대로 둡니다.
 일정은 처음 답의 시작·끝 날짜가 근거 인용문으로 확인되는데 재확인 답이 그 날짜를 비우거나 근거에 없는 시각을 붙이면 그 일정만 처음 것을 둡니다.
+응답 전체를 합쳐 나아지지 않으면 섹션마다 따로 합쳐 봅니다(2026-10-24). 다른 섹션이 나빠졌다고 나아진 섹션(빠진 서류 추가 등)까지 버리지 않고,
+그 섹션만 합쳤을 때 어디에도 새 문제가 없고 그 섹션 문제가 줄었을 때만 받습니다.
+인용문 일부를 찾지 못해 접수 시각·장소 등 세부 값이 지워진 일정도 다시 봅니다(인용을 고치면 값을 되찾을 수 있음).
+합쳐진 서류(같은 이름·제출 시점의 서류가 남아 있음)는 빠진 항목으로 보내지 않습니다(재확인 상한을 차지하지 않게).
 표시 메모 가운데 RECHECK_NOTE_CODES(서류 표 행 누락 의심)는 사람 확인 이슈가 아니지만 재확인에 보내고, 줄었는지도 함께 셉니다.
 오류 종류마다 따로 처리하지 않습니다. 검사기가 준 오류 문구를 그대로 AI에 전달합니다. 표시만 하는 notes는 보내지 않습니다(비용).
 AI 응답의 자기 보고로 통과되는 경로는 없습니다(채택 판단은 같은 검증기가 합니다).
@@ -23,7 +27,8 @@ from datetime import datetime
 from typing import Any
 
 from mujuthaek_extraction.assemble.ai_output import SECTIONS
-from mujuthaek_extraction.assemble.details import KST, times_in
+from mujuthaek_extraction.assemble.details import CLEARED, KST, times_in
+from mujuthaek_extraction.assemble.quotes import normalize
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.extract import ExtractionRun, run_extraction, schema_errors
 from mujuthaek_extraction.intake.model import ExtractionMaterial
@@ -40,6 +45,11 @@ LIST_SECTIONS = tuple(s for s in SECTIONS if s != "notice")
 DROPPED_PROBLEM = (
     "ITEM_DROPPED_NO_EVIDENCE: 인용문을 원문에서 찾지 못해 이 항목이 결과에서 빠졌습니다. 원문에 글자 그대로 이어져 나오는 구간으로 다시 인용합니다."
 )
+DETAIL_LOST_PROBLEM = (
+    "DETAIL_UNVERIFIED_CLEARED: 인용문 일부를 원문에서 찾지 못해, 남은 근거로 확인할 수 없는 세부 값(접수 시각·장소·쉬는 시각·제외 요일 등)을 지웠습니다. "
+    "그 값이 적힌 원문 줄을 글자 그대로(표 번호·[열 제목] 표시 없이, 한 줄 안에서) 다시 인용하고 값을 돌려줍니다. 지운 값: "
+)
+UNVERIFIED_MARK = "근거 인용문에서 확인하지 못해"  # details.clear의 설명(근거로 확인 못 해 지운 값)
 REF_PREFIX = "r-"  # 재확인 응답의 인용 참조가 처음 응답과 겹치지 않게
 ITEM_PATH = re.compile(r"^/([A-Za-z]+)(?:/(\d+))?")
 COVERAGE_PATH = re.compile(r"^/quality/coverage/([A-Za-z]+)$")
@@ -99,6 +109,7 @@ class RecheckResult:
     rechecked: list[str]  # 다시 본 항목 ("섹션/id")
     accepted: bool
     run: ExtractionRun | None  # 재확인 호출 기록 (사용량·비용)
+    adopted_sections: tuple[str, ...] = ()  # 섹션별로 채택한 경우 그 섹션들(응답 전체를 채택했으면 빈 값)
 
 
 def _item_key(candidate: dict[str, Any], pointer: str) -> tuple[str, str | None] | None:
@@ -128,6 +139,37 @@ def _rechecked_notes(candidate: dict[str, Any]) -> list[dict[str, str]]:
     return [note for note in candidate["quality"]["notes"] if note.get("code") in RECHECK_NOTE_CODES]
 
 
+def _lost_details(candidate: dict[str, Any]) -> dict[str, list[str]]:
+    """인용문 일부를 원문에서 찾지 못했고(EVIDENCE_QUOTE_NOT_FOUND) 세부 값이 근거로 확인되지 않아 지워진 일정 → 지운 값 설명들.
+    지운 값 메모는 일정 섹션(/schedules)을 가리키고 설명에 「이름(id):」로 일정을 적습니다(details.clear)."""
+    quality = candidate["quality"]
+    entries = [*quality["reviewIssues"], *quality["notes"]]
+    unquoted = set()
+    for entry in entries:
+        if entry.get("code") == "EVIDENCE_QUOTE_NOT_FOUND":
+            key = _item_key(candidate, entry["target"])
+            if key and key[0] == "schedules" and key[1]:
+                unquoted.add(key[1])
+    lost: dict[str, list[str]] = {}
+    for entry in entries:
+        if entry.get("code") != CLEARED or entry.get("target") != "/schedules" or UNVERIFIED_MARK not in entry.get("description", ""):
+            continue
+        for schedule_id in unquoted:
+            if f"({schedule_id}):" in entry["description"]:
+                lost.setdefault(schedule_id, []).append(entry["description"].split(": ", 1)[-1])
+    return lost
+
+
+def _represented(section: str, item: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    """빠진 것처럼 보이는 서류가 같은 이름·제출 시점의 서류로 남아 있는지(같은 서류를 합쳐 id가 사라진 경우, details.merge_documents)."""
+    if section != "requiredDocuments":
+        return False
+    key = (normalize(str(item.get("name") or "")), normalize(str(item.get("submissionTime") or "")))
+    return bool(key[0]) and any(
+        (normalize(str(d.get("name") or "")), normalize(str(d.get("submissionTime") or ""))) == key for d in candidate.get("requiredDocuments") or []
+    )
+
+
 def problem_items(report: VerificationReport) -> dict[tuple[str, str | None], list[str]]:
     candidate = report.candidate
     problems: dict[tuple[str, str | None], list[str]] = {}
@@ -142,6 +184,8 @@ def problem_items(report: VerificationReport) -> dict[tuple[str, str | None], li
         key = _item_key(candidate, pointer)
         if key:
             problems.setdefault(key, []).append(f"{code} {pointer}")
+    for schedule_id, cleared in _lost_details(candidate).items():
+        problems.setdefault(("schedules", schedule_id), []).append(DETAIL_LOST_PROBLEM + " / ".join(cleared))
     return problems
 
 
@@ -162,6 +206,8 @@ def _problem_keys(report: VerificationReport) -> tuple[Counter, Counter]:
     issues = Counter((issue["code"], _location(candidate, issue["target"])) for issue in candidate["quality"]["reviewIssues"])
     for note in _rechecked_notes(candidate):
         issues[(note["code"], _location(candidate, note["target"]))] += omitted_document_rows(note["description"])
+    for schedule_id, cleared in _lost_details(candidate).items():  # 세부 값을 되찾으면 줄어든 것으로 봅니다
+        issues[(CLEARED, ("schedules", schedule_id))] += len(cleared)
     return errors, issues
 
 
@@ -366,7 +412,7 @@ def recheck_problems(
             continue
         kept = {item["id"] for item in first.candidate[section]}
         for item in parts[index][section]:
-            if isinstance(item, dict) and item.get("id") not in kept:
+            if isinstance(item, dict) and item.get("id") not in kept and not _represented(section, item, first.candidate):
                 problems.setdefault((section, item.get("id")), []).append(DROPPED_PROBLEM)
 
     targets, sections, used = [], [], 0
@@ -419,8 +465,24 @@ def recheck_problems(
         return RecheckResult(parts, first, rechecked, False, run)
     answer = _keep_verified_dates(parts, _keep_meaning(parts, run.parts[0], targets))
     whole = tuple(t["section"] for t in targets if t["id"] is None and t["section"] != "notice")
-    merged = merge_recheck(parts, answer, whole, sent_scope(targets))
+    sent = sent_scope(targets)
+    merged = merge_recheck(parts, answer, whole, sent)
     second = evaluate(merged)
     if _improved(first, second, sections):
         return RecheckResult(merged, second, rechecked, True, run)
+    if len(sections) < 2:
+        return RecheckResult(parts, first, rechecked, False, run)
+    # 섹션마다 따로: 그 섹션만 합쳐 어디에도 새 문제가 없고 그 섹션 문제가 줄면 받고, 받은 결과 위에 다음 섹션을 봅니다
+    current, report, adopted = parts, first, []
+    for section in sections:
+        if section not in answer:
+            continue
+        only = {key: value for key, value in answer.items() if key not in SECTIONS or key == section}
+        trial = merge_recheck(current, only, tuple(s for s in whole if s == section), sent)
+        trial_report = evaluate(trial)
+        if _improved(report, trial_report, [section]):
+            current, report = trial, trial_report
+            adopted.append(section)
+    if adopted:
+        return RecheckResult(current, report, rechecked, True, run, tuple(adopted))
     return RecheckResult(parts, first, rechecked, False, run)
