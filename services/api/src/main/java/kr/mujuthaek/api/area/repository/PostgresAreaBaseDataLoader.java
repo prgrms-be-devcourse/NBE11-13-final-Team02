@@ -140,6 +140,9 @@ public final class PostgresAreaBaseDataLoader {
       case ADDRESS_POINTS -> {
         deleted = update(conn, sql("delete_address_points.sql"), req.scope());
         iu = queryPair(conn, sql("apply_address_points.sql"), req.scope(), dataDate);
+        // 오타 찾기용 도로명 목록도 같은 트랜잭션에서 그 시도 범위만 다시 채워요 (사전과 어긋나지 않게)
+        update(conn, sql("delete_road_names.sql"), req.scope());
+        update(conn, sql("fill_road_names.sql"), req.scope());
       }
       // 경계는 시군구·법정읍면동이 파일 하나씩이라, 지우기를 그 단계(level) 안에서만 해요.
       case REGION_BOUNDARIES -> {

@@ -28,6 +28,7 @@ class PostgresAreaBaseDataLoaderTest {
   void clean() throws Exception {
     exec(
         "truncate area.facilities, area.stores, area.address_points, area.region_boundaries,"
+            + " area.road_names,"
             + " area.load_runs");
   }
 
@@ -306,6 +307,31 @@ class PostgresAreaBaseDataLoaderTest {
                 "select round(st_y(geom::geometry)::numeric,4)||','||round(st_x(geom::geometry)::numeric,3)"
                     + " from area.address_points where load_scope = '11'"))
         .isEqualTo("37.5665,126.978");
+  }
+
+  @Test
+  void addressEntrance_refillsRoadNamesOfThatSidoOnly() throws Exception {
+    load(AreaSource.ADDRESS_ENTRANCE, "26", "address_entrance_26.txt", false);
+    load(AreaSource.ADDRESS_ENTRANCE, "11", "address_entrance_11.txt", false);
+    String names =
+        "select string_agg(n, ',' order by n) from (select sigungu_code||':'||road_name n from area.road_names) d";
+    String fromAddresses =
+        "select string_agg(n, ',' order by n) from (select distinct sigungu_code||':'||road_name n"
+            + " from area.address_points) d";
+    assertThat(one(names)).isEqualTo(one(fromAddresses));
+
+    // 부산을 다시 넣으면 부산의 옛 도로명은 지워지고 서울 것은 그대로예요
+    exec("insert into area.road_names values ('26110', '옛길'), ('11140', '서울옛길')");
+    load(
+        loader,
+        AreaSource.ADDRESS_ENTRANCE,
+        "26",
+        "address_entrance_26.txt",
+        "e".repeat(64),
+        LocalDate.of(2026, 10, 22),
+        false);
+    assertThat(one("select count(*) from area.road_names where road_name = '옛길'")).isEqualTo("0");
+    assertThat(one("select count(*) from area.road_names where road_name = '서울옛길'")).isEqualTo("1");
   }
 
   @Test
