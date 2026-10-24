@@ -157,6 +157,16 @@ def test_approve_republishes_approved_event_that_matches_contract():
     assert tools().validate(event, "events/extraction.completed.v1.json") == []
 
 
+def test_approving_a_superseded_review_names_the_newer_version():
+    # 같은 공고의 새 버전이 발행되어 대체된 건(store.py 검수 대기 건 대체). 실제 DB 판은 test_store_postgres
+    item = pending_item() | {"reviewStatus": "SUPERSEDED", "rawPostId": "01929a3e-0000-7000-8000-000000000001"}
+    item["supersededBy"] = {"jobId": "01929a3e-0000-7000-8000-0000000000b2", "rawPostId": item["rawPostId"], "version": 2}
+    service, store = service_with(item)
+    status, body = service.approve("job", {})
+    assert status == 409 and "v2" in body["error"] and body["supersededBy"]["version"] == 2 and store.approved is None
+    assert service.list("SUPERSEDED") == (200, {"items": [item]}) and service.list("PENDING") == (200, {"items": []})
+
+
 def partial_item():
     """부분 게시된 작업: 보류 항목(자격 조건 하나·접수 일정 하나)이 있는 후보."""
     item = pending_item()
@@ -355,6 +365,15 @@ def test_redelivered_event_waits_for_running_one_instead_of_paying_again():
     assert calls == [event["eventId"]] and store.saved == 1
 
 
+def test_same_event_delivered_ten_times_runs_once():
+    # 요구 2-01(DB 없이 도는 판): 같은 이벤트 10번 → 처리 1번. 실제 DB 판은 test_store_postgres
+    calls = []
+    processor, store = bare_processor(lambda raw_event: calls.append(raw_event["eventId"]) or Outcome("COMPLETED")), MemoryStore()
+    for _ in range(10):
+        processor.handle(store, {"eventId": "01929a3e-0000-7000-8000-0000000000ab"})
+    assert len(calls) == 1 and store.saved == 1
+
+
 def test_duplicate_found_at_save_is_skipped_quietly():
     from mujuthaek_extraction.store import DuplicateEvent
 
@@ -548,8 +567,74 @@ def test_policy_events_get_a_waiting_queue_so_collector_relay_is_not_blocked():
 
     worker.declare(Channel())
     bindings = {(c["queue"], c["routing_key"]) for name, c in calls if name == "queue_bind" and c.get("exchange") == worker.EXCHANGE}
-    assert bindings == {("mujuthaek.raw.collected", "raw.notice.collected"), ("mujuthaek.raw.policy", "raw.policy.collected")}
+    # 정책 이벤트는 공용 정책 큐 하나로 받아 판정 틀을 만듭니다(다른 담당은 발행만 함, 2026-10-23). 전용 큐는 더 만들지 않습니다
+    assert bindings == {
+        ("mujuthaek.raw.collected", "raw.notice.collected"),
+        ("mujuthaek.raw.policy", "raw.policy.collected"),
+    }
+    # 이미 있는 큐와 인자가 달라 거절당하지 않게 인자 없이 선언합니다
     assert ("queue_declare", {"queue": "mujuthaek.raw.policy", "durable": True}) in calls
+    assert ("queue_declare", {"queue": "mujuthaek.raw.policy.dlq", "durable": True}) in calls
+
+
+def test_failed_policy_message_is_moved_to_dlq_then_acked():
+    # 정책 큐에는 dead-letter 인자가 없어 reject하면 메시지가 사라집니다. .dlq로 옮긴 뒤에만 ack합니다
+    from mujuthaek_extraction import worker
+
+    calls = []
+
+    class Channel:
+        def __getattr__(self, name):
+            return lambda *args, **kwargs: calls.append((name, args, kwargs))
+
+    worker.finish_policy(Channel(), 7, "dlq", b'{"eventId": "x"}', "props")
+    assert [c[0] for c in calls] == ["basic_publish", "basic_ack"]
+    assert calls[0][2] == {"exchange": "", "routing_key": "mujuthaek.raw.policy.dlq", "body": b'{"eventId": "x"}', "properties": "props"}
+    calls.clear()
+    worker.finish_policy(Channel(), 8, "requeue", b"{}")
+    assert calls == [("basic_nack", (8,), {"requeue": True})]
+    calls.clear()
+    worker.finish_policy(Channel(), 9, "ack", b"{}")
+    assert calls == [("basic_ack", (9,), {})]
+
+    class Broken(Channel):
+        def basic_publish(self, **kwargs):
+            raise OSError("연결 끊김")
+
+    calls.clear()
+    with pytest.raises(OSError):
+        worker.finish_policy(Broken(), 10, "dlq", b"{}")
+    assert calls == []  # 옮기지 못했으면 ack하지 않음(연결이 끊긴 뒤 다시 옴)
+
+
+def test_replay_dlq_moves_messages_back_until_limit_or_empty():
+    from types import SimpleNamespace
+
+    from mujuthaek_extraction import worker
+
+    class Channel:
+        def __init__(self, bodies):
+            self.bodies, self.calls = list(bodies), []
+
+        def basic_get(self, queue, auto_ack):
+            self.calls.append(("get", queue))
+            if not self.bodies:
+                return None, None, None
+            return SimpleNamespace(delivery_tag=len(self.calls)), "props", self.bodies.pop(0)
+
+        def basic_publish(self, **kwargs):
+            self.calls.append(("publish", kwargs["routing_key"], kwargs["body"]))
+
+        def basic_ack(self, tag):
+            self.calls.append(("ack", tag))
+
+    dlq, queue = worker.DLQ_TARGETS["policy"]
+    assert (dlq, queue) == ("mujuthaek.raw.policy.dlq", "mujuthaek.raw.policy")
+    channel = Channel([b"a", b"b", b"c"])
+    assert worker.replay_dlq(channel, dlq, queue, limit=2) == 2  # 한도까지만
+    assert [c for c in channel.calls if c[0] == "publish"] == [("publish", queue, b"a"), ("publish", queue, b"b")]
+    assert worker.replay_dlq(channel, dlq, queue, limit=10) == 1  # 남은 것만, 비면 멈춤
+    assert worker.DLQ_TARGETS["notice"] == ("mujuthaek.raw.collected.dlq", "mujuthaek.raw.collected")
 
 
 def test_unexpected_error_keeps_cost_already_spent(monkeypatch):
@@ -618,3 +703,69 @@ def test_claim_is_released_even_when_saving_fails():
         assert store.claims
         raise RuntimeError("저장 실패")
     assert store.claims == {}
+
+
+# ---------- 정책 판정 메시지 결정 ----------
+
+
+def policy_message_setup(monkeypatch, outcomes):
+    """judge_policy가 outcomes 차례대로 예외를 내거나(예외 객체) 값을 돌려주게 하고, 잠자기·DB를 끈 judge_message 실행기."""
+    from mujuthaek_extraction import worker
+
+    calls = []
+
+    def fake_judge(store, raw_event, model, regions):
+        calls.append(raw_event["eventId"])
+        result = outcomes.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+    @contextmanager
+    def no_store(_settings):
+        yield None
+
+    opened = []
+    monkeypatch.setattr(worker, "judge_policy", fake_judge)
+    monkeypatch.setattr(worker, "store_session", no_store)
+    monkeypatch.setattr(worker.time, "sleep", lambda seconds: None)
+    processor = SimpleNamespace(
+        open_ledger=lambda raw_event: opened.append(raw_event) or None,
+        models=SimpleNamespace(for_notice=lambda ledger=None: SimpleNamespace(primary="model", fallback=None)),
+        regions=None,
+    )
+    retries = worker.RetryCounter(limit=3)
+    policy = {"field": "STARTUP_SUPPORT", "rawPolicyId": "01a16146-b9b3-704f-8da4-54c2dcfa1999", "version": 2}
+
+    def handle(event_id, **payload):
+        return worker.judge_message(SimpleNamespace(notice_budget_usd=0.5), processor, {"eventId": event_id, "payload": policy | payload}, retries)
+
+    return handle, calls, opened
+
+
+def test_permanent_ai_failure_without_frame_goes_to_dlq_not_ack(monkeypatch):
+    # 리뷰 2026-10-22: 영구 오류로 AI 틀도 규칙 틀도 없으면 None이 돌아와 ack되고 아무 기록도 남지 않았음
+    from mujuthaek_extraction import worker
+
+    handle, calls, _ = policy_message_setup(monkeypatch, [worker.AiFailed("BAD_SHAPE"), "event-id", None])
+    assert handle("e-1") == "dlq"
+    assert handle("e-2") == "ack" and handle("e-3") == "ack"  # 만들었거나(값) 보낼 것이 없는(None, 예: 이미 처리) 경우는 ack
+
+
+def test_repeated_temporary_ai_failures_end_in_dlq_instead_of_looping(monkeypatch):
+    # 5xx가 계속되면 같은 메시지가 끝없이 큐를 돌았음: 같은 정책 버전이 limit번 연속 실패하면 .dlq로
+    from mujuthaek_extraction import worker
+
+    fail = worker.AiUnavailable
+    handle, calls, _ = policy_message_setup(monkeypatch, [fail("HTTP_503"), fail("HTTP_503"), fail("HTTP_503"), fail("HTTP_503"), "id", fail("HTTP_503")])
+    assert [handle("e-1"), handle("e-1")] == ["requeue", "requeue"]
+    assert handle("e-2") == "dlq"  # eventId가 달라도(재발행) 같은 정책 버전이면 이어 셈
+    assert handle("e-1") == "requeue"  # .dlq로 보낸 뒤에는 처음부터
+    assert handle("e-1") == "ack"
+    assert handle("e-1") == "requeue"  # 성공하면 셈을 지움
+    assert len(calls) == 6
+
+
+def test_benefit_policy_is_acked_before_opening_the_ledger(monkeypatch):
+    handle, calls, opened = policy_message_setup(monkeypatch, [])
+    assert handle("e-1", field="BENEFIT") == "ack" and calls == [] and opened == []

@@ -45,6 +45,27 @@ jobs:
           name: api-reports
           path: services/api/build/reports/
 
+  notification:
+    name: notification (spotless · test)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/notification
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - uses: gradle/actions/setup-gradle@v5
+      # Testcontainers(PostgreSQL·RabbitMQ)는 러너에 있는 Docker를 그대로 써요
+      - run: ./gradlew check --console=plain
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notification-reports
+          path: services/notification/build/reports/
+
   python:
     # 잡 이름은 룰셋의 필수 체크 이름이라 바꾸지 않아요 (린트 + 테스트를 같이 돌려요)
     name: python (ruff)

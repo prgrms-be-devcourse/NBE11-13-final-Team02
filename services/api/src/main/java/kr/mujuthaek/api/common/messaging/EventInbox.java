@@ -1,6 +1,7 @@
 package kr.mujuthaek.api.common.messaging;
 
 import java.nio.charset.StandardCharsets;
+import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,6 +48,21 @@ public class EventInbox {
       int schemaVersion,
       Class<T> payloadType,
       Consumer<T> handler) {
+    handleOnceWithEnvelope(
+        message,
+        eventType,
+        schemaVersion,
+        payloadType,
+        (envelope, payload) -> handler.accept(payload));
+  }
+
+  /** handleOnce와 같고, 처리할 때 봉투(eventId 등)도 넘겨줘요. */
+  public <T> void handleOnceWithEnvelope(
+      Message message,
+      String eventType,
+      int schemaVersion,
+      Class<T> payloadType,
+      BiConsumer<EventEnvelope, T> handler) {
     EventEnvelope envelope = read(message);
     if (!eventType.equals(envelope.eventType()) || envelope.schemaVersion() != schemaVersion) {
       throw reject(
@@ -66,7 +82,7 @@ public class EventInbox {
       return;
     }
     T payload = payload(envelope, payloadType);
-    handler.accept(payload);
+    handler.accept(envelope, payload);
     markProcessed(envelope);
   }
 

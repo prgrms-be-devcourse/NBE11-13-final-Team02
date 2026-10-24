@@ -7,4 +7,5 @@ broker     connect(url)                     RabbitMQ 연결
 db         connect(url)                     PostgreSQL 연결
 logging    setup(service)                   JSON 한 줄 로그
 contracts  validate_event(event)            contracts/events/의 JSON 스키마로 이벤트 검사
+slack      SlackNotifier.from_env().send()  슬랙 수신 웹훅으로 알림 (주소 없으면 보내지 않음, 실패는 SlackError)
 """

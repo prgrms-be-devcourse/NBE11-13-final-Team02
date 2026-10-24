@@ -1,7 +1,9 @@
 package kr.mujuthaek.api.area;
 
+import static kr.mujuthaek.api.area.AreaTestDatabase.exec;
 import static kr.mujuthaek.api.area.AreaTestDatabase.one;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.junit.jupiter.api.Test;
 
@@ -15,7 +17,43 @@ class AreaMigrationTest {
                 "select string_agg(table_name, ',' order by table_name) from information_schema.tables"
                     + " where table_schema = 'area'"))
         .isEqualTo(
-            "address_points,facilities,industry_group_rules,load_runs,region_boundaries,stores");
+            "address_points,facilities,industry_group_rules,load_runs,location_metrics,"
+                + "location_scores,notice_locations,region_boundaries,score_rules,score_weights,stores");
+  }
+
+  @Test
+  void noticeLocationIdIsUniqueOnlyWithinANotice() throws Exception {
+    // notice의 위치 ID(locations[].id)는 공고 안에서만 유일해요: 다른 공고는 같은 ID를 써도 되고, 같은 공고 안에서는 한 줄
+    String a = java.util.UUID.randomUUID().toString();
+    String b = java.util.UUID.randomUUID().toString();
+    String insert =
+        "insert into area.notice_locations (notice_id, notice_location_id, notice_version, kind,"
+            + " address_text, status, fail_reason) values ('%s', 'building-a', 1, 'COMPLEX',"
+            + " '시험 위치 유일', 'FAILED', 'NOT_FOUND')";
+    try {
+      exec(insert.formatted(a));
+      exec(insert.formatted(b));
+      assertThat(
+              one(
+                  "select count(distinct location_id) from area.notice_locations"
+                      + " where notice_location_id = 'building-a' and address_text = '시험 위치 유일'"))
+          .isEqualTo("2");
+      assertThatThrownBy(() -> exec(insert.formatted(a)))
+          .hasMessageContaining("notice_locations_notice_idx");
+    } finally {
+      exec("delete from area.notice_locations where address_text = '시험 위치 유일'");
+    }
+  }
+
+  @Test
+  void createsPartialSpatialIndexesForMetrics() throws Exception {
+    assertThat(
+            one(
+                "select count(*) from pg_indexes where schemaname = 'area'"
+                    + " and indexname in ('facilities_subway_gix', 'facilities_bus_gix',"
+                    + " 'facilities_school_gix', 'facilities_park_gix', 'facilities_hosp2_gix',"
+                    + " 'facilities_clinic_gix', 'stores_conv_gix', 'stores_mart_gix')"))
+        .isEqualTo("8");
   }
 
   @Test

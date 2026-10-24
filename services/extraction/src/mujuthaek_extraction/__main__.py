@@ -6,6 +6,8 @@
   relay                  아웃박스에 쌓인 이벤트를 한 번 발행
   review-api             검수 API만 실행
   declare                큐·교환기만 선언
+  replay-dlq [--queue notice|policy] [--limit N]
+                         .dlq 메시지를 원래 큐로 되돌림 (원인을 고친 뒤 실행, 기본 policy·100건)
 
 모델: 기본은 로컬 AI → (연결 안 됨·결과 부족) → 유료 API. 녹화 응답 재생은 EXTRACTION_MODEL_MODE=recorded (config.py 참고)
 """
@@ -23,7 +25,7 @@ from mujuthaek_platform.events import new_event
 
 
 def main() -> None:
-    """명령행 인자를 읽어 선택한 하위 명령(run·process-file·retry·relay·review-api·declare)을 실행합니다."""
+    """명령행 인자를 읽어 선택한 하위 명령(run·process-file·retry·relay·review-api·declare·replay-dlq)을 실행합니다."""
     parser = argparse.ArgumentParser(prog="mujuthaek_extraction")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("run")
@@ -33,6 +35,9 @@ def main() -> None:
     commands.add_parser("relay")
     commands.add_parser("review-api")
     commands.add_parser("declare")
+    replay_command = commands.add_parser("replay-dlq")
+    replay_command.add_argument("--queue", choices=["notice", "policy"], default="policy")
+    replay_command.add_argument("--limit", type=int, default=100)
     args = parser.parse_args()
 
     platform_logging.setup("extraction")
@@ -73,11 +78,20 @@ def main() -> None:
     elif args.command == "review-api":
         from mujuthaek_extraction.review_api import ReviewService, serve
 
-        server = serve(ReviewService(lambda: worker.store_session(settings), new_event), settings.review_host, settings.review_port)
+        server = serve(
+            ReviewService(lambda: worker.store_session(settings), new_event, settings.monthly_budget_usd), settings.review_host, settings.review_port
+        )
         server.serve_forever()
     elif args.command == "declare":
         connection = broker.connect(settings.rabbitmq_url)
         worker.declare(connection.channel())
+        connection.close()
+    elif args.command == "replay-dlq":
+        dlq, queue = worker.DLQ_TARGETS[args.queue]
+        connection = broker.connect(settings.rabbitmq_url)
+        channel = connection.channel()
+        worker.declare(channel)
+        print(f"{dlq} → {queue} 되돌림 {worker.replay_dlq(channel, dlq, queue, args.limit)}건")
         connection.close()
 
 

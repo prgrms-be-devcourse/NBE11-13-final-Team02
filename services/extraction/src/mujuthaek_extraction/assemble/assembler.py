@@ -19,6 +19,7 @@ from jsonschema import Draft202012Validator, FormatChecker
 
 from mujuthaek_extraction.assemble import ai_output
 from mujuthaek_extraction.assemble.coverage import DROPPED_INVALID, DROPPED_NO_EVIDENCE
+from mujuthaek_extraction.assemble.missing_prices import fill_missing_prices
 from mujuthaek_extraction.assemble.quotes import (
     NormalizedText,
     QuoteResolution,
@@ -157,6 +158,7 @@ class _Assembler:
         self.missing: list[dict[str, Any]] = []  # 원래 경로 기준 (AI 보고, 비운 항목)
         self.computed_missing: list[dict[str, Any]] = []  # 항목을 뺀 뒤 경로 기준 (금액·지역 계산)
         self.computed_filled: set[str] = set()  # 결합기가 원문 근거로 채운 칸 (항목을 뺀 뒤 경로). AI 누락 기록은 해소된 것으로 봅니다
+        self.computed_issues: list[dict[str, str]] = []  # 항목을 뺀 뒤 경로 기준의 이슈 (금액 빈칸 채우기)
         self.quotes: dict[str, dict[str, Any]] = {}
         self.removed: dict[tuple, set[int]] = defaultdict(set)  # 원래 배열 경로 → 뺀 원래 순번
         self.nulled: list[list[str | int]] = []
@@ -493,6 +495,21 @@ class _Assembler:
         return out
 
     # 4. 계산값: 금액, 지역 코드
+    def fill_missing_prices(self, evidence: list[dict[str, Any]]) -> None:
+        """공급표 금액 빈칸을 공고문 글에서 채웁니다(missing_prices.py, 요구 2-06). 채운 칸의 금액 계산 누락과 AI 누락 기록은 해소된 것으로 봅니다."""
+        material = self.source.material
+        reasons = {}
+        for entry in self.missing:  # AI 누락 기록(원래 경로) → 항목을 뺀 뒤 경로
+            moved = self.remap([int(t) if t.isdigit() else t for t in entry["target"].lstrip("/").split("/")])
+            if moved is not None:
+                reasons[_pointer(moved)] = entry["reason"]
+        filled = fill_missing_prices(self.sections.get("supplyGroups") or [], material.text, material.text_document_id, evidence, reasons)
+        evidence.extend(filled.evidence)
+        self.computed_filled.update(filled.filled)
+        self.computed_missing = [m for m in self.computed_missing if m["target"] not in filled.filled]
+        self.notes.extend(filled.notes)
+        self.computed_issues.extend({"code": code, "target": _pointer(tokens), "description": text} for tokens, code, text in filled.issues)
+
     # 5. 수량 묶음 정리: 묶음 정보(부모·합계 완결)가 맞지 않으면 값은 두고 묶음만 풉니다
     def normalize_counts(self) -> None:
         counts: dict[str, dict[str, Any]] = {}
@@ -592,6 +609,7 @@ class _Assembler:
         if not self.sections["notice"].get("evidenceIds"):
             return self.result(None)
         self.compute_values()
+        self.fill_missing_prices(evidence)
         self.normalize_counts()
         self.fill_benchmark_years()
 
@@ -654,6 +672,7 @@ class _Assembler:
                 tokens = tokens[:-1]
                 moved = self.remap(tokens)
             issues.append({"code": code, "target": _pointer(moved) or "/", "description": description})
+        issues.extend(self.computed_issues)
         result = AssemblyResult(candidate, issues, self.notes)
         if candidate is not None:
             candidate["quality"]["reviewIssues"] = issues

@@ -22,8 +22,12 @@ __pycache__/
 *.csv
 # 공개 데이터로 만든 area 적재 테스트 자료는 올려요
 !services/api/src/test/resources/area/fixtures/*.csv
+!services/api/src/test/resources/area/geocode/*.csv
 !services/collector/area/area_manifest.csv
 !services/collector/area/area_manifest_address.csv
+!services/collector/area/area_manifest_boundary.csv
+# 법정동코드 테스트 자료 (저장소 원본에서 뗀 줄)
+!services/api/src/test/resources/common/*.csv
 .aws/
 # 구조 변경 스크립트 백업
 _backup_*/
