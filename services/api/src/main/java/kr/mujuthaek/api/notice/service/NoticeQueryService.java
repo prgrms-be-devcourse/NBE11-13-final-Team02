@@ -130,6 +130,97 @@ public class NoticeQueryService {
     return out;
   }
 
+  /** 맞춤 목록 후보 한 줄 (eligibility가 판정해 정렬해요). 목록 한 줄과 같은 값이에요. */
+  public record Candidate(
+      UUID id,
+      String field,
+      String title,
+      String provider,
+      String noticeType,
+      String regionCode,
+      String regionName,
+      String status,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      Integer dday,
+      LocalDate postedOn) {}
+
+  /**
+   * 맞춤 목록(POST /notices/search)의 후보: 필터에 맞는 공개 공고를 마감 임박순으로 최대 limit개. 판정은 계산값이라 먼저 필터로 줄여요.
+   *
+   * @param statuses 비우면 접수예정·접수중
+   */
+  public List<Candidate> searchCandidates(
+      String field,
+      List<String> regionCodes,
+      String tenure,
+      List<String> noticeTypes,
+      List<String> providers,
+      List<String> statuses,
+      int limit) {
+    var filter =
+        new NoticeListFilter(
+            field,
+            regionCodes,
+            tenure,
+            noticeTypes,
+            providers,
+            statuses, // 비우면 공개 목록(GET /notices)과 같은 기본값 (상시 공고 ALWAYS 포함)
+            "DEADLINE");
+    LocalDate today = LocalDate.now(clock);
+    return queries.list(filter, today, null, limit).stream()
+        .map(row -> summary(row, today))
+        .map(
+            s ->
+                new Candidate(
+                    s.id(),
+                    s.field(),
+                    s.title(),
+                    s.provider(),
+                    s.noticeType(),
+                    s.regionCode(),
+                    s.regionName(),
+                    s.status(),
+                    s.applyStart(),
+                    s.applyEnd(),
+                    s.dday(),
+                    s.postedOn()))
+        .toList();
+  }
+
+  /**
+   * 판정에 쓰는 공고 내용 (eligibility가 불러요).
+   *
+   * @param judgment 판정 틀 (contracts/schemas/housing-judgment.v1.json). 아직 없으면 null
+   * @param unitTypes 주택형별 보증금·월임대료 (준비할 돈 계산)
+   */
+  public record JudgingSource(
+      UUID noticeId,
+      String field,
+      String noticeType,
+      JsonNode judgment,
+      List<UnitPrice> unitTypes) {}
+
+  public record UnitPrice(
+      String houseType, java.math.BigDecimal exclusiveM2, Long depositWon, Long rentWon) {}
+
+  /** 없거나 숨김·공개 전이면 404 NOTICE_NOT_FOUND. */
+  public JudgingSource judgingSource(UUID noticeId) {
+    CurrentRow current = current(noticeId);
+    JsonNode payload = payload(current);
+    JsonNode judgment = payload.path("judgment");
+    var units =
+        NoticeDetailMapper.unitTypes(payload.path("notice")).stream()
+            .map(u -> new UnitPrice(u.houseType(), u.exclusiveM2(), u.depositWon(), u.rentWon()))
+            .toList();
+    return new JudgingSource(
+        noticeId,
+        current.row().field(),
+        current.row().noticeType(),
+        judgment.isObject() ? judgment : null,
+        units);
+  }
+
   /** API의 시각은 서울 시간(+09:00)이에요. DB에서는 UTC로 읽혀요. */
   private OffsetDateTime local(OffsetDateTime time) {
     return time == null ? null : time.atZoneSameInstant(clock.getZone()).toOffsetDateTime();

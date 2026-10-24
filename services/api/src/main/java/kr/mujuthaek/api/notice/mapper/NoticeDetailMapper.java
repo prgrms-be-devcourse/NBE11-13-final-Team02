@@ -110,7 +110,7 @@ public final class NoticeDetailMapper {
   }
 
   /** 주택형별 묶음: 같은 주택형의 공급 묶음을 합쳐 면적·보증금·월임대료(처음 값)와 공급 호수(합)를 보여줘요. */
-  static List<UnitType> unitTypes(JsonNode detail) {
+  public static List<UnitType> unitTypes(JsonNode detail) {
     Map<String, UnitType> byType = new LinkedHashMap<>();
     for (JsonNode g : detail.path("supplyGroups")) {
       String type = text(g.path("housingTypeCode"));
