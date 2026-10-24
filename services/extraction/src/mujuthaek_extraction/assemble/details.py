@@ -210,6 +210,52 @@ REQUIRED_TAG = re.compile(r"[\[［(（【]\s*(필수|선택)\s*[\]］)）】]")
 REQUIRED_GROUPS = {"필수": "COMMON", "선택": "CONDITIONAL"}
 
 
+# 「필수」「추가(선택·해당자)」 열에 ○ 표시를 하는 서류 표(2026-10-24 다섯 번째 채점: 「| ○ |  | 주민등록표초본 |」의 필수 ○를 두고
+# 바로 위 등본 행의 「확인 불가 시 초본 추가 제출」 단서를 붙여 해당자 서류로 게시됨). 표 머리 행에서 열을 찾아 그 행의 표시를 읽습니다
+MARK = re.compile(r"^[○◯●OoVv✓✔]$")
+REQUIRED_HEAD = re.compile(r"^필수$")
+OPTIONAL_HEAD = re.compile(r"^(?:선택|추가|해당자?|해당시)$")
+CONFLICT = "DOCUMENT_GROUP_CONFLICT"
+
+
+def _cells_of(line: str) -> list[str]:
+    return ["".join(c.split()) for c in line.strip().strip("|").split("|")]
+
+
+def marked_group(text: str, start: int) -> str | None:
+    """원문 start가 든 표 행의 「필수」 열 ○ → COMMON, 「추가·선택·해당」 열 ○ → CONDITIONAL. 표 머리에 그 열이 없거나 둘 다·둘 다 아니면 None."""
+    first = text.rfind("\n", 0, start) + 1
+    end = text.find("\n", start)
+    row = text[first : len(text) if end < 0 else end]
+    if not row.lstrip().startswith("|"):
+        return None
+    cursor, header = first - 1, None
+    while cursor > 0:  # 표의 첫 행(머리)까지 올라갑니다
+        begin = text.rfind("\n", 0, cursor) + 1
+        line = text[begin:cursor]
+        if not line.lstrip().startswith("|"):
+            break
+        header, cursor = line, begin - 1
+    if header is None:
+        return None
+    heads, cells = _cells_of(header), _cells_of(row)
+    required = [i for i, h in enumerate(heads) if REQUIRED_HEAD.match(h)]
+    optional = [i for i, h in enumerate(heads) if OPTIONAL_HEAD.match(h)]
+    if len(required) != 1 or len(cells) != len(heads):
+        return None
+    on_required = bool(MARK.match(cells[required[0]]))
+    on_optional = any(MARK.match(cells[i]) for i in optional)
+    if on_required == on_optional:
+        return None
+    return "COMMON" if on_required else "CONDITIONAL"
+
+
+# 대리 신청 서류 묶음(2026-10-24 다섯 번째 채점: 「본인 외(배우자 포함) 모두 대리」 서류 12개가 묶음 없이 게시됨). 배우자를 따로 나누지 않은
+# 대리면 기타 대리(PROXY_OTHER)입니다
+PROXY_WORD = re.compile(r"대리")
+PROXY_ANY = re.compile(r"배우자\s*포함|본인\s*(?:외|이외)|제3자|직계")
+
+
 def required_mark_group(text: str) -> str | None:
     """서류 근거(표 행 전체)의 「필수」→COMMON, 「선택」→CONDITIONAL. 두 표시가 섞이거나 없으면 None."""
     marks: set[str] = set()
@@ -557,6 +603,26 @@ class _Checker:
                 if group is not None:
                     document["group"] = group
                     self.notes.append(f"/requiredDocuments/{d}: 서류 표의 「필수/선택」 칸으로 묶음을 {group}(으)로 정했어요({label})")
+            marks = {marked_group(self.text, self.spans[i][0]) for i in document.get("evidenceIds") or [] if i in self.spans} - {None}
+            if len(marks) == 1 and document.get("group") in (None, "COMMON", "CONDITIONAL"):
+                mark = marks.pop()
+                if document.get("group") is None:
+                    document["group"] = mark
+                    self.notes.append(f"/requiredDocuments/{d}: 서류 표의 필수·추가 열 표시로 묶음을 {mark}(으)로 정했어요({label})")
+                elif document["group"] != mark:
+                    # 표 표시와 AI 묶음이 다름: 표 표시를 따르고, 적용 대상도 다른 행 단서에서 왔을 수 있어 확인 전까지 보류합니다
+                    document["group"] = mark
+                    self.candidate["quality"]["reviewIssues"].append(
+                        {
+                            "code": CONFLICT,
+                            "target": f"/requiredDocuments/{d}",
+                            "description": f"{label}: 서류 표의 표시는 {mark}인데 다르게 읽어 적용 대상을 확인해야 해요(원문 확인 필요)",
+                        }
+                    )
+            if document.get("group") is None and PROXY_WORD.search(f"{text} {document.get('appliesTo') or ''}"):
+                if PROXY_ANY.search(f"{text} {document.get('appliesTo') or ''}"):
+                    document["group"] = "PROXY_OTHER"
+                    self.notes.append(f"/requiredDocuments/{d}: 배우자를 따로 나누지 않은 대리 서류라 기타 대리로 정했어요({label})")
             named = clue_for_other(document, text, [str(o.get("name") or "") for o in documents if o is not document])
             if named:
                 self.candidate["quality"]["reviewIssues"].append(
