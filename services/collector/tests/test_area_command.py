@@ -14,6 +14,7 @@ from mujuthaek_collector.area.upload import sha256_of, upload_once
 from tests.fakes import MemoryFileStore
 
 MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest.csv"
+ADDRESS_MANIFEST = Path(__file__).resolve().parents[1] / "area" / "area_manifest_address.csv"
 
 
 class MemoryOutbox:
@@ -52,6 +53,22 @@ def test_upload_records_one_event_and_a_second_run_records_nothing(tmp_path):
         "fileName": path.name,
         "rows": 3,
     }
+
+
+def test_address_entrance_is_uploaded_as_is_and_counts_every_line(tmp_path):
+    files, outbox = MemoryFileStore(), MemoryOutbox()
+    path = tmp_path / "RNENTDATA_2610_36110.txt"
+    path.write_bytes("3611010100|세종|조치원읍\r\n3611010100|세종|조치원읍\r\n".encode("cp949"))
+
+    result = command.upload_file(files, outbox, "ADDRESS_ENTRANCE", date(2026, 9, 30), path, "36110")
+
+    key = "area/ADDRESS_ENTRANCE/2026-09-30/address_entrance_36110.txt"
+    assert result.uploaded == 1
+    assert files.objects[key] == path.read_bytes()  # 바꾸지 않고 그대로
+    [event] = outbox.events.values()
+    assert event["payload"]["scope"] == "36"
+    assert event["payload"]["s3Key"] == key
+    assert event["payload"]["rows"] == 2  # 머리줄이 없어서 빼지 않아요
 
 
 def test_manifest_records_events_for_files_already_in_s3(tmp_path):
@@ -131,6 +148,18 @@ def test_the_manifest_in_the_repo_follows_the_key_rule():
     assert len(rows) == 21
     for row in rows:
         assert row["s3Key"] == sources.s3_key(row["source"], date.fromisoformat(row["dataDate"]), row["scope"])
+
+
+def test_the_address_manifest_in_the_repo_follows_the_key_rule():
+    # 2026-10-22에 개발 S3에 올린 도로명주소 출입구 16개 목록
+    with ADDRESS_MANIFEST.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+    assert len(rows) == 16
+    assert {row["scope"] for row in rows} == set(sources.ADDRESS_SCOPES)
+    for row in rows:
+        assert row["source"] == "ADDRESS_ENTRANCE"
+        assert row["s3Key"] == sources.s3_key(row["source"], date.fromisoformat(row["dataDate"]), row["scope"])
+        assert row["fileName"] == f"RNENTDATA_2610_{sources.ADDRESS_SCOPES[row['scope']]}.txt"
 
 
 class RecordingChannel:

@@ -29,7 +29,8 @@ import org.postgresql.core.BaseConnection;
 import org.springframework.stereotype.Component;
 
 /**
- * 원천 파일을 area.facilities / area.stores에 반영해요. JDBC만 써서 테스트에서는 {@code new}로 만들어요.
+ * 원천 파일을 area.facilities / area.stores / area.address_points에 반영해요. JDBC만 써서 테스트에서는 {@code new}로
+ * 만들어요.
  *
  * <p>순서: 머리줄 확인 → 머리줄 이름 그대로 임시 테이블(stage_raw) → COPY → 변환 SQL(stage_norm) → 공통 검사 → 삭제·반영 → 실행 기록.
  * 데이터 변경은 트랜잭션 하나라 실패하면 이전 데이터가 그대로 남아요. 실행 기록은 실패해도 남아야 해서 커넥션을 직접 잡고 커밋·롤백해요 — 부르는 쪽에
@@ -86,7 +87,9 @@ public final class PostgresAreaBaseDataLoader {
     lock(conn, source, req.scope());
 
     BufferedInputStream in = new BufferedInputStream(content, 1 << 16);
-    List<String> header = CsvHeader.read(in, source.charset());
+    // 머리줄 없는 원천(도로명주소)은 원천 정의의 고정 칸 이름을 써요.
+    List<String> header =
+        source.headerless() ? source.requiredColumns() : CsvHeader.read(in, source.charset());
     List<String> missing =
         source.requiredColumns().stream().filter(c -> !header.contains(c)).toList();
     if (!missing.isEmpty()) {
@@ -98,7 +101,13 @@ public final class PostgresAreaBaseDataLoader {
       st.execute(createStageRaw(columns));
       st.execute(STAGE_NORM_DDL);
     }
-    copyRows(conn, columns, source.charset(), new BlankLineSkippingInputStream(in));
+    boolean csvQuotes = source.delimiter() == ',';
+    copyRows(
+        conn,
+        columns,
+        source.charset(),
+        source.delimiter(),
+        new BlankLineSkippingInputStream(in, csvQuotes));
 
     try (Statement st = conn.createStatement()) {
       st.execute(sql(source.mappingSql()));
@@ -116,15 +125,23 @@ public final class PostgresAreaBaseDataLoader {
     int deleted;
     // 지우기를 반영보다 먼저 해요. 반영 뒤에 지우면 방금 넣은 줄이 통계에 없어서(첫 적재면 0줄로 봐요) 줄마다 임시 테이블을 통째로 읽어요
     // (경기 상가 67만 줄 첫 적재에서 12분 넘게 걸림). 먼저 지우면 이미 커밋된 줄만 보고, 결과는 같아요.
-    if (source.target() == AreaSource.Target.FACILITIES) {
-      deleted = update(conn, sql("delete_facilities.sql"), source.name());
-      iu =
-          queryPair(
-              conn, sql("apply_facilities.sql"), source.facilityKind(), source.name(), dataDate);
-    } else {
-      // 상가는 시도 파일 하나가 적재 한 번이라, 지우기를 그 시도(load_scope) 안에서만 해요.
-      deleted = update(conn, sql("delete_stores.sql"), req.scope());
-      iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
+    switch (source.target()) {
+      case FACILITIES -> {
+        deleted = update(conn, sql("delete_facilities.sql"), source.name());
+        iu =
+            queryPair(
+                conn, sql("apply_facilities.sql"), source.facilityKind(), source.name(), dataDate);
+      }
+      // 상가·도로명주소는 시도 파일 하나가 적재 한 번이라, 지우기를 그 시도(load_scope) 안에서만 해요.
+      case STORES -> {
+        deleted = update(conn, sql("delete_stores.sql"), req.scope());
+        iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
+      }
+      case ADDRESS_POINTS -> {
+        deleted = update(conn, sql("delete_address_points.sql"), req.scope());
+        iu = queryPair(conn, sql("apply_address_points.sql"), req.scope(), dataDate);
+      }
+      default -> throw new IllegalStateException("모르는 적재 대상: " + source.target());
     }
     int inserted = iu[0];
     int updated = iu[1];
@@ -252,15 +269,24 @@ public final class PostgresAreaBaseDataLoader {
   }
 
   private static void copyRows(
-      Connection conn, List<String> columns, Charset charset, InputStream rows)
+      Connection conn, List<String> columns, Charset charset, char delimiter, InputStream rows)
       throws SQLException, IOException {
     String encoding = charset.equals(StandardCharsets.UTF_8) ? "UTF8" : "UHC";
+    // | 구분 원천은 값을 따옴표로 감싸지 않아서, 따옴표 문자를 쓰이지 않는 제어 문자로 바꿔 값 안의 "를 그대로 둬요.
+    String options =
+        delimiter == ','
+            ? "format csv, encoding '" + encoding + "'"
+            : "format csv, encoding '"
+                + encoding
+                + "', delimiter '"
+                + delimiter
+                + "', quote e'\\x01'";
     String copy =
         "copy stage_raw ("
             + String.join(", ", columns.stream().map(PostgresAreaBaseDataLoader::quote).toList())
-            + ") from stdin with (format csv, encoding '"
-            + encoding
-            + "')";
+            + ") from stdin with ("
+            + options
+            + ")";
     new CopyManager(conn.unwrap(BaseConnection.class)).copyIn(copy, rows);
   }
 
@@ -310,13 +336,14 @@ public final class PostgresAreaBaseDataLoader {
     if (req.allowShrink()) {
       return;
     }
-    boolean stores = req.source().target() == AreaSource.Target.STORES;
     String sql =
-        stores
-            ? "select count(*) from area.stores where load_scope = ?"
-            : "select count(*) from area.facilities where source = ?";
+        switch (req.source().target()) {
+          case STORES -> "select count(*) from area.stores where load_scope = ?";
+          case ADDRESS_POINTS -> "select count(*) from area.address_points where load_scope = ?";
+          case FACILITIES -> "select count(*) from area.facilities where source = ?";
+        };
     try (PreparedStatement ps = conn.prepareStatement(sql)) {
-      ps.setString(1, stores ? req.scope() : req.source().name());
+      ps.setString(1, req.source().scoped() ? req.scope() : req.source().name());
       try (ResultSet rs = ps.executeQuery()) {
         rs.next();
         int existing = rs.getInt(1);
@@ -414,6 +441,17 @@ public final class PostgresAreaBaseDataLoader {
           middle_code   text,
           middle_name   text,
           small_code    text,
-          small_name    text
+          small_name    text,
+          bjd_code      text,
+          sido          text,
+          sigungu       text,
+          emd           text,
+          ri            text,
+          road_code     text,
+          road_name     text,
+          underground   text,
+          bldg_main     text,
+          bldg_sub      text,
+          zip_code      text
       ) on commit drop""";
 }
