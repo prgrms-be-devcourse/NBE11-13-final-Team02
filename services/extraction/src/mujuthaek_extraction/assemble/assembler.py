@@ -230,9 +230,12 @@ class _Assembler:
         # 코드 조각의 검수 이슈: 가리키는 공급 묶음 자리로(묶음을 못 찾으면 공급 섹션)
         groups = self.sections.get("supplyGroups")
         positions = {g.get("id"): i for i, g in enumerate(groups) if isinstance(g, dict)} if isinstance(groups, list) else {}
+        # field가 있으면(수량만 애매함 counts, 가격만 애매함 prices) 그 칸을 가리켜 그 칸만 보류합니다(2026-10-24, verifier.held_target)
         for entry in code_issues:
             at = positions.get(entry.get("supplyGroupId"))
-            self.issue(["supplyGroups", at] if at is not None else ["supplyGroups"], str(entry.get("code")), str(entry.get("description")))
+            field = entry.get("field") if entry.get("field") in ("counts", "prices") else None
+            tokens: list[str | int] = ["supplyGroups", at, *([field] if field else [])] if at is not None else ["supplyGroups"]
+            self.issue(tokens, str(entry.get("code")), str(entry.get("description")))
 
     def repair(self, number: int, part: dict[str, Any]) -> dict[str, Any]:
         """뜻이 분명한 형식 실수를 고쳐 항목이 빠지지 않게 합니다(실측 2026-10-17 OpenAI dcco-24788).
