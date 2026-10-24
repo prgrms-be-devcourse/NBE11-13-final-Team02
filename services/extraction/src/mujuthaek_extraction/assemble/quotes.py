@@ -138,6 +138,8 @@ def strip_markers(quote: str) -> str:
 # 줄 머리 글머리표. AI가 문장 중간부터 인용하면서 앞 문장의 글머리표를 붙이는 경우가 있어, 못 찾으면 떼고 다시 찾습니다
 # (실측: 원문 "• 공고문은 … 있으며, 금회 모집 공고는 …" → 인용 "• 금회 모집 공고는 …")
 LEADING_BULLET = re.compile(r"^\s*[•·▪■□○●◦※\-*]+\s*")
+# 줄 머리 번호표(2026-10-24 여덟 번째 채점: 원문 「1) 입주신청서」를 AI가 「1. 입주신청서」로 적어 서류 2개가 빠짐). 번호 모양만 다르면 떼고 찾습니다
+LEADING_NUMBER = re.compile(r"^\s*(?:\d{1,2}\s*[.)]|\(\s*\d{1,2}\s*\)|[①-⑳]|[가-하]\s*[.)])\s*")
 
 
 def candidates(text: str, quote: str, index: NormalizedText | None = None) -> tuple[list[tuple[int, int]], bool]:
@@ -147,7 +149,7 @@ def candidates(text: str, quote: str, index: NormalizedText | None = None) -> tu
         return exact, True
     index = index or NormalizedText(text)
     found = index.find_all(normalize(quote))
-    bare = LEADING_BULLET.sub("", quote)
+    bare = LEADING_NUMBER.sub("", LEADING_BULLET.sub("", quote))
     if not found and bare != quote and len(normalize(bare)) >= LONG_QUOTE_CHARS:
         found = index.find_all(normalize(bare))
     if not found and JOIN_MARK in quote:

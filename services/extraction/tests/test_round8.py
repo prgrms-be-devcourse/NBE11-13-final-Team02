@@ -56,3 +56,16 @@ def test_channel_named_only_in_a_condition_is_kept():
     result = assembled_extra([line], {"second": line}, schedules=[schedule])
     [kept] = [s for s in result.candidate["schedules"] if s["id"] == "second"]
     assert kept["channels"] == ["ONLINE"]
+
+
+# ---- 3. 인용 번호표 ----
+
+
+def test_quote_with_a_different_numbering_mark_is_found():
+    from mujuthaek_extraction.assemble.quotes import NormalizedText, candidates
+
+    text = "제출서류\n1) 가상 입주신청서 및 개인정보 동의서 각 1부\n2) 가상 자기소개서 및 활동 계획서 각 1부\n"
+    index = NormalizedText(text)
+    found, _ = candidates(text, "1. 가상 입주신청서 및 개인정보 동의서 각 1부", index)
+    assert len(found) == 1 and text[found[0][0] : found[0][1]].startswith("가상 입주신청서")
+    assert candidates(text, "① 가상 자기소개서 및 활동 계획서 각 1부", index)[0]
