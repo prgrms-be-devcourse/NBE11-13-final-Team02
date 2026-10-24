@@ -2,6 +2,7 @@ package kr.mujuthaek.api.notice.controller;
 
 import jakarta.validation.Valid;
 import java.security.Principal;
+import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewCountsResponse;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.RestController;
  * GET  /api/admin/reviews?reason=MUST|CHECK|FORMAT   대기 목록
  * GET  /api/admin/reviews/counts                     대기 건수 · 가장 오래된 시각
  * GET  /api/admin/reviews/stats?days=7               처리 통계 (최근 days일 · 오늘)
+ * GET  /api/admin/reviews/urgent?days=3              마감이 가까운 검수 대기
  * GET  /api/admin/reviews/{id}                       상세: 확인할 칸·이유·원문 근거·처리 기록
  * POST /api/admin/reviews/{id}/approve               승인 { "note": "…", "edits": [{ "path": "…", "value": … }] }
  * POST /api/admin/reviews/{id}/reject                반려 { "reason": "DUPLICATE", "note": "…" }
@@ -55,6 +57,11 @@ class AdminReviewController {
   @GetMapping("/stats")
   AdminReviewStatsResponse stats(@RequestParam(defaultValue = "7") int days) {
     return reviews.stats(days);
+  }
+
+  @GetMapping("/urgent")
+  List<AdminReviewListResponse.Item> urgent(@RequestParam(defaultValue = "3") int days) {
+    return reviews.urgent(days);
   }
 
   @GetMapping("/{id}")

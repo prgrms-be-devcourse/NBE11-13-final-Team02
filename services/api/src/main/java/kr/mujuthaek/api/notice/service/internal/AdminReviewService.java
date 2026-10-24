@@ -1,6 +1,9 @@
 package kr.mujuthaek.api.notice.service.internal;
 
+import java.time.Clock;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -59,10 +62,29 @@ public class AdminReviewService {
   private static final List<String> LABEL_KEYS =
       List.of("name", "rawLabel", "title", "label", "description", "originalText", "id");
 
-  private final ExtractionReviewClient client;
+  private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
-  public AdminReviewService(ExtractionReviewClient client) {
+  private final ExtractionReviewClient client;
+  private final Clock clock;
+
+  public AdminReviewService(ExtractionReviewClient client, Clock clock) {
     this.client = client;
+    this.clock = clock;
+  }
+
+  /**
+   * 마감이 가까운 검수 대기 (관리자 개요의 「지금 처리할 일」): 신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건, 마감이 이른 것부터. 아직 발행
+   * 전(MUST)이면 사용자에게 안 보이는 공고예요.
+   */
+  public List<Item> urgent(int days) {
+    if (days < 0 || days > 30) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "days는 0~30 사이예요");
+    }
+    LocalDate limit = LocalDate.now(clock.withZone(SEOUL)).plusDays(days);
+    return items(client.list(PENDING)).stream()
+        .filter(i -> i.applyEndsOn() != null && !i.applyEndsOn().isAfter(limit))
+        .sorted(Comparator.comparing(Item::applyEndsOn))
+        .toList();
   }
 
   /** 대기 목록. reason이 있으면 그 묶음만. */
@@ -428,7 +450,8 @@ public class AdminReviewService {
               text(row.path("sourceCode")),
               integer(row.path("rawVersion")),
               time(row.path("queuedAt")),
-              issues(row.path("reasons")).size()));
+              issues(row.path("reasons")).size(),
+              date(row.path("applyEndsOn"))));
     }
     return out;
   }
@@ -452,6 +475,18 @@ public class AdminReviewService {
 
   private static String text(JsonNode node) {
     return node == null || node.isMissingNode() || node.isNull() ? null : node.asString();
+  }
+
+  private static LocalDate date(JsonNode node) {
+    String value = text(node);
+    if (value == null || value.length() < 10) {
+      return null;
+    }
+    try {
+      return LocalDate.parse(value.substring(0, 10));
+    } catch (DateTimeParseException e) {
+      return null;
+    }
   }
 
   private static Integer integer(JsonNode node) {

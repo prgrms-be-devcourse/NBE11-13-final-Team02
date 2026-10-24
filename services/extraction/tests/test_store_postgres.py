@@ -573,3 +573,15 @@ def test_review_record_and_stats(store):
     stats = store.review_stats(7)
     assert stats["recent"] == {"approved": 1, "editedApproved": 1, "rejected": 1, "medianMinutes": 30}
     assert stats["today"]["approved"] + stats["today"]["editedApproved"] + stats["today"]["rejected"] in (0, 3)  # 한국 자정 직후면 0
+
+
+def test_review_list_has_earliest_application_end(store):
+    """관리자 개요의 「마감이 가까운 검수 대기」: 후보의 신청 일정 중 가장 이른 끝 날짜(2026-10-25)."""
+    from test_worker_parts import pending_item
+
+    item = pending_item()
+    ends = [s["endsAt"]["value"][:10] for s in item["candidate"]["schedules"] if "APPLICATION" in s["kinds"] and (s.get("endsAt") or {}).get("value")]
+    store.save(item["rawEvent"], Outcome("IN_REVIEW", candidate=item["candidate"], review_reasons=[]))
+    [listed] = store.reviews("PENDING")
+    assert listed["applyEndsOn"] == (min(ends) if ends else None)
+    assert ends  # 시험 자료에 신청 마감이 있어야 의미가 있음

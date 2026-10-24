@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.notice.dto.response;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 
@@ -19,6 +20,7 @@ public record AdminReviewListResponse(int total, List<Item> items) {
    * @param sourceCode 수집 출처 코드 (예: lh_myhome)
    * @param rawVersion 원문 버전
    * @param issueCount 사람이 볼 이슈 수
+   * @param applyEndsOn 신청 일정 중 가장 이른 마감일 (모르면 null)
    */
   public record Item(
       String id,
@@ -27,5 +29,6 @@ public record AdminReviewListResponse(int total, List<Item> items) {
       String sourceCode,
       Integer rawVersion,
       OffsetDateTime receivedAt,
-      int issueCount) {}
+      int issueCount,
+      LocalDate applyEndsOn) {}
 }

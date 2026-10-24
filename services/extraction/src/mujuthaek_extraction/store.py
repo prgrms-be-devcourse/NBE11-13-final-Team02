@@ -263,18 +263,24 @@ class JobStore:
 
     # ---- 검수 ----
     def reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
-        """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다."""
+        """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다.
+        applyEndsOn은 후보의 신청(APPLICATION) 일정 중 가장 이른 끝 날짜예요(관리자 개요의 「마감이 가까운 검수 대기」, 2026-10-25)."""
         rows = self.conn.execute(
             "select j.id, j.raw_post_id, j.raw_version, j.source_code, j.status, r.status, r.reasons, r.created_at, j.candidate->'notice'->>'title',"
-            " j.raw_event->'payload'->>'title', r.decided_at, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
+            " j.raw_event->'payload'->>'title', r.decided_at,"
+            " (select min(left(s->'endsAt'->>'value', 10)) from jsonb_array_elements(case when jsonb_typeof(j.candidate->'schedules') = 'array'"
+            " then j.candidate->'schedules' else '[]'::jsonb end) s"
+            " where s->'kinds' ? 'APPLICATION' and s->'endsAt'->>'value' ~ '^\\d{4}-\\d{2}-\\d{2}'),"
+            " r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
             " from review_queue r join extraction_jobs j on j.id = r.job_id where r.status = %s order by r.created_at limit %s",
             (status, limit),
         ).fetchall()
         keys = ("jobId", "rawPostId", "rawVersion", "sourceCode", "jobStatus", "reviewStatus", "reasons", "queuedAt", "title", "sourceTitle", "decidedAt")
+        keys += ("applyEndsOn",)
         items = []
         for row in rows:
-            item = {k: (str(v) if k in ("jobId", "rawPostId") and v else v) for k, v in zip(keys, row[:11], strict=True)}
-            items.append(item | {"supersededBy": _superseded_by(*row[11:])})
+            item = {k: (str(v) if k in ("jobId", "rawPostId") and v else v) for k, v in zip(keys, row[:12], strict=True)}
+            items.append(item | {"supersededBy": _superseded_by(*row[12:])})
         return items
 
     def review(self, job_id: str) -> dict[str, Any] | None:

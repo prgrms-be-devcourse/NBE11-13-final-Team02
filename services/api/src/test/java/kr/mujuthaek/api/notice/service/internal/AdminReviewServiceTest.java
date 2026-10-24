@@ -33,13 +33,13 @@ class AdminReviewServiceTest {
       {"items":[
         {"jobId":"%s","jobStatus":"IN_REVIEW","reviewStatus":"PENDING","title":"가상 행복주택",
          "sourceTitle":"가상 글","sourceCode":"lh_myhome","rawVersion":2,
-         "queuedAt":"2026-10-24 21:00:00.5+00:00","reasons":["VALUE_NOT_IN_QUOTE /eligibility/3/value","VALUE_NOT_IN_QUOTE /eligibility/3/value","EVIDENCE_SCATTERED /eligibility/4"]},
+         "queuedAt":"2026-10-24 21:00:00.5+00:00","applyEndsOn":"2026-10-27","reasons":["VALUE_NOT_IN_QUOTE /eligibility/3/value","VALUE_NOT_IN_QUOTE /eligibility/3/value","EVIDENCE_SCATTERED /eligibility/4"]},
         {"jobId":"%s","jobStatus":"PARTIAL","reviewStatus":"PENDING","title":null,
          "sourceTitle":"가상 국민임대","sourceCode":"sh_board","rawVersion":1,
-         "queuedAt":"2026-10-25T01:00:00+00:00","reasons":["SUPPLY_PRICE_MISSING"]},
+         "queuedAt":"2026-10-25T01:00:00+00:00","applyEndsOn":"2026-10-24","reasons":["SUPPLY_PRICE_MISSING"]},
         {"jobId":"%s","jobStatus":"INTAKE_REVIEW","reviewStatus":"PENDING","title":null,
          "sourceTitle":"가상 장기전세","sourceCode":"sh_board","rawVersion":1,
-         "queuedAt":"2026-10-25T02:00:00+00:00","reasons":[]}
+         "queuedAt":"2026-10-25T02:00:00+00:00","applyEndsOn":"2026-11-30","reasons":[]}
       ]}
       """
           .formatted(A, B, C);
@@ -52,7 +52,10 @@ class AdminReviewServiceTest {
     var client =
         new ExtractionReviewClient(
             new ExtractionReviewProperties(BASE, null, Duration.ofSeconds(1)), builder);
-    return new AdminReviewService(client);
+    return new AdminReviewService(
+        client,
+        java.time.Clock.fixed(
+            java.time.Instant.parse("2026-10-25T03:00:00Z"), java.time.ZoneOffset.UTC));
   }
 
   private void expectList(int times) {
@@ -264,5 +267,15 @@ class AdminReviewServiceTest {
     assertThat(stats.recent().medianMinutes()).isEqualTo(240);
     assertThat(stats.today().asIsRate()).isNull();
     assertThatThrownBy(() -> service.stats(0)).isInstanceOf(CustomException.class);
+  }
+
+  @Test
+  void urgentKeepsPendingWithDeadlineWithinDaysOrPastSortedByDeadline() {
+    var service = service();
+    expectList(1);
+    assertThat(service.urgent(3))
+        .extracting(i -> i.id() + " " + i.applyEndsOn())
+        .containsExactly(B + " 2026-10-24", A + " 2026-10-27");
+    assertThatThrownBy(() -> service.urgent(31)).isInstanceOf(CustomException.class);
   }
 }

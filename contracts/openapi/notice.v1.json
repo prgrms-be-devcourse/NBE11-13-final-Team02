@@ -3,7 +3,7 @@
   "info": {
     "title": "무주택자들 공고 API",
     "version": "1.0.0",
-    "description": "누구나 보는 공고 조회 API입니다(로그인 없음, GET만). services/api의 NoticeController와 같아야 하고, NoticeOpenApiSyncTest가 경로·요청 방식·요청 값 이름을 코드와 대조합니다. 자격 판정은 이 API에 없습니다(eligibility).\n\n- 공개된 공고만 나옵니다: 검수 대기 등 공개하지 않은 결과와 관리자가 숨긴 공고는 없는 공고와 같습니다(404 NOTICE_NOT_FOUND).\n- 다른 공고에 합쳐진 공고는 목록에 나오지 않고, 그 ID로 상세·주택목록·정정 이력을 물으면 합친(남은) 공고의 것이 나옵니다(상세의 header.id가 요청 ID와 다를 수 있음).\n- 값이 없는 칸도 null(목록은 빈 목록)로 내려갑니다. 날짜는 yyyy-MM-dd, 시각은 서울 시간(+09:00)입니다.\n- 오류는 모두 Problem Details(application/problem+json)이고 code로 구분합니다. 문서에 없는 경로는 404 NOT_FOUND, GET이 아닌 요청 방식은 405 METHOD_NOT_ALLOWED(Allow 헤더 포함), 그 밖의 표준 요청 오류(406 등)는 REQUEST_NOT_SUPPORTED에 실제 상태 코드를 넣습니다.\n- 특정 버전의 내용을 그대로 돌려주는 API는 아직 없습니다(정정 이력은 버전별로 바뀐 목록 값만 줍니다). 관리자 검수 API(/api/admin/reviews, ADMIN 권한)도 같은 컨트롤러 모듈이라 여기에 적습니다. 추출 서비스 검수 API(:8092)를 api 서버가 대신 부릅니다."
+    "description": "누구나 보는 공고 조회 API입니다(로그인 없음, GET만). services/api의 NoticeController와 같아야 하고, NoticeOpenApiSyncTest가 경로·요청 방식·요청 값 이름을 코드와 대조합니다. 자격 판정은 이 API에 없습니다(eligibility).\n\n- 공개된 공고만 나옵니다: 검수 대기 등 공개하지 않은 결과와 관리자가 숨긴 공고는 없는 공고와 같습니다(404 NOTICE_NOT_FOUND).\n- 다른 공고에 합쳐진 공고는 목록에 나오지 않고, 그 ID로 상세·주택목록·정정 이력을 물으면 합친(남은) 공고의 것이 나옵니다(상세의 header.id가 요청 ID와 다를 수 있음).\n- 값이 없는 칸도 null(목록은 빈 목록)로 내려갑니다. 날짜는 yyyy-MM-dd, 시각은 서울 시간(+09:00)입니다.\n- 오류는 모두 Problem Details(application/problem+json)이고 code로 구분합니다. 문서에 없는 경로는 404 NOT_FOUND, GET이 아닌 요청 방식은 405 METHOD_NOT_ALLOWED(Allow 헤더 포함), 그 밖의 표준 요청 오류(406 등)는 REQUEST_NOT_SUPPORTED에 실제 상태 코드를 넣습니다.\n- 특정 버전의 내용을 그대로 돌려주는 API는 아직 없습니다(정정 이력은 버전별로 바뀐 목록 값만 줍니다). 관리자 검수 API(/api/admin/reviews, ADMIN 권한)도 같은 컨트롤러 모듈이라 여기에 적습니다. 추출 서비스 검수 API(:8092)를 api 서버가 대신 부릅니다. 공고 제보(POST /api/v1/notices/{id}/reports, 로그인 회원)와 관리자 제보 처리(/api/admin/reports)도 여기에 적습니다."
   },
   "servers": [
     {
@@ -18,6 +18,10 @@
     {
       "name": "admin-review",
       "description": "관리자 검수 (ADMIN)"
+    },
+    {
+      "name": "notice-report",
+      "description": "공고 제보 (회원 제보·관리자 처리)"
     }
   ],
   "paths": {
@@ -444,6 +448,56 @@
         }
       }
     },
+    "/api/admin/reviews/urgent": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "urgentAdminReviews",
+        "summary": "마감이 가까운 검수 대기 (개요의 지금 처리할 일)",
+        "description": "신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건, 마감이 이른 것부터",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 30,
+              "default": 3
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "마감이 가까운 대기 건",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdminReviewItem"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
     "/api/admin/reviews/{id}": {
       "get": {
         "tags": [
@@ -598,6 +652,256 @@
           }
         }
       }
+    },
+    "/api/v1/notices/{id}/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportNotice",
+        "summary": "공고 제보 (로그인 회원)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticeReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
+    },
+    "/api/admin/reports": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "listAdminReports",
+        "summary": "제보 목록 (최근 것부터 최대 100건)",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "DOING",
+                "DONE"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "제보 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/counts": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "countAdminReports",
+        "summary": "상태별 제보 건수 (사이드바)",
+        "responses": {
+          "200": {
+            "description": "건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{id}": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "getAdminReport",
+        "summary": "제보 상세",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "제보 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{id}/start": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "startAdminReport",
+        "summary": "처리 시작 (새 제보 → 처리 중)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "제보 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{id}/resolve": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "resolveAdminReport",
+        "summary": "처리 끝 (고침 · 그대로 둠, 답장)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReportResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "제보 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -638,6 +942,16 @@
         "in": "path",
         "required": true,
         "description": "검수 작업 ID",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "ReportId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "제보 ID",
         "schema": {
           "type": "string",
           "format": "uuid"
@@ -717,6 +1031,46 @@
       },
       "ReviewUnavailable": {
         "description": "검수 서버에 연결하지 못함 (code: NOTICE_REVIEW_UNAVAILABLE)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReportNotFound": {
+        "description": "제보가 없음 (code: NOTICE_REPORT_NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReportConflict": {
+        "description": "같은 칸에 처리 전 제보가 있거나 이미 처리한 제보 (code: CONFLICT)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReportRateLimited": {
+        "description": "하루 제보 수(20건)를 넘음 (code: RATE_LIMITED)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "LoginRequired": {
+        "description": "로그인이 필요함 (code: UNAUTHENTICATED)",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -2075,7 +2429,8 @@
           "sourceCode",
           "rawVersion",
           "receivedAt",
-          "issueCount"
+          "issueCount",
+          "applyEndsOn"
         ],
         "properties": {
           "id": {
@@ -2114,6 +2469,14 @@
           "issueCount": {
             "type": "integer",
             "minimum": 0
+          },
+          "applyEndsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "신청 일정 중 가장 이른 마감일(모르면 null)"
           }
         }
       },
@@ -2577,6 +2940,332 @@
           },
           "today": {
             "$ref": "#/components/schemas/AdminReviewStatsWindow"
+          }
+        }
+      },
+      "NoticeReportRequest": {
+        "type": "object",
+        "description": "공고 제보. 맞는 값(reportedValue)이나 설명(note) 중 하나는 있어야 함. 소득·자산 같은 개인 정보는 받지 않음",
+        "required": [
+          "field"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "description": "화면의 칸 이름 (보증금, 신청 마감 …)"
+          },
+          "currentValue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "reportedValue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "screen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50,
+            "description": "제보한 화면"
+          }
+        }
+      },
+      "NoticeReportCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "NEW"
+            ]
+          }
+        }
+      },
+      "AdminReportCounts": {
+        "type": "object",
+        "required": [
+          "newCount",
+          "doing",
+          "done"
+        ],
+        "properties": {
+          "newCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "doing": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "done": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "AdminReportItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "screen",
+          "noticeId",
+          "noticeTitle",
+          "field",
+          "currentValue",
+          "reportedValue",
+          "summary",
+          "createdAt",
+          "groupCount",
+          "result"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "NEW",
+              "DOING",
+              "DONE"
+            ],
+            "description": "NEW 새 제보 · DOING 처리 중 · DONE 처리 끝"
+          },
+          "screen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "noticeId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "noticeTitle": {
+            "type": "string"
+          },
+          "field": {
+            "type": "string"
+          },
+          "currentValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportedValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "설명 앞부분"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "groupCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "같은 공고·칸의 처리 전 제보 수(이 제보 포함, 끝난 제보면 0)"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "FIXED",
+              "KEPT",
+              null
+            ],
+            "description": "FIXED 고침 · KEPT 원문대로 그대로 둠"
+          }
+        }
+      },
+      "AdminReportList": {
+        "type": "object",
+        "required": [
+          "counts",
+          "items"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/AdminReportCounts"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AdminReportItem"
+            }
+          }
+        }
+      },
+      "AdminReportDetail": {
+        "type": "object",
+        "description": "제보 상세. 제보한 회원이 누구인지는 보여 주지 않음",
+        "required": [
+          "report",
+          "note",
+          "notes",
+          "result",
+          "reply",
+          "handledBy",
+          "startedAt",
+          "handledAt"
+        ],
+        "properties": {
+          "report": {
+            "$ref": "#/components/schemas/AdminReportItem"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "description": "같은 공고·칸의 다른 제보",
+            "items": {
+              "type": "object",
+              "required": [
+                "reportedValue",
+                "text",
+                "status",
+                "createdAt"
+              ],
+              "properties": {
+                "reportedValue": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "NEW",
+                    "DOING",
+                    "DONE"
+                  ],
+                  "description": "NEW 새 제보 · DOING 처리 중 · DONE 처리 끝"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "FIXED",
+              "KEPT",
+              null
+            ],
+            "description": "FIXED 고침 · KEPT 원문대로 그대로 둠"
+          },
+          "reply": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "handledBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "처리한 관리자(로그인 계정 ID)"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "handledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminReportResolveRequest": {
+        "type": "object",
+        "required": [
+          "result"
+        ],
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "FIXED",
+              "KEPT"
+            ]
+          },
+          "reply": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000,
+            "description": "제보한 회원에게 보낼 답(비우면 답장 없음). NoticeReportAnswered 이벤트로 알림 쪽에 넘김"
+          },
+          "group": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "같은 공고·칸의 처리 전 제보도 같이 끝낼지(기본 true)"
           }
         }
       }
