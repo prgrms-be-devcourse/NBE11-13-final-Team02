@@ -1,6 +1,8 @@
 """다섯 번째 시험 채점(2026-10-24)의 일반 규칙: 전환안 검산 기준, 방향별 한도 금액, 한도 칸 앞 금액 쌍은 기본 조건,
 가로 병합으로 복제된 두 금액 칸, 붙인 가격의 중복 거르기·층 이름. 합성 표만 씁니다. AI·네트워크 호출 없음."""
 
+from test_round4 import assembled_extra
+from test_schedule_details import document
 from test_supply_tables import column
 
 from mujuthaek_extraction import supply_tables as st
@@ -251,3 +253,39 @@ def test_format_violation_only_drops_the_broken_section():
     }
     assert _broken_sections({"quotes": [], "schedules": [{}], "notice": {}}, schema) == {"schedules"}
     assert _broken_sections({"quotes": "x", "schedules": [], "notice": {}}, schema) is None
+
+
+# ---- 9·8. 서류 묶음 ----
+
+
+def test_required_column_mark_decides_the_group():
+    from mujuthaek_extraction.assemble.details import marked_group
+
+    text = "\n".join(
+        [
+            "| 필수 | 추가 | 서류명 | 비고 |",
+            "| ○ |  | 가상 등본 | 확인 불가 시 가상 초본 추가 제출 |",
+            "| ○ |  | 가상 초본 | 전부 포함 |",
+            "|  | ○ | 가상 확인서 | 해당자 |",
+        ]
+    )
+    assert marked_group(text, text.index("가상 초본 |")) == "COMMON"
+    assert marked_group(text, text.index("가상 확인서")) == "CONDITIONAL"
+    assert marked_group("가상 초본을 냅니다", 0) is None
+
+
+def test_required_mark_conflict_sets_common_and_holds_the_document():
+    lines = ["| 필수 | 추가 | 서류명 | 비고 |", "| ○ |  | 가상 초본 | 전부 포함 발급 |"]
+    doc = document(id="cho", name="가상 초본", group="CONDITIONAL", appliesTo="가상 등본으로 확인 불가한 신청자", copies=None, issuer=None, quoteRefs=["cho"])
+    result = assembled_extra(lines, {"cho": "| ○ |  | 가상 초본 | 전부 포함 발급 |"}, documents=[doc])
+    index = {d["id"]: n for n, d in enumerate(result.candidate["requiredDocuments"])}
+    assert result.candidate["requiredDocuments"][index["cho"]]["group"] == "COMMON"
+    assert ("DOCUMENT_GROUP_CONFLICT", f"/requiredDocuments/{index['cho']}") in {(i["code"], i["target"]) for i in result.issues}
+
+
+def test_proxy_document_without_spouse_split_is_proxy_other():
+    lines = ["■ 대리 신청 시(배우자 포함 본인 외 모두) 추가 서류", "| 가상 위임장 | 1부 |"]
+    doc = document(id="proxy", name="가상 위임장", group=None, appliesTo="대리인이 신청하는 경우", copies=None, issuer=None, quoteRefs=["proxy"])
+    result = assembled_extra(lines, {"proxy": "■ 대리 신청 시(배우자 포함 본인 외 모두) 추가 서류"}, documents=[doc])
+    [kept] = [d for d in result.candidate["requiredDocuments"] if d["id"] == "proxy"]
+    assert kept["group"] == "PROXY_OTHER"
