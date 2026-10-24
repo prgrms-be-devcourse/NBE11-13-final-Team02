@@ -82,6 +82,8 @@ mujuthaek:
     region: ${AWS_REGION:ap-northeast-2}
     access-key: ${MINIO_ROOT_USER:minio}        # endpoint가 있을 때만 써요 (로컬 MinIO)
     secret-key: ${MINIO_ROOT_PASSWORD:minio-pass}
+  area:
+    score-version: "2026.1"             # area.score_rules의 생활권 점수 규칙 버전. 바꾸면 전체 다시 계산
 
 management:
   endpoints:

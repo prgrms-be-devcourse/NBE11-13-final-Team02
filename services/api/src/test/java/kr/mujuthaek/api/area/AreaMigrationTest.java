@@ -18,7 +18,7 @@ class AreaMigrationTest {
                     + " where table_schema = 'area'"))
         .isEqualTo(
             "address_points,facilities,industry_group_rules,load_runs,location_metrics,"
-                + "notice_locations,stores");
+                + "location_scores,notice_locations,score_rules,score_weights,stores");
   }
 
   @Test
