@@ -15,7 +15,7 @@ import kr.mujuthaek.api.eligibility.rule.loan.Borrower;
 import kr.mujuthaek.api.eligibility.rule.loan.LoanJudgment;
 
 /**
- * 판정 입력 → 대출 판정 입력, 상품별 판정 → 정제된 대출 결과 (대출 판정 서비스가 불러요). 잘못된 값은 INVALID_REQUEST이고, 오류 문장에 입력값을 넣지
+ * 판정 입력 → 대출 판정 입력, 상품별 판정 → 정제된 대출 결과 (대출 판정 서비스가 불러요). 잘못된 값은 VALIDATION_FAILED이고, 오류 문장에 입력값을 넣지
  * 않아요.
  */
 public final class LoanMapper {
@@ -66,7 +66,7 @@ public final class LoanMapper {
         asOf,
         new LoanResult.Counts(
             count(judgments, Eligibility.ELIGIBLE),
-            count(judgments, Eligibility.CHECK_NEEDED),
+            count(judgments, Eligibility.NEEDS_INPUT),
             count(judgments, Eligibility.INELIGIBLE)),
         judgments.stream().map(LoanMapper::item).toList());
   }
@@ -100,7 +100,7 @@ public final class LoanMapper {
 
   private static void check(boolean ok, String at, String problem) {
     if (!ok) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, at + ": " + problem);
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, at + ": " + problem);
     }
   }
 }

@@ -70,7 +70,7 @@ class LoanApiTest {
         .andExpect(jsonPath("$.asOf").value("2026-10-21"))
         .andExpect(jsonPath("$.items", hasSize(10)))
         .andExpect(jsonPath("$.counts.eligible").value(4))
-        .andExpect(jsonPath("$.counts.checkNeeded").value(1))
+        .andExpect(jsonPath("$.counts.needsInput").value(1))
         .andExpect(jsonPath("$.counts.ineligible").value(5))
         // 지원 가능이 먼저, 같은 상태끼리는 전세 → 월세 → 구입
         .andExpect(jsonPath("$.items[0].productCode").value("BEOTIMMOK_GENERAL"))
@@ -85,7 +85,7 @@ class LoanApiTest {
                 .value("https://nhuf.molit.go.kr/FP/FP05/FP0502/FP05020301.jsp"))
         // 확인 필요: 청년 주택드림 (청약 당첨은 입력으로 알 수 없어요)
         .andExpect(jsonPath("$.items[4].productCode").value("DIDIMDOL_YOUTH_DREAM"))
-        .andExpect(jsonPath("$.items[4].status").value("CHECK_NEEDED"))
+        .andExpect(jsonPath("$.items[4].status").value("NEEDS_INPUT"))
         .andExpect(jsonPath("$.items[4].checkReasons[0]").value(containsString("청년 주택드림 통장")))
         // 불가: 이유가 있고, 넣을 입력은 보여 주지 않아요
         .andExpect(jsonPath("$.items[5].productCode").value("BEOTIMMOK_NEWLYWED"))
@@ -128,7 +128,7 @@ class LoanApiTest {
   void rejectsBrokenMoneyWithoutEchoingIt() throws Exception {
     call("{\"loan\": {\"annualIncomeWon\": -7654321}}")
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.code").value("INVALID_REQUEST"))
+        .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
         .andExpect(jsonPath("$.detail").value(startsWith("profile.loan.annualIncomeWon")))
         .andExpect(content().string(not(containsString("7654321"))));
     call("{\"loan\": {\"annualIncomeWon\": 30000000, \"applicantAnnualIncomeWon\": 40000000}}")

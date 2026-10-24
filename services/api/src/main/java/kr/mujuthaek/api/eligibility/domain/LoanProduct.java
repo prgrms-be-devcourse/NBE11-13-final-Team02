@@ -13,7 +13,7 @@ import kr.mujuthaek.api.eligibility.rule.loan.LoanType;
 
 /** 대출 상품 하나의 한 시점 자격 조건. 조건이 바뀌면 마이그레이션으로 시행일이 다른 행만 추가해요. 읽기만 하고 앱에서 바꾸지 않아요. */
 @Entity
-@Table(schema = "eligibility", name = "loan_products")
+@Table(schema = "eligibility", name = "loan_rules")
 public class LoanProduct {
 
   @Id private UUID id;

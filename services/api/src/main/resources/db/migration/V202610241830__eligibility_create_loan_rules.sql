@@ -4,7 +4,7 @@
 -- 조건이 바뀌면 코드는 그대로 두고 새 마이그레이션으로 effective_from(시행일)이 다른 행을 더해요
 --   판정은 상품마다 effective_from이 기준일 이전인 가장 늦은 행을 써요
 -- 공통 규칙(코드): 세대원 전원 무주택. "세대주(예비 세대주 포함)"는 대출을 받으면서 세대주가 된다고 보고 묻지 않아요
-create table eligibility.loan_products (
+create table eligibility.loan_rules (
     id                          uuid    primary key,
     product_code                text    not null,
     product_name                text    not null,
@@ -48,7 +48,7 @@ create table eligibility.loan_products (
 --   신혼부부전용 전세는 2026-10-19부터 "합산 7.5천만원 초과라도 신청인 1인 5천만원 이하면 가능"이 더해져 시행일 행을 둘로 나눴어요
 --   주거안정월세 우대형(취업준비생·사회초년생·장려금·주거급여 수급자)은 모두 일반형 소득 기준(5천만원) 안이라 일반형 기준으로 판정하고 금리 요약에만 적어요
 --   청년 주택드림 디딤돌의 "청약 당첨 때 만 39세 이하"는 당첨일을 몰라서 나이로 보지 않고 확인할 수 없는 조건 문장에 넣었어요
-insert into eligibility.loan_products (
+insert into eligibility.loan_rules (
     id, product_code, product_name, loan_type, display_order, effective_from,
     min_age, max_age, single_householder_required, under30_single_excluded,
     newlywed_required, newlywed_max_years, newborn_within_months, newborn_born_since, first_home_required,
