@@ -61,10 +61,24 @@ tasks.withType<Test> {
 }
 
 // 저장소의 계약을 그대로 패키징해요. 실행 중 네트워크나 Python 프로세스로 검증하지 않아요.
+// 법정동코드표는 AI(extraction)와 같은 저장소 원본 하나를 써요. 빌드 때 api 리소스(common/regions/)로 복사해요.
+// 저장소 전체가 보여야 해서(CI는 전체 checkout), services/api만 보이는 곳에서 빌드하면 여기서 멈춰요.
+val legalDongCodes = layout.projectDirectory.dir("../extraction/data/legal-dong-codes")
 tasks.processResources {
     from("../../contracts") {
         include("schemas/*.json", "events/extraction.completed.v1.json", "mappings/*.json")
         into("contracts")
+    }
+    inputs.dir(legalDongCodes).withPropertyName("legalDongCodes")
+    from(legalDongCodes) {
+        include("legal_dong_*.csv")
+        into("common/regions")
+    }
+    doFirst {
+        val files = legalDongCodes.asFile.listFiles { f -> f.name.matches(Regex("legal_dong_\\d{8}\\.csv")) }
+        check(!files.isNullOrEmpty()) {
+            "법정동코드표가 없어요: ${legalDongCodes.asFile} (저장소 전체가 있는 곳에서 빌드하세요)"
+        }
     }
 }
 
