@@ -189,4 +189,35 @@ public final class PostgresNoticeLocations {
         STORED,
         limit);
   }
+
+  /** 위치 ID로 위치들 (없는 ID는 빠져요). */
+  public List<StoredLocation> byIds(Collection<UUID> locationIds) {
+    if (locationIds.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.query(
+        "select "
+            + STORED_COLUMNS
+            + " from area.notice_locations where location_id = any(?::uuid[])",
+        STORED,
+        (Object) locationIds.toArray(UUID[]::new));
+  }
+
+  /** 한 점(직장 등)에서 각 위치까지 거리(m, 반올림). 좌표가 없는 위치는 빠져요. 저장하지 않아요. */
+  public java.util.Map<UUID, Long> distancesFrom(Collection<UUID> locationIds, Coordinate from) {
+    java.util.Map<UUID, Long> out = new java.util.LinkedHashMap<>();
+    if (locationIds.isEmpty()) {
+      return out;
+    }
+    jdbc.query(
+        "select location_id, round(st_distance(geom, st_setsrid(st_makepoint(?, ?), 4326)::geography))::bigint as m"
+            + " from area.notice_locations where location_id = any(?::uuid[]) and geom is not null",
+        rs -> {
+          out.put(rs.getObject("location_id", UUID.class), rs.getLong("m"));
+        },
+        from.lng(),
+        from.lat(),
+        locationIds.toArray(UUID[]::new));
+    return out;
+  }
 }
