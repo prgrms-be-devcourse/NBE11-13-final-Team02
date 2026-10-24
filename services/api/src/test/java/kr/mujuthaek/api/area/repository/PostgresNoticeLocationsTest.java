@@ -12,6 +12,7 @@ import kr.mujuthaek.api.area.domain.GeocodeResult.FailReason;
 import kr.mujuthaek.api.area.domain.GeocodeResult.Method;
 import kr.mujuthaek.api.area.domain.GeocodeResult.Status;
 import kr.mujuthaek.api.area.domain.NoticeLocation;
+import kr.mujuthaek.api.area.domain.StoredLocation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -85,5 +86,42 @@ class PostgresNoticeLocationsTest {
     assertThat(reused.bjdCodeFound()).isEqualTo("2611010100");
     assertThat(reused.regionMismatch()).isTrue();
     assertThat(locations.reusable(" ")).isEmpty();
+  }
+
+  private NoticeLocation at(String id, String address) {
+    return new NoticeLocation(notice, 1, id, "COMPLEX", address, null);
+  }
+
+  @Test
+  void readsTheLocationsOfANoticeAndDeletesTheOnesThatDisappeared() throws Exception {
+    UUID a = locations.save(at("a", "주소 1"), "키a", ok(Method.FILE));
+    UUID b =
+        locations.save(at("b", "주소 2"), "키b", GeocodeResult.failed(FailReason.NOT_FOUND, null));
+    exec(
+        "insert into area.location_metrics (location_id, metric, value) values ('"
+            + a
+            + "', 'store_count_300m', 3)");
+
+    var stored = locations.ofNotice(notice);
+    assertThat(stored).extracting(StoredLocation::noticeLocationId).containsExactly("a", "b");
+    assertThat(stored.get(0).coordinate().lat()).isEqualTo(35.1);
+    assertThat(stored.get(1).coordinate()).isNull();
+    assertThat(stored.get(1).failReason()).isEqualTo(FailReason.NOT_FOUND);
+    assertThat(locations.failed(100)).extracting(StoredLocation::locationId).contains(b);
+    assertThat(locations.withCoordinates())
+        .extracting(StoredLocation::locationId)
+        .contains(a)
+        .doesNotContain(b);
+
+    // 새 버전에 a가 빠지면 a와 그 지표가 같이 지워져요
+    assertThat(locations.deleteMissing(notice, java.util.List.of("b"))).isEqualTo(1);
+    assertThat(locations.ofNotice(notice))
+        .extracting(StoredLocation::noticeLocationId)
+        .containsExactly("b");
+    assertThat(one("select count(*) from area.location_metrics where location_id = '" + a + "'"))
+        .isEqualTo("0");
+
+    locations.touchVersion(b, 7);
+    assertThat(locations.ofNotice(notice).getFirst().noticeVersion()).isEqualTo(7);
   }
 }

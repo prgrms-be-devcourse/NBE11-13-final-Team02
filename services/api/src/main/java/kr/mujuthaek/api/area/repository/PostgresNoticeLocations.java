@@ -5,6 +5,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
@@ -14,7 +16,10 @@ import kr.mujuthaek.api.area.domain.GeocodeResult.FailReason;
 import kr.mujuthaek.api.area.domain.GeocodeResult.Method;
 import kr.mujuthaek.api.area.domain.GeocodeResult.Status;
 import kr.mujuthaek.api.area.domain.NoticeLocation;
+import kr.mujuthaek.api.area.domain.StoredLocation;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Component;
 
 /**
@@ -51,9 +56,11 @@ public final class PostgresNoticeLocations {
       """;
 
   private final DataSource dataSource;
+  private final JdbcTemplate jdbc;
 
   public PostgresNoticeLocations(DataSource dataSource) {
     this.dataSource = dataSource;
+    this.jdbc = new JdbcTemplate(dataSource);
   }
 
   /**
@@ -115,5 +122,71 @@ public final class PostgresNoticeLocations {
     } catch (SQLException e) {
       throw new DataAccessResourceFailureException("공고 위치를 저장하지 못했어요: " + e.getMessage(), e);
     }
+  }
+
+  private static final String STORED_COLUMNS =
+      "location_id, notice_id, notice_location_id, notice_version, address_text, bjd_code_given, status,"
+          + " fail_reason, st_y(geom::geometry) as lat, st_x(geom::geometry) as lng";
+
+  private static final RowMapper<StoredLocation> STORED =
+      (rs, n) ->
+          new StoredLocation(
+              rs.getObject("location_id", UUID.class),
+              rs.getObject("notice_id", UUID.class),
+              rs.getString("notice_location_id"),
+              rs.getInt("notice_version"),
+              rs.getString("address_text"),
+              rs.getString("bjd_code_given"),
+              Status.valueOf(rs.getString("status")),
+              rs.getString("fail_reason") == null
+                  ? null
+                  : FailReason.valueOf(rs.getString("fail_reason")),
+              rs.getObject("lat") == null
+                  ? null
+                  : new Coordinate(rs.getDouble("lat"), rs.getDouble("lng")));
+
+  /** 공고의 지금 위치들 (notice 위치 ID 순). */
+  public List<StoredLocation> ofNotice(UUID noticeId) {
+    return jdbc.query(
+        "select "
+            + STORED_COLUMNS
+            + " from area.notice_locations where notice_id = ? order by notice_location_id",
+        STORED,
+        noticeId);
+  }
+
+  /** 공고의 위치 중 keep에 없는 것을 지우고 지운 수를 돌려줘요. 세권 지표·점수는 area 안 외래 키(on delete cascade)로 같이 지워져요. */
+  public int deleteMissing(UUID noticeId, Collection<String> keep) {
+    return jdbc.update(
+        "delete from area.notice_locations where notice_id = ? and not (notice_location_id = any(?::text[]))",
+        noticeId,
+        keep.toArray(String[]::new));
+  }
+
+  /** 좌표를 다시 찾지 않은 위치의 공고 버전만 올려요 (위치가 같은 새 공고 버전). */
+  public void touchVersion(UUID locationId, int noticeVersion) {
+    jdbc.update(
+        "update area.notice_locations set notice_version = ? where location_id = ?",
+        noticeVersion,
+        locationId);
+  }
+
+  /** 좌표가 있는 모든 위치 (공고 순). 시설·상가를 다시 적재해 점수를 다시 보낼 때 써요. */
+  public List<StoredLocation> withCoordinates() {
+    return jdbc.query(
+        "select "
+            + STORED_COLUMNS
+            + " from area.notice_locations where geom is not null order by notice_id, notice_location_id",
+        STORED);
+  }
+
+  /** 좌표를 못 찾은 위치 (최근 계산 순). 관리자 화면 데이터예요. */
+  public List<StoredLocation> failed(int limit) {
+    return jdbc.query(
+        "select "
+            + STORED_COLUMNS
+            + " from area.notice_locations where status = 'FAILED' order by calculated_at desc limit ?",
+        STORED,
+        limit);
   }
 }
