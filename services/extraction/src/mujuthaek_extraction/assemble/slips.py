@@ -9,6 +9,7 @@ OpenAI 엄격 모드는 비울 칸도 채우게 해서 다음 실수가 생깁�
   일정·자격 호출을 한 번씩 다시 요청했고, 다시 받은 일정 답은 인용을 빠뜨려 6개 항목의 근거가 사라졌습니다
 - 적용 범위를 공고 전체(NOTICE)로 적고 공급 묶음·위치 ID를 함께 적음 → 그 ID의 범위(SUPPLY_GROUP·LOCATION). ID를 적은 쪽이 뜻이
   분명합니다(실측 2026-10-20 LH 인천부평: 「주거약자용 주택(36AS형)은 65세 이상만」이 이 실수로 빠져 자격 섹션 전체가 보류됨)
+- 일정 끝을 CONDITIONAL로 적고 끝 날짜도 적음(정해진 끝 날짜 + 조기 종료 조건) → FIXED, 조건은 시간 설명(timeNote)으로
 """
 
 from __future__ import annotations
@@ -45,6 +46,22 @@ def fix_format_slips(part: Any) -> Any:
             url = item.get(key) if isinstance(item, dict) else None
             if isinstance(url, str) and BARE_HOST.match(url.strip()):
                 item[key] = "https://" + url.strip()
+    for item in part.get("schedules") or []:
+        if (
+            isinstance(item, dict)
+            and item.get("endStatus") == "CONDITIONAL"
+            and isinstance(item.get("endsAt"), dict)
+            and item["endsAt"].get("value")
+            and isinstance(item.get("endCondition"), str)
+            and item["endCondition"].strip()
+        ):
+            # 정해진 끝 날짜와 그전에 끝날 수 있는 조건이 함께 적힌 기간(「10.06~11.12, 공가 소진 시 주택개방 종료」): 끝 날짜는 원문에
+            # 있으므로 FIXED로 두고 조건은 시간 설명에 옮깁니다. CONDITIONAL은 끝 날짜를 받지 않아 일정이 형식 오류로 보류됐음
+            # (2026-10-24 프론트 요청 6-3: 열람 일정이 화면에서 빠짐)
+            condition = item["endCondition"].strip()
+            note = item.get("timeNote")
+            item["timeNote"] = condition if not isinstance(note, str) or not note.strip() else f"{note.strip()} {condition}"
+            item["endStatus"], item["endCondition"] = "FIXED", None
     for item in part.get("eligibility") or []:
         if isinstance(item, dict) and item.get("exceptionsStatus") == "PRESENT" and item.get("exceptions") == []:
             item["exceptionsStatus"] = "NOT_REVIEWED"

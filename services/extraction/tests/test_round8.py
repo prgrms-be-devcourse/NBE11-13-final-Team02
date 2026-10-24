@@ -109,3 +109,24 @@ def test_total_housing_merged_over_rows_is_dropped_not_held():
     part = st.build_part([table], {"tables": [entry]}, "pdf-text")
     assert [[(c["kind"], c["value"]) for c in g["counts"]] for g in part["supplyGroups"]] == [[("OFFERED", 5)], [("OFFERED", 7)]]
     assert not [i for i in part.get(st.ISSUES_KEY) or [] if i["code"] == "COUNT_MERGED_AMBIGUOUS"]
+
+
+# ---- 프론트 요청 6-3: 정해진 끝 날짜 + 조기 종료 조건 ----
+
+
+def test_fixed_end_date_with_an_early_end_condition_stays_fixed():
+    from mujuthaek_extraction.assemble.slips import fix_format_slips
+
+    schedule = {
+        "kinds": ["VIEWING"],
+        "endsAt": {"precision": "MINUTE", "value": "2026-11-12T16:00:00+09:00"},
+        "endStatus": "CONDITIONAL",
+        "endCondition": "공가 소진 시 주택개방이 종료돼요.",
+        "timeNote": None,
+    }
+    fixed = fix_format_slips({"schedules": [schedule]})["schedules"][0]
+    assert (fixed["endStatus"], fixed["endCondition"], fixed["endsAt"]["value"]) == ("FIXED", None, "2026-11-12T16:00:00+09:00")
+    assert fixed["timeNote"] == "공가 소진 시 주택개방이 종료돼요."
+    # 끝 날짜가 없는 조건부 종료는 그대로입니다
+    open_ended = {"endsAt": None, "endStatus": "CONDITIONAL", "endCondition": "예산 소진 시 마감", "timeNote": None}
+    assert fix_format_slips({"schedules": [open_ended]})["schedules"][0]["endStatus"] == "CONDITIONAL"
