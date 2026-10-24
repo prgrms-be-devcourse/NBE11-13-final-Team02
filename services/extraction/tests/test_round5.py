@@ -221,3 +221,33 @@ def test_merged_cell_value_cited_with_its_first_row_is_not_position_suspected():
         "quality": {"coverage": {s: {"status": "EXTRACTED"} for s in ("eligibility", "requiredDocuments", "schedules")}},
     }
     assert [c for c in codes(candidate, text) if c[0] == "VALUE_POSITION_SUSPECTED"] == []
+
+
+# ---- 4. 재확인 채택 기준 ----
+
+
+def test_recheck_answer_that_drops_values_is_detected():
+    from mujuthaek_extraction.recheck import _lost_values
+    from mujuthaek_extraction.verify.model import VerificationReport
+
+    def report(prices):
+        candidate = {"supplyGroups": [{"id": "g1", "prices": [{}] * prices, "counts": []}], "requiredDocuments": [{}], "schedules": []}
+        return VerificationReport(candidate=candidate, findings=[], contract_errors=[])
+
+    assert _lost_values(report(3), report(2)) == ["supplyGroups/g1"]
+    assert _lost_values(report(2), report(3)) == []
+
+
+def test_format_violation_only_drops_the_broken_section():
+    from mujuthaek_extraction.recheck import _broken_sections
+
+    schema = {
+        "type": "object",
+        "properties": {
+            "quotes": {"type": "array"},
+            "schedules": {"type": "array", "items": {"type": "object", "required": ["id"]}},
+            "notice": {"type": "object"},
+        },
+    }
+    assert _broken_sections({"quotes": [], "schedules": [{}], "notice": {}}, schema) == {"schedules"}
+    assert _broken_sections({"quotes": "x", "schedules": [], "notice": {}}, schema) is None
