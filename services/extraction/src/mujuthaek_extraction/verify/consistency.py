@@ -26,8 +26,8 @@ IMAGE_BLOCK_HEAD = "=== 그림 판독 "  # image_reading.BLOCK_HEAD와 같음 (�
 # ---- 공통: 근거 인용문이 있는 원문 줄과 그 표 ----
 
 RANK_SPAN = re.compile(r"(\d)\s*[~∼-]\s*(\d)\s*순위")
-RANK_LIST = re.compile(r"(\d(?:\s*[·,ㆍ]\s*\d)+)\s*순위")
-RANK_ONE = re.compile(r"(?<![\d~∼·,ㆍ-])\s*(\d)\s*순위")
+RANK_LIST = re.compile(r"(\d(?:\s*[·․ㆍ・‧,]\s*\d)+)\s*순위")
+RANK_ONE = re.compile(r"(?<![\d~∼·․ㆍ・‧,-])\s*(\d)\s*순위")
 # 표에 자주 나오는 대상군 표시 → 같은 대상으로 보는 이름. 추출 결과의 targetGroups 글자에서도 같은 낱말로 찾습니다.
 GROUP_WORDS = {
     "청년": "청년",
@@ -666,6 +666,50 @@ def _check_unattached_prices(candidate: dict[str, Any], find: Any) -> None:
             find("V8", "SUPPLY_PRICE_UNATTACHED", f"/supplyGroups/{g}", f"「{label}」 가격이 같은 주택형의 모집 묶음에 붙지 않고 따로 남았습니다.")
 
 
+# 특정 대상의 요금표(2026-10-24 채점: 「[주거급여 수급자가 아닌 경우] 상한 임대조건」 표의 가격이 대상 없는 기본 요금으로 그 주택형에 붙음).
+# 가격의 근거 행이 든 표 바로 위 글 줄이나 그 값의 열 제목이 적용 대상을 정하는데 가격이 대상 없이 STANDARD면, 기본 요금으로 게시하지 않게
+# 그 공급 묶음을 보류합니다(supply_tables.RESTRICTED_PRICE와 같은 낱말. 검증 모듈이 추출 모듈을 가져오지 않도록 따로 둡니다)
+PRICE_SCOPE_UNCERTAIN = "PRICE_SCOPE_UNCERTAIN"
+RESTRICTED_PRICE = re.compile(r"(?<!분양가)(?<!분양가 )상한(?!\s*제)|수급자|적용\s*대상|해당자에\s*한|에\s*한하여|에\s*한함|만\s*해당|만\s*적용")
+PRICE_HEADING_LINES = 3  # 표 위로 볼 글 줄 수(쪽 표시·빈 줄 제외)
+
+
+def _price_restriction(found: _Located, price: dict[str, Any]) -> str | None:
+    for evidence_id in price.get("evidenceIds") or []:
+        located = found.line_of(evidence_id)
+        if located is None or not _row_line(found.lines[located[0]][located[1]]):
+            continue
+        lines = found.lines[located[0]]
+        top, _ = _table_bounds(lines, located[1])
+        above = [line for line in reversed(lines[max(top - 12, 0) : top]) if line.strip() and not PAGE_MARK.match(line)][:PRICE_HEADING_LINES]
+        word = RESTRICTED_PRICE.search(" ".join(above))
+        if word:
+            return word[0]
+        row = found.row(evidence_id)
+        column = _value_column(row[0], price.get("sourceAmount")) if row else None
+        if row and column is not None and row[1]:
+            word = RESTRICTED_PRICE.search(_column_header(row[1], column))
+            if word:
+                return word[0]
+    return None
+
+
+def _check_price_scope(candidate: dict[str, Any], found: _Located, find: Any) -> None:
+    for g, group in enumerate(candidate["supplyGroups"]):
+        for price in group["prices"]:
+            if price.get("priceStage") != "STANDARD" or price["scope"]["targetGroups"]:
+                continue
+            word = _price_restriction(found, price)
+            if word:
+                label = group.get("housingTypeCode") or group.get("unitLabel") or group.get("id")
+                description = (
+                    f"「{label}」 가격 {price.get('sourceAmount')}의 표가 특정 대상의 요금으로 보이는데(「{word}」) 대상 없이 기본 요금으로 적혔습니다. "
+                    "원문에서 적용 대상을 확인해야 합니다"
+                )
+                find("V8", PRICE_SCOPE_UNCERTAIN, f"/supplyGroups/{g}", description)
+                break
+
+
 def _check_price_tables(candidate: dict[str, Any], sources: SourceBundle, found: _Located, find: Any) -> None:
     """V8: 가격표로 쓴 표(이어진 표 포함)에서 가격으로 넣지 않은 금액과 어느 공급 묶음에도 없는 금액 행을 찾습니다."""
     used_by: dict[str, set[int]] = {}  # 원문 금액(숫자만) → 그 금액을 쓴 공급 묶음
@@ -833,6 +877,7 @@ def check_consistency(candidate: dict[str, Any], sources: SourceBundle) -> list[
     _check_positions(candidate, found, find)
     _check_price_tables(candidate, sources, found, find)
     _check_unattached_prices(candidate, find)
+    _check_price_scope(candidate, found, find)
     _check_consistency(candidate, find)
     _check_omissions(candidate, sources, find)
     _check_document_rows(candidate, sources, find)

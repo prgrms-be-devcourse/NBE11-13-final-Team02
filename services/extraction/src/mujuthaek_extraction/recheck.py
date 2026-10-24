@@ -64,7 +64,8 @@ EVIDENCE_ONLY_CODES = frozenset(
 )
 # AI 재확인으로 보내지 않는 이슈: 공급표 금액 빈칸(SUPPLY_PRICE_MISSING)은 코드가 공고문 글을 이미 찾아봤고, 표 칸이 비어 있어
 # AI가 다시 읽어도 근거 있는 값을 더 얻기 어렵습니다. 이 이슈만으로 유료 재확인 호출이 늘지 않게 사람 확인으로 둡니다
-NO_RECHECK_CODES = frozenset({"SUPPLY_PRICE_MISSING"})
+# 대상 한정 요금표의 대상 미정·표 제목의 주택형 여럿·병합 칸 수량(2026-10-24)도 코드가 표에서 정한 보류라 AI 재확인에 보내지 않습니다
+NO_RECHECK_CODES = frozenset({"SUPPLY_PRICE_MISSING", "PRICE_SCOPE_UNCERTAIN", "SUPPLY_TYPE_AMBIGUOUS", "COUNT_MERGED_AMBIGUOUS"})
 # 화면 메모(verifier.NOTE_CODES)지만 AI 재확인에 보내는 것: 원문 서류 표 행을 어느 서류도 인용하지 않음(2026-10-23).
 # 누락이라 사람 확인으로 막지는 않지만, 재확인이 서류 섹션 전체를 다시 읽어 빠진 서류를 더할 수 있습니다
 RECHECK_NOTE_CODES = frozenset({DOCUMENT_OMISSION})
