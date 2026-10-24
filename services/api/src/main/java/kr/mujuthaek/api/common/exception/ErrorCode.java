@@ -9,8 +9,6 @@ import org.springframework.http.HttpStatus;
  */
 public enum ErrorCode {
   VALIDATION_FAILED(HttpStatus.BAD_REQUEST, "입력값이 올바르지 않아요"),
-  /** dev에 먼저 있던 코드. 다른 모듈(eligibility 등)이 쓰므로 남겨 둬요. */
-  INVALID_REQUEST(HttpStatus.BAD_REQUEST, "요청 값이 올바르지 않아요"),
   INVALID_CURSOR(HttpStatus.BAD_REQUEST, "목록 위치(cursor)가 올바르지 않아요. 처음부터 다시 받아 주세요"),
   UNAUTHENTICATED(HttpStatus.UNAUTHORIZED, "로그인이 필요해요"),
   FORBIDDEN(HttpStatus.FORBIDDEN, "권한이 없어요"),
