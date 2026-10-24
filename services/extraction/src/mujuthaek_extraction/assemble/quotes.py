@@ -54,22 +54,50 @@ def _clusters(text: str) -> list[tuple[int, int]]:
     return spans
 
 
-class NormalizedText:
-    """정규화한 글자마다 원문 위치를 기억해 두고, 정규화 문자열에서 찾은 위치를 원문 위치로 되돌립니다."""
+# 따옴표류(2026-10-24 세 번째 채점: 원문 「’미가입자‘, ’지역가입자‘」의 짝 안 맞는 따옴표를 AI가 「’지역가입자’」로 고쳐 쓰거나
+# 인용 끝에 「'」를 덧붙여, 글자는 같은데 서류 10여 개가 근거를 못 찾아 빠짐). 느슨한 찾기에서만 빼고 봅니다
+QUOTE_MARKS = "「」『』“”‘’‚‛„‟\"'＂＇`´′″〈〉《》"
+_DROP_QUOTE_MARKS = str.maketrans("", "", QUOTE_MARKS)
+TABLE_AID_LINES = ("  [열 제목] ", "  ↳ ")  # 구조 방식이 표에 덧붙이는 줄(details.TABLE_AIDS와 같음)
 
-    def __init__(self, text: str):
+
+def loose(text: str) -> str:
+    """느슨한 정규화: normalize에 더해 따옴표류를 뺍니다. 근거 위치를 찾을 때만 쓰고, 값 확인(claims·details)에는 쓰지 않습니다."""
+    return normalize(text).translate(_DROP_QUOTE_MARKS)
+
+
+class NormalizedText:
+    """정규화한 글자마다 원문 위치를 기억해 두고, 정규화 문자열에서 찾은 위치를 원문 위치로 되돌립니다.
+    relaxed=True면 따옴표류를 빼고(loose) 표 읽기 도움 줄(↳·[열 제목])을 건너뛴 색인입니다: 표 두 행을 이어 인용했는데 원문에서는
+    두 행 사이에 프로그램이 붙인 읽기 줄이 끼어 있어도 찾습니다. 찾은 범위는 원문 위치(그 사이 줄 포함)입니다."""
+
+    def __init__(self, text: str, *, relaxed: bool = False):
         self.text = text
         chars: list[str] = []
         starts: list[int] = []
         ends: list[int] = []
+        skip = _aid_line_spans(text) if relaxed else []
+        at = 0
         for start, end in _clusters(text):
-            for char in normalize(text[start:end]):
+            while at < len(skip) and skip[at][1] <= start:
+                at += 1
+            if at < len(skip) and skip[at][0] <= start < skip[at][1]:
+                continue
+            piece = text[start:end]
+            for char in loose(piece) if relaxed else normalize(piece):
                 chars.append(char)
                 starts.append(start)
                 ends.append(end)
         self.value = "".join(chars)
         self._starts = starts
         self._ends = ends
+        self._loose: NormalizedText | None = None
+
+    def loose_index(self) -> NormalizedText:
+        """같은 원문의 느슨한 색인(처음 쓸 때 한 번 만듭니다)."""
+        if self._loose is None:
+            self._loose = NormalizedText(self.text, relaxed=True)
+        return self._loose
 
     def find_all(self, needle: str) -> list[tuple[int, int]]:
         found = []
@@ -78,6 +106,16 @@ class NormalizedText:
             found.append((self._starts[position], self._ends[position + len(needle) - 1]))
             position = self.value.find(needle, position + 1)
         return sorted(set(found))
+
+
+def _aid_line_spans(text: str) -> list[tuple[int, int]]:
+    """표 읽기 도움 줄(줄바꿈 포함)의 원문 범위들."""
+    spans, offset = [], 0
+    for line in text.split("\n"):
+        if line.startswith(TABLE_AID_LINES):
+            spans.append((offset, offset + len(line) + 1))
+        offset += len(line) + 1
+    return spans
 
 
 def _exact_all(text: str, quote: str) -> list[tuple[int, int]]:
@@ -116,6 +154,12 @@ def candidates(text: str, quote: str, index: NormalizedText | None = None) -> tu
         found = _joined_lines(index, quote)
     if not found and TABLE_ROW.match(quote):
         found = _merged_row(text, quote)
+    if not found:
+        # 표기 차이만 흡수합니다: 따옴표류를 빼고, 표 행 사이 읽기 도움 줄을 건너뜁니다(「|」·공백은 normalize가 이미 뺌).
+        # 글자(숫자·낱말)는 하나도 바꾸지 않으므로 다른 값을 근거로 받지 않습니다. 너무 짧아진 인용은 쓰지 않습니다
+        needle = loose(quote)
+        if len(needle) >= LONG_QUOTE_CHARS:
+            found = index.loose_index().find_all(needle)
     return found, False
 
 

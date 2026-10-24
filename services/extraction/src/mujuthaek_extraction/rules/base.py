@@ -45,6 +45,9 @@ class FieldRules:
     split_calls: tuple[tuple[str, tuple[CallSpec, ...]], ...] = ()
     # 공급·가격 표를 코드가 행 단위로 옮길지(supply_tables, 구조 방식 2026-10-17). AI는 표마다 열 의미만 답합니다
     supply_tables: bool = False
+    # 다시 받아도 출력 한도로 잘린 호출을 나눠 부를 호출들(extract.run_split, 2026-10-24 세 번째 채점: 서류 호출이 한 표에서 반복 폭주해
+    # 두 번 다 잘리고 서류 45개가 모두 빠짐). 나눈 호출이 하나라도 답을 주면 그 서류는 남고, 못 받은 묶음은 PARTIAL로 재확인·검수에 갑니다
+    runaway_splits: tuple[tuple[str, tuple[CallSpec, ...]], ...] = ()
 
     def calls_for(self, material: ExtractionMaterial) -> tuple[CallSpec, ...]:
         if self.large_text_chars is None or len(material.text) < self.large_text_chars:

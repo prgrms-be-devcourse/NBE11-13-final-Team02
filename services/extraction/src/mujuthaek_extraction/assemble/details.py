@@ -43,11 +43,18 @@ CHANNEL_WORDS = (
 )
 # 낱말 바로 뒤(같은 구절 안)에 오면 그 방법을 막는 말
 NEGATION = re.compile(r"^[^.。\n;:]{0,12}?(?:불가|안\s*됨|안\s*됩|받지\s*않|하지\s*않|않습니다|않음|불인정|제외|금지)")
+# 막는 말 바로 뒤의 조건 말(「인터넷 접수가 불가능한 경우 방문」「우편 접수가 안 될 때」): 그 방법을 막은 것이 아니라 다른 방법의 조건입니다
+CONDITION_AFTER = re.compile(r"^[^.。\n;:]{0,6}?(?:경우|때|시에|시\s)")
+# 「일반우편 접수 불가」는 일반 우편만 막고 등기 우편(MAIL)은 막지 않습니다(2026-10-24 세 번째 채점: 「방문 및 일반우편은 접수 불가」, 등기우편 접수)
+GENERAL_MAIL = re.compile(r"일반\s*$")
 APPLYING_KINDS = {"APPLICATION", "DOCUMENT_SUBMISSION"}
 
 # 시각: 「10:00」「10시」「10시 30분」「오후 6시」「6시 반」. 「24시간」「1시간」 같은 길이는 빼고, 「2026.10.」 뒤 숫자는 보지 않습니다
 TIME = re.compile(r"(오전|오후|아침|낮|저녁|밤)?\s*(?<![\d.])(\d{1,2})\s*(?::\s*(\d{2})|시(?!\s*간)(?:\s*(\d{1,2})\s*분|\s*(반))?)")
 EVENING = {"오후", "저녁", "밤"}
+# 「12~13시」처럼 뒤 시각에만 「시」가 붙은 시 단위 범위의 앞 시각(2026-10-24 세 번째 채점: 「점심시간 12~13시 제외」의 12를 시각으로
+# 읽지 못해 맞는 쉬는 시각 12:00~13:00이 지워짐). 「1~2시간」 같은 길이와 날짜(「10.12~13」) 뒤 숫자는 보지 않습니다
+HOUR_RANGE_START = re.compile(r"(오전|오후|아침|낮|저녁|밤)?\s*(?<![\d.:])(\d{1,2})\s*(?=[~∼～〜\-–]\s*(?:오전|오후|아침|낮|저녁|밤)?\s*\d{1,2}\s*시(?!\s*간))")
 DAY_WORDS = {
     "MON": "월",
     "TUE": "화",
@@ -79,12 +86,20 @@ DAY_PATTERNS = {code: _day_word(word) for code, word in DAY_WORDS.items()}
 
 
 def channel_mentions(text: str) -> tuple[set[str], set[str]]:
-    """글에서 찾은 신청 방법: (막는 말 없이 나온 방법, 막는 말과 함께 나온 방법)."""
+    """글에서 찾은 신청 방법: (막는 말 없이 나온 방법, 막는 말과 함께 나온 방법).
+    막는 말 뒤에 조건 말이 오면(「…불가한 경우」) 막은 것이 아니므로 그 낱말은 어느 쪽에도 넣지 않습니다.
+    「일반우편 … 불가」는 등기 우편까지 막은 것이 아니라 MAIL을 막은 쪽에 넣지 않습니다."""
     positive: set[str] = set()
     negative: set[str] = set()
     for channel, pattern in CHANNEL_WORDS:
         for match in pattern.finditer(text):
-            (negative if NEGATION.match(text[match.end() :]) else positive).add(channel)
+            blocked = NEGATION.match(text[match.end() :])
+            if blocked is None:
+                positive.add(channel)
+            elif CONDITION_AFTER.match(text[match.end() + blocked.end() :]):
+                continue
+            elif not (channel == "MAIL" and GENERAL_MAIL.search(text[: match.start()])):
+                negative.add(channel)
         text = pattern.sub(lambda m: " " * len(m[0]), text)
     return positive, negative
 
@@ -107,22 +122,31 @@ def channels_from_words(values: list[Any]) -> list[str]:
     return ordered_channels(found)
 
 
+def _readings(marker: str | None, hour: int, minute: int) -> set[int] | None:
+    """시각 하나로 읽을 수 있는 값들(자정부터 분). 시각이 아니면 None."""
+    if hour > 24 or minute > 59 or (hour == 24 and minute):
+        return None
+    if marker in EVENING and hour < 12:
+        return {(hour + 12) * 60 + minute}
+    if marker:
+        return {(0 if hour == 12 and marker in {"오전", "아침"} else hour) * 60 + minute}
+    return {hour * 60 + minute, (hour + 12) * 60 + minute} if 1 <= hour < 12 else {hour * 60 + minute}
+
+
 def time_tokens(text: str) -> list[set[int]]:
-    """글에 적힌 시각마다 그 시각으로 읽을 수 있는 값들(자정부터 분).
-    오전·오후 표시가 없는 1~11시는 오후일 수도 있어 둘 다 넣습니다(「6시」 = 06:00 또는 18:00)."""
-    tokens: list[set[int]] = []
+    """글에 적힌 시각마다 그 시각으로 읽을 수 있는 값들(자정부터 분), 글에 나온 순서대로.
+    오전·오후 표시가 없는 1~11시는 오후일 수도 있어 둘 다 넣습니다(「6시」 = 06:00 또는 18:00).
+    「12~13시」처럼 뒤에만 「시」가 붙은 범위의 앞 숫자도 시각(12:00)으로 읽습니다."""
+    found: list[tuple[int, set[int]]] = []
     for match in TIME.finditer(text):
-        marker, hour = match[1], int(match[2])
-        minute = int(match[3] or match[4] or (30 if match[5] else 0))
-        if hour > 24 or minute > 59 or (hour == 24 and minute):
-            continue
-        if marker in EVENING and hour < 12:
-            tokens.append({(hour + 12) * 60 + minute})
-        elif marker:
-            tokens.append({(0 if hour == 12 and marker in {"오전", "아침"} else hour) * 60 + minute})
-        else:
-            tokens.append({hour * 60 + minute, (hour + 12) * 60 + minute} if 1 <= hour < 12 else {hour * 60 + minute})
-    return tokens
+        readings = _readings(match[1], int(match[2]), int(match[3] or match[4] or (30 if match[5] else 0)))
+        if readings is not None:
+            found.append((match.start(), readings))
+    for match in HOUR_RANGE_START.finditer(text):
+        readings = _readings(match[1], int(match[2]), 0)
+        if readings is not None:
+            found.append((match.start(), readings))
+    return [readings for _, readings in sorted(found, key=lambda item: item[0])]
 
 
 def times_in(text: str) -> set[int]:
@@ -235,6 +259,9 @@ def _evidence_texts(candidate: dict[str, Any]) -> dict[str, str]:
     return {e["id"]: e["quote"] for e in candidate.get("evidence") or []}
 
 
+ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
 class _Checker:
     def __init__(self, candidate: dict[str, Any], text: str | None = None, text_source: str | None = None):
         self.candidate = candidate
@@ -273,14 +300,19 @@ class _Checker:
             self.minute_bounds(schedule, text, label)
 
     def channels(self, schedule: dict[str, Any], text: str, label: str) -> None:
-        positive, _ = channel_mentions(f"{schedule.get('rawLabel') or ''}\n{text}")
+        positive, negative = channel_mentions(f"{schedule.get('rawLabel') or ''}\n{text}")
+        # 일정 설명·시각 설명(AI가 쓴 글)에서 막았다고 한 방법도 뺍니다. 빼는 데만 쓰고 더하는 데는 쓰지 않습니다
+        _, said_blocked = channel_mentions(f"{schedule.get('description') or ''}\n{schedule.get('timeNote') or ''}")
+        # 근거 어디서든 막은 방법(「방문 및 일반우편은 접수 불가」)은 다른 줄에 예외 상황으로 나와도(「시스템 장애 시 현장접수」) 그 일정의
+        # 신청 방법이 아닙니다(2026-10-24 세 번째 채점: 서류제출 일정에 ONSITE가 남음). 예외 상황은 timeNote·설명에 적습니다
+        blocked = negative | said_blocked
         given = list(schedule.get("channels") or [])
-        kept = [c for c in given if c in positive]  # 막는 말과만 나온 방법(「인터넷 신청 불가」)은 positive에 없습니다
+        kept = [c for c in given if c in positive and c not in blocked]  # 막는 말과만 나온 방법(「인터넷 신청 불가」)은 positive에 없습니다
         if given and kept != given:
             dropped = ", ".join(c for c in given if c not in kept)
             self.clear("/schedules", label, f"신청 방법 {dropped}을(를)")
-        if not given and APPLYING_KINDS & set(schedule.get("kinds") or []) and positive:
-            kept = list(positive)
+        if not given and APPLYING_KINDS & set(schedule.get("kinds") or []) and positive - blocked:
+            kept = list(positive - blocked)
             self.notes.append(f"/schedules {label}: 신청 방법을 근거의 낱말로 정했어요({', '.join(ordered_channels(kept))})")
         schedule["channels"] = ordered_channels(kept)
 
@@ -321,16 +353,34 @@ class _Checker:
             if any(_minutes(span[end]) not in stated for span in spans for end in ("start", "end")):
                 schedule[key] = []
                 self.clear("/schedules", label, f"{name}을")
-        why = continuous_hours(text, schedule.get("dailyHours") or [])
+        window = schedule.get("dailyHours") or []
+        why = continuous_hours(text, window)
         if why:
             schedule["dailyHours"] = []
             self.candidate["quality"]["reviewIssues"].append(
                 {"code": CLEARED, "target": "/schedules", "description": f"{label}: 접수 시각을 비웠어요 — {why}(원문 확인 필요)"}
             )
+        self.window_bounds(schedule, window, label)
         note = schedule.get("timeNote")
         if isinstance(note, str) and any(not token & stated for token in time_tokens(note)):
             schedule["timeNote"] = None
             self.clear("/schedules", label, "시각 설명을")
+
+    def window_bounds(self, schedule: dict[str, Any], window: list[dict[str, str]], label: str) -> None:
+        """시작·끝을 날짜(DAY)로만 적고 시각을 접수 시각(dailyHours)에만 적은 일정: 근거로 확인한 접수 시각이 하나이면 첫날 시작 시각·
+        마지막 날 끝 시각을 시작·끝(MINUTE)에 옮깁니다(2026-10-24 세 번째 채점: 「11.2.(월) ~ 11.4.(수) (10:00~16:00)」의 접수 시각을
+        「24시간」 근거로 지운 뒤 시각이 어디에도 남지 않았음). 접수 시각을 지웠든 남겼든 같고, 끝이 시작보다 이른 구간(야간)은 옮기지 않습니다.
+        window: 근거 시각 확인을 통과한 접수 시각(연속 구간이라 지우기 전)."""
+        starts, ends = schedule.get("startsAt"), schedule.get("endsAt")
+        if len(window) != 1 or not all(isinstance(v, dict) and v.get("precision") == "DAY" for v in (starts, ends)):
+            return
+        start, end = window[0]["start"], window[0]["end"]
+        days = (str(starts["value"]), str(ends["value"]))
+        if _minutes(start) >= _minutes(end) or not all(ISO_DAY.fullmatch(d) for d in days) or days[0] > days[1]:
+            return
+        schedule["startsAt"] = {"precision": "MINUTE", "value": f"{starts['value']}T{start}:00+09:00"}
+        schedule["endsAt"] = {"precision": "MINUTE", "value": f"{ends['value']}T{end}:00+09:00"}
+        self.notes.append(f"/schedules {label}: 근거의 접수 시각({start}~{end})으로 첫날 시작·마지막 날 끝 시각을 적었어요")
 
     def days(self, schedule: dict[str, Any], text: str, label: str) -> None:
         days = schedule.get("excludedDays") or []
