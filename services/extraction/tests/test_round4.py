@@ -176,3 +176,44 @@ def test_time_is_not_taken_from_lines_with_other_times():
     result = assembled_extra(lines, {"onsite": "가상 현장접수는 하루만 받으니 늦지 않게 오세요"}, schedules=[onsite()])
     [schedule] = [s for s in result.candidate["schedules"] if s["id"] == "onsite"]
     assert schedule["startsAt"]["precision"] == "DAY"
+
+
+# ---- 4. 「시작일과 마감일 제외」는 이어지는 기간 ----
+
+
+def test_first_and_last_day_exception_means_a_continuous_period():
+    from mujuthaek_extraction.assemble.details import continuous_hours
+
+    window = [{"start": "10:00", "end": "16:00"}]
+    for text in ("'26.11.17.(화)~'26.11.19.(목) 10:00~16:00 (단, 시작일과 마감일제외)", "10:00~16:00(첫날 및 마지막 날 제외)"):
+        assert continuous_hours(text, window) is not None
+    assert continuous_hours("'26.11.17.(화)~'26.11.19.(목) 10:00~16:00 (토·일 제외)", window) is None
+
+
+# ---- 5. 서류 칸의 단서가 다른 서류를 이름으로 가리킴 ----
+
+
+def test_exclusion_clue_naming_another_document_holds_the_document_it_was_attached_to():
+    lines = [
+        "| 가상 개인정보 이용 동의서 | 동의서를 내지 않으면 접수가 거부됨. "
+        "가상급여 수급자로 신청하는 경우에는 ‘가상 금융정보 등 제공 동의서’ 작성 제외 | O | 1통 |",
+        "| 가상 금융정보 등 (금융·신용) 제공 동의서 |  | O | 1통 |",
+    ]
+    wrong = document(
+        id="privacy", name="가상 개인정보 이용 동의서", appliesTo="신청자 전원(가상급여 수급자 제외)", copies=1, issuer=None, quoteRefs=["privacy"]
+    )
+    other = document(id="finance", name="가상 금융정보 등 (금융·신용) 제공 동의서", appliesTo="신청자 전원", copies=1, issuer=None, quoteRefs=["finance"])
+    quotes = {"privacy": "가상 개인정보 이용 동의서", "finance": "가상 금융정보 등 (금융·신용) 제공 동의서"}
+    result = assembled_extra(lines, quotes, documents=[wrong, other])
+    flagged = [i["target"] for i in result.issues if i["code"] == "DOCUMENT_CLUE_FOR_OTHER_DOCUMENT"]
+    index = {d["id"]: n for n, d in enumerate(result.candidate["requiredDocuments"])}
+    assert flagged == [f"/requiredDocuments/{index['privacy']}"]
+
+
+def test_exclusion_clue_about_the_document_itself_is_fine():
+    from mujuthaek_extraction.assemble.details import clue_for_other
+
+    doc = {"name": "가상 금융정보 제공 동의서", "appliesTo": "가상급여 수급자 제외"}
+    text = "| 가상 금융정보 제공 동의서 | 가상급여 수급자는 ‘가상 금융정보 제공 동의서’ 작성 제외 |"
+    assert clue_for_other(doc, text, ["가상 개인정보 이용 동의서"]) is None
+    assert clue_for_other({**doc, "appliesTo": "신청자 전원"}, "가상 개인정보 이용 동의서 제외", ["가상 개인정보 이용 동의서"]) is None
