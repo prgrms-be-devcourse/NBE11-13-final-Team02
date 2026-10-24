@@ -30,6 +30,7 @@ class ExtractionCompletedListener {
 
   static final String QUEUE = "mujuthaek.extraction.completed";
   static final String EVENT_TYPE = "extraction.completed";
+  static final String DLQ = QUEUE + ".dlq";
 
   private final EventInbox inbox;
   private final NoticeIngestionService ingestion;

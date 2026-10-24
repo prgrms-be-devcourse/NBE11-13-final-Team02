@@ -149,6 +149,39 @@ public class NoticeRepository {
         .optional();
   }
 
+  /**
+   * 보충 발행할 공고 한 묶음 (ID 순서, after 다음부터). 합쳐진 공고는 빼고, includeClosed가 false면 마감 공고도 빼요.
+   *
+   * @param after 이전 묶음의 마지막 ID (처음이면 null)
+   */
+  public List<BackfillRow> findForBackfill(UUID after, int limit, boolean includeClosed) {
+    return jdbc.sql(
+            "select n.id, n.field, n.title, n.current_version, n.nationwide,"
+                + " (v.payload -> 'notice')::text as detail,"
+                + " array(select r.sigungu_code from notice.notice_regions r"
+                + " where r.notice_id = n.id order by r.sigungu_code) as regions"
+                + " from notice.notices n join notice.notice_versions v"
+                + " on v.notice_id = n.id and v.version = n.current_version"
+                + " where n.merged_into is null"
+                + " and (cast(:after as uuid) is null or n.id > cast(:after as uuid))"
+                + " and (:includeClosed or n.status <> 'CLOSED')"
+                + " order by n.id limit :limit")
+        .param("after", after)
+        .param("includeClosed", includeClosed)
+        .param("limit", limit)
+        .query(
+            (rs, i) ->
+                new BackfillRow(
+                    rs.getObject("id", UUID.class),
+                    rs.getString("field"),
+                    rs.getString("title"),
+                    rs.getInt("current_version"),
+                    strings(rs.getArray("regions")),
+                    rs.getBoolean("nationwide"),
+                    rs.getString("detail")))
+        .list();
+  }
+
   /** 공고 버전의 위치 목록 (상세 locations, JSON 글자). 없는 버전이면 빈 값. */
   public Optional<String> findLocations(UUID noticeId, int version) {
     return jdbc.sql(
@@ -715,6 +748,16 @@ public class NoticeRepository {
       String candidateTitle,
       String reason,
       Instant createdAt) {}
+
+  /** 보충 발행할 공고. detailJson은 현재 버전의 상세. */
+  public record BackfillRow(
+      UUID noticeId,
+      String field,
+      String title,
+      int version,
+      List<String> sigunguCodes,
+      boolean nationwide,
+      String detailJson) {}
 
   /** 합치기 전 공고 상태. */
   public record MergeState(UUID noticeId, String field, UUID mergedInto) {}

@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.notice.dto.request;
 
+import java.time.LocalDate;
 import java.util.List;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
@@ -15,6 +16,8 @@ import kr.mujuthaek.api.notice.domain.NoticeType;
  * @param tenure RENT 빌려서 · BUY 사서 (공고 유형에서 정해요: 공공·민영 분양이 BUY)
  * @param statuses 비우면 마감(CLOSED)을 뺀 전부 (확인 필요 UNKNOWN 포함)
  * @param sort DEADLINE(기본) 마감 임박 · LATEST 최신
+ * @param applyEndFrom 마감일이 이날 이후(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요
+ * @param applyEndTo 마감일이 이날 이전(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요
  */
 public record NoticeListFilter(
     String field,
@@ -23,7 +26,9 @@ public record NoticeListFilter(
     List<String> noticeTypes,
     List<String> providers,
     List<String> statuses,
-    String sort) {
+    String sort,
+    LocalDate applyEndFrom,
+    LocalDate applyEndTo) {
 
   public static final List<String> BUY_TYPES =
       List.of(NoticeType.PUBLIC_SALE.name(), NoticeType.PRIVATE_SALE.name());
@@ -47,11 +52,26 @@ public record NoticeListFilter(
     check(tenure == null ? List.of() : List.of(tenure), List.of("RENT", "BUY"), "tenure");
     check(noticeTypes, names(NoticeType.values()), "noticeTypes");
     check(statuses, names(NoticeStatus.values()), "statuses");
+    if (applyEndFrom != null && applyEndTo != null && applyEndFrom.isAfter(applyEndTo)) {
+      throw invalid("applyEndFrom은 applyEndTo보다 늦을 수 없어요");
+    }
     for (String code : regionCodes) {
       if (!code.matches("[0-9]{2}([0-9]{3})?")) {
         throw invalid("regionCodes는 시군구 5자리 또는 시도 2자리예요");
       }
     }
+  }
+
+  /** 마감일 범위 없이 (다른 모듈의 후보 찾기 등). */
+  public NoticeListFilter(
+      String field,
+      List<String> regionCodes,
+      String tenure,
+      List<String> noticeTypes,
+      List<String> providers,
+      List<String> statuses,
+      String sort) {
+    this(field, regionCodes, tenure, noticeTypes, providers, statuses, sort, null, null);
   }
 
   /** 시군구 5자리 (시도 단위 xx000은 빼요). */
