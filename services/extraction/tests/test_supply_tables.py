@@ -192,12 +192,11 @@ def test_conversion_cell_holding_up_and_down_amounts_is_split_by_both_signs():
         ]
     }
     [group] = st.build_part([table], mapping, "pdf-text")["supplyGroups"]
+    # 「(+) -」 쪽 금액(12,614 / 57,810)은 기본과 같아 증액 전환이 없는 것이므로 증액안을 만들지 않습니다(2026-10-24 네 번째 채점)
     assert [(p["kind"], p["sourceAmount"], p["priceStage"]) for p in group["prices"]] == [
         ("DEPOSIT", "12,614", "STANDARD"),
         ("MONTHLY_RENT", "57,810", "STANDARD"),
-        ("DEPOSIT", "12,614", "CONVERSION_DEPOSIT_UP"),
         ("DEPOSIT", "2,614", "CONVERSION_DEPOSIT_DOWN"),
-        ("MONTHLY_RENT", "57,810", "CONVERSION_DEPOSIT_UP"),
         ("MONTHLY_RENT", "86,970", "CONVERSION_DEPOSIT_DOWN"),
     ]
 

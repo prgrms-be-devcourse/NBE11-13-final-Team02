@@ -22,7 +22,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from mujuthaek_extraction.assemble.ai_output import CODE_ISSUES
-from mujuthaek_extraction.assemble.conversion import UNCHECKED, plan_directions
+from mujuthaek_extraction.assemble.conversion import SAME_AS_BASE, UNCHECKED, plan_directions
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 from mujuthaek_extraction.intake.pdf_reader import NUMERIC_VALUE
 from mujuthaek_extraction.model.base import ModelRequest
@@ -76,6 +76,10 @@ TYPE_AMBIGUOUS = "SUPPLY_TYPE_AMBIGUOUS"
 # 「분양가상한제」는 대상 낱말이 아닙니다
 RESTRICTED_PRICE = re.compile(r"(?<!분양가)(?<!분양가 )상한(?!\s*제)|수급자|적용\s*대상|해당자에\s*한|에\s*한하여|에\s*한함|만\s*해당|만\s*적용")
 SCOPE_UNCERTAIN = "PRICE_SCOPE_UNCERTAIN"
+# 대상 한정 낱말을 찾을 표 위 글(2026-10-24 네 번째 채점: 표 위 입지 설명 「「경제자유구역…법」 제2조…(산업단지 근로자인 경우에만 해당)에
+# 건설되거나」의 「만 해당」에 걸려 임대조건 12묶음이 통째로 숨음). 요금을 말하는 줄만 보고, 법령 인용 줄은 보지 않습니다
+PRICE_TITLE_WORDS = re.compile(r"임대\s*조건|임대료|요금|보증금|월\s*세|가격|분양가|전환")
+LAW_TEXT = re.compile(r"「[^」]*법[^」]*」|제\s*\d+\s*조")
 # 병합된 한 칸의 수량을 여러 공급 행이 나눠 가짐: 행마다 그 수 전체로 보이므로(2026-10-24 채점: 49형 두 행이 「금회 모집 60」을 둘 다 가져
 # 합이 120으로 보임) 표의 합계 행이 그 칸을 한 번만 센 합과 같을 때만 그대로 두고, 아니면 그 묶음들을 보류합니다
 COUNT_MERGED = "COUNT_MERGED_AMBIGUOUS"
@@ -474,6 +478,12 @@ def _restricted(text: str) -> str | None:
     return found[0] if found else None
 
 
+def _table_restriction(table: Table) -> str | None:
+    """표 전체가 특정 대상의 요금임을 말하는 낱말. 표 제목·바로 위 글 중 요금을 말하고 법령 인용이 아닌 줄과 절 제목에서만 찾습니다."""
+    lines = [line for line in (table.heading, *table.above) if PRICE_TITLE_WORDS.search(line or "") and not LAW_TEXT.search(line or "")]
+    return _restricted(" ".join([*lines, table.section.split(" › ")[-1]]))
+
+
 def _scope(group_id: str, groups: list[str], description: str) -> dict[str, Any]:
     return {
         "level": "SUPPLY_GROUP",
@@ -527,7 +537,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
             continue
         root = table.continues or table.label
         title_types = [] if any(c["meaning"] == "HOUSING_TYPE" for c in keys) else _title_types(table)
-        table_restriction = _restricted(" ".join([table.heading, *table.above, table.section.split(" › ")[-1]]))
+        table_restriction = _table_restriction(table)
         if option_table(table) and not any(c["meaning"] in ("COUNT", "AREA_EXCLUSIVE") for c in columns):
             continue  # 발코니 확장·선택품목 가격표는 주택 가격이 아닙니다(AI가 공급표로 답해도)
         # 앞 쪽에서 이어진 표는 앞 조각의 마지막 묶음을 이어 갑니다(쪽 첫 행이 앞 쪽 주택형·층의 둘째 행일 수 있음: 실측 LH 대전대동2
@@ -749,8 +759,13 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                         down = cell_sign.startswith(("(-)", "-", "−", "(−)"))
                         stage = "CONVERSION_DEPOSIT_DOWN" if down else "CONVERSION_DEPOSIT_UP"
                         plan = f"{plan} (보증금 {'감액' if down else '증액'})"
-                    if restriction and stage == "STANDARD" and not column.get("targetGroup"):
-                        # 특정 대상의 요금표인데 대상 없이 기본 요금으로 답함: 다른 표의 모집 묶음에 붙이지 않고 보류합니다
+                    if stage.startswith("CONVERSION") and limit_column is not None and sign and not AMOUNT_IN_CELL.search(sign):
+                        # 한도 칸이 「(+) -」처럼 부호만 있고 금액이 없으면 그 방향 전환이 없는 행입니다. 옆 칸에는 기본 조건이 그대로 적혀
+                        # 있어(2026-10-24 네 번째 채점: 「(+) - | 10,948,000 | 56,560」) 전환안으로 넣으면 기본과 같은 가짜 증액안이 됩니다
+                        continue
+                    if restriction and stage == "STANDARD" and not column.get("targetGroup") and not current["scope"]["targetGroups"]:
+                        # 특정 대상의 요금표인데 대상 없이 기본 요금으로 답함: 다른 표의 모집 묶음에 붙이지 않고 보류합니다.
+                        # 행의 대상 칸에서 대상이 이미 정해진 묶음은 대상 미정이 아닙니다(2026-10-24 네 번째 채점)
                         current.setdefault("_scope_uncertain", {})[f"{table.columns[c] or plan} 칸"] = restriction
                     _add_price(current, column, table.columns[c], price_refs, cell_value, plan, stage)
     for group in groups:  # 전용면적 열이 없거나 비면 LH 주택형 코드(「059.9800A」 → 59.98)로 채웁니다(실측: LH 충북혁신)
@@ -782,6 +797,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                 {
                     "supplyGroupId": group["id"],
                     "code": SCOPE_UNCERTAIN,
+                    "field": "prices",  # 요금의 적용 대상만 애매하므로 가격만 보류합니다(수량은 그대로 게시)
                     "description": f"「{name}」 가격표 {shown}가 특정 대상의 요금으로 보이는데 대상이 정해지지 않아 기본 요금으로 게시하지 않았습니다. "
                     "원문에서 적용 대상을 확인해야 합니다",
                 }
@@ -836,6 +852,9 @@ def _direction_issues(group: dict[str, Any], name: str) -> list[dict[str, Any]]:
     issues = []
     for plan_id, (stage, numeric) in plan_directions(group["prices"]).items():
         if numeric == UNCHECKED or numeric == stage:
+            continue
+        if numeric == SAME_AS_BASE:  # 기본 조건을 그대로 옮긴 가짜 전환안: 보류하지 않고 뺍니다(같은 묶음의 맞는 가격까지 숨기지 않게)
+            group["prices"] = [p for p in group["prices"] if p.get("pricePlanId") != plan_id]
             continue
         if numeric is None:
             issues.append(
