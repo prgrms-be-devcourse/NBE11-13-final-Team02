@@ -1,10 +1,16 @@
-"""네 번째 시험 채점(2026-10-24)의 일반 규칙: 대상 한정 요금표 판단 좁히기, 「(+) -」 행의 가짜 전환안.
+"""네 번째 시험 채점(2026-10-24)의 일반 규칙: 대상 한정 요금표 판단 좁히기, 「(+) -」 행의 가짜 전환안, 지우기 전 앞뒤 줄 찾기.
 합성 원문·합성 표만 씁니다. AI·네트워크 호출 없음."""
 
+import copy
+import dataclasses
+
+from helpers import ai_part, example, source_for
 from test_round3 import LEASE_ENTRY
+from test_schedule_details import document, visit_schedule
 from test_supply_round2 import COUNT_ENTRY, count_table, issues, price_entry
 
 from mujuthaek_extraction import supply_tables as st
+from mujuthaek_extraction.assemble.assembler import assemble
 
 # ---- 1. 대상 한정 요금표 판단 ----
 
@@ -103,3 +109,70 @@ def test_conversion_plan_equal_to_the_base_is_dropped_not_held():
 def test_real_conversion_plan_is_kept():
     part = st.build_part([lease_table("(+)5,000", deposit="15,800", rent="30,000")], {"tables": [LEASE_ENTRY]}, "pdf-text")
     assert stages(part) == ["CONVERSION_DEPOSIT_UP", "STANDARD"]
+
+
+# ---- 3. 지우기 전에 근거 인용 앞뒤 줄에서 찾기 ----
+
+
+def assembled_extra(extra_lines, quotes, schedules=(), documents=()):
+    data = example("housing")
+    source = source_for("housing", data)
+    material = dataclasses.replace(source.material, text=source.material.text + "\n" + "\n".join(extra_lines) + "\n")
+    part = copy.deepcopy(ai_part(data))
+    part["quotes"] += [{"ref": ref, "documentId": "text1", "text": text} for ref, text in quotes.items()]
+    part["schedules"] += list(schedules)
+    part["requiredDocuments"] += list(documents)
+    return assemble([part], dataclasses.replace(source, material=material))
+
+
+def test_issuer_on_the_next_broken_line_is_kept():
+    # 줄이 깨진 서류 표: 발급처가 서류 이름 다음 줄에 있음
+    lines = ["| 가상 연금 가입증명서 | 해당자 | 1부 |", "|  | 가상연금공단 |  |"]
+    doc = document(id="pension", name="가상 연금 가입증명서", copies=1, issuer="가상연금공단", quoteRefs=["pension"])
+    result = assembled_extra(lines, {"pension": "가상 연금 가입증명서"}, documents=[doc])
+    [kept] = [d for d in result.candidate["requiredDocuments"] if d["id"] == "pension"]
+    assert kept["issuer"] == "가상연금공단"
+
+
+def test_issuer_of_the_next_document_is_not_borrowed():
+    lines = ["| 가상 재직증명서 | 해당자 | 1부 |", "| 가상 사업자등록증명 | 가상세무서 | 1부 |"]
+    doc = document(id="work", name="가상 재직증명서", copies=1, issuer="가상세무서", quoteRefs=["work"])
+    other = document(id="biz", name="가상 사업자등록증명", copies=1, issuer="가상세무서", quoteRefs=["biz"])
+    result = assembled_extra(lines, {"work": "가상 재직증명서", "biz": "가상 사업자등록증명"}, documents=[doc, other])
+    by_id = {d["id"]: d for d in result.candidate["requiredDocuments"]}
+    assert by_id["work"]["issuer"] is None and by_id["biz"]["issuer"] == "가상세무서"
+
+
+def onsite(**changes):
+    return visit_schedule(
+        id="onsite",
+        rawLabel="가상 현장접수",
+        places=[],
+        breaks=[],
+        excludedDays=[],
+        timeNote=None,
+        startsAt={"precision": "MINUTE", "value": "2026-10-27T10:00:00+09:00"},
+        endsAt={"precision": "MINUTE", "value": "2026-10-27T16:00:00+09:00"},
+        dailyHours=[],
+        quoteRefs=["onsite"],
+        **changes,
+    )
+
+
+def test_time_on_the_next_line_is_kept_when_only_this_schedule_times_are_there():
+    lines = ["■ 가상 현장 안내", "가상 안내문을 읽어 주세요", "가상 현장접수는 하루만 받으니 늦지 않게 오세요", "'26.10.27.(화) 10:00~16:00"]
+    result = assembled_extra(lines, {"onsite": "가상 현장접수는 하루만 받으니 늦지 않게 오세요"}, schedules=[onsite()])
+    [schedule] = [s for s in result.candidate["schedules"] if s["id"] == "onsite"]
+    assert schedule["startsAt"]["precision"] == "MINUTE" and schedule["endsAt"]["precision"] == "MINUTE"
+
+
+def test_time_is_not_taken_from_lines_with_other_times():
+    lines = [
+        "■ 가상 현장 안내",
+        "가상 안내문을 읽어 주세요",
+        "가상 현장접수는 하루만 받으니 늦지 않게 오세요",
+        "'26.10.27.(화) 10:00~16:00, 서류 확인은 09:00부터",
+    ]
+    result = assembled_extra(lines, {"onsite": "가상 현장접수는 하루만 받으니 늦지 않게 오세요"}, schedules=[onsite()])
+    [schedule] = [s for s in result.candidate["schedules"] if s["id"] == "onsite"]
+    assert schedule["startsAt"]["precision"] == "DAY"

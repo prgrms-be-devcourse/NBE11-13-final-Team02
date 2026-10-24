@@ -255,11 +255,67 @@ def table_rows(text: str, start: int, end: int) -> str | None:
     return lines
 
 
+# 근거 인용 앞뒤 줄(2026-10-24 네 번째 채점: AI가 시각·발급처·장소 이름이 적힌 바로 옆 줄을 인용하지 않아 맞는 값이 지워짐 — 현장접수 시각,
+# 줄이 깨진 서류 표의 발급처, 접수 장소 이름). 인용에서 확인하지 못한 값은 지우기 전에 인용 앞뒤 NEAR_LINES줄에서 한 번 더 찾습니다.
+# 다른 일정·서류의 이름이 나오는 줄에서 멈추고(옆 항목의 값을 가져오지 않게), 시각은 그 줄들의 시각이 모두 이 일정의 시각일 때만 인정합니다
+NEAR_LINES = 2
+WEAK_EVIDENCE = {"EVIDENCE_SCATTERED", "EVIDENCE_AMBIGUOUS"}
+
+
+def nearby_lines(text: str, start: int, end: int, stop: Any) -> str:
+    """원문 [start, end)가 걸친 줄과 그 앞뒤 NEAR_LINES줄(빈 줄 제외). stop(줄)이 참인 줄에서 그쪽 방향을 멈춥니다(그 줄은 빼고)."""
+    first = text.rfind("\n", 0, start) + 1
+    last = text.find("\n", max(end - 1, start))
+    last = len(text) if last < 0 else last
+    before: list[str] = []
+    cursor = first - 1
+    while cursor > 0 and len(before) < NEAR_LINES:
+        begin = text.rfind("\n", 0, cursor) + 1
+        line = text[begin:cursor]
+        cursor = begin - 1
+        if not line.strip():
+            continue
+        if stop(line):
+            break
+        before.append(line)
+    after: list[str] = []
+    cursor = last + 1
+    while cursor < len(text) and len(after) < NEAR_LINES:
+        finish = text.find("\n", cursor)
+        finish = len(text) if finish < 0 else finish
+        line = text[cursor:finish]
+        cursor = finish + 1
+        if not line.strip():
+            continue
+        if stop(line):
+            break
+        after.append(line)
+    return "\n".join([*reversed(before), text[first:last], *after])
+
+
 def _evidence_texts(candidate: dict[str, Any]) -> dict[str, str]:
     return {e["id"]: e["quote"] for e in candidate.get("evidence") or []}
 
 
 ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def _place_found(place: dict[str, Any], key: str, text: str) -> bool:
+    return _address_found(text, place[key]) if key == "address" else _contains(text, place[key])
+
+
+def _minute_times(schedule: dict[str, Any]) -> set[int]:
+    """시작·끝을 시각까지(MINUTE) 적었으면 그 시각들(분)."""
+    times = set()
+    for key in ("startsAt", "endsAt"):
+        value = schedule.get(key)
+        if isinstance(value, dict) and value.get("precision") == "MINUTE":
+            try:
+                moment = datetime.fromisoformat(value["value"]).astimezone(KST)
+            except (TypeError, ValueError):
+                continue
+            times.add(moment.hour * 60 + moment.minute)
+    return times
 
 
 class _Checker:
@@ -268,13 +324,37 @@ class _Checker:
         self.quotes = _evidence_texts(candidate)
         # 근거 id → 인용문이 걸친 원문 표 행 전체(표 행이 아니거나 원문을 모르면 인용문)
         self.rows: dict[str, str] = {}
+        self.text = text or ""
+        self.spans: dict[str, tuple[int, int]] = {}  # 근거 id → 원문 위치(앞뒤 줄 찾기)
         for evidence in candidate.get("evidence") or []:
             locator = evidence.get("locator") or {}
             expanded = None
             if text is not None and evidence.get("sourceId") == text_source and locator.get("kind") == "TEXT_RANGE":
-                expanded = table_rows(text, int(locator.get("start", -1)), int(locator.get("end", -1)))
+                start, end = int(locator.get("start", -1)), int(locator.get("end", -1))
+                expanded = table_rows(text, start, end)
+                if 0 <= start < end <= len(text):
+                    self.spans[evidence["id"]] = (start, end)
             self.rows[evidence["id"]] = expanded if expanded is not None else evidence["quote"]
         self.notes: list[str] = []
+
+    def nearby(self, item: dict[str, Any], own: str, others: list[str], pointer: str) -> str:
+        """항목 근거 인용의 앞뒤 줄. 다른 항목 이름(others, 이 항목 이름과 겹치는 이름은 빼고)이 나오는 줄에서 멈춥니다.
+        근거 위치가 불확실한 항목(흩어진 낱말·여러 곳)은 앞뒤 줄도 믿을 수 없어 빈 글을 돌려줍니다."""
+        for issue in self.candidate["quality"].get("reviewIssues") or []:
+            target = str(issue.get("target") or "")
+            if issue.get("code") in WEAK_EVIDENCE and (target == pointer or target.startswith(pointer + "/")):
+                return ""
+        mine = normalize(own or "")
+        names = [n for n in (normalize(o or "") for o in others) if len(n) >= 3 and n not in mine and mine not in n]
+
+        def stop(line: str) -> bool:
+            flat = normalize(line)
+            return any(n in flat for n in names)
+
+        return "\n".join(nearby_lines(self.text, *self.spans[i], stop) for i in item.get("evidenceIds") or [] if i in self.spans)
+
+    def found_nearby(self, label: str, target: str, what: str) -> None:
+        self.notes.append(f"{target} {label}: {what} 근거 인용 앞뒤 줄에서 확인해 남겼어요")
 
     def cited(self, item: dict[str, Any], rows: bool = False) -> str:
         """항목의 근거 글. rows=True면 인용문이 걸친 원문 표 행 전체(같은 행의 다른 칸까지)."""
@@ -289,15 +369,28 @@ class _Checker:
 
     # 일정
     def schedules(self) -> None:
-        for schedule in self.candidate.get("schedules") or []:
+        schedules = self.candidate.get("schedules") or []
+        for s, schedule in enumerate(schedules):
             text = self.cited(schedule)
             label = f"{schedule.get('rawLabel') or schedule.get('id')}({schedule.get('id')})"
+            others = [str(s.get("rawLabel") or "") for s in schedules if s is not schedule]
+            near = self.nearby(schedule, str(schedule.get("rawLabel") or ""), others, f"/schedules/{s}")
             self.channels(schedule, text, label)
-            self.places(schedule, self.cited(schedule, rows=True), label)
+            self.places(schedule, self.cited(schedule, rows=True), label, near)
             self.email(schedule, text, label)
-            self.hours(schedule, text, label)
+            self.hours(schedule, text, label, near)
             self.days(schedule, text, label)
-            self.minute_bounds(schedule, text, label)
+            self.minute_bounds(schedule, text, label, near)
+
+    def own_times(self, schedule: dict[str, Any]) -> set[int]:
+        """이 일정이 적은 시각 전부(접수·쉬는 시각, 시작·끝 MINUTE)."""
+        times = {_minutes(span[end]) for key in ("dailyHours", "breaks") for span in schedule.get(key) or [] for end in ("start", "end")}
+        return times | _minute_times(schedule)
+
+    def times_nearby(self, schedule: dict[str, Any], near: str, wanted: set[int]) -> bool:
+        """찾는 시각이 앞뒤 줄에 모두 있고, 그 줄들의 시각이 모두 이 일정이 적은 시각일 때만 참(다른 일정 시각이 섞인 곳에서는 인정하지 않음)."""
+        own = self.own_times(schedule)
+        return bool(near) and wanted <= times_in(near) and all(token & own for token in time_tokens(near))
 
     def channels(self, schedule: dict[str, Any], text: str, label: str) -> None:
         positive, negative = channel_mentions(f"{schedule.get('rawLabel') or ''}\n{text}")
@@ -316,14 +409,13 @@ class _Checker:
             self.notes.append(f"/schedules {label}: 신청 방법을 근거의 낱말로 정했어요({', '.join(ordered_channels(kept))})")
         schedule["channels"] = ordered_channels(kept)
 
-    def places(self, schedule: dict[str, Any], text: str, label: str) -> None:
+    def places(self, schedule: dict[str, Any], text: str, label: str, near: str = "") -> None:
         kept = []
         for place in schedule.get("places") or []:
-            cleared = [
-                key
-                for key in ("name", "address", "detail")
-                if place.get(key) is not None and not (_address_found(text, place[key]) if key == "address" else _contains(text, place[key]))
-            ]
+            cleared = [key for key in ("name", "address", "detail") if place.get(key) is not None and not _place_found(place, key, text)]
+            for key in [k for k in cleared if near and _place_found(place, k, near)]:
+                cleared.remove(key)
+                self.found_nearby(label, "/schedules", f"접수 장소의 {key}를")
             for key in cleared:
                 place[key] = None
             if cleared:
@@ -346,11 +438,15 @@ class _Checker:
             email["subjectFormat"] = None
             self.clear("/schedules", label, "이메일 제목 형식을")
 
-    def hours(self, schedule: dict[str, Any], text: str, label: str) -> None:
+    def hours(self, schedule: dict[str, Any], text: str, label: str, near: str = "") -> None:
         stated = times_in(text)
         for key, name in (("dailyHours", "접수 시각"), ("breaks", "쉬는 시각")):
             spans = schedule.get(key) or []
-            if any(_minutes(span[end]) not in stated for span in spans for end in ("start", "end")):
+            missing = {_minutes(span[end]) for span in spans for end in ("start", "end")} - stated
+            if missing and self.times_nearby(schedule, near, missing):
+                self.found_nearby(label, "/schedules", f"{name}을")
+                stated = stated | missing
+            elif missing:
                 schedule[key] = []
                 self.clear("/schedules", label, f"{name}을")
         window = schedule.get("dailyHours") or []
@@ -394,9 +490,13 @@ class _Checker:
             schedule["excludedDays"] = [day for day in days if day in found]
             self.clear("/schedules", label, f"제외 요일 {', '.join(dropped)}을(를)")
 
-    def minute_bounds(self, schedule: dict[str, Any], text: str, label: str) -> None:
-        """시각까지 적은 시작·끝(MINUTE)의 시각이 근거에 없으면 날짜(DAY)만 남깁니다. 날짜는 다른 검사(V9)가 따로 봅니다."""
+    def minute_bounds(self, schedule: dict[str, Any], text: str, label: str, near: str = "") -> None:
+        """시각까지 적은 시작·끝(MINUTE)의 시각이 근거에 없으면 날짜(DAY)만 남깁니다(앞뒤 줄에서 확인되면 남김). 날짜는 다른 검사(V9)가 따로 봅니다."""
         stated = times_in(text)
+        missing = _minute_times(schedule) - stated
+        if missing and self.times_nearby(schedule, near, missing):
+            self.found_nearby(label, "/schedules", "시작·끝 시각을")
+            stated = stated | missing
         for key in ("startsAt", "endsAt"):
             value = schedule.get(key)
             if not isinstance(value, dict) or value.get("precision") != "MINUTE":
@@ -411,7 +511,8 @@ class _Checker:
 
     # 서류
     def documents(self) -> None:
-        for d, document in enumerate(self.candidate.get("requiredDocuments") or []):
+        documents = self.candidate.get("requiredDocuments") or []
+        for d, document in enumerate(documents):
             text = self.cited(document, rows=True)
             label = str(document.get("name") or document.get("id"))
             if document.get("group") is None:
@@ -424,8 +525,12 @@ class _Checker:
                 document["copies"] = None
                 self.clear(f"/requiredDocuments/{d}", label, "제출 부수를")
             if document.get("issuer") is not None and not _contains(text, document["issuer"]):
-                document["issuer"] = None
-                self.clear(f"/requiredDocuments/{d}", label, "발급 기관을")
+                others = [str(o.get("name") or "") for o in documents if o is not document]
+                if _contains(self.nearby(document, label, others, f"/requiredDocuments/{d}"), document["issuer"]):
+                    self.found_nearby(label, f"/requiredDocuments/{d}", "발급 기관을")
+                else:
+                    document["issuer"] = None
+                    self.clear(f"/requiredDocuments/{d}", label, "발급 기관을")
         self.merge_documents()
 
     def merge_documents(self) -> None:
