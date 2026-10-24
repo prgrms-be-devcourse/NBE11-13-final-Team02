@@ -157,6 +157,23 @@ class PostgresAreaBaseDataLoaderTest {
   }
 
   @Test
+  void stores_refillNationalIndustryShares() throws Exception {
+    load(AreaSource.STORES, "강원", "stores_gangwon.csv", false);
+
+    // 입지계수의 분모: 업종 묶음별 전국 점포 수와 그때 전체 점포 수
+    assertThat(
+            one(
+                "select string_agg(industry||':'||store_count||'/'||total_count, ',' order by industry)"
+                    + " from area.industry_shares"))
+        .isEqualTo(
+            one(
+                "select 'CAFE:'||count(*) filter (where industry_group = 'CAFE')||'/'||count(*)"
+                    + "||',FOOD:'||count(*) filter (where industry_group = 'FOOD')||'/'||count(*)"
+                    + "||',RETAIL:'||count(*) filter (where large_code = 'G2')||'/'||count(*)"
+                    + " from area.stores"));
+  }
+
+  @Test
   void shrinkGuard_stopsTruncatedFiles() throws Exception {
     load(AreaSource.BUS_STOP, "ALL", "bus_stop_150.csv", false);
     AreaLoadReport blocked = load(AreaSource.BUS_STOP, "ALL", "bus_stop_small.csv", false);
