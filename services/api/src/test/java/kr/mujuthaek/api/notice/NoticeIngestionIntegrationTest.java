@@ -20,7 +20,9 @@ import kr.mujuthaek.api.common.event.NoticeClosed;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
+import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.mapper.ExtractionEvent;
 import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
@@ -104,7 +106,8 @@ class NoticeIngestionIntegrationTest {
     clock.now = START;
     jdbc.sql(
             "truncate notice.notice_versions, notice.notice_posts, notice.notice_follow_ups,"
-                + " notice.notices, notice.extraction_results, common.processed_events")
+                + " notice.notice_regions, notice.notices, notice.extraction_results,"
+                + " common.processed_events")
         .update();
   }
 
@@ -525,6 +528,100 @@ class NoticeIngestionIntegrationTest {
         .containsExactly(true, false); // 승인본은 보류 항목이 없어요
   }
 
+  // ---------- 지역 ----------
+
+  @Test
+  void 여러_시도에_걸친_공고는_공개_이벤트에_모든_지역을_담는다() {
+    // 「대구경북지역 … 모집공고」: 대표 지역 하나(regionCode)는 null이지만 알림이 고를 지역 목록은 대구·경북 모두
+    ObjectNode envelope = load("/contracts/examples/extraction.completed.json");
+    ArrayNode locations = (ArrayNode) envelope.path("payload").path("notice").path("locations");
+    ObjectNode first = (ObjectNode) locations.get(0);
+    first.put("kind", "AREA").put("region", "대구").put("regionCode", "2700000000");
+    ObjectNode second = first.deepCopy();
+    second.put("id", "area-gyeongbuk").put("region", "경북").put("regionCode", "4700000000");
+    locations.add(second);
+    ((ObjectNode) envelope.path("payload")).putNull("regionCode");
+
+    assertThat(ingestion.apply(body(envelope))).isEqualTo(IngestionOutcome.PUBLISHED);
+    assertThat(events.stream(NoticePublished.class))
+        .singleElement()
+        .satisfies(
+            e -> {
+              assertThat(e.regionCode()).isNull();
+              assertThat(e.regionCodes()).containsExactly("27000", "47000");
+              assertThat(e.nationwide()).isFalse();
+            });
+  }
+
+  @Test
+  void 시도_단위로_검색하면_시도_단위_공고와_그_시도의_모든_구_공고가_나온다() {
+    // 지역은 앞 5자리만 쓰고, 11000(서울특별시)으로 검색하면 11로 시작하는 공고가 모두 나와요
+    ingestion.apply(body(fixture())); // 서초구(11650) 공고
+    ObjectNode seoulWide = otherPost(fixture()); // 서울까지만 아는 위치의 공고
+    for (JsonNode location : seoulWide.path("payload").path("notice").path("locations")) {
+      ((ObjectNode) location).put("regionCode", "1100000000");
+    }
+    ((ObjectNode) seoulWide.path("payload")).put("regionCode", "11000");
+    ingestion.apply(body(seoulWide));
+
+    assertThat(listIn("11000")).hasSize(2);
+    assertThat(listIn("11")).hasSize(2);
+    assertThat(listIn("11650")).hasSize(1); // 구 검색에는 시도 단위 공고가 나오지 않음
+    assertThat(listIn("11680")).isEmpty(); // 강남구
+    assertThat(listIn("26000")).isEmpty();
+  }
+
+  @Test
+  void 전국_대상_공고는_어느_지역으로_검색해도_나온다() {
+    ingestion.apply(body(fixture())); // 서초구(11650) 공고
+    ObjectNode nationwide = otherPost(fixture()); // 「사업대상지역 : 전국」 공고: 위치는 「전국」, 지역 코드 없음
+    JsonNode detail = nationwide.path("payload").path("notice");
+    ArrayNode missing = (ArrayNode) detail.path("quality").path("missingFields");
+    for (int i = 0; i < detail.path("locations").size(); i++) {
+      ((ObjectNode) detail.path("locations").get(i)).put("region", "전국").putNull("regionCode");
+      missing
+          .addObject()
+          .put("target", "/locations/" + i + "/regionCode")
+          .put("reason", "NOT_APPLICABLE")
+          .put("description", "전국 대상이라 지역 코드가 없습니다.");
+    }
+    ((ObjectNode) nationwide.path("payload")).putNull("regionCode");
+    ingestion.apply(body(nationwide));
+
+    assertThat(listIn("11000")).hasSize(2);
+    assertThat(listIn("11680")).hasSize(1);
+    assertThat(listIn("26")).hasSize(1);
+    assertThat(
+            jdbc.sql("select count(*) from notice.notices where nationwide")
+                .query(Long.class)
+                .single())
+        .isEqualTo(1);
+  }
+
+  @Test
+  void 대상_지역_전체_공고는_그_시도의_구_검색에도_나온다() {
+    // 「대구경북지역 … 모집공고」처럼 단지가 없는 공고: 대상 지역을 대구·경북 AREA로 적음
+    ingestion.apply(body(fixture())); // 서초구(11650) 공고
+    ObjectNode regional = otherPost(fixture());
+    ArrayNode locations = (ArrayNode) regional.path("payload").path("notice").path("locations");
+    ((ObjectNode) locations.get(0))
+        .put("kind", "AREA")
+        .put("region", "대구")
+        .put("regionCode", "2700000000");
+    ((ObjectNode) locations.get(1))
+        .put("kind", "AREA")
+        .put("region", "경북")
+        .put("regionCode", "4700000000");
+    ((ObjectNode) regional.path("payload")).putNull("regionCode");
+    ingestion.apply(body(regional));
+
+    assertThat(listIn("27000")).hasSize(1);
+    assertThat(listIn("27110")).hasSize(1); // 대구 중구 검색에도 대구 전체 대상 공고
+    assertThat(listIn("47")).hasSize(1);
+    assertThat(listIn("11")).hasSize(1); // 서울 검색에는 서초구 공고만
+    assertThat(listIn("26000")).isEmpty();
+  }
+
   // ---------- 정정 공고 ----------
 
   @Test
@@ -834,6 +931,16 @@ class NoticeIngestionIntegrationTest {
     ((ObjectNode) event.path("payload").path("notice").path("sourceReferences").get(0))
         .put("rawPostId", id);
     return event;
+  }
+
+  /** 이 지역으로 찾은 공고 목록 (주거, 마감 제외). */
+  private List<NoticeSummaryResponse> listIn(String regionCode) {
+    return query
+        .list(
+            new NoticeListFilter(null, List.of(regionCode), null, null, null, null, null),
+            null,
+            100)
+        .items();
   }
 
   private String statusOf(UUID id) {
