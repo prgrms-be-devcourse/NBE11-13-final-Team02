@@ -3,6 +3,7 @@ package kr.mujuthaek.api.user.security;
 import java.util.List;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.user.service.JwtProperties;
+import kr.mujuthaek.api.user.service.UserService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -11,6 +12,9 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
+import org.springframework.security.oauth2.server.resource.web.BearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.DefaultBearerTokenResolver;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -43,12 +47,14 @@ class SecurityConfig {
       LoginSuccessHandler loginSuccessHandler,
       LoginFailureHandler loginFailureHandler,
       LoginUserJwtConverter jwtConverter,
-      KnownProviderAuthorizationRequestResolver providerResolver)
+      KnownProviderAuthorizationRequestResolver providerResolver,
+      ProblemResponses problems,
+      UserService userService)
       throws Exception {
     AuthenticationEntryPoint unauthorized =
-        (request, response, error) -> ProblemResponses.write(response, ErrorCode.UNAUTHENTICATED);
+        (request, response, error) -> problems.write(request, response, ErrorCode.UNAUTHENTICATED);
     AccessDeniedHandler forbidden =
-        (request, response, error) -> ProblemResponses.write(response, ErrorCode.FORBIDDEN);
+        (request, response, error) -> problems.write(request, response, ErrorCode.FORBIDDEN);
     http.cors(Customizer.withDefaults())
         .csrf(csrf -> csrf.disable())
         .sessionManagement(
@@ -73,9 +79,12 @@ class SecurityConfig {
         .oauth2ResourceServer(
             server ->
                 server
+                    .bearerTokenResolver(bearerTokenResolver())
                     .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtConverter))
                     .authenticationEntryPoint(unauthorized)
                     .accessDeniedHandler(forbidden))
+        .addFilterAfter(
+            new WithdrawnUserFilter(userService, problems), BearerTokenAuthenticationFilter.class)
         .exceptionHandling(
             errors ->
                 errors
@@ -83,6 +92,16 @@ class SecurityConfig {
                         unauthorized, PathPatternRequestMatcher.withDefaults().matcher("/api/**"))
                     .accessDeniedHandler(forbidden));
     return http.build();
+  }
+
+  /**
+   * {@code Authorization: Bearer}를 읽는 곳. 재발급·로그아웃({@code /api/auth/**})은 쿠키로만 확인해서 헤더를 읽지 않아요. 프론트가
+   * 만료된 access token을 붙여 보내도 재발급이 401로 막히지 않게요 (헤더가 있으면 필터가 permitAll보다 먼저 검증해서 401을 내요).
+   */
+  static BearerTokenResolver bearerTokenResolver() {
+    var bearer = new DefaultBearerTokenResolver();
+    return request ->
+        request.getRequestURI().startsWith("/api/auth/") ? null : bearer.resolve(request);
   }
 
   /**

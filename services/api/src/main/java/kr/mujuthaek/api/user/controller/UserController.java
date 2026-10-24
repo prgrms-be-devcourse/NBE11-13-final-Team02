@@ -43,7 +43,8 @@ class UserController {
             .queryParam("withdraw", start.ticket())
             .buildAndExpand(start.provider().toLowerCase(Locale.ROOT))
             .toUriString();
-    return new WithdrawalResponse(start.provider(), reauthUrl, start.ttl().toSeconds());
+    return new WithdrawalResponse(
+        start.provider(), reauthUrl, start.ttl().toSeconds(), start.otherProviders());
   }
 
   /** 내 정보. 로그인하지 않았으면 401이에요 (프론트는 이걸로 로그인 여부를 확인해요). */

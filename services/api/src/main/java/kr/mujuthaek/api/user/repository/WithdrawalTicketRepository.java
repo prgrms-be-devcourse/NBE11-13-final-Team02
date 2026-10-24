@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.user.repository;
 
+import java.time.Instant;
 import java.util.Optional;
 import java.util.UUID;
 import kr.mujuthaek.api.user.domain.WithdrawalTicket;
@@ -18,4 +19,8 @@ public interface WithdrawalTicketRepository extends JpaRepository<WithdrawalTick
   @Modifying
   @Query("delete from WithdrawalTicket t where t.userId = :userId")
   int deleteByUserId(UUID userId);
+
+  @Modifying
+  @Query("delete from WithdrawalTicket t where t.expiresAt <= :now")
+  int deleteExpired(Instant now);
 }

@@ -2,6 +2,7 @@ package kr.mujuthaek.api.user.security;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpSession;
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +48,11 @@ class LoginFailureHandler implements AuthenticationFailureHandler {
       return;
     }
     log.warn("소셜 로그인 실패: reason={}, detail={}", reason, error.getMessage(), error);
+    // 로그인 시작 때 만든 세션(OAuth2 state 등)을 남기지 않아요. 실패·봇 요청마다 만료될 때까지 메모리에 쌓여요
+    HttpSession session = request.getSession(false);
+    if (session != null) {
+      session.invalidate();
+    }
     response.sendRedirect(
         props.frontendUrl()
             + "/login?error=social&reason="

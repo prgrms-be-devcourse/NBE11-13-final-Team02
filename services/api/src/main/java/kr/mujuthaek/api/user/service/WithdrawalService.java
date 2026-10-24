@@ -1,10 +1,9 @@
 package kr.mujuthaek.api.user.service;
 
-import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Base64;
+import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.common.event.UserWithdrawn;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -34,7 +33,6 @@ public class WithdrawalService {
   private final WithdrawalTicketRepository tickets;
   private final ApplicationEventPublisher events;
   private final Clock clock;
-  private final SecureRandom random = new SecureRandom();
 
   @Autowired
   public WithdrawalService(
@@ -73,11 +71,23 @@ public class WithdrawalService {
             .orElseThrow(() -> new CustomException(ErrorCode.WITHDRAWAL_PROVIDER_NOT_LINKED));
     tickets.deleteByUserId(userId);
     Instant now = clock.instant();
-    String raw = randomToken();
+    String raw = AuthTokenService.randomToken();
     tickets.save(
         new WithdrawalTicket(
             userId, account.getProvider(), AuthTokenService.hash(raw), now.plus(TICKET_TTL), now));
-    return new WithdrawalStart(account.getProvider().name(), raw, TICKET_TTL);
+    // 제공자 토큰을 저장하지 않아서, 다시 로그인한 소셜만 연결을 끊을 수 있어요. 나머지는 화면에서 각 서비스에서 직접 해제하라고 알려요
+    List<String> others =
+        linked.stream()
+            .map(a -> a.getProvider().name())
+            .filter(name -> !name.equals(account.getProvider().name()))
+            .toList();
+    return new WithdrawalStart(account.getProvider().name(), raw, TICKET_TTL, others);
+  }
+
+  /** 만료된 탈퇴 티켓 정리 (탈퇴를 시작하고 재인증을 끝내지 않은 것). */
+  @Transactional
+  public int deleteExpiredTickets() {
+    return tickets.deleteExpired(clock.instant());
   }
 
   /** 재인증 콜백: 티켓을 확인하고 지워요 (일회용). 없거나 만료됐거나 다른 소셜로 로그인했으면 실패. 탈퇴할 회원 ID를 돌려줘요. */
@@ -108,11 +118,5 @@ public class WithdrawalService {
         .orElseThrow(() -> new CustomException(ErrorCode.WITHDRAWAL_ACCOUNT_MISMATCH));
     users.deleteUser(userId);
     events.publishEvent(new UserWithdrawn(userId));
-  }
-
-  private String randomToken() {
-    byte[] bytes = new byte[32];
-    random.nextBytes(bytes);
-    return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
   }
 }

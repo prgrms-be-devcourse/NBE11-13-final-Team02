@@ -58,6 +58,35 @@ class AuthTokenServiceTest {
   }
 
   @Test
+  void concurrentRefreshLoserGetsConflictNotServerError() {
+    // 두 요청이 같은 쿠키로 동시에 찾기를 통과하고, 먼저 온 쪽이 지운 뒤라 늦은 쪽의 삭제가 0줄인 경우
+    var repo = org.mockito.Mockito.mock(RefreshTokenRepository.class);
+    var saved =
+        new kr.mujuthaek.api.user.domain.RefreshToken(
+            java.util.UUID.randomUUID(),
+            AuthTokenService.hash("raw"),
+            Instant.now().plus(Duration.ofDays(1)),
+            Instant.now());
+    org.mockito.Mockito.when(repo.findByTokenHash(AuthTokenService.hash("raw")))
+        .thenReturn(java.util.Optional.of(saved));
+    org.mockito.Mockito.when(repo.deleteByTokenHash(AuthTokenService.hash("raw"))).thenReturn(0);
+    var service = new AuthTokenService(jwtEncoder, props, repo, users, Clock.systemUTC());
+
+    assertThatThrownBy(() -> service.refresh("raw"))
+        .isInstanceOf(CustomException.class)
+        .extracting(e -> ((CustomException) e).errorCode())
+        .isEqualTo(ErrorCode.CONFLICT);
+  }
+
+  @Test
+  void refreshAndWithdrawalTicketsUseUrlSafeRandomTokens() {
+    String a = AuthTokenService.randomToken();
+    String b = AuthTokenService.randomToken();
+
+    assertThat(a).hasSize(43).matches("[A-Za-z0-9_-]+").isNotEqualTo(b); // 32바이트 Base64url
+  }
+
+  @Test
   void refreshTokenIsStoredOnlyAsHash() {
     String raw = tokens.issue(login("3002")).refreshToken();
 

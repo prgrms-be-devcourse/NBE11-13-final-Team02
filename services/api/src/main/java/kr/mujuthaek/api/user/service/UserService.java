@@ -23,6 +23,11 @@ public class UserService {
     this.socialAccounts = socialAccounts;
   }
 
+  /** 회원이 아직 있는지 (탈퇴했으면 false). 탈퇴 뒤 남은 access token의 쓰기 요청을 막을 때 써요. */
+  public boolean exists(UUID userId) {
+    return users.existsById(userId);
+  }
+
   public MeResponse getMe(UUID userId) {
     // 탈퇴했는데 남은 access token(최대 30분)으로 부른 경우: 401이라 프론트가 로그아웃 처리해요
     User user =

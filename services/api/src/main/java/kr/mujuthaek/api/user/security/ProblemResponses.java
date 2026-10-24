@@ -1,28 +1,33 @@
 package kr.mujuthaek.api.user.security;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import kr.mujuthaek.api.common.exception.ErrorCode;
+import kr.mujuthaek.api.common.exception.Problems;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import tools.jackson.databind.json.JsonMapper;
 
-/** 보안 필터에서 나는 401·403도 GlobalExceptionHandler와 같은 Problem Details 모양으로 보내요. */
-final class ProblemResponses {
+/**
+ * 보안 필터에서 나는 401·403도 GlobalExceptionHandler와 같은 Problem Details 모양으로 보내요 (common의 {@link
+ * Problems}로 만들고 JSON 변환기로 써서 값이 이스케이프돼요).
+ */
+@Component
+class ProblemResponses {
 
-  private ProblemResponses() {}
+  private final JsonMapper json;
 
-  static void write(HttpServletResponse response, ErrorCode code) throws IOException {
+  ProblemResponses(JsonMapper json) {
+    this.json = json;
+  }
+
+  void write(HttpServletRequest request, HttpServletResponse response, ErrorCode code)
+      throws IOException {
     response.setStatus(code.status().value());
-    response.setContentType("application/problem+json");
+    response.setContentType(MediaType.APPLICATION_PROBLEM_JSON_VALUE);
     response.setCharacterEncoding(StandardCharsets.UTF_8.name());
-    response
-        .getWriter()
-        .write(
-            """
-            {"type":"about:blank","title":"%s","status":%d,"detail":"%s","code":"%s"}"""
-                .formatted(
-                    code.status().getReasonPhrase(),
-                    code.status().value(),
-                    code.message(),
-                    code.name()));
+    json.writeValue(response.getWriter(), Problems.of(code, code.message(), request));
   }
 }

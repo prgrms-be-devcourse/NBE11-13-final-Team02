@@ -58,6 +58,7 @@ class SecurityIntegrationTest {
   @Autowired LoginProperties loginProperties;
   @Autowired kr.mujuthaek.api.user.service.WithdrawalService withdrawalService;
   @Autowired kr.mujuthaek.api.user.repository.UserRepository users;
+  @Autowired org.springframework.jdbc.core.JdbcTemplate jdbc;
 
   private LoginUser login(String kakaoId) {
     return socialLoginService.login(
@@ -290,10 +291,50 @@ class SecurityIntegrationTest {
             new org.springframework.security.oauth2.core.OAuth2Error(
                 SocialOAuth2UserService.SOCIAL_LOGIN_FAILED));
 
-    loginFailureHandler.onAuthenticationFailure(new MockHttpServletRequest(), response, error);
+    var request = new MockHttpServletRequest();
+    request.getSession(true); // 로그인 시작 때 만든 세션 (OAuth2 state)
+
+    loginFailureHandler.onAuthenticationFailure(request, response, error);
 
     assertThat(response.getRedirectedUrl())
         .isEqualTo("http://localhost:3000/login?error=social&reason=social_login_failed");
+    assertThat(request.getSession(false)).isNull(); // 실패해도 세션을 남기지 않아요
+  }
+
+  @Test
+  void refreshIgnoresExpiredOrBrokenBearerHeader() throws Exception {
+    // 프론트가 모든 요청에 만료된 access token을 붙여도 재발급은 쿠키로만 확인해요
+    String raw = tokens.issue(login("2101")).refreshToken();
+
+    mvc.perform(
+            post("/api/auth/refresh")
+                .cookie(new Cookie(RefreshTokenCookies.NAME, raw))
+                .header("Authorization", "Bearer not-a-jwt"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.accessToken").isNotEmpty());
+  }
+
+  @Test
+  void withdrawnUsersLeftoverTokenCannotWrite() throws Exception {
+    LoginUser user = login("2102");
+    String token = bearer(user);
+    jdbc.update("delete from account.users where id = ?", user.userId());
+
+    // 쓰기 요청은 회원이 남아 있는지 보고 401
+    mvc.perform(post("/api/users/me/withdrawal").header("Authorization", token))
+        .andExpect(status().isUnauthorized())
+        .andExpect(jsonPath("$.code").value("UNAUTHENTICATED"));
+    // 읽기는 DB를 보지 않아요 (내 정보는 서비스가 401)
+    mvc.perform(get("/api/users/me").header("Authorization", token))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  void securityErrorsHaveSameShapeAsControllerErrors() throws Exception {
+    mvc.perform(get("/api/users/me"))
+        .andExpect(jsonPath("$.type").value("https://mujuthaek.kr/problems/unauthenticated"))
+        .andExpect(jsonPath("$.title").value("로그인이 필요해요"))
+        .andExpect(jsonPath("$.instance").value("/api/users/me"));
   }
 
   @Test

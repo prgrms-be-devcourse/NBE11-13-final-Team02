@@ -11,6 +11,7 @@ import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.event.UserWithdrawn;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
+import kr.mujuthaek.api.user.domain.SocialAccount;
 import kr.mujuthaek.api.user.domain.SocialProvider;
 import kr.mujuthaek.api.user.repository.RefreshTokenRepository;
 import kr.mujuthaek.api.user.repository.SocialAccountRepository;
@@ -58,6 +59,34 @@ class WithdrawalServiceTest {
     assertThat(tickets.findByTicketHash(AuthTokenService.hash(first.ticket())))
         .isEmpty(); // 새로 시작하면 이전 티켓은 지워요
     assertThat(tickets.findByTicketHash(second.ticket())).isEmpty(); // 원문은 저장하지 않아요
+  }
+
+  @Test
+  void startTellsOtherLinkedProviders() {
+    LoginUser user = login(SocialProvider.KAKAO, "w-7");
+    socialAccounts.save(
+        new SocialAccount(user.userId(), SocialProvider.NAVER, "w-7-naver", Instant.now()));
+
+    WithdrawalStart start = withdrawals.start(user.userId(), "kakao");
+
+    assertThat(start.provider()).isEqualTo("KAKAO");
+    assertThat(start.otherProviders()).containsExactly("NAVER"); // 서버가 못 끊는 연결
+  }
+
+  @Test
+  void deleteExpiredTicketsKeepsLiveOnes() {
+    LoginUser old = login(SocialProvider.KAKAO, "w-8");
+    LoginUser live = login(SocialProvider.KAKAO, "w-9");
+    Clock past = Clock.fixed(Instant.now().minus(Duration.ofMinutes(11)), ZoneOffset.UTC);
+    String oldTicket =
+        new WithdrawalService(users, socialAccounts, tickets, publisher, past)
+            .start(old.userId(), null)
+            .ticket();
+    String liveTicket = withdrawals.start(live.userId(), null).ticket();
+
+    assertThat(withdrawals.deleteExpiredTickets()).isPositive();
+    assertThat(tickets.findByTicketHash(AuthTokenService.hash(oldTicket))).isEmpty();
+    assertThat(tickets.findByTicketHash(AuthTokenService.hash(liveTicket))).isPresent();
   }
 
   @Test

@@ -6,6 +6,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import kr.mujuthaek.api.user.domain.Role;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.core.user.OAuth2User;
@@ -39,6 +40,6 @@ public record LoginUser(UUID userId, String nickname, String role)
 
   @Override
   public Collection<? extends GrantedAuthority> getAuthorities() {
-    return List.of(new SimpleGrantedAuthority("ROLE_" + role));
+    return List.of(new SimpleGrantedAuthority(Role.valueOf(role).authority()));
   }
 }
