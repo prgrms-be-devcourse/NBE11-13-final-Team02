@@ -419,6 +419,29 @@ def merge_recheck(
     return merged
 
 
+# 항목 문제를 보낼 섹션 순서(2026-10-24 네 번째 채점: 자격 세부 항목 6개가 자리 8개를 늘 먼저 차지해, 화면에 보이는 일정의 지워진
+# 접수 시각이 재확인을 받지 못함). 섹션 전체 문제 다음에 항목 문제를 이 순서로 섹션마다 하나씩 번갈아 넣습니다
+RECHECK_SECTION_ORDER = ("schedules", "supplyGroups", "requiredDocuments", "notice", "eligibility")
+
+
+def ordered_problems(problems: dict[tuple[str, str | None], list[str]]) -> list[tuple[tuple[str, str | None], list[str]]]:
+    """재확인에 보낼 순서. 섹션 전체 문제(빠진 항목 추가)를 먼저 둬 항목 문제가 많아도 상한(MAX_ITEMS)에 밀려 빠지지 않게 하고,
+    항목 문제는 RECHECK_SECTION_ORDER 순서로 섹션마다 하나씩 번갈아 둡니다(한 섹션이 자리를 모두 차지하지 않게)."""
+    whole = [kv for kv in problems.items() if kv[0][1] is None and kv[0][0] != "notice"]
+    by_section: dict[str, list[tuple[tuple[str, str | None], list[str]]]] = {}
+    for kv in problems.items():
+        if kv not in whole:
+            by_section.setdefault(kv[0][0], []).append(kv)
+    rank = {name: n for n, name in enumerate(RECHECK_SECTION_ORDER)}
+    queues = [by_section[name] for name in sorted(by_section, key=lambda name: rank.get(name, len(rank)))]
+    items: list[tuple[tuple[str, str | None], list[str]]] = []
+    while any(queues):
+        for queue in queues:
+            if queue:
+                items.append(queue.pop(0))
+    return whole + items
+
+
 def recheck_problems(
     rules: FieldRules,
     material: ExtractionMaterial,
@@ -442,9 +465,7 @@ def recheck_problems(
                 problems.setdefault((section, item.get("id")), []).append(DROPPED_PROBLEM)
 
     targets, sections, used = [], [], 0
-    # 섹션 전체 문제(빠진 항목 추가)를 먼저 둡니다. 항목 문제가 많아도 상한(MAX_ITEMS)에 밀려 빠지지 않게
-    ordered = sorted(problems.items(), key=lambda kv: kv[0][1] is not None or kv[0][0] == "notice")
-    for (section, item_id), descriptions in ordered:
+    for (section, item_id), descriptions in ordered_problems(problems):
         if len(targets) >= MAX_ITEMS:
             break
         index = _part_with(parts, section)

@@ -217,3 +217,39 @@ def test_exclusion_clue_about_the_document_itself_is_fine():
     text = "| 가상 금융정보 제공 동의서 | 가상급여 수급자는 ‘가상 금융정보 제공 동의서’ 작성 제외 |"
     assert clue_for_other(doc, text, ["가상 개인정보 이용 동의서"]) is None
     assert clue_for_other({**doc, "appliesTo": "신청자 전원"}, "가상 개인정보 이용 동의서 제외", ["가상 개인정보 이용 동의서"]) is None
+
+
+# ---- 6. 서류 누락 의심: 자산 산정 표 행은 서류 행이 아님 ----
+
+
+def test_asset_criteria_rows_after_a_document_table_are_not_document_rows():
+    from mujuthaek_extraction.verify.consistency import _document_table_rows
+
+    text = "\n".join(
+        [
+            "■ 제출서류",
+            "| 서류 | 발급처 |",
+            "| 가상 소득 확인서 | 가상센터 |",
+            "",
+            "- 3 -",
+            "| 총 자 산 | 부 동 산 • 가상시스템에서 조회한 건축물·토지 가액(가상 확인서 기준) |",
+            "| 기타 자산 • 「가상세법」 제104조에 따른 가상 증명서 금액 |",
+        ]
+    )
+    rows = _document_table_rows(text)
+    assert rows == ["| 가상 소득 확인서 | 가상센터 |"]
+
+
+# ---- 7. 재확인 순서: 섹션마다 번갈아 ----
+
+
+def test_recheck_order_puts_whole_section_first_then_alternates_sections():
+    from mujuthaek_extraction.recheck import ordered_problems
+
+    problems = {("eligibility", f"e{n}"): ["x"] for n in range(6)}
+    problems[("schedules", "s1")] = ["x"]
+    problems[("requiredDocuments", None)] = ["x"]
+    problems[("requiredDocuments", "d1")] = ["x"]
+    order = [key for key, _ in ordered_problems(problems)]
+    assert order[:4] == [("requiredDocuments", None), ("schedules", "s1"), ("requiredDocuments", "d1"), ("eligibility", "e0")]
+    assert len(order) == len(problems)

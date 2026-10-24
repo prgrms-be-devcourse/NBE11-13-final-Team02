@@ -819,6 +819,17 @@ HEADER_CELL = re.compile(
 STEP_CELL = re.compile(r"^(?:\d{1,2}\s*단계|STEP\s*\d{1,2}|\d{1,2}\s*step)$", re.IGNORECASE)
 
 
+# 자산·소득 산정 기준 표의 행(2026-10-24 네 번째 채점: 「총 자 산 | 부 동 산 • 사회보장정보시스템에서…」「기타 자산 • 「지방세법」 제104조…」가
+# 서류 표에 이어진 표로 읽혀 빠진 서류로 셈 — 4건 모두 재확인 자리 하나를 늘 차지함). 첫 칸이 자산·소득 항목 이름이면 서류 행이 아닙니다
+ASSET_CELL = re.compile(r"^(?:총자산|자산|부동산|토지|건축물|자동차|금융자산|일반자산|기타자산|부채|소득|근로소득|사업소득|재산소득|기타소득|연금소득)\S{0,4}$")
+
+
+def _asset_row(row: str) -> bool:
+    first = next((c for c in _cells(row) if c.strip()), "")
+    plain = "".join(first.split())
+    return bool(ASSET_CELL.match(plain.split("•")[0]))
+
+
 def _header_row(row: str) -> bool:
     cells = ["".join(c.split()) for c in _cells(row) if c.strip()]
     return bool(cells) and all(HEADER_CELL.match(c) for c in cells)
@@ -856,7 +867,7 @@ def _document_table_rows(text: str) -> list[str]:
         titled = any(DOCUMENT_HEADING_WORDS.search("".join(line.split())) for line in above)
         continued = previous_end is not None and all(not line.strip() or PAGE_MARK.match(line) for line in lines[previous_end:start])
         if (header or titled or continued) and sum(map(_step_row, rows)) < 2:
-            out += [row for row in (rows[1:] if header else rows) if not _header_row(row)]
+            out += [row for row in (rows[1:] if header else rows) if not _header_row(row) and not _asset_row(row)]
             previous_end = i
         else:
             previous_end = None
