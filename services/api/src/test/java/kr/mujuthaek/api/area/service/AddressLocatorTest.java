@@ -21,6 +21,7 @@ import kr.mujuthaek.api.area.geocode.SearchOutcome.NotFound;
 import kr.mujuthaek.api.area.geocode.SearchOutcome.Reason;
 import kr.mujuthaek.api.area.repository.PostgresAddressPointLookup;
 import kr.mujuthaek.api.area.repository.PostgresLegalDongCentroid;
+import kr.mujuthaek.api.area.repository.PostgresRegionBoundaryCheck;
 import kr.mujuthaek.api.area.repository.PostgresUtmkTransform;
 import kr.mujuthaek.api.common.region.RegionQueryService;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,13 +51,14 @@ class AddressLocatorTest {
           building -> coordAnswer.apply(building),
           new PostgresUtmkTransform(AreaTestDatabase.dataSource()),
           new PostgresLegalDongCentroid(AreaTestDatabase.dataSource()),
+          new PostgresRegionBoundaryCheck(AreaTestDatabase.dataSource()),
           new RegionQueryService(new JdbcTemplate(AreaTestDatabase.dataSource())));
 
   @BeforeEach
   void data() throws Exception {
     exec("delete from area.address_points where load_scope = '99'");
     exec("delete from area.road_names where sigungu_code = '26990'");
-    exec("delete from area.region_boundaries where code = '26990101'");
+    exec("delete from area.region_boundaries where code in ('26990101', '26990')");
     exec("delete from common.region_code_changes where old_code = '2698010100'");
     exec(
         "insert into common.regions (code, level, parent_code, name, full_name, short_name, base_date)"
@@ -91,6 +93,29 @@ class AddressLocatorTest {
     assertThat(r.sigunguCode()).isEqualTo("26990");
     assertThat(r.addressId()).isEqualTo(id("a1"));
     assertThat(searched).isEmpty();
+  }
+
+  @Test
+  void aCoordinateOutsideTheSigunguBoundaryIsDropped() throws Exception {
+    // 시험구 경계가 사전 좌표(129.04, 35.10)에서 멀리 있음: 사전 좌표가 틀렸거나 다른 시군구
+    sigunguBoundary(128.00, 34.00);
+
+    GeocodeResult r = locator.locate("부산광역시 시험구 초량상로 1-2", BJD);
+
+    assertThat(r.status()).isEqualTo(Status.FAILED);
+    assertThat(r.failReason()).isEqualTo(FailReason.OUT_OF_REGION);
+    assertThat(r.coordinate()).isNull();
+  }
+
+  @Test
+  void outsideTheGivenLegalDongIsOnlyMarked() throws Exception {
+    // 시군구 경계 안이지만 받은 법정동(시험동 129.00~129.02) 밖
+    sigunguBoundary(129.03, 35.09);
+
+    GeocodeResult r = locator.locate("부산광역시 시험구 초량상로 1-2", BJD);
+
+    assertThat(r.status()).isEqualTo(Status.OK);
+    assertThat(r.regionMismatch()).isTrue();
   }
 
   @Test
@@ -291,5 +316,32 @@ class AddressLocatorTest {
             + ", "
             + lat
             + ")::geography, date '2026-09-30')");
+  }
+
+  /** 시험구 시군구 경계: (lng, lat)에서 0.02도 정사각형. */
+  private static void sigunguBoundary(double lng, double lat) throws Exception {
+    exec(
+        "insert into area.region_boundaries (level, code, name, geom, data_date) values ('SIG', '26990',"
+            + " '시험구', 'SRID=4326;MULTIPOLYGON((("
+            + lng
+            + " "
+            + lat
+            + ", "
+            + (lng + 0.02)
+            + " "
+            + lat
+            + ", "
+            + (lng + 0.02)
+            + " "
+            + (lat + 0.02)
+            + ", "
+            + lng
+            + " "
+            + (lat + 0.02)
+            + ", "
+            + lng
+            + " "
+            + lat
+            + ")))'::geography, date '2026-09-30')");
   }
 }
