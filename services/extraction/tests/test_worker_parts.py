@@ -119,14 +119,19 @@ class FakeStore:
     def review(self, job_id):
         return self.item
 
-    def approve(self, job_id, candidate, event, note):
+    def approve(self, job_id, candidate, event, note, **record):
         self.approved = (candidate, event, note)
+        self.record = record
         self.item["reviewStatus"] = "APPROVED"
 
-    def reject(self, job_id, note):
+    def reject(self, job_id, note, reviewer=None):
         if self.item["reviewStatus"] != "PENDING":
             raise LookupError("대기 중인 검수가 아닙니다.")
         self.rejected = note
+        self.record = {"reviewer": reviewer}
+
+    def review_stats(self, days):
+        return {"days": days}
 
 
 def service_with(item):
@@ -789,3 +794,73 @@ def test_repeated_temporary_ai_failures_end_in_dlq_instead_of_looping(monkeypatc
 def test_benefit_policy_is_acked_before_opening_the_ledger(monkeypatch):
     handle, calls, opened = policy_message_setup(monkeypatch, [])
     assert handle("e-1", field="BENEFIT") == "ack" and calls == [] and opened == []
+
+
+# ---------- 관리자 검수 화면: 칸별 수정·처리 기록·통계 (2026-10-25) ----------
+
+
+def test_field_edits_are_applied_recorded_and_published():
+    service, store = service_with(pending_item())
+    before = store.item["candidate"]["eligibility"][0]["description"]
+    edits = [{"path": "/eligibility/0/description", "value": "가상 설명을 고침"}]
+    status, body = service.approve("job", {"edits": edits, "reviewer": "admin:7", "note": "원문 3쪽"})
+    assert status == 200, body
+    candidate, event, note = store.approved
+    assert candidate["eligibility"][0]["description"] == "가상 설명을 고침"
+    assert event["payload"]["notice"]["eligibility"][0]["description"] == "가상 설명을 고침"
+    assert store.record == {
+        "reviewer": "admin:7",
+        "edited": True,
+        "edits": [{"path": "/eligibility/0/description", "before": before, "after": "가상 설명을 고침"}],
+    }
+    assert store.item["candidate"]["eligibility"][0]["description"] == before  # 저장된 원래 후보는 그대로(사본을 고침)
+
+
+def test_plain_approval_is_recorded_as_not_edited():
+    service, store = service_with(pending_item())
+    assert service.approve("job", {"reviewer": "admin:7"})[0] == 200
+    assert store.record == {"reviewer": "admin:7", "edited": False, "edits": None}
+
+
+@pytest.mark.parametrize(
+    ("edits", "message"),
+    [
+        ([{"path": "/input/rawPostId", "value": "x"}], "고칠 수 없는"),
+        ([{"path": "/quality/heldItems", "value": []}], "고칠 수 없는"),
+        ([{"path": "/eligibility/99/description", "value": "x"}], "칸이 없습니다"),
+        ([{"path": "/eligibility/0/newField", "value": "x"}], "새 칸은"),
+        ([{"path": "eligibility/0", "value": "x"}], "JSON Pointer"),
+        ([{"path": "/eligibility/0/description"}], "{path, value}"),
+        ([], "한 개 이상"),
+    ],
+)
+def test_bad_field_edits_are_refused(edits, message):
+    service, store = service_with(pending_item())
+    status, body = service.approve("job", {"edits": edits})
+    assert status == 422 and message in body["error"] and store.approved is None
+
+
+def test_edit_that_breaks_the_contract_is_refused():
+    service, store = service_with(pending_item())
+    status, body = service.approve("job", {"edits": [{"path": "/eligibility/0/category", "value": "없는 분류"}]})
+    assert status == 422 and store.approved is None
+
+
+def test_candidate_and_edits_together_are_refused():
+    item = pending_item()
+    service, store = service_with(item)
+    status, _ = service.approve("job", {"candidate": item["candidate"], "edits": [{"path": "/eligibility/0/description", "value": "x"}]})
+    assert status == 422 and store.approved is None
+
+
+def test_reject_records_reviewer():
+    service, store = service_with(pending_item())
+    assert service.reject("job", {"note": "[중복 공고]", "reviewer": "admin:7"})[0] == 200
+    assert store.rejected == "[중복 공고]" and store.record == {"reviewer": "admin:7"}
+
+
+def test_stats_days_are_checked():
+    service, _ = service_with(pending_item())
+    assert service.stats(None) == (200, {"days": 7})
+    assert service.stats("30") == (200, {"days": 30})
+    assert service.stats("0")[0] == 400 and service.stats("x")[0] == 400 and service.stats("91")[0] == 400

@@ -5,8 +5,11 @@
                                      SUPERSEDED: 같은 공고의 새 버전(또는 정정공고)이 발행되어 대체된 건, supersededBy에 대체한 작업·공고·버전
   GET  /reviews/{jobId}              검수 상세 (표준 공고 후보·이슈·받은 이벤트)
   POST /reviews/{jobId}/approve      승인 → extraction.completed(reviewStatus APPROVED) 다시 발행
-                                     본문(선택): {"candidate": 고친 표준 공고, "note": "메모"}
-  POST /reviews/{jobId}/reject       반려 (발행 없음). 본문(선택): {"note": "메모"}
+                                     본문(선택): {"candidate": 고친 표준 공고 | "edits": [{"path": "/eligibility/3/description", "value": …}],
+                                                 "note": "메모", "reviewer": "검수자"}
+                                     edits는 칸별 수정(관리자 화면, 2026-10-25): 있는 칸만 바꾸고(새 칸 추가 없음) 원본·버전·검증 기록 칸은 못 바꿉니다
+  POST /reviews/{jobId}/reject       반려 (발행 없음). 본문(선택): {"note": "메모", "reviewer": "검수자"}
+  GET  /reviews/stats?days=7         처리 통계(최근 days일·오늘): 그대로 승인·고쳐서 승인·반려 수, 처리까지 걸린 시간 중앙값(분)
   GET  /costs?month=2026-10          분야별 유료 AI 호출 수·비용과 월 상한 대비 비율(한국 시간 달, month 없으면 이번 달, cost_alert.py)
 
 인증(검토 2026-10-16): EXTRACTION_REVIEW_TOKEN이 있으면 /health 밖의 모든 요청에 'Authorization: Bearer <토큰>'이 필요합니다.
@@ -42,6 +45,58 @@ MAX_BODY = 5 * 1024 * 1024
 LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 REVIEW_LIST_STATUSES = ("PENDING", "APPROVED", "REJECTED", SUPERSEDED)
+MAX_EDITS = 200
+# 칸별 수정으로 바꾸지 못하는 칸: 어느 공고·버전인지와 자동 검증 기록·근거 원문(바꾸면 다른 공고 결과를 발행하거나 근거가 흔들림)
+LOCKED_ROOTS = frozenset({"schemaVersion", "target", "input", "sourceReferences", "documents", "evidence", "quality"})
+
+
+def _pointer_tokens(path: str) -> list[str] | None:
+    """JSON Pointer(RFC 6901)를 낱말로. 형식이 틀리면 None."""
+    if not path.startswith("/") or path == "/":
+        return None
+    return [token.replace("~1", "/").replace("~0", "~") for token in path[1:].split("/")]
+
+
+def apply_edits(candidate: dict[str, Any], edits: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
+    """칸별 수정을 후보에 적용합니다(candidate를 바꿈). 있는 칸의 값만 바꾸고, 바꾼 기록 [{path, before, after}]을 돌려줍니다.
+    잘못된 수정이면 (None, 이유)."""
+    if not isinstance(edits, list) or not edits:
+        return None, "edits는 한 개 이상의 수정 목록이어야 합니다."
+    if len(edits) > MAX_EDITS:
+        return None, f"한 번에 {MAX_EDITS}개까지 고칠 수 있습니다."
+    applied = []
+    for edit in edits:
+        if not isinstance(edit, dict) or not isinstance(edit.get("path"), str) or "value" not in edit:
+            return None, "각 수정은 {path, value} 모양이어야 합니다."
+        tokens = _pointer_tokens(edit["path"])
+        if tokens is None:
+            return None, f"{edit['path']!r}는 JSON Pointer가 아닙니다."
+        if tokens[0] in LOCKED_ROOTS:
+            return None, f"{edit['path']}는 고칠 수 없는 칸입니다(원본·버전·검증 기록)."
+        parent: Any = candidate
+        for token in tokens[:-1]:
+            parent = _child(parent, token)
+            if parent is None:
+                return None, f"{edit['path']}에 해당하는 칸이 없습니다."
+        last = tokens[-1]
+        if isinstance(parent, dict) and last in parent:
+            before = parent[last]
+            parent[last] = edit["value"]
+        elif isinstance(parent, list) and last.isdigit() and int(last) < len(parent):
+            before = parent[int(last)]
+            parent[int(last)] = edit["value"]
+        else:
+            return None, f"{edit['path']}에 해당하는 칸이 없습니다(새 칸은 추가하지 않습니다)."
+        applied.append({"path": edit["path"], "before": before, "after": edit["value"]})
+    return applied, None
+
+
+def _child(node: Any, token: str) -> Any:
+    if isinstance(node, dict):
+        return node.get(token)
+    if isinstance(node, list) and token.isdigit() and int(token) < len(node):
+        return node[int(token)]
+    return None
 
 
 def _same_notice(candidate: dict[str, Any], raw_payload: dict[str, Any]) -> bool:
@@ -74,6 +129,17 @@ class ReviewService:
         with self.store_session() as store:
             return 200, store.monthly_costs(month, self.monthly_budget_usd)
 
+    def stats(self, days: str | None) -> tuple[int, Any]:
+        """처리 통계. days는 1~90(기본 7)."""
+        try:
+            value = 7 if days is None else int(days)
+        except ValueError:
+            value = 0
+        if not 1 <= value <= 90:
+            return 400, {"error": "days는 1~90 사이 정수입니다."}
+        with self.store_session() as store:
+            return 200, store.review_stats(value)
+
     def list(self, status: str) -> tuple[int, Any]:
         if status not in REVIEW_LIST_STATUSES:
             return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
@@ -96,11 +162,18 @@ class ReviewService:
                 return 409, {"error": superseded_message(item.get("rawPostId"), by["rawPostId"], by["version"], by["jobId"]), "supersededBy": by}
             if item["reviewStatus"] != "PENDING":
                 return 409, {"error": f"이미 {item['reviewStatus']} 처리된 항목입니다."}
+            if body.get("candidate") is not None and body.get("edits") is not None:
+                return 422, {"error": "고친 후보 전체(candidate)와 칸별 수정(edits)은 함께 보낼 수 없습니다."}
             candidate = body.get("candidate") or item["candidate"]
             if candidate is None:
                 return 409, {"error": "추출 결과가 없어 승인할 수 없습니다. 원본 자료를 고친 뒤 다시 처리하세요."}
             # 2026-10-23 이전에 저장한 후보는 일정·서류의 새 칸과 정해진 신청 방법 값으로 옮긴 뒤 검사합니다(새 형식이면 그대로)
             candidate = upgrade_stored(copy.deepcopy(candidate))
+            edits = None
+            if body.get("edits") is not None:
+                edits, problem = apply_edits(candidate, body["edits"])
+                if problem:
+                    return 422, {"error": problem}
             errors = tools().validate(candidate, CANDIDATE_SCHEMA)
             if errors:
                 return 422, {"error": "표준 공고 형식이 맞지 않습니다.", "details": errors[:20]}
@@ -113,7 +186,15 @@ class ReviewService:
             if errors:
                 return 422, {"error": "발행할 이벤트가 계약과 맞지 않습니다.", "details": errors[:20]}
             try:
-                store.approve(job_id, candidate, event, body.get("note"))
+                store.approve(
+                    job_id,
+                    candidate,
+                    event,
+                    body.get("note"),
+                    reviewer=body.get("reviewer"),
+                    edited=edits is not None or body.get("candidate") is not None,
+                    edits=edits,
+                )
             except LookupError as error:
                 return 409, {"error": str(error)}
         log.info("검수 승인", extra={"jobId": job_id, "eventId": event["eventId"]})
@@ -122,7 +203,7 @@ class ReviewService:
     def reject(self, job_id: str, body: dict[str, Any]) -> tuple[int, Any]:
         with self.store_session() as store:
             try:
-                store.reject(job_id, body.get("note"))
+                store.reject(job_id, body.get("note"), reviewer=body.get("reviewer"))
             except LookupError as error:
                 return 409, {"error": str(error)}
         log.info("검수 반려", extra={"jobId": job_id})
@@ -163,7 +244,7 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
                 value = json.loads(self.rfile.read(length))
             except ValueError:
                 return None
-            if not isinstance(value, dict) or not isinstance(value.get("note"), str | None):
+            if not isinstance(value, dict) or not isinstance(value.get("note"), str | None) or not isinstance(value.get("reviewer"), str | None):
                 return None
             return value
 
@@ -185,6 +266,8 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
                 return self._send(401, {"error": "인증이 필요합니다."})
             if url.path == "/reviews":
                 return self._send(*service.list(parse_qs(url.query).get("status", ["PENDING"])[0]))
+            if url.path == "/reviews/stats":
+                return self._send(*service.stats(parse_qs(url.query).get("days", [None])[0]))
             if url.path == "/costs":
                 return self._send(*service.costs(parse_qs(url.query).get("month", [None])[0]))
             match = REVIEW_PATH.match(url.path)
@@ -204,7 +287,7 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
                 return self._send(400, {"error": "작업 ID 형식이 아닙니다."})
             body = self._body()
             if body is None:
-                return self._send(400, {"error": "본문은 5MB 이하의 JSON 객체여야 하고, note는 글자여야 합니다."})
+                return self._send(400, {"error": "본문은 5MB 이하의 JSON 객체여야 하고, note·reviewer는 글자여야 합니다."})
             action = service.approve if match[2] == "approve" else service.reject
             self._send(*action(job_id, body))
 

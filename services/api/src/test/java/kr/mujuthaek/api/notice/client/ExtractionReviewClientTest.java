@@ -65,7 +65,8 @@ class ExtractionReviewClientTest {
         .andExpect(method(HttpMethod.POST))
         .andExpect(content().json("{\"note\":\"[중복 공고]\"}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
-    assertThat(client.reject(JOB, "[중복 공고]").get("reviewStatus").asString()).isEqualTo("REJECTED");
+    assertThat(client.reject(JOB, "[중복 공고]", null).get("reviewStatus").asString())
+        .isEqualTo("REJECTED");
   }
 
   @Test
@@ -77,7 +78,7 @@ class ExtractionReviewClientTest {
             withStatus(HttpStatus.CONFLICT)
                 .contentType(MediaType.APPLICATION_JSON)
                 .body("{\"error\":\"이미 APPROVED 처리된 항목입니다.\"}"));
-    assertThatThrownBy(() -> client.approve(JOB, null))
+    assertThatThrownBy(() -> client.approve(JOB, null, null, null))
         .isInstanceOfSatisfying(
             CustomException.class,
             e -> {

@@ -1,6 +1,7 @@
 package kr.mujuthaek.api.notice.client;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -58,21 +59,44 @@ public class ExtractionReviewClient {
     return call(() -> http.get().uri("/reviews/{id}", jobId).retrieve().body(JsonNode.class));
   }
 
-  /** 승인. 검수 API가 그 작업의 결과를 다시 발행해요. */
-  public JsonNode approve(String jobId, String note) {
-    return post(jobId, "approve", note);
+  /** 처리 통계(최근 days일·오늘). */
+  public JsonNode stats(int days) {
+    return call(
+        () -> http.get().uri("/reviews/stats?days={d}", days).retrieve().body(JsonNode.class));
+  }
+
+  /**
+   * 승인. 검수 API가 그 작업의 결과를 다시 발행해요.
+   *
+   * @param edits 칸별 수정 [{path, value}]. 비면 그대로 승인
+   * @param reviewer 처리 기록에 남길 검수자(로그인 계정 ID)
+   */
+  public JsonNode approve(
+      String jobId, String note, String reviewer, List<Map<String, Object>> edits) {
+    Map<String, Object> body = body(note, reviewer);
+    if (edits != null && !edits.isEmpty()) {
+      body.put("edits", edits);
+    }
+    return post(jobId, "approve", body);
   }
 
   /** 반려. 발행하지 않아요. */
-  public JsonNode reject(String jobId, String note) {
-    return post(jobId, "reject", note);
+  public JsonNode reject(String jobId, String note, String reviewer) {
+    return post(jobId, "reject", body(note, reviewer));
   }
 
-  private JsonNode post(String jobId, String action, String note) {
+  private static Map<String, Object> body(String note, String reviewer) {
     Map<String, Object> body = new LinkedHashMap<>();
     if (note != null) {
       body.put("note", note);
     }
+    if (reviewer != null) {
+      body.put("reviewer", reviewer);
+    }
+    return body;
+  }
+
+  private JsonNode post(String jobId, String action, Map<String, Object> body) {
     return call(
         () ->
             http.post()

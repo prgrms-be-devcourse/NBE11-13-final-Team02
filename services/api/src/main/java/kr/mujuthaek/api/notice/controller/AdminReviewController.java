@@ -1,12 +1,14 @@
 package kr.mujuthaek.api.notice.controller;
 
 import jakarta.validation.Valid;
+import java.security.Principal;
 import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewCountsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse;
+import kr.mujuthaek.api.notice.dto.response.AdminReviewStatsResponse;
 import kr.mujuthaek.api.notice.service.internal.AdminReviewService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,10 +24,13 @@ import org.springframework.web.bind.annotation.RestController;
  * <pre>
  * GET  /api/admin/reviews?reason=MUST|CHECK|FORMAT   대기 목록
  * GET  /api/admin/reviews/counts                     대기 건수 · 가장 오래된 시각
- * GET  /api/admin/reviews/{id}                       상세 머리 · 이슈 · 처리 기록
- * POST /api/admin/reviews/{id}/approve               승인 { "note": "…" }
+ * GET  /api/admin/reviews/stats?days=7               처리 통계 (최근 days일 · 오늘)
+ * GET  /api/admin/reviews/{id}                       상세: 확인할 칸·이유·원문 근거·처리 기록
+ * POST /api/admin/reviews/{id}/approve               승인 { "note": "…", "edits": [{ "path": "…", "value": … }] }
  * POST /api/admin/reviews/{id}/reject                반려 { "reason": "DUPLICATE", "note": "…" }
  * </pre>
+ *
+ * <p>처리 기록의 검수자는 로그인 계정 ID(Principal 이름)예요. 사용자 모듈 타입에 기대지 않으려고 표준 Principal로 받아요.
  */
 @RestController
 @RequestMapping("/api/admin/reviews")
@@ -47,6 +52,11 @@ class AdminReviewController {
     return reviews.counts();
   }
 
+  @GetMapping("/stats")
+  AdminReviewStatsResponse stats(@RequestParam(defaultValue = "7") int days) {
+    return reviews.stats(days);
+  }
+
   @GetMapping("/{id}")
   AdminReviewDetailResponse detail(@PathVariable UUID id) {
     return reviews.detail(id.toString());
@@ -55,14 +65,20 @@ class AdminReviewController {
   @PostMapping("/{id}/approve")
   AdminReviewDecisionResponse approve(
       @PathVariable UUID id,
-      @Valid @RequestBody(required = false) AdminReviewDecisionRequest request) {
-    return reviews.approve(id.toString(), request);
+      @Valid @RequestBody(required = false) AdminReviewDecisionRequest request,
+      Principal principal) {
+    return reviews.approve(id.toString(), request, reviewer(principal));
   }
 
   @PostMapping("/{id}/reject")
   AdminReviewDecisionResponse reject(
       @PathVariable UUID id,
-      @Valid @RequestBody(required = false) AdminReviewDecisionRequest request) {
-    return reviews.reject(id.toString(), request);
+      @Valid @RequestBody(required = false) AdminReviewDecisionRequest request,
+      Principal principal) {
+    return reviews.reject(id.toString(), request, reviewer(principal));
+  }
+
+  private static String reviewer(Principal principal) {
+    return principal == null ? null : principal.getName();
   }
 }

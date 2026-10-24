@@ -280,22 +280,33 @@ class JobStore:
     def review(self, job_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
             "select j.id, j.status, r.status, r.reasons, r.note, j.candidate, j.raw_event, j.error, j.model_used, j.cost_usd, j.raw_post_id,"
-            " r.decided_at, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
+            " r.decided_at, r.created_at, r.decided_by, r.edited, r.edits, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
             " from review_queue r join extraction_jobs j on j.id = r.job_id where j.id = %s",
             (job_id,),
         ).fetchone()
         if row is None:
             return None
         keys = ("jobId", "jobStatus", "reviewStatus", "reasons", "note", "candidate", "rawEvent", "error", "modelUsed", "costUsd", "rawPostId", "decidedAt")
-        item = dict(zip(keys, row[:12], strict=True))
+        keys += ("queuedAt", "decidedBy", "edited", "edits")
+        item = dict(zip(keys, row[:16], strict=True))
         item["jobId"] = str(item["jobId"])
         item["rawPostId"] = str(item["rawPostId"]) if item["rawPostId"] else None
         item["costUsd"] = float(item["costUsd"])
-        item["supersededBy"] = _superseded_by(*row[12:])
+        item["supersededBy"] = _superseded_by(*row[16:])
         return item
 
-    def approve(self, job_id: str, candidate: dict[str, Any], event: dict[str, Any], note: str | None) -> None:
+    def approve(
+        self,
+        job_id: str,
+        candidate: dict[str, Any],
+        event: dict[str, Any],
+        note: str | None,
+        reviewer: str | None = None,
+        edited: bool = False,
+        edits: list[dict[str, Any]] | None = None,
+    ) -> None:
         """대기 중인 검수를 승인하고 고친 후보와 발행할 이벤트를 한 트랜잭션으로 저장합니다.
+        reviewer·edited·edits는 처리 기록(관리자 화면, 2026-10-25)입니다. edits는 칸별 수정 [{path, before, after}].
         더 새 버전이 이미 발행됐거나 대기 중인 검수가 아니면 LookupError를 냅니다."""
         with self.conn.transaction(), self.conn.cursor() as cur:
             job = cur.execute("select raw_post_id, raw_version, raw_event->'payload' from extraction_jobs where id = %s", (job_id,)).fetchone()
@@ -303,8 +314,9 @@ class JobStore:
             corrected_post = _corrected_post(job[2] if job and isinstance(job[2], dict) else {})
             _lock_notice(cur, raw_post_id, corrected_post)
             cur.execute(
-                "update review_queue set status = 'APPROVED', note = %s, decided_at = now() where job_id = %s and status = 'PENDING'",
-                (note, job_id),
+                "update review_queue set status = 'APPROVED', note = %s, decided_at = now(), decided_by = %s, edited = %s, edits = %s"
+                " where job_id = %s and status = 'PENDING'",
+                (note, reviewer, edited, Jsonb(edits) if edits is not None else None, job_id),
             )
             if cur.rowcount != 1:
                 raise _not_pending(cur, job_id)  # 대체된 건이면 대체한 버전을 알려 줌
@@ -317,14 +329,33 @@ class JobStore:
             outbox.add(cur, event)
             _supersede_pending(cur, job_id, raw_post_id, job[1] if job else None, corrected_post)  # 승인으로 이 버전을 발행함
 
-    def reject(self, job_id: str, note: str | None) -> None:
+    def reject(self, job_id: str, note: str | None, reviewer: str | None = None) -> None:
         with self.conn.transaction(), self.conn.cursor() as cur:
             cur.execute(
-                "update review_queue set status = 'REJECTED', note = %s, decided_at = now() where job_id = %s and status = 'PENDING'",
-                (note, job_id),
+                "update review_queue set status = 'REJECTED', note = %s, decided_at = now(), decided_by = %s where job_id = %s and status = 'PENDING'",
+                (note, reviewer, job_id),
             )
             if cur.rowcount != 1:
                 raise _not_pending(cur, job_id)
+
+    def review_stats(self, days: int = 7) -> dict[str, Any]:
+        """관리자 개요의 처리 통계: 최근 days일과 오늘(한국 시간)의 그대로 승인·고쳐서 승인·반려 수와, 들어와서 처리되기까지 걸린 시간의 중앙값(분).
+        대체(SUPERSEDED)는 사람이 처리한 것이 아니라 세지 않습니다."""
+
+        def counts(since_sql: str, params: tuple[Any, ...]) -> dict[str, Any]:
+            row = self.conn.execute(
+                "select count(*) filter (where status = 'APPROVED' and not edited), count(*) filter (where status = 'APPROVED' and edited),"
+                " count(*) filter (where status = 'REJECTED'),"
+                " percentile_cont(0.5) within group (order by extract(epoch from decided_at - created_at))"
+                f" from review_queue where status in ('APPROVED', 'REJECTED') and decided_at >= {since_sql}",
+                params,
+            ).fetchone()
+            median = None if row[3] is None else round(float(row[3]) / 60)
+            return {"approved": row[0], "editedApproved": row[1], "rejected": row[2], "medianMinutes": median}
+
+        recent = counts("now() - make_interval(days => %s)", (days,))
+        today = counts("(date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul')", ())
+        return {"days": days, "recent": recent, "today": today}
 
     # ---- 비용 ----
     def monthly_costs(self, month: str | None = None, budget_usd: float | None = None) -> dict[str, Any]:

@@ -530,3 +530,46 @@ def test_migration_supersedes_pending_reviews_already_behind_a_published_version
     finally:
         conn.execute(f"drop schema {schema} cascade")
         conn.close()
+
+
+def test_review_record_and_stats(store):
+    """관리자 검수 화면(2026-10-25): 누가·고쳐서 승인했는지 남기고, 그대로 승인·고쳐서 승인·반려 수와 처리 시간 중앙값을 셉니다."""
+    from test_worker_parts import pending_item
+
+    def queued(post_suffix):
+        item = pending_item()
+        event = raw_event() | {"eventId": str(uuid.uuid4())}
+        event["payload"] = event["payload"] | {"rawPostId": f"01929a3e-0000-7000-8000-00000000{post_suffix}"}
+        item["candidate"]["input"]["rawPostId"] = event["payload"]["rawPostId"]
+        for ref in item["candidate"]["sourceReferences"]:
+            ref["rawPostId"] = event["payload"]["rawPostId"]
+        return store.save(event, Outcome("IN_REVIEW", candidate=item["candidate"], review_reasons=["EXCEPTION_SUSPECTED /eligibility/2"]))
+
+    plain, edited, rejected = queued("0a01"), queued("0a02"), queued("0a03")
+    store.conn.execute("update review_queue set created_at = now() - interval '30 minutes'")
+
+    class Session:
+        def __enter__(self):
+            return store
+
+        def __exit__(self, *exc):
+            return False
+
+    def fresh_event(*args):
+        return new_event(*args) | {"eventId": str(uuid.uuid4())}  # 승인마다 다른 이벤트(시험용 new_event는 ID가 고정)
+
+    service = ReviewService(lambda: Session(), fresh_event)
+    assert service.approve(plain, {"reviewer": "admin:1"})[0] == 200
+    status, body = service.approve(edited, {"reviewer": "admin:2", "edits": [{"path": "/eligibility/0/description", "value": "가상 설명 고침"}]})
+    assert status == 200, body
+    assert service.reject(rejected, {"reviewer": "admin:1", "note": "[중복 공고]"})[0] == 200
+
+    detail = store.review(edited)
+    assert detail["decidedBy"] == "admin:2" and detail["edited"] is True
+    assert detail["edits"][0]["path"] == "/eligibility/0/description" and detail["edits"][0]["after"] == "가상 설명 고침"
+    assert detail["queuedAt"] is not None
+    assert store.review(plain)["edited"] is False and store.review(rejected)["decidedBy"] == "admin:1"
+
+    stats = store.review_stats(7)
+    assert stats["recent"] == {"approved": 1, "editedApproved": 1, "rejected": 1, "medianMinutes": 30}
+    assert stats["today"]["approved"] + stats["today"]["editedApproved"] + stats["today"]["rejected"] in (0, 3)  # 한국 자정 직후면 0

@@ -132,12 +132,15 @@ class AdminReviewServiceTest {
     var service = service();
     server
         .expect(requestTo(BASE + "/reviews/" + B + "/reject"))
-        .andExpect(content().json("{\"note\":\"[원문과 다름 · 다시 추출] 표가 잘렸어요\"}"))
+        .andExpect(
+            content().json("{\"note\":\"[원문과 다름 · 다시 추출] 표가 잘렸어요\",\"reviewer\":\"admin-1\"}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
     expectList(1);
     var result =
         service.reject(
-            B, new AdminReviewDecisionRequest(RejectReason.SOURCE_MISMATCH, " 표가 잘렸어요 "));
+            B,
+            new AdminReviewDecisionRequest(RejectReason.SOURCE_MISMATCH, " 표가 잘렸어요 ", null),
+            "admin-1");
     assertThat(result.reviewStatus()).isEqualTo("REJECTED");
     assertThat(result.pendingCount()).isEqualTo(3);
   }
@@ -155,10 +158,111 @@ class AdminReviewServiceTest {
   @Test
   void rejectNoteWithoutReasonOrNote() {
     assertThat(AdminReviewService.rejectNote(null)).isNull();
-    assertThat(AdminReviewService.rejectNote(new AdminReviewDecisionRequest(null, "  "))).isNull();
+    assertThat(AdminReviewService.rejectNote(new AdminReviewDecisionRequest(null, "  ", null)))
+        .isNull();
     assertThat(
             AdminReviewService.rejectNote(
-                new AdminReviewDecisionRequest(RejectReason.CLOSED, null)))
+                new AdminReviewDecisionRequest(RejectReason.CLOSED, null, null)))
         .isEqualTo("[마감된 공고]");
+  }
+
+  private static final String DETAIL =
+      """
+      {"jobId":"%s","jobStatus":"PARTIAL","reviewStatus":"APPROVED","note":null,
+       "reasons":["EVIDENCE_SCATTERED"],"queuedAt":"2026-10-25T01:00:00+00:00",
+       "decidedAt":"2026-10-25T02:00:00+00:00","decidedBy":"admin-7","edited":true,
+       "edits":[{"path":"/eligibility/1/description","before":"가상 옛 설명","after":"가상 새 설명"}],
+       "candidate":{"notice":{"title":"가상 공고"},
+         "eligibility":[
+           {"id":"elig-a","description":"가상 나이 조건","evidenceIds":["ev-2"]},
+           {"id":"elig-b","description":"가상 소득 조건","evidenceIds":["ev-1","ev-9"]}],
+         "schedules":[{"id":"s1","rawLabel":"가상 접수","evidenceIds":["ev-3"]}],
+         "evidence":[
+           {"id":"ev-1","locator":{"page":4},"quote":"가상 소득 120%% 이하"},
+           {"id":"ev-2","locator":{"page":2},"quote":"가상 만 19세 이상"},
+           {"id":"ev-3","quote":"가상 접수 기간"}],
+         "quality":{
+           "heldItems":[{"target":"/eligibility","codes":["COVERAGE_PARTIAL"],"description":"확인 전까지 판정·화면에 쓰지 않습니다"}],
+           "reviewIssues":[
+             {"code":"VALUE_NOT_IN_QUOTE","target":"/eligibility/1/description","description":"가상 값이 인용에 없음"},
+             {"code":"EVIDENCE_SCATTERED","target":"/schedules/0","description":"가상 근거가 흩어짐"},
+             {"code":"EVIDENCE_SCATTERED","target":"/schedules/0","description":"가상 근거가 흩어짐"},
+             {"code":"X","target":"/quality/coverage","description":"공고 바깥 기록"},
+             {"code":"Y","target":"/eligibility/9","description":"없는 칸"}]}},
+       "rawEvent":{"payload":{"field":"HOUSING","sourceCode":"lh_myhome","version":1}}}
+      """
+          .formatted(A);
+
+  @Test
+  void detailListsFieldsWithReasonsInsteadOfConfidence() {
+    var service = service();
+    server
+        .expect(requestTo(BASE + "/reviews/" + A))
+        .andRespond(withSuccess(DETAIL, MediaType.APPLICATION_JSON));
+    var detail = service.detail(A);
+    assertThat(detail.fields())
+        .extracting(f -> f.path() + " " + f.status())
+        .containsExactly(
+            "/eligibility HELD", "/eligibility/1/description HELD", "/schedules/0 CHECK");
+    var income = detail.fields().get(1);
+    assertThat(income.label()).isEqualTo("자격 조건 · 가상 소득 조건 · description");
+    assertThat(income.value().asString()).isEqualTo("가상 소득 조건");
+    assertThat(income.editable()).isTrue();
+    assertThat(income.reasons()).containsExactly("가상 값이 인용에 없음");
+    assertThat(income.sourceIds()).containsExactly("ev-1");
+    var schedule = detail.fields().get(2);
+    assertThat(schedule.value()).isNull();
+    assertThat(schedule.editable()).isFalse();
+    assertThat(schedule.display()).isEqualTo("가상 접수");
+    assertThat(schedule.reasons()).containsExactly("가상 근거가 흩어짐");
+    assertThat(detail.sources())
+        .extracting(s -> s.id() + "@" + s.page())
+        .containsExactly("ev-1@4", "ev-3@null");
+    assertThat(detail.decidedBy()).isEqualTo("admin-7");
+    assertThat(detail.edits()).hasSize(1);
+    assertThat(detail.log())
+        .extracting(l -> l.who() + " " + l.text())
+        .containsExactly("시스템 검수 대기열에 추가", "admin-7 1칸 고쳐서 승인");
+  }
+
+  @Test
+  void approveSendsFieldEditsAndReviewer() throws Exception {
+    var service = service();
+    var mapper = JsonMapper.builder().build();
+    server
+        .expect(requestTo(BASE + "/reviews/" + A + "/approve"))
+        .andExpect(
+            content()
+                .json(
+                    "{\"note\":\"원문 4쪽\",\"reviewer\":\"admin-7\",\"edits\":[{\"path\":\"/eligibility/1/description\",\"value\":\"가상 새 설명\"}]}"))
+        .andRespond(withSuccess("{\"reviewStatus\":\"APPROVED\"}", MediaType.APPLICATION_JSON));
+    expectList(1);
+    var request =
+        new AdminReviewDecisionRequest(
+            null,
+            "원문 4쪽",
+            java.util.List.of(
+                new AdminReviewDecisionRequest.FieldEdit(
+                    "/eligibility/1/description", mapper.readTree("\"가상 새 설명\""))));
+    assertThat(service.approve(A, request, "admin-7").reviewStatus()).isEqualTo("APPROVED");
+    server.verify();
+  }
+
+  @Test
+  void statsAddsRates() {
+    var service = service();
+    server
+        .expect(requestTo(BASE + "/reviews/stats?days=7"))
+        .andRespond(
+            withSuccess(
+                "{\"days\":7,\"recent\":{\"approved\":8,\"editedApproved\":1,\"rejected\":1,\"medianMinutes\":240},"
+                    + "\"today\":{\"approved\":0,\"editedApproved\":0,\"rejected\":0,\"medianMinutes\":null}}",
+                MediaType.APPLICATION_JSON));
+    var stats = service.stats(7);
+    assertThat(stats.recent().asIsRate()).isEqualTo(80);
+    assertThat(stats.recent().editedRate()).isEqualTo(10);
+    assertThat(stats.recent().medianMinutes()).isEqualTo(240);
+    assertThat(stats.today().asIsRate()).isNull();
+    assertThatThrownBy(() -> service.stats(0)).isInstanceOf(CustomException.class);
   }
 }
