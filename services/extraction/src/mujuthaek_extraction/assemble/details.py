@@ -63,9 +63,16 @@ WEEKEND = re.compile(r"주말")
 COPIES = re.compile(r"(?<![제\d])(\d{1,2})\s*(?:부|통|매|장)(?=$|[^가-힣]|씩|을|를|만|및|와|과|이|로)")
 
 
+# 요일을 잇는 가운뎃점류: 「·」(U+00B7) 말고도 공고에 「․」(U+2024)「ㆍ」(U+318D)「・」(U+30FB)「‧」(U+2027)가 흔합니다
+# (2026-10-24 채점: 「토․일요일」의 「토」를 못 찾아 맞는 제외 요일이 모두 지워졌음)
+MIDDLE_DOTS = "·․ㆍ・‧"
+DAY_JOINERS = rf"{MIDDLE_DOTS},/~∼\-、"
+
+
 def _day_word(day: str) -> re.Pattern[str]:
-    """요일 낱말: 「월요일」, 또는 한 글자 요일이 다른 요일·괄호와 붙어 있을 때(「(월)」「토·일」「토, 일요일」). 「3월」「31일」「월 임대료」는 아님."""
-    return re.compile(rf"{day}\s*요일|(?<![가-힣\d]){day}(?=\s*[)）·,/~∼\-]|\s*$)|(?<=[(（·,/~∼\-]){day}(?![가-힣\d])|(?<=[(（·,/~∼\-]\s){day}(?![가-힣\d])")
+    """요일 낱말: 「월요일」, 또는 한 글자 요일이 다른 요일·괄호와 붙어 있을 때(「(월)」「토·일」「토․일요일」). 「3월」「31일」「월 임대료」는 아님."""
+    after, before = rf"[)）{DAY_JOINERS}]", rf"[(（{DAY_JOINERS}]"
+    return re.compile(rf"{day}\s*요일|(?<![가-힣\d]){day}(?=\s*{after}|\s*$)|(?<={before}){day}(?![가-힣\d])|(?<={before}\s){day}(?![가-힣\d])")
 
 
 DAY_PATTERNS = {code: _day_word(word) for code, word in DAY_WORDS.items()}
@@ -126,6 +133,65 @@ def times_in(text: str) -> set[int]:
 def _minutes(value: str) -> int:
     hour, minute = value.split(":")
     return int(hour) * 60 + int(minute)
+
+
+# 매일 같은 시각 창구가 아니라 이어지는 기간·밤낮 없는 접수를 말하는 낱말(2026-10-24 채점: 「야간(17:00~10:00)에도 청약 가능」인
+# 신청 일정과 「10:00 ~ 23(금) 17:00」 연속 구간이 「매일 10~17시」로 읽힘). 이런 근거로는 dailyHours를 두지 않습니다
+CONTINUOUS_WORDS = re.compile(r"다음\s*날|익일|야간|24\s*시간|철야")
+# 두 시각 사이의 글: 「~」「부터」로 이어지고(시각 없는) 짧은 글만 낀 경우
+RANGE_GAP = re.compile(r"^\s*(?:[~∼～〜\-–]|부터|에서)\s*(?P<between>[^~∼～〜:\n]{0,24}?)\s*$")
+# 두 시각 사이에 날짜가 끼면(「10:00 ~ 23(금) 17:00」「10.22.(목) 10:00 ~ 10.23.(금) 17:00」) 첫날 시작~마지막 날 끝의 연속 구간입니다
+DATE_MARK = re.compile(r"\(\s*[월화수목금토일]\s*\)|\d{1,2}\s*일(?!\s*간)|\d{1,2}\s*월\s*\d|\d{1,2}\s*[./]\s*\d{1,2}")
+
+
+def _time_windows(text: str) -> tuple[list[tuple[set[int], set[int]]], list[tuple[set[int], set[int]]]]:
+    """글의 「시각 ~ 시각」 구간: (같은 날 구간들, 날짜가 끼어 이어지는 구간들). 구간마다 (시작으로 읽을 수 있는 값, 끝으로 읽을 수 있는 값)."""
+    matches = [(m, time_tokens(m[0])) for m in TIME.finditer(text)]
+    same: list[tuple[set[int], set[int]]] = []
+    spanning: list[tuple[set[int], set[int]]] = []
+    for (first, start), (second, end) in zip(matches, matches[1:], strict=False):
+        gap = RANGE_GAP.match(text[first.end() : second.start()])
+        if gap is None or not start or not end:
+            continue
+        (spanning if DATE_MARK.search(gap["between"]) else same).append((start[0], end[0]))
+    return same, spanning
+
+
+def continuous_hours(text: str, spans: list[dict[str, str]]) -> str | None:
+    """dailyHours를 둘 수 없는 이유(없으면 None). 하루 안의 구간(시작 < 끝)이고, 근거가 이어지는 기간·야간·24시간 접수를 말하지 않으며,
+    그 시각이 날짜가 낀 연속 구간(「10:00 ~ 23(금) 17:00」)으로만 적혀 있지 않아야 합니다."""
+    if not spans:
+        return None
+    if any(_minutes(span["start"]) >= _minutes(span["end"]) for span in spans):
+        return "끝 시각이 시작 시각보다 늦지 않아 하루 안의 접수 시각이 아니에요"
+    word = CONTINUOUS_WORDS.search(text)
+    if word:
+        return f"근거가 「{word[0]}」 접수를 말해 매일 같은 시각에만 받는 것이 아니에요"
+    same, spanning = _time_windows(text)
+    for span in spans:
+        start, end = _minutes(span["start"]), _minutes(span["end"])
+        if any(start in a and end in b for a, b in spanning) and not any(start in a and end in b for a, b in same):
+            return "그 시각이 첫날 시작~마지막 날 끝의 이어지는 기간으로만 적혀 있어요"
+    return None
+
+
+# 서류 표의 「필수/선택」 칸(2026-10-24 채점: 「공통/해당자」 묶음 제목 없이 「서류유형: 필수/선택」 칸만 있는 표의 서류가 모두 null).
+# 칸 전체가 「필수」「선택」이거나 괄호 표시(「[필수]」)일 때만 봅니다. 「필수 선택 필수」처럼 한 칸에 몰린 깨진 행은 정하지 않습니다
+REQUIRED_CELL = re.compile(r"^[\[［(（【]?\s*(필수|선택)\s*[\]］)）】]?$")
+REQUIRED_TAG = re.compile(r"[\[［(（【]\s*(필수|선택)\s*[\]］)）】]")
+REQUIRED_GROUPS = {"필수": "COMMON", "선택": "CONDITIONAL"}
+
+
+def required_mark_group(text: str) -> str | None:
+    """서류 근거(표 행 전체)의 「필수」→COMMON, 「선택」→CONDITIONAL. 두 표시가 섞이거나 없으면 None."""
+    marks: set[str] = set()
+    for line in text.split("\n"):
+        if line.lstrip().startswith("|"):
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            marks |= {m[1] for m in (REQUIRED_CELL.match(c) for c in cells) if m}
+            line = " ".join(c for c in cells if not REQUIRED_CELL.match(c))
+        marks |= {m[1] for m in REQUIRED_TAG.finditer(line)}
+    return REQUIRED_GROUPS[marks.pop()] if len(marks) == 1 else None
 
 
 def _contains(text: str, value: Any) -> bool:
@@ -255,6 +321,12 @@ class _Checker:
             if any(_minutes(span[end]) not in stated for span in spans for end in ("start", "end")):
                 schedule[key] = []
                 self.clear("/schedules", label, f"{name}을")
+        why = continuous_hours(text, schedule.get("dailyHours") or [])
+        if why:
+            schedule["dailyHours"] = []
+            self.candidate["quality"]["reviewIssues"].append(
+                {"code": CLEARED, "target": "/schedules", "description": f"{label}: 접수 시각을 비웠어요 — {why}(원문 확인 필요)"}
+            )
         note = schedule.get("timeNote")
         if isinstance(note, str) and any(not token & stated for token in time_tokens(note)):
             schedule["timeNote"] = None
@@ -266,9 +338,11 @@ class _Checker:
         found = {code for code, pattern in DAY_PATTERNS.items() if pattern.search(text)}
         found |= {"SAT", "SUN"} if weekend else set()
         found |= {"HOLIDAY"} if HOLIDAY.search(text) else set()
-        if any(day not in found for day in days):
-            schedule["excludedDays"] = []
-            self.clear("/schedules", label, "제외 요일을")
+        # 확인한 요일은 남기고 확인하지 못한 요일만 뺍니다(2026-10-24: 한 요일을 못 찾아 맞는 제외 요일까지 모두 지웠음)
+        dropped = [day for day in days if day not in found]
+        if dropped:
+            schedule["excludedDays"] = [day for day in days if day in found]
+            self.clear("/schedules", label, f"제외 요일 {', '.join(dropped)}을(를)")
 
     def minute_bounds(self, schedule: dict[str, Any], text: str, label: str) -> None:
         """시각까지 적은 시작·끝(MINUTE)의 시각이 근거에 없으면 날짜(DAY)만 남깁니다. 날짜는 다른 검사(V9)가 따로 봅니다."""
@@ -290,6 +364,11 @@ class _Checker:
         for d, document in enumerate(self.candidate.get("requiredDocuments") or []):
             text = self.cited(document, rows=True)
             label = str(document.get("name") or document.get("id"))
+            if document.get("group") is None:
+                group = required_mark_group(text)
+                if group is not None:
+                    document["group"] = group
+                    self.notes.append(f"/requiredDocuments/{d}: 서류 표의 「필수/선택」 칸으로 묶음을 {group}(으)로 정했어요({label})")
             copies = document.get("copies")
             if copies is not None and copies not in {int(m[1]) for m in COPIES.finditer(text)}:
                 document["copies"] = None
