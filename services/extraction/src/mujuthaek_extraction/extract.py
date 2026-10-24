@@ -501,13 +501,33 @@ def _supply_from_tables(rules: FieldRules, material: ExtractionMaterial, first: 
     tables = supply_tables.candidates(material)
     if not tables:
         return None
-    request = supply_tables.mapping_request(rules.build_request(first, material), tables)
+    base = rules.build_request(first, material)
+    request = supply_tables.mapping_request(base, tables)
     if budget is not None and not budget(request):
         return None
     response, _ = call_model(request, repair=False)
-    if response is None or response.stop_reason is not StopReason.END:
+    if response is None:
         return None
-    mapping = supply_tables.parse_mapping(response.raw_text)
+    if response.stop_reason in (StopReason.MAX_TOKENS, StopReason.RUNAWAY):
+        # 잘린 답: 끝까지 적힌 표 답은 쓰고 남은 표만 한 번 더 묻습니다(2026-10-24 일곱 번째 채점: 잘린 답 전체를 버려 표 옮기기가 꺼짐)
+        done = supply_tables.salvage_mapping(response.raw_text)
+        answered = {str(e.get("table")) for e in done}
+        rest = [t for t in tables if t.label not in answered and not t.continues]
+        more: list[dict[str, Any]] = []
+        if done and rest:
+            follow = supply_tables.mapping_request(base, rest)
+            if budget is None or budget(follow):
+                again, _ = call_model(follow, repair=False)
+                if again is not None and again.stop_reason is StopReason.END:
+                    parsed = supply_tables.parse_mapping(again.raw_text)
+                    more = list(parsed["tables"]) if parsed else []
+                elif again is not None:
+                    more = supply_tables.salvage_mapping(again.raw_text)
+        mapping = {"tables": [*done, *more]} if done else None
+    elif response.stop_reason is StopReason.END:
+        mapping = supply_tables.parse_mapping(response.raw_text)
+    else:
+        return None
     if mapping is None or schema_errors(mapping, supply_tables.MAPPING_SCHEMA) is not None:
         return None
     part = supply_tables.build_part(tables, mapping, material.text_document_id)
