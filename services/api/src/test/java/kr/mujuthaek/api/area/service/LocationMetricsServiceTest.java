@@ -25,10 +25,10 @@ class LocationMetricsServiceTest {
   void recalculatesGivenLocationsAndAll() throws Exception {
     UUID at = UUID.randomUUID();
     AreaTestDatabase.exec(
-        "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
+        "insert into area.notice_locations (location_id, notice_id, notice_location_id, notice_version, kind,"
             + " address_text, geom, status, method) values ('"
             + at
-            + "', gen_random_uuid(), 1, 'COMPLEX', '시험 위치 서비스',"
+            + "', gen_random_uuid(), 'building-a', 1, 'COMPLEX', '시험 위치 서비스',"
             + " st_makepoint(126.0, 35.0)::geography, 'APPROX', 'CENTROID')");
 
     assertThat(service.recalculate(List.of())).isZero();
