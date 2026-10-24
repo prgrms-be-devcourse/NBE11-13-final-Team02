@@ -113,11 +113,14 @@ class SecurityConfig {
     return new HttpSessionOAuth2AuthorizedClientRepository();
   }
 
-  /** 프론트(다른 포트·도메인)에서 쿠키(refresh token)와 Authorization 헤더를 실어 부를 수 있게 프론트 주소만 허용해요. */
+  /**
+   * 프론트(다른 포트·도메인)에서 쿠키(refresh token)와 Authorization 헤더를 실어 부를 수 있게 프론트 주소만 허용해요. frontendUrl과
+   * corsOrigins(쉼표로 여러 개)만 허용해요.
+   */
   @Bean
   CorsConfigurationSource corsConfigurationSource(LoginProperties props) {
     var config = new CorsConfiguration();
-    config.setAllowedOrigins(List.of(props.frontendUrl()));
+    config.setAllowedOrigins(props.allowedOrigins());
     config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
     config.setAllowedHeaders(List.of("Content-Type", "Authorization"));
     config.setAllowCredentials(true);
