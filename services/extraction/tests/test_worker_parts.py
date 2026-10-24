@@ -133,6 +133,10 @@ class FakeStore:
     def review_stats(self, days):
         return {"days": days}
 
+    def reopen(self, raw_post_id, reviewer=None, note=None):
+        self.reopened = (raw_post_id, reviewer, note)
+        return None if raw_post_id.endswith("0000") else {"jobId": "job", "reviewStatus": "PENDING", "reopened": True}
+
 
 def service_with(item):
     store = FakeStore(item)
@@ -864,3 +868,12 @@ def test_stats_days_are_checked():
     assert service.stats(None) == (200, {"days": 7})
     assert service.stats("30") == (200, {"days": 30})
     assert service.stats("0")[0] == 400 and service.stats("x")[0] == 400 and service.stats("91")[0] == 400
+
+
+def test_reopen_checks_the_raw_post_id_and_reports_missing_results():
+    service, store = service_with(pending_item())
+    assert service.reopen({"rawPostId": "x"})[0] == 400
+    status, body = service.reopen({"rawPostId": "01929a3e-0000-7000-8000-000000000001", "reviewer": "admin:7", "note": "공고 제보"})
+    assert status == 200 and body["reopened"] is True
+    assert store.reopened == ("01929a3e-0000-7000-8000-000000000001", "admin:7", "공고 제보")
+    assert service.reopen({"rawPostId": "01929a3e-0000-7000-8000-000000000000"})[0] == 404

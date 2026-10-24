@@ -299,6 +299,7 @@ class JobStore:
         item["rawPostId"] = str(item["rawPostId"]) if item["rawPostId"] else None
         item["costUsd"] = float(item["costUsd"])
         item["supersededBy"] = _superseded_by(*row[16:])
+        item["history"] = self.review_history(item["jobId"])
         return item
 
     def approve(
@@ -343,6 +344,46 @@ class JobStore:
             )
             if cur.rowcount != 1:
                 raise _not_pending(cur, job_id)
+
+    def reopen(self, raw_post_id: str, reviewer: str | None = None, note: str | None = None) -> dict[str, Any] | None:
+        """그 원본의 가장 새로 발행한 결과를 검수 대기로 다시 엽니다(관리자 화면: 사용자 제보로 공고 값을 고칠 때, 2026-10-25).
+        이미 대기 중이면 그대로 돌려줍니다. 앞선 처리 기록은 review_history로 옮깁니다. 발행한 결과가 없으면 None."""
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            job = cur.execute(
+                "select id from extraction_jobs where raw_post_id = %s and completed_event_id is not null and candidate is not null"
+                " order by raw_version desc, updated_at desc limit 1 for update",
+                (raw_post_id,),
+            ).fetchone()
+            if job is None:
+                return None
+            job_id = job[0]
+            row = cur.execute("select status from review_queue where job_id = %s for update", (job_id,)).fetchone()
+            if row is not None and row[0] == "PENDING":
+                return {"jobId": str(job_id), "reviewStatus": "PENDING", "reopened": False}
+            if row is None:
+                cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(["USER_REPORT"])))
+            else:
+                cur.execute(
+                    "insert into review_history (job_id, status, reasons, note, created_at, decided_at, decided_by, edited, edits, reopened_by, reopen_note)"
+                    " select job_id, status, reasons, note, created_at, decided_at, decided_by, edited, edits, %s, %s from review_queue where job_id = %s",
+                    (reviewer, note, job_id),
+                )
+                cur.execute(
+                    "update review_queue set status = 'PENDING', reasons = (case when reasons ? 'USER_REPORT' then reasons else reasons || '[\"USER_REPORT\"]'::jsonb end),"
+                    " note = null, created_at = now(), decided_at = null, decided_by = null, edited = false, edits = null,"
+                    " superseded_by_job_id = null, superseded_by_raw_post_id = null, superseded_by_version = null where job_id = %s",
+                    (job_id,),
+                )
+            return {"jobId": str(job_id), "reviewStatus": "PENDING", "reopened": True}
+
+    def review_history(self, job_id: str) -> list[dict[str, Any]]:
+        """다시 열기 전의 처리 기록(오래된 것부터)."""
+        rows = self.conn.execute(
+            "select status, note, decided_at, decided_by, edited, edits, archived_at, reopened_by, reopen_note from review_history where job_id = %s order by id",
+            (job_id,),
+        ).fetchall()
+        keys = ("reviewStatus", "note", "decidedAt", "decidedBy", "edited", "edits", "reopenedAt", "reopenedBy", "reopenNote")
+        return [dict(zip(keys, row, strict=True)) for row in rows]
 
     def review_stats(self, days: int = 7) -> dict[str, Any]:
         """관리자 개요의 처리 통계: 최근 days일과 오늘(한국 시간)의 그대로 승인·고쳐서 승인·반려 수와, 들어와서 처리되기까지 걸린 시간의 중앙값(분).

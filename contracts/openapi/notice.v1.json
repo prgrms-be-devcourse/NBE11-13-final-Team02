@@ -852,6 +852,51 @@
         }
       }
     },
+    "/api/admin/reports/{id}/review": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reviewAdminReport",
+        "summary": "고치기: 공고의 최신 추출 결과를 검수로 다시 열기",
+        "description": "같은 공고·칸의 처리 전 제보에도 이어요. 관리자는 검수 화면에서 칸을 고쳐 승인(다시 발행)한 뒤 resolve로 제보를 끝내요.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "다시 연 검수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
     "/api/admin/reports/{id}/resolve": {
       "post": {
         "tags": [
@@ -2540,6 +2585,7 @@
           "note",
           "decidedBy",
           "edits",
+          "impact",
           "log"
         ],
         "properties": {
@@ -2674,6 +2720,13 @@
                 }
               }
             }
+          },
+          "impact": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "승인하면 무엇이 바뀌는지 안내(사람 수 대신). 처리가 끝났으면 null"
           },
           "log": {
             "type": "array",
@@ -3146,7 +3199,8 @@
           "reply",
           "handledBy",
           "startedAt",
-          "handledAt"
+          "handledAt",
+          "reviewId"
         ],
         "properties": {
           "report": {
@@ -3236,6 +3290,14 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "reviewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "「고치기」로 다시 연 검수 작업 ID(검수 화면 GET /api/admin/reviews/{reviewId})"
           }
         }
       },
@@ -3266,6 +3328,29 @@
               "null"
             ],
             "description": "같은 공고·칸의 처리 전 제보도 같이 끝낼지(기본 true)"
+          }
+        }
+      },
+      "AdminReportReview": {
+        "type": "object",
+        "required": [
+          "reportId",
+          "reviewId",
+          "reopened"
+        ],
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reviewId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "다시 연 검수 작업 ID"
+          },
+          "reopened": {
+            "type": "boolean",
+            "description": "false면 이미 대기 중이던 검수를 이은 것"
           }
         }
       }

@@ -585,3 +585,40 @@ def test_review_list_has_earliest_application_end(store):
     [listed] = store.reviews("PENDING")
     assert listed["applyEndsOn"] == (min(ends) if ends else None)
     assert ends  # 시험 자료에 신청 마감이 있어야 의미가 있음
+
+
+def test_published_result_can_be_reopened_for_review_and_fixed_again(store):
+    """사용자 제보로 공고 값을 고칠 때(2026-10-25): 발행한 결과를 다시 열고, 앞선 처리 기록은 history로 남기고, 칸별 수정으로 다시 발행합니다."""
+    from test_worker_parts import pending_item
+
+    item = pending_item()
+    post = item["rawEvent"]["payload"]["rawPostId"]
+    job_id = store.save(item["rawEvent"], Outcome("IN_REVIEW", candidate=item["candidate"], review_reasons=["EXCEPTION_SUSPECTED /eligibility/2"]))
+
+    class Session:
+        def __enter__(self):
+            return store
+
+        def __exit__(self, *exc):
+            return False
+
+    def fresh_event(*args):
+        return new_event(*args) | {"eventId": str(uuid.uuid4())}
+
+    service = ReviewService(lambda: Session(), fresh_event)
+    assert store.reopen(post) is None  # 아직 발행 전이면 다시 열 결과가 없음
+    assert service.approve(job_id, {"reviewer": "admin:1", "note": "처음 승인"})[0] == 200
+
+    status, opened = service.reopen({"rawPostId": post, "reviewer": "admin:2", "note": "공고 제보: 보증금"})
+    assert status == 200 and opened == {"jobId": job_id, "reviewStatus": "PENDING", "reopened": True}
+    assert service.reopen({"rawPostId": post})[1]["reopened"] is False  # 이미 대기 중
+    detail = store.review(job_id)
+    assert detail["reviewStatus"] == "PENDING" and "USER_REPORT" in detail["reasons"]
+    assert [(h["reviewStatus"], h["decidedBy"], h["reopenedBy"], h["reopenNote"]) for h in detail["history"]] == [
+        ("APPROVED", "admin:1", "admin:2", "공고 제보: 보증금")
+    ]
+
+    status, body = service.approve(job_id, {"reviewer": "admin:2", "edits": [{"path": "/eligibility/0/description", "value": "제보로 고친 설명"}]})
+    assert status == 200, body
+    assert count(store, "select count(*) from outbox where payload->'payload'->>'reviewStatus' = 'APPROVED'") == 2
+    assert store.review(job_id)["candidate"]["eligibility"][0]["description"] == "제보로 고친 설명"

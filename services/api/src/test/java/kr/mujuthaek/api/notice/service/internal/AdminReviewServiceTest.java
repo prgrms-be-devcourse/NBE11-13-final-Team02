@@ -278,4 +278,32 @@ class AdminReviewServiceTest {
         .containsExactly(B + " 2026-10-24", A + " 2026-10-27");
     assertThatThrownBy(() -> service.urgent(31)).isInstanceOf(CustomException.class);
   }
+
+  @Test
+  void impactExplainsWhatApprovalChangesInsteadOfCountingPeople() {
+    var mapper = JsonMapper.builder().build();
+    var candidate = mapper.readTree("{}");
+    var held =
+        java.util.List.of(
+            new kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Field(
+                "/eligibility",
+                "자격 조건",
+                "자격 조건",
+                "HELD",
+                null,
+                "",
+                false,
+                java.util.List.of(),
+                java.util.List.of(),
+                java.util.List.of()));
+    assertThat(AdminReviewService.impact("PENDING", "IN_REVIEW", candidate, java.util.List.of()))
+        .startsWith("아직 발행 전인 공고예요");
+    assertThat(AdminReviewService.impact("PENDING", "PARTIAL", candidate, held)).contains("보류한 1칸");
+    assertThat(
+            AdminReviewService.impact(
+                "PENDING", "INTAKE_REVIEW", mapper.missingNode(), java.util.List.of()))
+        .startsWith("추출 결과가 없어");
+    assertThat(AdminReviewService.impact("APPROVED", "IN_REVIEW", candidate, java.util.List.of()))
+        .isNull();
+  }
 }

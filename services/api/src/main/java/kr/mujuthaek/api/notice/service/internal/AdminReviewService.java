@@ -140,6 +140,29 @@ public class AdminReviewService {
     String decidedBy = text(item.path("decidedBy"));
     List<Edit> edits = edits(item.path("edits"));
     List<LogEntry> log = new ArrayList<>();
+    for (JsonNode past : item.path("history")) {
+      OffsetDateTime pastDecided = time(past.path("decidedAt"));
+      String pastStatus = text(past.path("reviewStatus"));
+      if (pastDecided != null && pastStatus != null) {
+        String who = text(past.path("decidedBy"));
+        log.add(
+            new LogEntry(
+                pastDecided,
+                who != null ? who : "검수자",
+                decisionText(
+                    pastStatus, past.path("edited").asBoolean(false), past.path("edits").size())));
+      }
+      OffsetDateTime reopened = time(past.path("reopenedAt"));
+      if (reopened != null) {
+        String who = text(past.path("reopenedBy"));
+        String why = text(past.path("reopenNote"));
+        log.add(
+            new LogEntry(
+                reopened,
+                who != null ? who : "검수자",
+                "다시 검수로 엶" + (why != null ? " (" + why + ")" : "")));
+      }
+    }
     if (received != null) {
       log.add(new LogEntry(received, "시스템", "검수 대기열에 추가"));
     }
@@ -180,7 +203,25 @@ public class AdminReviewService {
         text(item.path("note")),
         decidedBy,
         edits,
+        impact(status, text(item.path("jobStatus")), candidate, fields),
         log);
+  }
+
+  /** 승인 영향 안내. 대기 중일 때만. */
+  static String impact(String status, String jobStatus, JsonNode candidate, List<Field> fields) {
+    if (!PENDING.equals(status)) {
+      return null;
+    }
+    if (candidate == null || candidate.isMissingNode() || candidate.isNull()) {
+      return "추출 결과가 없어 승인할 수 없어요. 원본 자료를 고친 뒤 다시 처리해야 해요.";
+    }
+    long held = fields.stream().filter(f -> "HELD".equals(f.status())).count();
+    if ("PARTIAL".equals(jobStatus)) {
+      return held > 0
+          ? "이미 사용자에게 보이는 공고예요. 승인하면 보류한 " + held + "칸이 화면·판정에 나와요."
+          : "이미 사용자에게 보이는 공고예요. 승인하면 검수자가 확인한 결과로 다시 발행돼요.";
+    }
+    return "아직 발행 전인 공고예요. 승인하면 사용자 화면·판정·새 공고 알림에 나와요.";
   }
 
   /**

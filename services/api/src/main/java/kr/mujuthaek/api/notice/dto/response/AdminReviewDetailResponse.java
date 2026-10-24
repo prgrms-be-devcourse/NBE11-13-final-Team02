@@ -15,6 +15,7 @@ import tools.jackson.databind.JsonNode;
  * @param fields 사람이 확인할 칸. 신뢰도 숫자 대신 상태와 이유를 줘요
  * @param sources 확인할 칸의 원문 근거(쪽·인용문). 화면의 원문 강조에 써요
  * @param edits 고쳐서 승인한 칸 [{path, before, after}] (처리 전이면 빈 목록)
+ * @param impact 승인하면 무엇이 바뀌는지 안내 (사람 수 대신, 사용자 소득을 저장하지 않아 판정이 바뀌는 사람은 셀 수 없어요). 처리가 끝났으면 null
  */
 public record AdminReviewDetailResponse(
     String id,
@@ -33,6 +34,7 @@ public record AdminReviewDetailResponse(
     String note,
     String decidedBy,
     List<Edit> edits,
+    String impact,
     List<LogEntry> log) {
 
   /** target은 이슈가 가리키는 칸(JSON Pointer). 공고 전체에 대한 이슈면 null. */

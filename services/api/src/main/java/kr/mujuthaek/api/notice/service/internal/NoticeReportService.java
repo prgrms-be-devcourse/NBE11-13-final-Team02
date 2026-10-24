@@ -11,10 +11,12 @@ import kr.mujuthaek.api.common.event.NoticeReportAnswered;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.id.UuidV7;
+import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
 import kr.mujuthaek.api.notice.dto.request.NoticeReportRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReportDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportListResponse;
+import kr.mujuthaek.api.notice.dto.response.AdminReportReviewResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeReportCreatedResponse;
 import kr.mujuthaek.api.notice.repository.NoticeReportRepository;
 import kr.mujuthaek.api.notice.repository.NoticeReportRepository.Report;
@@ -22,6 +24,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import tools.jackson.databind.JsonNode;
 
 /**
  * 공고 제보: 회원이 공고 값이 다르다고 알리고, 관리자가 처리해 답을 남겨요. 답장 발송은 {@link NoticeReportAnswered} 이벤트로 알림 쪽에 넘겨요.
@@ -39,14 +42,43 @@ public class NoticeReportService {
   private static final int LIST_LIMIT = 100;
 
   private final NoticeReportRepository reports;
+  private final ExtractionReviewClient extraction;
   private final ApplicationEventPublisher events;
   private final Clock clock;
 
   public NoticeReportService(
-      NoticeReportRepository reports, ApplicationEventPublisher events, Clock clock) {
+      NoticeReportRepository reports,
+      ExtractionReviewClient extraction,
+      ApplicationEventPublisher events,
+      Clock clock) {
     this.reports = reports;
+    this.extraction = extraction;
     this.events = events;
     this.clock = clock;
+  }
+
+  /**
+   * 「고치기」: 공고의 가장 새로 발행한 추출 결과를 검수 대기로 다시 열고 이 제보(와 같은 칸의 처리 전 제보)에 이어요. 관리자는 검수 화면에서 칸을 고쳐 승인(다시
+   * 발행)한 뒤 {@link #resolve}로 제보를 끝내요.
+   */
+  @Transactional
+  public AdminReportReviewResponse openReview(UUID id, String admin) {
+    Report report = find(id);
+    if ("DONE".equals(report.status())) {
+      throw new CustomException(ErrorCode.CONFLICT, "이미 처리한 제보예요");
+    }
+    UUID rawPost =
+        reports
+            .currentRawPost(report.noticeId())
+            .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_NOT_FOUND));
+    JsonNode opened = extraction.reopen(rawPost.toString(), admin, "공고 제보: " + report.field());
+    UUID reviewId = UUID.fromString(opened.path("jobId").asString());
+    List<UUID> ids = new ArrayList<>(List.of(id));
+    reports.sameGroup(report.noticeId(), report.field(), id).stream()
+        .filter(r -> !"DONE".equals(r.status()))
+        .forEach(r -> ids.add(r.id()));
+    reports.linkReview(ids, reviewId, admin, clock.instant());
+    return new AdminReportReviewResponse(id, reviewId, opened.path("reopened").asBoolean(true));
   }
 
   /** 회원 제보 받기. 로그인한 회원만, 공개된 공고에만. */
@@ -120,7 +152,8 @@ public class NoticeReportService {
         report.reply(),
         report.handledBy(),
         report.startedAt(),
-        report.handledAt());
+        report.handledAt(),
+        report.reviewJobId());
   }
 
   /** 처리 시작 (새 제보 → 처리 중). 이미 처리 중·끝이면 그대로 둬요. */

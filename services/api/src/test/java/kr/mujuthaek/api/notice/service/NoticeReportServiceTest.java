@@ -2,8 +2,12 @@ package kr.mujuthaek.api.notice.service;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
+import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -13,13 +17,18 @@ import kr.mujuthaek.api.common.event.NoticeReportAnswered;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.notice.NoticeApiFixture;
+import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
+import kr.mujuthaek.api.notice.client.ExtractionReviewProperties;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest.Result;
 import kr.mujuthaek.api.notice.dto.request.NoticeReportRequest;
 import kr.mujuthaek.api.notice.repository.NoticeReportRepository;
 import kr.mujuthaek.api.notice.service.internal.NoticeReportService;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.web.client.MockRestServiceServer;
+import org.springframework.web.client.RestClient;
 
 /** 공고 제보: 회원이 보내고 관리자가 처리해 답을 남기는 흐름 (실제 DB). */
 class NoticeReportServiceTest {
@@ -29,8 +38,19 @@ class NoticeReportServiceTest {
   private final NoticeReportService service =
       new NoticeReportService(
           new NoticeReportRepository(JdbcClient.create(fixture.jdbc)),
+          reviewClient(),
           events::add,
           Clock.fixed(Instant.parse("2026-10-25T03:00:00Z"), ZoneId.of("Asia/Seoul")));
+
+  private MockRestServiceServer reviewServer;
+
+  private ExtractionReviewClient reviewClient() {
+    var builder = RestClient.builder();
+    reviewServer = MockRestServiceServer.bindTo(builder).build();
+    return new ExtractionReviewClient(
+        new ExtractionReviewProperties("http://extraction.test", null, Duration.ofSeconds(1)),
+        builder);
+  }
 
   private static NoticeReportRequest deposit(String note) {
     return new NoticeReportRequest("보증금", "2,400만 원", "2,600만 원", note, "공고 상세");
@@ -134,5 +154,37 @@ class NoticeReportServiceTest {
         .isInstanceOfSatisfying(
             CustomException.class,
             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.NOTICE_REPORT_NOT_FOUND));
+  }
+
+  @Test
+  void fixOpensTheNoticeResultForReviewAndLinksTheGroup() {
+    UUID notice = notice();
+    UUID rawPost =
+        fixture.jdbc.queryForObject(
+            "select current_raw_post_id from notice.notices where id = ?", UUID.class, notice);
+    UUID first = service.report(notice, deposit("4쪽"), UUID.randomUUID().toString()).id();
+    UUID second = service.report(notice, deposit("정정"), UUID.randomUUID().toString()).id();
+    UUID job = UUID.randomUUID();
+    reviewServer
+        .expect(requestTo("http://extraction.test/reviews/reopen"))
+        .andExpect(
+            content()
+                .json(
+                    "{\"rawPostId\":\""
+                        + rawPost
+                        + "\",\"reviewer\":\"admin-1\",\"note\":\"공고 제보: 보증금\"}"))
+        .andRespond(
+            withSuccess(
+                "{\"jobId\":\"" + job + "\",\"reviewStatus\":\"PENDING\",\"reopened\":true}",
+                MediaType.APPLICATION_JSON));
+
+    var opened = service.openReview(first, "admin-1");
+
+    assertThat(opened.reviewId()).isEqualTo(job);
+    assertThat(opened.reopened()).isTrue();
+    assertThat(service.detail(first).reviewId()).isEqualTo(job);
+    assertThat(service.detail(first).report().status()).isEqualTo("DOING");
+    assertThat(service.detail(second).reviewId()).isEqualTo(job);
+    reviewServer.verify();
   }
 }

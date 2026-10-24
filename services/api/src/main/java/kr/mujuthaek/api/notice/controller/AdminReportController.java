@@ -6,6 +6,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReportDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportListResponse;
+import kr.mujuthaek.api.notice.dto.response.AdminReportReviewResponse;
 import kr.mujuthaek.api.notice.service.internal.NoticeReportService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  * GET  /api/admin/reports/counts                  상태별 건수 (사이드바)
  * GET  /api/admin/reports/{id}                    상세 · 같은 칸의 다른 제보
  * POST /api/admin/reports/{id}/start              처리 시작
+ * POST /api/admin/reports/{id}/review             고치기: 공고 결과를 검수로 다시 열기 (검수에서 칸을 고쳐 승인)
  * POST /api/admin/reports/{id}/resolve            처리 끝 { "result": "FIXED", "reply": "…", "group": true }
  * </pre>
  */
@@ -54,6 +56,11 @@ class AdminReportController {
   @PostMapping("/{id}/start")
   AdminReportDetailResponse start(@PathVariable UUID id, Principal principal) {
     return reports.start(id, admin(principal));
+  }
+
+  @PostMapping("/{id}/review")
+  AdminReportReviewResponse review(@PathVariable UUID id, Principal principal) {
+    return reports.openReview(id, admin(principal));
   }
 
   @PostMapping("/{id}/resolve")

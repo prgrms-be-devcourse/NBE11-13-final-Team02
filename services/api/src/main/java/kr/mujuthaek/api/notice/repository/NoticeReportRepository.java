@@ -18,7 +18,7 @@ public class NoticeReportRepository {
   private static final String COLUMNS =
       "r.id, r.notice_id, n.title, r.reporter_id, r.field, r.current_value, r.reported_value,"
           + " r.note, r.screen, r.status, r.result, r.reply, r.handled_by, r.created_at,"
-          + " r.started_at, r.handled_at, (select count(*) from notice.notice_reports g where"
+          + " r.started_at, r.handled_at, r.review_job_id, (select count(*) from notice.notice_reports g where"
           + " g.notice_id = r.notice_id and g.field = r.field and g.status <> 'DONE') as open_in_group";
 
   private final JdbcClient jdbc;
@@ -163,6 +163,29 @@ public class NoticeReportRepository {
     return changed.stream().map(this::find).flatMap(Optional::stream).toList();
   }
 
+  /** 공고의 지금 원본 글 ID (공개된 공고만). */
+  public Optional<UUID> currentRawPost(UUID noticeId) {
+    return jdbc.sql(
+            "select current_raw_post_id from notice.notices where id = :id and current_version > 0")
+        .param("id", noticeId)
+        .query(UUID.class)
+        .optional();
+  }
+
+  /** 다시 연 검수를 제보들에 잇고, 새 제보면 처리 중으로. */
+  public void linkReview(List<UUID> ids, UUID reviewJobId, String admin, Instant now) {
+    jdbc.sql(
+            "update notice.notice_reports set review_job_id = :job, status = case when status ="
+                + " 'NEW' then 'DOING' else status end, started_at = coalesce(started_at, :now),"
+                + " handled_by = coalesce(handled_by, :admin) where id in (:ids) and status <>"
+                + " 'DONE'")
+        .param("ids", ids)
+        .param("job", reviewJobId)
+        .param("admin", admin)
+        .param("now", OffsetDateTime.ofInstant(now, ZoneOffset.UTC))
+        .update();
+  }
+
   /** 탈퇴한 회원의 제보를 지워요. 지운 건수. */
   public int deleteByReporter(UUID reporterId) {
     return jdbc.sql("delete from notice.notice_reports where reporter_id = :r")
@@ -188,6 +211,7 @@ public class NoticeReportRepository {
         rs.getObject("created_at", OffsetDateTime.class),
         rs.getObject("started_at", OffsetDateTime.class),
         rs.getObject("handled_at", OffsetDateTime.class),
+        rs.getObject("review_job_id", UUID.class),
         rs.getInt("open_in_group"));
   }
 
@@ -225,5 +249,6 @@ public class NoticeReportRepository {
       OffsetDateTime createdAt,
       OffsetDateTime startedAt,
       OffsetDateTime handledAt,
+      UUID reviewJobId,
       int openInGroup) {}
 }

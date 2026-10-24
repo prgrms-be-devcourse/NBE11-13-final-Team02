@@ -9,6 +9,8 @@
                                                  "note": "메모", "reviewer": "검수자"}
                                      edits는 칸별 수정(관리자 화면, 2026-10-25): 있는 칸만 바꾸고(새 칸 추가 없음) 원본·버전·검증 기록 칸은 못 바꿉니다
   POST /reviews/{jobId}/reject       반려 (발행 없음). 본문(선택): {"note": "메모", "reviewer": "검수자"}
+  POST /reviews/reopen               이미 발행한 결과를 검수 대기로 다시 열기 {"rawPostId": "…", "reviewer": "…", "note": "공고 제보"}
+                                     (그 원본의 가장 새로 발행한 작업. 앞선 처리 기록은 상세의 history로)
   GET  /reviews/stats?days=7         처리 통계(최근 days일·오늘): 그대로 승인·고쳐서 승인·반려 수, 처리까지 걸린 시간 중앙값(분)
   GET  /costs?month=2026-10          분야별 유료 AI 호출 수·비용과 월 상한 대비 비율(한국 시간 달, month 없으면 이번 달, cost_alert.py)
 
@@ -139,6 +141,19 @@ class ReviewService:
             return 400, {"error": "days는 1~90 사이 정수입니다."}
         with self.store_session() as store:
             return 200, store.review_stats(value)
+
+    def reopen(self, body: dict[str, Any]) -> tuple[int, Any]:
+        """이미 발행한 결과를 검수 대기로 다시 엽니다(사용자 제보로 공고 값을 고칠 때)."""
+        try:
+            raw_post_id = str(uuid.UUID(str(body.get("rawPostId"))))
+        except ValueError:
+            return 400, {"error": "rawPostId는 UUID여야 합니다."}
+        with self.store_session() as store:
+            opened = store.reopen(raw_post_id, body.get("reviewer"), body.get("note"))
+        if opened is None:
+            return 404, {"error": "그 원본으로 발행한 결과가 없습니다."}
+        log.info("검수 다시 열기", extra={"jobId": opened["jobId"], "reopened": opened["reopened"]})
+        return 200, opened
 
     def list(self, status: str) -> tuple[int, Any]:
         if status not in REVIEW_LIST_STATUSES:
@@ -279,6 +294,11 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
         def do_POST(self) -> None:  # noqa: N802
             if not self._allowed():
                 return self._send(401, {"error": "인증이 필요합니다."})
+            if urlparse(self.path).path == "/reviews/reopen":
+                body = self._body()
+                if body is None:
+                    return self._send(400, {"error": "본문은 5MB 이하의 JSON 객체여야 하고, note·reviewer는 글자여야 합니다."})
+                return self._send(*service.reopen(body))
             match = REVIEW_PATH.match(urlparse(self.path).path)
             if not match or not match[2]:
                 return self._send(404, {"error": "없는 주소입니다."})

@@ -80,6 +80,24 @@ public class ExtractionReviewClient {
     return post(jobId, "approve", body);
   }
 
+  /**
+   * 이미 발행한 결과를 검수 대기로 다시 열어요(사용자 제보로 공고 값을 고칠 때). 응답: {jobId, reviewStatus, reopened}.
+   *
+   * @param rawPostId 공고의 지금 원본 글 ID
+   */
+  public JsonNode reopen(String rawPostId, String reviewer, String note) {
+    Map<String, Object> body = body(note, reviewer);
+    body.put("rawPostId", rawPostId);
+    return call(
+        () ->
+            http.post()
+                .uri("/reviews/reopen")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .body(JsonNode.class));
+  }
+
   /** 반려. 발행하지 않아요. */
   public JsonNode reject(String jobId, String note, String reviewer) {
     return post(jobId, "reject", body(note, reviewer));
