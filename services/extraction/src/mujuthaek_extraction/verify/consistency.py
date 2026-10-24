@@ -805,6 +805,23 @@ DOCUMENT_WORD = re.compile(
 HEADING_LOOKBACK = 3  # 표 위로 볼 글 줄 수(쪽 표시·빈 줄 제외)
 DOCUMENT_OMISSION_MIN_ROWS = 2  # 이만큼 빠져야 알립니다(한 행은 다른 표·글로 넣은 서류일 때가 많음)
 OMITTED_ROWS = re.compile(r"서류 표 행 (\d+)개")
+# 서류 표의 머리 행(2026-10-24 오탐: 표 위 제목으로 서류 표가 된 표의 「| 구 분 | 계약서류 |」 머리 행을 빠진 서류로 셈).
+# 모든 칸이 머리 낱말(구분·서류·발급처·비고 등)뿐인 행은 서류 행이 아닙니다
+HEADER_CELL = re.compile(
+    r"^(?:구분|항목|순번|번호|비고|대상|내용|유의사항|참고사항|제출대상|발급처|발급기관|발급기준|부수|서류유형|유형|.{0,6}서류|서류.{0,4})$"
+)
+# 절차 표(「5단계 | 청약신청서 작성」): 단계 이름이 첫 칸인 행이 둘 이상인 표는 서류 표가 아닙니다
+STEP_CELL = re.compile(r"^(?:\d{1,2}\s*단계|STEP\s*\d{1,2}|\d{1,2}\s*step)$", re.IGNORECASE)
+
+
+def _header_row(row: str) -> bool:
+    cells = ["".join(c.split()) for c in _cells(row) if c.strip()]
+    return bool(cells) and all(HEADER_CELL.match(c) for c in cells)
+
+
+def _step_row(row: str) -> bool:
+    first = next((c for c in _cells(row) if c.strip()), "")
+    return bool(STEP_CELL.match(first.strip()))
 
 
 def omitted_document_rows(description: str) -> int:
@@ -833,8 +850,8 @@ def _document_table_rows(text: str) -> list[str]:
         header = bool(rows) and bool(DOCUMENT_TABLE_WORDS.search("".join(rows[0].split())))
         titled = any(DOCUMENT_HEADING_WORDS.search("".join(line.split())) for line in above)
         continued = previous_end is not None and all(not line.strip() or PAGE_MARK.match(line) for line in lines[previous_end:start])
-        if header or titled or continued:
-            out += rows[1:] if header else rows
+        if (header or titled or continued) and sum(map(_step_row, rows)) < 2:
+            out += [row for row in (rows[1:] if header else rows) if not _header_row(row)]
             previous_end = i
         else:
             previous_end = None
