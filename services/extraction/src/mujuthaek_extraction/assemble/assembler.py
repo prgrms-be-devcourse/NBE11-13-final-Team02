@@ -32,6 +32,7 @@ from mujuthaek_extraction.assemble.quotes import (
     normalize,
     quote_in_unit_row,
     resolve_item_quotes,
+    split_joined_quote,
     strip_markers,
 )
 from mujuthaek_extraction.assemble.regions import RegionCodeTable
@@ -396,6 +397,13 @@ class _Assembler:
                         self.issue(tokens, "EVIDENCE_SOURCE_UNSUPPORTED", f"{quote['documentId']} 문서 근거는 아직 위치를 계산하지 않습니다.")
                     else:
                         self.issue(tokens, "EVIDENCE_SOURCE_UNKNOWN", f"전달되지 않은 문서입니다: {quote['documentId']}")
+                split_quotes = []
+                for quote in text_quotes:  # 이어 붙인 인용은 원문에 있는 조각들로 나눠 각각 근거로 씁니다(quotes.split_joined_quote)
+                    parts = split_joined_quote(material.text, quote["text"], index)
+                    if parts:
+                        self.notes.append(f"{_pointer(tokens)}: 원문의 두 곳 이상을 이어 쓴 인용을 조각 {len(parts)}개로 나눠 근거로 썼습니다.")
+                    split_quotes += [{**quote, "text": part} for part in parts] if parts else [quote]
+                text_quotes = split_quotes
                 resolutions = resolve_item_quotes(material.text, [q["text"] for q in text_quotes], index)
                 groups = self._target_groups(tokens)
                 resolutions = [choose_by_target_groups(material.text, r, groups) for r in resolutions]
