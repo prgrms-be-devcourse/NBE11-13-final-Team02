@@ -14,6 +14,7 @@ import hashlib
 import http.client
 import json
 import re
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -40,6 +41,11 @@ CALL_TIMEOUT_SECONDS = {
     "eligibility": 900,
 }
 QUOTES_SUFFIX = "-quotes"
+# 스트리밍 중 폭주 검사 간격(받은 글자 수). 검사는 응답 전체를 다시 훑으므로 너무 잦지 않게 둡니다
+RUNAWAY_CHECK_CHARS = 3_000
+# 끊은 호출은 제공자가 사용량을 주지 않아 추정합니다. 응답 글자 2자를 1토큰으로(실측 중앙값 2.8자, 비용을 적게 잡지 않게 낮춤)
+CHARS_PER_OUTPUT_TOKEN = 2.0
+CHARS_PER_INPUT_TOKEN = 1.5  # 같은 원문을 앞서 보낸 기록이 없을 때 입력 추정(캐시 없이 전부 새 입력으로 셈)
 
 
 def read_api_key(env_file: Path, name: str = "OPENAI_API_KEY") -> str | None:
@@ -92,8 +98,16 @@ class OpenAIResponsesModel:
         shared_schema: bool = False,
         light_calls: frozenset[str] = frozenset(),
         light_effort: str = "low",
+        stream: bool = False,
+        runaway_check: Callable[[str], str | None] | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ):
         self._api_key = api_key
+        # 스트리밍(설정 OPENAI_STREAM, 2026-10-24): 응답을 받는 도중 runaway_check가 폭주를 알리면 연결을 끊어 남은 출력 요금을 아낍니다
+        self.stream = stream
+        self.runaway_check = runaway_check
+        self._clock = clock
+        self._last_input: dict[str, tuple[int, int]] = {}  # 캐시 열쇠별 마지막 (입력, 캐시 읽기) 토큰. 끊은 호출의 입력 추정에 씀
         self.model = model
         self.reasoning_effort = reasoning_effort
         self.shared_schema = shared_schema  # 모든 호출이 같은 출력 형식 + 원문 끝 캐시 지점(설정 OPENAI_SHARED_SCHEMA)
@@ -171,15 +185,23 @@ class OpenAIResponsesModel:
 
     def complete(self, request: ModelRequest) -> ModelResponse:
         """요청을 보내 응답을 돌려줍니다. 실패는 재시도 여부(transient)와 과금 가능성(maybe_billed)을 담은 ModelError로 바꿉니다."""
+        body = self.body(request)
+        if self.stream:
+            body["stream"] = True  # 호출 캐시 열쇠(cache_identity)에는 넣지 않습니다: 받는 방식만 다르고 답은 같습니다
         http_request = urllib.request.Request(
             ENDPOINT,
-            data=json.dumps(self.body(request), ensure_ascii=False).encode("utf-8"),
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8"),
             headers={"Authorization": "Bearer " + self._api_key, "Content-Type": "application/json"},
             method="POST",
         )
         try:
             with self._opener(http_request, timeout=self.timeout_for(request)) as response:
-                result = json.load(response)
+                if self.stream:
+                    result = self._read_stream(request, body, response)
+                    if isinstance(result, ModelResponse):
+                        return result  # 폭주를 보고 끊은 응답
+                else:
+                    result = json.load(response)
         except http.client.IncompleteRead:
             # 응답이 중간에 끊김: 예전엔 ModelError가 아니라 날것의 예외라 재시도·대체 모델을 건너뛰고 추출 전체가 멈췄습니다
             raise ModelError("응답이 중간에 끊겼습니다.", transient=True, maybe_billed=True, code="INCOMPLETE_READ") from None
@@ -203,7 +225,66 @@ class OpenAIResponsesModel:
         except urllib.error.URLError as error:
             billed = isinstance(error.reason, TimeoutError)
             raise ModelError(f"연결 실패: {type(error).__name__}", transient=True, maybe_billed=billed, code="TIMEOUT" if billed else "CONNECTION") from None
-        return self.parse(request, result)
+        parsed = self.parse(request, result)
+        if "prompt_cache_key" in body and parsed.input_tokens:
+            self._last_input[body["prompt_cache_key"]] = (parsed.input_tokens, (parsed.cached_input_tokens or 0) + (parsed.cache_write_tokens or 0))
+        return parsed
+
+    def _read_stream(self, request: ModelRequest, body: dict[str, Any], response: Any) -> dict[str, Any] | ModelResponse:
+        """스트리밍 응답(server-sent events)을 읽어 마지막 응답 객체를 돌려줍니다. 받는 도중 폭주가 보이면 읽기를 멈추고(연결은 with가 닫음)
+        종료 사유 RUNAWAY인 응답을 돌려줍니다. 응답 대기 한도는 첫 글자까지가 아니라 전체 시간에 겁니다."""
+        deadline = self._clock() + self.timeout_for(request)
+        parts: list[str] = []
+        size = checked = 0
+        for raw_line in response:
+            if self._clock() > deadline:
+                raise ModelError("연결 실패: TimeoutError", transient=True, maybe_billed=True, code="TIMEOUT")
+            line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+            line = line.strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if not data or data == "[DONE]":
+                continue
+            event = json.loads(data)  # 깨진 줄은 ValueError → BAD_JSON
+            kind = event.get("type")
+            if kind == "response.output_text.delta":
+                delta = event.get("delta") or ""
+                parts.append(delta)
+                size += len(delta)
+                if self.runaway_check is not None and size - checked >= RUNAWAY_CHECK_CHARS:
+                    checked = size
+                    raw = "".join(parts)
+                    reason = self.runaway_check(raw)
+                    if reason is not None:
+                        return self._aborted(request, body, raw, reason)
+            elif kind in ("response.completed", "response.incomplete"):
+                return event.get("response") or {}
+            elif kind in ("response.failed", "error"):
+                failure = (event.get("response") or {}).get("error") or event.get("error") or event
+                code = failure.get("code") if isinstance(failure, dict) else None
+                safe_code = code if isinstance(code, str) and re.fullmatch(r"[A-Za-z0-9_\-]{1,80}", code) else None
+                raise ModelError(f"응답 생성 실패 ({safe_code})", transient=True, maybe_billed=True, code="STREAM_FAILED")
+        raise http.client.IncompleteRead(b"")  # 마지막 이벤트 없이 끝남: 응답이 중간에 끊김
+
+    def _aborted(self, request: ModelRequest, body: dict[str, Any], raw: str, reason: str) -> ModelResponse:
+        """폭주로 끊은 응답. 제공자가 사용량을 주지 않아 입력은 같은 원문의 앞선 호출 기록(없으면 글자 수)으로, 출력은 받은 글자 수로 추정합니다."""
+        known = self._last_input.get(body.get("prompt_cache_key", ""))
+        if known is not None:
+            input_tokens, cached = known
+        else:
+            text = request.system + request.user + request.instructions
+            input_tokens, cached = int(len(text) / CHARS_PER_INPUT_TOKEN) + 1, 0
+        return ModelResponse(
+            raw_text=raw,
+            model_id=self.model,
+            stop_reason=StopReason.RUNAWAY,
+            input_tokens=input_tokens,
+            output_tokens=int(len(raw) / CHARS_PER_OUTPUT_TOKEN) + 1,
+            cached_input_tokens=cached,
+            cache_write_tokens=0,
+            usage={"estimated": True, "aborted": reason},
+        )
 
     def parse(self, request: ModelRequest, result: dict[str, Any]) -> ModelResponse:
         """Responses API 응답에서 출력 글자·종료 사유·토큰 사용량을 꺼내 ModelResponse로 돌려줍니다."""

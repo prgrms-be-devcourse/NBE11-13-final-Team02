@@ -276,3 +276,92 @@ def test_shared_schema_keeps_required_nulls_of_the_call_own_schema():
     mapping = json.loads(model.complete(request).raw_text)
     assert mapping["tables"][0]["columns"][0]["priceStage"] is None
     assert schema_errors(mapping, st.MAPPING_SCHEMA) is None
+
+
+class FakeStream:
+    """스트리밍 응답(server-sent events). 읽은 줄 수를 세어 도중에 멈췄는지 봅니다."""
+
+    def __init__(self, events):
+        self.lines = [f"data: {json.dumps(e, ensure_ascii=False)}\n".encode() for e in events]
+        self.read = 0
+        self.requests = []
+
+    def __call__(self, request, timeout):
+        self.requests.append(request)
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def __iter__(self):
+        for line in self.lines:
+            self.read += 1
+            yield line
+
+
+def deltas(text, size=500):
+    return [{"type": "response.output_text.delta", "delta": text[i : i + size]} for i in range(0, len(text), size)]
+
+
+def test_stream_reads_completed_response_and_sends_stream_flag():
+    text = json.dumps({"quotes": []})
+    events = [*deltas(text), {"type": "response.completed", "response": response_payload(text)}]
+    http = FakeStream(events)
+    model = OpenAIResponsesModel(FAKE_KEY, opener=http, stream=True, runaway_check=lambda raw: None)
+    response = model.complete(request_for(0))
+    assert response.stop_reason is StopReason.END and response.input_tokens == 1000
+    assert json.loads(http.requests[0].data)["stream"] is True
+    # 호출 캐시 열쇠는 받는 방식과 상관없이 같습니다
+    plain = OpenAIResponsesModel(FAKE_KEY, opener=http)
+    assert model.cache_identity(request_for(0)) == plain.cache_identity(request_for(0))
+
+
+def test_stream_stops_reading_when_runaway_appears():
+    # 실측 4차: 서류 호출이 같은 표 행을 되풀이해 3만 자 넘게 쓴 뒤에야 잘렸습니다. 받는 도중 보이면 바로 끊습니다
+    from mujuthaek_extraction.model.runaway import runaway
+
+    looping = '{"quotes":[{"id":"q1","text":"' + "가" * 30_000 + '"}]}'
+    events = [*deltas(looping), {"type": "response.completed", "response": response_payload(looping)}]
+    http = FakeStream(events)
+    model = OpenAIResponsesModel(FAKE_KEY, opener=http, stream=True, runaway_check=runaway)
+    response = model.complete(request_for(0))
+    assert response.stop_reason is StopReason.RUNAWAY
+    assert http.read < len(events) // 4  # 나머지는 읽지 않음
+    assert response.usage["estimated"] is True and response.output_tokens < 4_000 and response.input_tokens > 0
+
+
+def test_stream_aborted_call_reuses_cached_input_of_the_same_source():
+    from mujuthaek_extraction.model.runaway import runaway
+
+    usage = {"input_tokens": 70_000, "output_tokens": 10, "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 69_000}}
+    ok = FakeStream([{"type": "response.completed", "response": response_payload(json.dumps({"quotes": []}), usage=usage)}])
+    model = OpenAIResponsesModel(FAKE_KEY, opener=ok, stream=True, shared_schema=True, runaway_check=runaway)
+    model.complete(request_for(0))
+    looping = '{"quotes":[{"id":"q1","text":"' + "가" * 30_000
+    model._opener = FakeStream(deltas(looping))
+    response = model.complete(request_for(1))
+    assert response.stop_reason is StopReason.RUNAWAY
+    assert (response.input_tokens, response.cached_input_tokens) == (70_000, 69_000)
+
+
+def test_stream_failed_event_and_missing_end_are_transient_errors():
+    failed = FakeStream([{"type": "response.failed", "response": {"error": {"code": "server_error", "message": "x"}}}])
+    with pytest.raises(ModelError) as error:
+        OpenAIResponsesModel(FAKE_KEY, opener=failed, stream=True).complete(request_for(0))
+    assert error.value.transient and error.value.code == "STREAM_FAILED"
+    cut = FakeStream(deltas('{"quotes":['))
+    with pytest.raises(ModelError) as error:
+        OpenAIResponsesModel(FAKE_KEY, opener=cut, stream=True).complete(request_for(0))
+    assert error.value.transient and error.value.code == "INCOMPLETE_READ"
+
+
+def test_stream_whole_call_wait_limit():
+    ticks = iter(range(0, 10_000, 400))
+    http = FakeStream(deltas("x" * 5_000))
+    model = OpenAIResponsesModel(FAKE_KEY, opener=http, stream=True, clock=lambda: next(ticks))
+    with pytest.raises(ModelError) as error:
+        model.complete(request_for(0))
+    assert error.value.code == "TIMEOUT"

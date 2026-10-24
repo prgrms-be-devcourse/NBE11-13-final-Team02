@@ -415,3 +415,16 @@ def test_rejection_reason_names_new_problems_and_is_recorded_in_usage():
     usage.record("recheck", result.summary())
     recorded = usage.summary()["recheck"]
     assert recorded["adoptedSections"] == ["schedules"] and [r["scope"] for r in recorded["rejected"]] == ["전체", "eligibility"]
+
+
+def test_stream_aborted_runaway_is_retried_like_a_cut():
+    # 스트리밍 호출이 받는 도중 끊은 응답(RUNAWAY)도 잘림처럼 바꾼 요청으로 다시 받습니다
+    data = example("housing")
+    source = source_for("housing", data)
+    good = json.dumps(ai_part(data, ("requiredDocuments",)), ensure_ascii=False)
+    aborted = dataclasses.replace(looping_cut(), stop_reason=StopReason.RUNAWAY)
+    model = RecordedModel(split_script(data, [aborted, good]))
+    result = run_extraction(RULES, source.material, model)
+    first, second = [r for r in model.requests if r.call_name == "documents"]
+    assert GUARD_NOTE not in first.instructions and GUARD_NOTE in second.instructions
+    assert result.failed_calls == []

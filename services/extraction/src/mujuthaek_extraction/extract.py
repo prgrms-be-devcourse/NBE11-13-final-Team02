@@ -10,7 +10,8 @@
   호출마다 기록을 따로 모아 원래 순서대로 붙이므로, 같은 응답이면 결과가 순서대로 부른 것과 같습니다. 1이면 이전처럼 하나씩.
 - 병렬 호출 간격(2026-10-20, stagger·설정 EXTRACTION_PARALLEL_STAGGER_SECONDS): 섹션 호출을 이 간격을 두고 하나씩 내보냅니다(응답은 기다리지 않음).
 - 반복 폭주(2026-10-24 세 번째 채점, runaway): 응답 글자 안에 같은 긴 조각이 되풀이되거나 글 하나가 지나치게 길면 폭주로 봅니다.
-  제공자 호출이 스트리밍이 아니라 도중에 끊을 수는 없어, 응답을 받은 뒤 검사합니다. 잘림(MAX_TOKENS)·폭주 뒤 다시 보낼 때는 같은 요청이
+  스트리밍 호출(OPENAI_STREAM, 2026-10-24)은 받는 도중에 폭주를 보면 바로 끊고 종료 사유 RUNAWAY로 돌려줘 출력 요금을 아낍니다(잘림처럼 처리).
+  스트리밍이 아니면 응답을 받은 뒤 검사합니다. 잘림(MAX_TOKENS·RUNAWAY)·폭주 뒤 다시 보낼 때는 같은 요청이
   아니라 「표 한 행씩, 인용 300자 이내, 같은 행 반복 금지」 지시를 덧붙인 요청을 보냅니다(같은 요청은 같은 곳에서 다시 폭주했음).
   다시 받아도 잘리면, 나눠 부를 호출(FieldRules.runaway_splits, 주거 서류)은 서류 표 묶음별로 나눠 부르고, 그 밖에는 잘린 JSON에서
   끝까지 적힌 항목만 살립니다(salvage_truncated, 그 섹션은 PARTIAL). 정상 종료인데 폭주가 보이면 바꾼 요청으로 한 번 더 받고,
@@ -37,6 +38,7 @@ from mujuthaek_extraction.assemble.ai_output import SECTIONS
 from mujuthaek_extraction.assemble.slips import fix_format_slips
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 from mujuthaek_extraction.model.base import ExtractionModel, ModelError, ModelRequest, StopReason
+from mujuthaek_extraction.model.runaway import MAX_STRING_CHARS, RUNAWAY_CHUNK, RUNAWAY_REPEATS, RUNAWAY_STEP, runaway  # noqa: F401 (시험·다른 모듈이 여기서 가져감)
 from mujuthaek_extraction.rules.base import CallSpec, FieldRules, call_schema, document_ids, output_limit, structure_summary
 from mujuthaek_extraction.usage import UsageRecorder, timed
 
@@ -92,32 +94,11 @@ class ExtractionRun:
     notes: list[str] = field(default_factory=list)  # 잘림 뒤 나눠 부르기·항목 살리기처럼 결과를 만든 방법 (로그·작업 기록용)
 
 
-# 반복 폭주 판단(문자열 값 안에서만 봅니다. JSON 틀 「"scope":{"level":…}」은 항목마다 같은 글이 되풀이되는 것이 정상입니다)
-RUNAWAY_CHUNK = 200  # 이 길이의 같은 조각이
-RUNAWAY_REPEATS = 3  # 한 문자열 값 안에서 이만큼 나오면 폭주
-RUNAWAY_STEP = 100  # 조각을 뽑는 간격
-MAX_STRING_CHARS = 2_000  # 인용·설명 글 하나가 이보다 길면 폭주(인용은 원문 한 줄 안이고 지시는 300자 이내)
 GUARD_NOTE = (
     "# 다시 요청하는 이유\n앞 응답이 같은 표 행을 되풀이하거나 인용 하나를 지나치게 길게 쓰다 출력 한도에 닿았습니다. "
     "이번에는 표를 한 행씩 인용하고(인용 하나는 표 한 행 또는 한 줄, 300자 이내), 같은 행·같은 글을 두 번 쓰지 않습니다. "
     "긴 칸은 값이 든 부분만 인용합니다. 나머지 지시는 그대로 따릅니다."
 )
-JSON_STRING = re.compile(r'"((?:[^"\\]|\\.)*)(?:"|$)', re.S)
-
-
-def runaway(raw: str) -> str | None:
-    """응답 글의 반복 폭주 이유(없으면 None). 잘린 응답의 마지막(닫히지 않은) 문자열 값도 봅니다."""
-    for match in JSON_STRING.finditer(raw):
-        value = match[1]
-        if len(value) > MAX_STRING_CHARS:
-            return f"글 하나가 {len(value):,}자입니다(한도 {MAX_STRING_CHARS:,}자)"
-        if len(value) < RUNAWAY_CHUNK * RUNAWAY_REPEATS:
-            continue
-        for start in range(0, len(value) - RUNAWAY_CHUNK + 1, RUNAWAY_STEP):
-            chunk = value[start : start + RUNAWAY_CHUNK]
-            if value.count(chunk) >= RUNAWAY_REPEATS:
-                return f"같은 {RUNAWAY_CHUNK}자 글이 {value.count(chunk)}번 되풀이됩니다"
-    return None
 
 
 def guarded(request: ModelRequest) -> ModelRequest:
@@ -369,7 +350,7 @@ def run_extraction(
             response, reason = call_model(request, repairs > 0, sink)
             if response is None:
                 break
-            cut = response.stop_reason is StopReason.MAX_TOKENS
+            cut = response.stop_reason in (StopReason.MAX_TOKENS, StopReason.RUNAWAY)
             loop = runaway(response.raw_text) if cut or response.stop_reason is StopReason.END else None
             if loop is not None:
                 sink.attempts[-1] = replace(sink.attempts[-1], runaway=loop)
