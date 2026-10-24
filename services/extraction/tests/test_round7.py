@@ -139,3 +139,33 @@ def test_notice_partial_only_for_a_total_not_in_the_source_is_extracted():
         {"status": "PARTIAL", "reason": "주택형별 모집호수는 표에 있지만 공고 전체 모집호수 합계는 따로 적혀 있지 않아 합산하지 않았어요."}
     )
     assert not _total_not_written({"status": "PARTIAL", "reason": "공급 대상 일부를 읽지 못했어요"})
+
+
+def test_price_row_of_a_lettered_type_does_not_attach_to_another_lettered_type():
+    from test_supply_tables import column
+
+    count_rows = (("주택형", "모집"), ("26AB", "10"))
+    counts = st.Table("1-1", 1, "공급", count_rows[0], count_rows, None)
+    price_rows = (("주택형", "보증금"), ("26C", "57,760"))
+    prices = st.Table("2-1", 2, "임대조건", price_rows[0], price_rows, None)
+    mapping = {
+        "tables": [
+            {
+                "table": "1-1",
+                "role": "SUPPLY",
+                "rowUnit": "HOUSING_TYPE",
+                "complex": None,
+                "columns": [column(1, "HOUSING_TYPE"), column(2, "COUNT", ck="OFFERED")],
+            },
+            {
+                "table": "2-1",
+                "role": "SUPPLY",
+                "rowUnit": "HOUSING_TYPE",
+                "complex": None,
+                "columns": [column(1, "HOUSING_TYPE"), column(2, "PRICE", pk="DEPOSIT", unit="천원", plan="기본", stage="STANDARD")],
+            },
+        ]
+    }
+    part = st.build_part([counts, prices], mapping, "pdf-text")
+    by_code = {g["housingTypeCode"]: g for g in part["supplyGroups"]}
+    assert by_code["26AB"]["prices"] == [] and [p["sourceAmount"] for p in by_code["26C"]["prices"]] == ["57,760"]
