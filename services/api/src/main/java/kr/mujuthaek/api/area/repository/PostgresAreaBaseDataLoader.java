@@ -31,9 +31,12 @@ import org.springframework.stereotype.Component;
 /**
  * 원천 파일을 area.facilities / area.stores에 반영해요. JDBC만 써서 테스트에서는 {@code new}로 만들어요.
  *
- * <p>순서: 머리줄 확인 → 머리줄 이름 그대로 임시 테이블(stage_raw) → COPY → 변환 SQL(stage_norm) → 공통 검사 → 반영·삭제 → 실행 기록.
+ * <p>순서: 머리줄 확인 → 머리줄 이름 그대로 임시 테이블(stage_raw) → COPY → 변환 SQL(stage_norm) → 공통 검사 → 삭제·반영 → 실행 기록.
  * 데이터 변경은 트랜잭션 하나라 실패하면 이전 데이터가 그대로 남아요. 실행 기록은 실패해도 남아야 해서 커넥션을 직접 잡고 커밋·롤백해요 — 부르는 쪽에
  * {@code @Transactional}을 붙이지 마세요.
+ *
+ * <p>내용이 같은 줄은 건드리지 않아요(기준일도 그대로). 그래서 줄의 data_date는 "그 줄이 마지막으로 바뀐 적재의 기준일"이고, 원천 파일의 기준일은
+ * load_runs.data_date에 남아요. 같은 줄의 기준일까지 맞추면 다시 넣기가 크게 느려져요(서울 상가 55만 줄 다시 넣기 22초 중 15.6초가 기준일 갱신).
  *
  * <p>{@code @Repository}는 예외 변환 프록시(CGLIB)를 만들어 final 클래스에 붙일 수 없어서 {@code @Component}예요.
  */
@@ -111,17 +114,17 @@ public final class PostgresAreaBaseDataLoader {
     Date dataDate = Date.valueOf(req.dataDate());
     int[] iu;
     int deleted;
+    // 지우기를 반영보다 먼저 해요. 반영 뒤에 지우면 방금 넣은 줄이 통계에 없어서(첫 적재면 0줄로 봐요) 줄마다 임시 테이블을 통째로 읽어요
+    // (경기 상가 67만 줄 첫 적재에서 12분 넘게 걸림). 먼저 지우면 이미 커밋된 줄만 보고, 결과는 같아요.
     if (source.target() == AreaSource.Target.FACILITIES) {
+      deleted = update(conn, sql("delete_facilities.sql"), source.name());
       iu =
           queryPair(
               conn, sql("apply_facilities.sql"), source.facilityKind(), source.name(), dataDate);
-      deleted = update(conn, sql("delete_facilities.sql"), source.name());
-      update(conn, sql("touch_facilities.sql"), dataDate, source.name(), dataDate);
     } else {
-      // 상가는 시도 파일 하나가 적재 한 번이라, 지우기·기준일 맞추기를 그 시도(load_scope) 안에서만 해요.
-      iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
+      // 상가는 시도 파일 하나가 적재 한 번이라, 지우기를 그 시도(load_scope) 안에서만 해요.
       deleted = update(conn, sql("delete_stores.sql"), req.scope());
-      update(conn, sql("touch_stores.sql"), dataDate, req.scope(), dataDate);
+      iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
     }
     int inserted = iu[0];
     int updated = iu[1];
@@ -178,12 +181,13 @@ public final class PostgresAreaBaseDataLoader {
     }
   }
 
+  /** 데이터와 같은 트랜잭션이라 now()는 트랜잭션 시작 시각이에요. 끝난 시각은 clock_timestamp()로 남겨요. */
   private static void finishRun(Connection conn, AreaLoadReport r) throws SQLException {
     try (PreparedStatement ps =
         conn.prepareStatement(
             "update area.load_runs set status = 'SUCCEEDED', rows_in = ?, rows_skipped = ?, rows_rejected = ?, "
                 + "rows_fixed = ?, rows_inserted = ?, rows_updated = ?, rows_unchanged = ?, rows_deleted = ?, "
-                + "reject_reasons = ?::jsonb, finished_at = now() where id = ?")) {
+                + "reject_reasons = ?::jsonb, finished_at = clock_timestamp() where id = ?")) {
       ps.setInt(1, r.rowsIn());
       ps.setInt(2, r.rowsSkipped());
       ps.setInt(3, r.rowsRejected());
