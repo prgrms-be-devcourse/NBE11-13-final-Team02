@@ -36,6 +36,11 @@ v29(2026-10-23): v28 + 프론트 요청 — 일정의 접수 방법(정해진 �
   「적용 대상자」)의 요금이면 모든 가격에 그 대상(정할 수 없으면 비움), 표 제목에만 있는 주택형은 그 표 행의 주택형,
   dailyHours는 하루 안의 접수 시각만(첫날~마지막 날 연속 구간·야간·24시간 접수는 비움), 묶음 제목 없는 「필수/선택」 칸은
   필수→COMMON·선택→CONDITIONAL(공급표 열 의미 지시 supply_tables/v7도 같이).
+  v29 고침 3(2026-10-24, 게시 전이라 같은 파일을 고침. 세 번째 시험 채점의 일반 규칙): 표는 한 행씩·인용 300자 이내·같은 행 반복 금지
+  (서류 호출이 같은 꼴의 행을 되풀이하다 잘림), 원문 따옴표·「|」 그대로·인용 앞뒤 따옴표 덧붙이지 않기, 첫날 시작·마지막 날 끝 시각은
+  dailyHours와 상관없이 startsAt·endsAt의 MINUTE, 칸·주석이 막은 접수 방법(「방문 및 일반우편은 접수 불가」)은 예외 상황 문구가 있어도
+  channels에 넣지 않고 예외는 timeNote·설명에, 접수 방법을 정하는 문장(「현장 접수만 가능」)은 그 일정의 근거로 꼭 인용.
+  서류 호출이 다시 받아도 잘리면 서류 표 묶음별로 나눠 부름(_DOCUMENTS_SUBMIT·_DOCUMENTS_VISIT, runaway_splits).
 v19(2026-10-18): v18 + 선착순 공고의 접수 일정은 먼저 오는 서류 제출로,
     소득은 비율과 금액표가 함께면 비율로(19-6), 기본·금회 완화 조건은 적용하는 쪽만 STRUCTURED(19-7).
 v18(2026-10-18): v17 + 짧게 적힌 서류(신분증·인감도장·기타서류 등) 빠짐없이, 순위·계층 정의 속 나이(65세 이상)도 AGE 조건으로(19-5).
@@ -260,6 +265,31 @@ _DOCUMENTS = CallSpec(
     uses_structure=True,
     max_output_tokens=OUTPUT_LIMITS["documents"],
 )
+# 서류 호출이 다시 받아도 잘리면 서류 표 묶음별로 나눠 부릅니다(FieldRules.runaway_splits). 평소에는 부르지 않습니다(비용).
+# 실측(2026-10-24 세 번째 채점): 「현장신청시 대리인 확인서류」 표의 세 행을 되풀이하는 폭주가 5건 중 3건의 첫 서류 호출에서 났고,
+# 한 건은 두 번 모두 잘려 신청 서류 45개가 모두 빠짐. 나눠 부르면 한 묶음이 폭주해도 다른 묶음의 서류는 남습니다
+_DOCUMENTS_SUBMIT = CallSpec(
+    name="documents-submit",
+    sections=("requiredDocuments",),
+    instructions=(
+        "제출 서류(requiredDocuments) 가운데 **신청·서류 제출 단계에서 내는 서류 표**(공통 제출서류, 해당자·계층별 추가 서류, 소득·자산 증빙)만 "
+        "추출합니다. 공통 지시 2장의 「서류」 절을 따릅니다. 현장(방문)·대리 신청 때 확인하는 신분증·도장·위임장 상자와 계약·입주 때 내는 서류는 "
+        "다른 호출이 맡으므로 넣지 않습니다.\n" + SPLIT_NOTE
+    ),
+    uses_structure=True,
+    max_output_tokens=OUTPUT_LIMITS["documents"],
+)
+_DOCUMENTS_VISIT = CallSpec(
+    name="documents-visit",
+    sections=("requiredDocuments",),
+    instructions=(
+        "제출 서류(requiredDocuments) 가운데 **현장(방문)·대리 신청 때 확인하는 서류**(본인·배우자·기타 대리인별 신분증·도장·인감·위임장 상자), "
+        "**계약·입주 때 내는 서류**, ※ 주석에만 적힌 서류만 추출합니다. 공통 지시 2장의 「서류」 절을 따릅니다. 신청·서류 제출 단계의 공통·해당자·"
+        "계층별 서류 표는 다른 호출이 맡으므로 넣지 않습니다.\n" + SPLIT_NOTE
+    ),
+    uses_structure=True,
+    max_output_tokens=OUTPUT_LIMITS["documents"],
+)
 _CONDITIONS = CallSpec(  # 나눠 부르지 않을 때(large_text_chars 설정)만 씁니다
     name="conditions",
     sections=("eligibility", "selectionRules", "requiredDocuments"),
@@ -279,6 +309,7 @@ RULES = replace(
     calls=(_STRUCTURE, _SCHEDULES, _CONDITIONS),
     split_calls=(("conditions", (_ELIGIBILITY, _SELECTION, _DOCUMENTS)),),
     supply_tables=True,
+    runaway_splits=(("documents", (_DOCUMENTS_SUBMIT, _DOCUMENTS_VISIT)),),
 )
 
 # 자동 등록(rules/__init__.py): 수집 이벤트 field가 HOUSING이면 위 규칙, 이전 방식이면 v10
