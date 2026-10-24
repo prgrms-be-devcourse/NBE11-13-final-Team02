@@ -8,9 +8,12 @@ import java.util.Locale;
 import kr.mujuthaek.api.common.logging.SensitiveFields;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
+import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -101,7 +104,13 @@ class GlobalExceptionHandler {
   }
 
   @ExceptionHandler(Exception.class)
-  ProblemDetail handle(Exception e, HttpServletRequest request) {
+  ResponseEntity<ProblemDetail> handle(Exception e, HttpServletRequest request) {
+    if (e instanceof ErrorResponse standard && standard.getStatusCode().is4xxClientError()) {
+      // 스프링 표준 요청 오류(405·415·406·404 등)는 서버 오류가 아니에요: 원래 상태 코드와 헤더(Allow·Accept)를 그대로 돌려줘요
+      return ResponseEntity.status(standard.getStatusCode())
+          .headers(standard.getHeaders())
+          .body(clientProblem(standard.getStatusCode(), request));
+    }
     // 예외 메시지에 판정 입력 값이 섞여 있을 수 있어서 가린 뒤에 남겨요
     log.error(
         "처리하지 못한 오류: {} {}",
@@ -111,6 +120,21 @@ class GlobalExceptionHandler {
     ProblemDetail problem =
         problem(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.message(), request);
     problem.setProperty("timestamp", OffsetDateTime.now(SEOUL).withNano(0).toString());
+    return ResponseEntity.status(problem.getStatus()).body(problem);
+  }
+
+  /** 스프링 표준 4xx 오류를 우리 코드로. 맞는 코드가 없으면 REQUEST_NOT_SUPPORTED에 실제 상태 코드를 넣어요. */
+  private static ProblemDetail clientProblem(HttpStatusCode status, HttpServletRequest request) {
+    ErrorCode code =
+        switch (status.value()) {
+          case 400 -> ErrorCode.VALIDATION_FAILED;
+          case 404 -> ErrorCode.NOT_FOUND;
+          case 405 -> ErrorCode.METHOD_NOT_ALLOWED;
+          case 415 -> ErrorCode.UNSUPPORTED_MEDIA_TYPE;
+          default -> ErrorCode.REQUEST_NOT_SUPPORTED;
+        };
+    ProblemDetail problem = problem(code, code.message(), request);
+    problem.setStatus(status.value());
     return problem;
   }
 
