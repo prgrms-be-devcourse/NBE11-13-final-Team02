@@ -161,7 +161,11 @@ def _minutes(value: str) -> int:
 
 # 매일 같은 시각 창구가 아니라 이어지는 기간·밤낮 없는 접수를 말하는 낱말(2026-10-24 채점: 「야간(17:00~10:00)에도 청약 가능」인
 # 신청 일정과 「10:00 ~ 23(금) 17:00」 연속 구간이 「매일 10~17시」로 읽힘). 이런 근거로는 dailyHours를 두지 않습니다
-CONTINUOUS_WORDS = re.compile(r"다음\s*날|익일|야간|24\s*시간|철야")
+# 「(단, 시작일과 마감일 제외)」(2026-10-24 네 번째 채점): 첫날·마지막 날만 시각이 정해지고 가운데 날은 종일 받는 기간이라 매일 같은 시각이 아닙니다
+CONTINUOUS_WORDS = re.compile(
+    r"다음\s*날|익일|야간|24\s*시간|철야"
+    r"|(?:시작|첫)\s*(?:일|날)\s*(?:과|와|및|[,·ㆍ])?\s*(?:마감|마지막|종료)\s*(?:일|날)?\s*(?:은|는)?\s*제외"
+)
 # 두 시각 사이의 글: 「~」「부터」로 이어지고(시각 없는) 짧은 글만 낀 경우
 RANGE_GAP = re.compile(r"^\s*(?:[~∼～〜\-–]|부터|에서)\s*(?P<between>[^~∼～〜:\n]{0,24}?)\s*$")
 # 두 시각 사이에 날짜가 끼면(「10:00 ~ 23(금) 17:00」「10.22.(목) 10:00 ~ 10.23.(금) 17:00」) 첫날 시작~마지막 날 끝의 연속 구간입니다
@@ -298,6 +302,39 @@ def _evidence_texts(candidate: dict[str, Any]) -> dict[str, str]:
 
 
 ISO_DAY = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+# 서류 칸의 단서가 다른 서류를 이름으로 가리킴(2026-10-24 네 번째 채점: 개인정보 동의서 칸에 적힌 「주거급여수급자로 신청하는 경우에는
+# ‘금융정보 등 제공 동의서’ 작성 제외」를 개인정보 동의서의 적용 대상에 붙여, 접수가 거부되는 서류를 수급자는 안 내도 되는 것처럼 보임).
+# 적용 대상에 제외·면제를 적은 서류의 근거 행에서 제외 단서가 다른 서류의 이름을 말하면 그 서류를 확인 전까지 보류합니다
+CLUE_FOR_OTHER = "DOCUMENT_CLUE_FOR_OTHER_DOCUMENT"
+EXCLUSION_WORDS = re.compile(r"제외|면제|제출\s*하지\s*않|작성\s*하지\s*않|생략")
+CLAUSE_BREAK = re.compile(r"[.。\n※•▪◦|]|(?<=[다음함])\s")
+NAME_ASIDES = re.compile(r"\([^)]*\)|[‘’'\"“”「」『』]")
+
+
+def _name_key(name: str) -> str:
+    """서류 이름 비교 열쇠: 괄호 안 설명·따옴표를 빼고 정규화(「금융정보 등 (금융·신용·보험정보) 제공 동의서」 ↔ 「‘금융정보 등 제공 동의서’」)."""
+    return normalize(NAME_ASIDES.sub("", name or ""))
+
+
+def clue_for_other(document: dict[str, Any], text: str, others: list[str]) -> str | None:
+    """적용 대상에 제외를 적은 서류의 근거 글에서, 제외 단서가 이 서류가 아닌 다른 서류의 이름을 말하면 그 이름."""
+    if not EXCLUSION_WORDS.search(str(document.get("appliesTo") or "")):
+        return None
+    own = _name_key(str(document.get("name") or ""))
+    keys = [(name, _name_key(name)) for name in others]
+    keys = [(name, key) for name, key in keys if len(key) >= 4 and key not in own and own not in key]
+    for clause in CLAUSE_BREAK.split(NAME_ASIDES.sub("", text)):
+        if not EXCLUSION_WORDS.search(clause):
+            continue
+        flat = normalize(clause)
+        if own and own in flat:
+            continue
+        named = next((name for name, key in keys if key in flat), None)
+        if named:
+            return named
+    return None
 
 
 def _place_found(place: dict[str, Any], key: str, text: str) -> bool:
@@ -520,6 +557,15 @@ class _Checker:
                 if group is not None:
                     document["group"] = group
                     self.notes.append(f"/requiredDocuments/{d}: 서류 표의 「필수/선택」 칸으로 묶음을 {group}(으)로 정했어요({label})")
+            named = clue_for_other(document, text, [str(o.get("name") or "") for o in documents if o is not document])
+            if named:
+                self.candidate["quality"]["reviewIssues"].append(
+                    {
+                        "code": CLUE_FOR_OTHER,
+                        "target": f"/requiredDocuments/{d}",
+                        "description": f"{label}: 적용 대상의 제외 단서가 다른 서류(「{named}」)를 말하는 것 같아 확인 전까지 쓰지 않아요(원문 확인 필요)",
+                    }
+                )
             copies = document.get("copies")
             if copies is not None and copies not in {int(m[1]) for m in COPIES.finditer(text)}:
                 document["copies"] = None
