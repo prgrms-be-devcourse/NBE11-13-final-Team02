@@ -4,6 +4,8 @@ import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
 import java.time.Clock;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -34,6 +36,7 @@ import org.springframework.stereotype.Service;
 @Service
 public class AreaCommercialService {
 
+  static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
   static final String DENSITY = "DENSITY";
   static final String COMPETITION = "COMPETITION";
   static final String TRANSIT = "TRANSIT";
@@ -97,7 +100,7 @@ public class AreaCommercialService {
             null,
             scores,
             total,
-            clock.instant()));
+            OffsetDateTime.ofInstant(clock.instant(), SEOUL)));
   }
 
   /** 입지계수. 업종이 없거나, 300m 안 점포가 0이거나, 전국 비율이 없으면(0 포함) null. */

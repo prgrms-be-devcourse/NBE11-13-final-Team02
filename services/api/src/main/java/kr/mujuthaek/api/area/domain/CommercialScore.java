@@ -1,6 +1,6 @@
 package kr.mujuthaek.api.area.domain;
 
-import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
 
@@ -14,6 +14,7 @@ import java.util.UUID;
  * @param households 단지 세대 수 — 공고 자료라 area는 몰라요(늘 null, 화면이 공고 상세에서 가져와요)
  * @param scores DENSITY(밀도)·COMPETITION(경쟁, 같은 업종이 없거나 점포가 0이면 빠짐)·TRANSIT(교통) 0~100
  * @param score 총점 0~100 (항목 평균, 0.5 올림)
+ * @param calculatedAt 계산한 시각 (서울 시간, 요청 때)
  */
 public record CommercialScore(
     UUID siteId,
@@ -24,4 +25,4 @@ public record CommercialScore(
     Integer households,
     Map<String, Integer> scores,
     int score,
-    Instant calculatedAt) {}
+    OffsetDateTime calculatedAt) {}

@@ -112,7 +112,7 @@ class AreaCommercialServiceTest {
     assertThat(s.nearestStation().meters()).isEqualTo(600);
     assertThat(s.nearestStation().walkMinutes()).isEqualTo(12); // 600 × 1.3 ÷ 67 = 11.6 → 12
     assertThat(s.households()).isNull();
-    assertThat(s.calculatedAt()).isEqualTo(NOW);
+    assertThat(s.calculatedAt().toString()).isEqualTo("2026-10-25T12:00+09:00");
   }
 
   @Test
