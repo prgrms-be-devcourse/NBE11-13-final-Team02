@@ -5,7 +5,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import kr.mujuthaek.api.common.exception.CustomException;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.mapper.ApplicantMapper;
 import kr.mujuthaek.api.eligibility.mapper.FrameReader;
 import kr.mujuthaek.api.eligibility.mapper.FrameSpec;
@@ -56,21 +56,21 @@ public class MatchQueryService {
    * @param applicant 사용자 입력 (상세 판정과 같은 모양). 비우면 모든 공고가 확인 필요가 돼요. 질문(ASK) 답은 받지 않아요. 답이 필요한 공고는 확인
    *     필요로 두고 상세에서 물어요
    */
-  public MatchResult matchHousing(ApplicantRequest applicant) {
+  public MatchResult matchHousing(JudgmentApplicantRequest applicant) {
     return match(FrameSpec.HOUSING, applicant);
   }
 
   /** 사업공간 목록 판정. 결과 모양은 주거와 같아요. */
-  public MatchResult matchBusinessSpace(ApplicantRequest applicant) {
+  public MatchResult matchBusinessSpace(JudgmentApplicantRequest applicant) {
     return match(FrameSpec.BUSINESS_SPACE, applicant);
   }
 
   /** 창업지원 목록 판정. 결과 모양은 주거와 같아요 (noticeId는 지원사업 ID, 수집 DB 정책 ID). */
-  public MatchResult matchStartupSupport(ApplicantRequest applicant) {
+  public MatchResult matchStartupSupport(JudgmentApplicantRequest applicant) {
     return match(FrameSpec.STARTUP_SUPPORT, applicant);
   }
 
-  private MatchResult match(FrameSpec spec, ApplicantRequest request) {
+  private MatchResult match(FrameSpec spec, JudgmentApplicantRequest request) {
     Applicant applicant = ApplicantMapper.toApplicant(request, Map.of());
     List<MatchResult.Item> items = new ArrayList<>();
     for (NoticeCandidate notice : candidates.openNotices(spec.field())) {

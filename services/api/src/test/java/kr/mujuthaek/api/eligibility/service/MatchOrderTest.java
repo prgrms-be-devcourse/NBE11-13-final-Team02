@@ -7,7 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
 import java.util.UUID;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
@@ -28,8 +28,8 @@ class MatchOrderTest {
   private static final UUID TO_CHECK = UUID.fromString("00000000-0000-0000-0000-000000000005");
 
   /** 1990년생: 만 19~20세 조건은 불충족, 만 19~99세 조건은 충족이에요. */
-  private static final ApplicantRequest BORN_1990 =
-      JSON.convertValue(Map.of("birthDate", "1990-01-01"), ApplicantRequest.class);
+  private static final JudgmentApplicantRequest BORN_1990 =
+      JSON.convertValue(Map.of("birthDate", "1990-01-01"), JudgmentApplicantRequest.class);
 
   private static final String YOUNG =
       "{\"id\": \"%s\", \"kind\": \"AGE\", \"minAge\": 19, \"maxAge\": 20}";
@@ -74,7 +74,7 @@ class MatchOrderTest {
             Eligibility.ELIGIBLE,
             Eligibility.ELIGIBLE,
             Eligibility.ELIGIBLE,
-            Eligibility.CHECK_NEEDED);
+            Eligibility.NEEDS_INPUT);
     assertThat(result.counts()).isEqualTo(new MatchResult.Counts(4, 1, 0));
   }
 

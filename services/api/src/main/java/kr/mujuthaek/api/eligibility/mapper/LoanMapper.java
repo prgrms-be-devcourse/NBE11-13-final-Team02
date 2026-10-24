@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.model.LoanResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
@@ -15,7 +15,7 @@ import kr.mujuthaek.api.eligibility.rule.loan.Borrower;
 import kr.mujuthaek.api.eligibility.rule.loan.LoanJudgment;
 
 /**
- * 판정 입력 → 대출 판정 입력, 상품별 판정 → 정제된 대출 결과 (대출 판정 서비스가 불러요). 잘못된 값은 INVALID_REQUEST이고, 오류 문장에 입력값을 넣지
+ * 판정 입력 → 대출 판정 입력, 상품별 판정 → 정제된 대출 결과 (대출 판정 서비스가 불러요). 잘못된 값은 VALIDATION_FAILED이고, 오류 문장에 입력값을 넣지
  * 않아요.
  */
 public final class LoanMapper {
@@ -25,9 +25,9 @@ public final class LoanMapper {
 
   private LoanMapper() {}
 
-  public static Borrower toBorrower(ApplicantRequest request) {
+  public static Borrower toBorrower(JudgmentApplicantRequest request) {
     Applicant applicant = ApplicantMapper.toApplicant(request, Map.of());
-    ApplicantRequest.LoanRequest loan = request == null ? null : request.loan();
+    JudgmentApplicantRequest.LoanRequest loan = request == null ? null : request.loan();
     Long income = loan == null ? null : loan.annualIncomeWon();
     Long mine = loan == null ? null : loan.applicantAnnualIncomeWon();
     Long net = loan == null ? null : loan.netAssetWon();
@@ -66,7 +66,7 @@ public final class LoanMapper {
         asOf,
         new LoanResult.Counts(
             count(judgments, Eligibility.ELIGIBLE),
-            count(judgments, Eligibility.CHECK_NEEDED),
+            count(judgments, Eligibility.NEEDS_INPUT),
             count(judgments, Eligibility.INELIGIBLE)),
         judgments.stream().map(LoanMapper::item).toList());
   }
@@ -100,7 +100,7 @@ public final class LoanMapper {
 
   private static void check(boolean ok, String at, String problem) {
     if (!ok) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, at + ": " + problem);
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, at + ": " + problem);
     }
   }
 }

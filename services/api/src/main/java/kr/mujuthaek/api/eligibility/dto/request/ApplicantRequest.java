@@ -1,70 +1,74 @@
 package kr.mujuthaek.api.eligibility.dto.request;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.PositiveOrZero;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
-import java.util.Map;
-import kr.mujuthaek.api.eligibility.rule.frame.Applicant.ApplicantType;
-import kr.mujuthaek.api.eligibility.rule.frame.Applicant.MaritalStatus;
+import kr.mujuthaek.api.common.logging.SensitiveFields;
+import kr.mujuthaek.api.eligibility.rule.Applicant;
 
 /**
- * 사용자 입력 (세 분야 같이 써요). 모두 선택 입력이에요. 칸 뜻은 rule/frame/Applicant를 봐요.
+ * 판정 요청 본문의 {@code applicant} (API 설계 "판정 입력"). 모든 칸은 비워도 돼요. 형식만 검사하고 값은 어디에도 남기지 않아요.
  *
- * <p>저장하거나 로그에 남기지 않아요. 잘못된 값이 와도 오류 메시지에 그 값을 넣지 않아요.
+ * <p>연월(marriedOn, homelessSince, subscription.joinedOn)은 "2025-04" 모양이에요. workplace·priorities는
+ * 생활권 점수용이라 판정에서는 쓰지 않아요(받기는 해요).
  */
 public record ApplicantRequest(
-    LocalDate birthDate,
-    Boolean korean,
-    String residenceRegionCode,
-    Integer residenceMonths,
-    MaritalStatus maritalStatus,
-    LocalDate marriedOn,
-    List<LocalDate> childBirthDates,
-    Boolean expectingChild,
-    HouseholdRequest household,
-    SubscriptionRequest subscription,
-    BusinessRequest business,
-    List<String> statuses,
-    List<String> restrictions,
-    LoanRequest loan) {
+    @Past LocalDate birthDate,
+    @Pattern(regexp = "[0-9]{5}") String regionCode,
+    Boolean householdHead,
+    @Min(1) @Max(20) Integer householdSize,
+    @Min(0) @Max(20) Integer dependents,
+    List<@Pattern(regexp = "UNIVERSITY_STUDENT|JOB_SEEKER|YOUTH|NEWLYWED") String> targetGroups,
+    @Pattern(regexp = "SINGLE|MARRIED|ENGAGED") String marital,
+    YearMonth marriedOn,
+    @Min(0) @Max(20) Integer children,
+    YearMonth homelessSince,
+    Boolean homeOwner,
+    @Valid SubscriptionRequest subscription,
+    List<@Pattern(regexp = "BASIC_LIVELIHOOD|NEAR_POOR|SINGLE_PARENT") String> welfareStatuses,
+    @PositiveOrZero Long personalIncomeAnnualWon,
+    @PositiveOrZero Long householdIncomeAnnualWon,
+    @PositiveOrZero Long totalAssetsWon,
+    @PositiveOrZero Long carValueWon,
+    @PositiveOrZero Long availableCashWon,
+    List<@Pattern(regexp = "R[23]_[A-Z_]+") String> rankChecks) {
 
-  public record HouseholdRequest(
-      Integer size,
-      Boolean head,
-      Boolean homeless,
-      Boolean applicantHomeless,
-      Integer homelessYears,
-      Long monthlyIncomeWon,
-      Long applicantMonthlyIncomeWon,
-      Long parentsMonthlyIncomeWon,
-      Integer applicantAndParentsSize,
-      Boolean dualIncome,
-      Long totalAssetWon,
-      Long applicantTotalAssetWon,
-      Long carValueWon) {}
+  public record SubscriptionRequest(YearMonth joinedOn, @Min(0) @Max(1000) Integer payments) {}
 
-  public record SubscriptionRequest(Integer months, Integer payments, Long balanceWon) {}
+  public Applicant toApplicant() {
+    return new Applicant(
+        birthDate,
+        regionCode,
+        householdHead,
+        householdSize,
+        dependents,
+        targetGroups,
+        marital,
+        marriedOn,
+        children,
+        homelessSince,
+        homeOwner,
+        subscription == null
+            ? null
+            : new Applicant.Subscription(subscription.joinedOn(), subscription.payments()),
+        welfareStatuses,
+        personalIncomeAnnualWon,
+        householdIncomeAnnualWon,
+        totalAssetsWon,
+        carValueWon,
+        availableCashWon,
+        rankChecks);
+  }
 
-  public record BusinessRequest(
-      ApplicantType applicantType,
-      Boolean hasSite,
-      String siteRegionCode,
-      List<BusinessRecordRequest> history,
-      String industryCode,
-      Map<Integer, Long> revenueByYear) {}
-
-  public record BusinessRecordRequest(LocalDate openedOn, LocalDate closedOn) {}
-
-  /**
-   * 대출용 소득·자산·생애최초 (대출 자격 판정에만 써요). 주택도시기금 상품안내 기준이라 판정의 월소득·총자산과 따로 받아요.
-   *
-   * @param annualIncomeWon 부부합산 연소득 (미혼이면 본인)
-   * @param applicantAnnualIncomeWon 본인(대출신청인) 연소득
-   * @param netAssetWon 부부합산 순자산 (자산 − 부채, 음수일 수 있어요)
-   * @param firstHomePurchase 세대원 모두 집을 산 적이 없어서 생애최초 주택구입이면 true (구입 대출에 써요)
-   */
-  public record LoanRequest(
-      Long annualIncomeWon,
-      Long applicantAnnualIncomeWon,
-      Long netAssetWon,
-      Boolean firstHomePurchase) {}
+  @Override
+  public String toString() {
+    return SensitiveFields.mask(
+        "ApplicantRequest" + toApplicant().toString().substring("Applicant".length()));
+  }
 }

@@ -1,5 +1,5 @@
 {
-  "description": "모든 데이터·식별자·검증 상태는 계약 검사 전용 가상 예시입니다. 실제 LH/SH 추출·API 검증 결과가 아닙니다.",
+  "description": "synthetic이 true인 예시의 데이터·식별자·검증 상태는 계약 검사 전용 가상 예시입니다. 실제 LH/SH 추출·API 검증 결과가 아닙니다. area.source.ready.json·area.source.ready.address.json은 2026-10-22에 실제로 올린 원천 파일(공개 데이터)의 값이에요.",
   "examples": [
     {
       "file": "housing.extracted.json",
@@ -35,6 +35,16 @@
       "file": "business.standard.json",
       "schema": "schemas/standard-notice.v1.json",
       "synthetic": true
+    },
+    {
+      "file": "area.source.ready.json",
+      "schema": "events/area.source.ready.v1.json",
+      "synthetic": false
+    },
+    {
+      "file": "area.source.ready.address.json",
+      "schema": "events/area.source.ready.v1.json",
+      "synthetic": false
     }
   ]
 }

@@ -17,10 +17,10 @@ public record LoanResult(LocalDate asOf, Counts counts, List<Item> items) {
     items = List.copyOf(items);
   }
 
-  public record Counts(int eligible, int checkNeeded, int ineligible) {}
+  public record Counts(int eligible, int needsInput, int ineligible) {}
 
   /**
-   * @param status ELIGIBLE 받을 수 있음 / CHECK_NEEDED 확인 필요 / INELIGIBLE 받을 수 없음
+   * @param status ELIGIBLE 받을 수 있음 / NEEDS_INPUT 확인 필요 / INELIGIBLE 받을 수 없음
    * @param failedConditions 불가인 이유: 맞지 않는 조건 문장 (사용자가 넣은 값은 넣지 않아요)
    * @param checkReasons 확인이 필요한 이유 문장
    * @param missingInputs 넣으면 결과가 정해질 수 있는 입력

@@ -35,7 +35,7 @@ class JudgmentCandidateReaderTest {
       JSON.readTree("{\"schema\": \"startup-support-judgment.v1\"}");
 
   private final NoticeQueryService notices =
-      new NoticeQueryService() {
+      new NoticeQueryService(null, null, null, null, null, null) { // 판정용 메서드만 덮어써서 씀
         @Override
         public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
           return switch (field) {
@@ -141,14 +141,5 @@ class JudgmentCandidateReaderTest {
                 List.of(),
                 STARTUP_FRAME,
                 "https://example.org/programs/pre-startup"));
-  }
-
-  @Test
-  void stubsGiveNothingUntilDataIsStored() {
-    NoticeQueryService stub = new NoticeQueryService();
-    for (NoticeField field : NoticeField.values()) {
-      assertThat(stub.findOpenForJudgment(field)).as(field.name()).isEmpty();
-    }
-    assertThat(stub.findOpenProgramsForJudgment()).isEmpty();
   }
 }

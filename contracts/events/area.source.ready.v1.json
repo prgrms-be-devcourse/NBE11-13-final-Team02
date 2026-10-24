@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mujuthaek.kr/contracts/events/area.source.ready.v1.json",
+  "title": "area.source.ready v1",
+  "description": "collector가 생활권·상권 원천 파일을 S3 area/ 경로에 올린 뒤 보내요. api의 area 모듈이 받아서 area.facilities·area.stores·area.address_points에 적재해요. 같은 (source, scope, sha256)은 한 번만 적재돼요.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["eventId", "eventType", "schemaVersion", "occurredAt", "producer", "payload"],
+  "properties": {
+    "eventId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "이 이벤트만 팀 규칙(UUID v7)과 달리 UUID v5로 고정해요: uuid5(NAMESPACE_URL, \"https://mujuthaek.kr/events/area.source.ready/{source}/{scope}/{sha256}\"). 같은 파일을 두 번 보내도 같은 ID라 받는 쪽 processed_events가 한 번만 처리해요"
+    },
+    "eventType": { "const": "area.source.ready" },
+    "schemaVersion": { "const": 1 },
+    "occurredAt": { "type": "string", "format": "date-time" },
+    "producer": { "const": "collector" },
+    "payload": { "$ref": "#/$defs/payload" }
+  },
+  "$defs": {
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source", "scope", "s3Key", "sha256", "dataDate"],
+      "properties": {
+        "source": { "enum": ["SUBWAY_STATION", "BUS_STOP", "SCHOOL", "PARK", "HOSPITAL", "STORES", "ADDRESS_ENTRANCE"] },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "상가정보(STORES)는 시도 이름(강원, 경기, 전남광주 …), 도로명주소 출입구(ADDRESS_ENTRANCE)는 시도 코드 두 자리(11, 12, 36 …), 나머지는 ALL. 이번 파일에 없는 줄은 이 범위 안에서만 지워요"
+        },
+        "s3Key": {
+          "type": "string",
+          "pattern": "^area/(SUBWAY_STATION|BUS_STOP|SCHOOL|PARK|HOSPITAL|STORES|ADDRESS_ENTRANCE)/\\d{4}-\\d{2}-\\d{2}/[a-z0-9_]+\\.(csv|txt)$",
+          "description": "S3 버킷 안 경로 area/{source}/{dataDate}/{영문 파일 이름} (주소 아님). 도로명주소 출입구는 원본 그대로 .txt(address_entrance_{파일 시도코드}.txt), 나머지는 .csv"
+        },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$", "description": "올린 파일의 지문. S3 객체 메타데이터 sha256과 같아요" },
+        "dataDate": { "type": "string", "format": "date", "description": "원천 기준일" },
+        "fileName": { "type": "string", "description": "원본 파일 이름 (기록용, 한글일 수 있음)" },
+        "rows": { "type": "integer", "minimum": 0, "description": "collector가 센 파일 줄 수 (머리줄이 있으면 빼고, 확인용 — 칸 안 줄바꿈 때문에 레코드 수와 다를 수 있음)" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "source": { "const": "STORES" } } },
+          "then": { "properties": { "scope": { "not": { "const": "ALL" } } } }
+        },
+        {
+          "if": { "properties": { "source": { "const": "ADDRESS_ENTRANCE" } } },
+          "then": {
+            "properties": {
+              "scope": { "pattern": "^[0-9]{2}$" },
+              "s3Key": { "pattern": "/address_entrance_[0-9]{5}\\.txt$" }
+            }
+          },
+          "else": { "properties": { "s3Key": { "pattern": "\\.csv$" } } }
+        },
+        {
+          "if": { "properties": { "source": { "enum": ["STORES", "ADDRESS_ENTRANCE"] } } },
+          "else": { "properties": { "scope": { "const": "ALL" } } }
+        }
+      ]
+    }
+  }
+}

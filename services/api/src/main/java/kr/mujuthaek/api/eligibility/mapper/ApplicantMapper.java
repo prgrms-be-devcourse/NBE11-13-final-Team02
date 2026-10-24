@@ -8,8 +8,8 @@ import java.util.Set;
 import java.util.function.Predicate;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest.BusinessRecordRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest.BusinessRecordRequest;
 import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import kr.mujuthaek.api.eligibility.rule.frame.Applicant;
 import kr.mujuthaek.api.eligibility.rule.frame.Codes;
@@ -20,7 +20,8 @@ public final class ApplicantMapper {
 
   private ApplicantMapper() {}
 
-  public static Applicant toApplicant(ApplicantRequest request, Map<String, Answer> answers) {
+  public static Applicant toApplicant(
+      JudgmentApplicantRequest request, Map<String, Answer> answers) {
     if (request == null) {
       return new Applicant(
           null, null, null, null, null, null, null, null, null, null, null, null, null, answers);
@@ -50,7 +51,7 @@ public final class ApplicantMapper {
         answers);
   }
 
-  private static Applicant.Household household(ApplicantRequest.HouseholdRequest h) {
+  private static Applicant.Household household(JudgmentApplicantRequest.HouseholdRequest h) {
     if (h == null) {
       return null;
     }
@@ -77,7 +78,8 @@ public final class ApplicantMapper {
         h.carValueWon());
   }
 
-  private static Applicant.Subscription subscription(ApplicantRequest.SubscriptionRequest s) {
+  private static Applicant.Subscription subscription(
+      JudgmentApplicantRequest.SubscriptionRequest s) {
     if (s == null) {
       return null;
     }
@@ -87,7 +89,7 @@ public final class ApplicantMapper {
     return new Applicant.Subscription(s.months(), s.payments(), s.balanceWon());
   }
 
-  private static Applicant.Business business(ApplicantRequest.BusinessRequest b) {
+  private static Applicant.Business business(JudgmentApplicantRequest.BusinessRequest b) {
     if (b == null) {
       return null;
     }
@@ -148,7 +150,7 @@ public final class ApplicantMapper {
 
   private static void check(boolean ok, String at, String problem) {
     if (!ok) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, at + ": " + problem);
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, at + ": " + problem);
     }
   }
 }

@@ -5,7 +5,7 @@ import java.time.ZoneId;
 import java.util.Map;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.mapper.ApplicantMapper;
 import kr.mujuthaek.api.eligibility.mapper.FrameReader;
 import kr.mujuthaek.api.eligibility.mapper.FrameSpec;
@@ -48,26 +48,29 @@ public class JudgmentQueryService {
    * @param answers 질문(ASK) ID → YES / NO
    */
   public JudgmentResult judgeHousing(
-      JsonNode frame, ApplicantRequest applicant, Map<String, Answer> answers) {
+      JsonNode frame, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
     return judge(FrameSpec.HOUSING, frame, applicant, answers);
   }
 
   /** 사업공간 입점 자격 판정. 틀: business-space-judgment.v1. */
   public JudgmentResult judgeBusinessSpace(
-      JsonNode frame, ApplicantRequest applicant, Map<String, Answer> answers) {
+      JsonNode frame, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
     return judge(FrameSpec.BUSINESS_SPACE, frame, applicant, answers);
   }
 
   /** 창업지원 사업 판정. 틀: startup-support-judgment.v1. */
   public JudgmentResult judgeStartupSupport(
-      JsonNode frame, ApplicantRequest applicant, Map<String, Answer> answers) {
+      JsonNode frame, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
     return judge(FrameSpec.STARTUP_SUPPORT, frame, applicant, answers);
   }
 
   private JudgmentResult judge(
-      FrameSpec spec, JsonNode frame, ApplicantRequest applicant, Map<String, Answer> answers) {
+      FrameSpec spec,
+      JsonNode frame,
+      JudgmentApplicantRequest applicant,
+      Map<String, Answer> answers) {
     if (frame == null || frame.isNull()) {
-      throw new CustomException(ErrorCode.INVALID_REQUEST, "frame: 판정 틀이 있어야 해요");
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "frame: 판정 틀이 있어야 해요");
     }
     Frame read = FrameReader.read(frame, spec);
     Applicant input = ApplicantMapper.toApplicant(applicant, answers == null ? Map.of() : answers);

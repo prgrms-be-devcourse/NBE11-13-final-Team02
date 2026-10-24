@@ -4,7 +4,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.mapper.LoanMapper;
 import kr.mujuthaek.api.eligibility.model.LoanResult;
 import kr.mujuthaek.api.eligibility.rule.loan.Borrower;
@@ -40,7 +40,7 @@ public class LoanQueryService {
    * @param applicant 사용자 입력 (판정과 같은 모양 + loan 칸). 비우면 모든 상품이 확인 필요 또는 불가가 돼요
    * @param asOf 기준일 (대출접수일로 봐요). 비우면 오늘(한국 시간)
    */
-  public LoanResult judge(ApplicantRequest applicant, LocalDate asOf) {
+  public LoanResult judge(JudgmentApplicantRequest applicant, LocalDate asOf) {
     LocalDate day = asOf == null ? LocalDate.now(KOREA) : asOf;
     Borrower borrower = LoanMapper.toBorrower(applicant);
     List<LoanJudgment> judgments =

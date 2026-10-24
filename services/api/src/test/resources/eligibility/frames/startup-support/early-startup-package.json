@@ -440,7 +440,7 @@
         "host-staff": "NO"
       },
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "criteria": {
           "restricted": "UNKNOWN"
         },
@@ -476,7 +476,7 @@
         "host-staff": "NO"
       },
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "criteria": {
           "business-age": "UNKNOWN"
         }

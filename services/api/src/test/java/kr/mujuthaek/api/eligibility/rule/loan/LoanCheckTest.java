@@ -139,7 +139,7 @@ class LoanCheckTest {
   @Test
   void missingIncomeAsksForIt() {
     LoanJudgment j = judge("BEOTIMMOK_YOUTH", money(youth(), null, null, 100_000_000L));
-    assertThat(j.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(j.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(j.missing()).containsExactly(LoanInput.ANNUAL_INCOME);
     assertThat(j.unclear()).containsExactly("부부합산 연소득이 있어야 소득 조건을 볼 수 있어요");
   }
@@ -182,7 +182,7 @@ class LoanCheckTest {
     // 부모와 같이 사는 세대면 부양 기간에 달려서 확인 필요 (물을 칸이 없어요)
     LoanJudgment withParents =
         judge("DIDIMDOL", with(youth(), youth().birthDate(), MaritalStatus.SINGLE, null, 3));
-    assertThat(withParents.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(withParents.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(withParents.missing()).isEmpty();
     assertThat(withParents.unclear())
         .containsExactly("만 30세 미만 미혼세대주는 부모나 미성년 형제자매를 6개월 이상 부양한 세대여야 해요");
@@ -205,7 +205,7 @@ class LoanCheckTest {
             null,
             1);
     LoanJudgment unknown = judge("DIDIMDOL", family(over, List.of(), null));
-    assertThat(unknown.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(unknown.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(unknown.missing()).containsExactly(LoanInput.FIRST_HOME_PURCHASE);
     assertThat(judge("DIDIMDOL", family(over, List.of(), true)).status())
         .isEqualTo(Eligibility.ELIGIBLE);
@@ -247,7 +247,7 @@ class LoanCheckTest {
     assertThat(old.status()).isEqualTo(Eligibility.INELIGIBLE);
     assertThat(old.failed()).containsExactly("기준일 전 2년 안에 낳은 자녀가 있어야 해요 (2023년 이후 출생)");
     LoanJudgment unknown = judge("BEOTIMMOK_NEWBORN", family(parents, null, true));
-    assertThat(unknown.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(unknown.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(unknown.missing()).containsExactly(LoanInput.CHILD_BIRTH_DATES);
   }
 
@@ -257,7 +257,7 @@ class LoanCheckTest {
         judge(
             "DIDIMDOL_YOUTH_DREAM",
             with(youth(), LocalDate.parse("1990-01-01"), MaritalStatus.SINGLE, null, 1));
-    assertThat(j.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(j.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(j.missing()).isEmpty();
     assertThat(j.unclear()).singleElement().asString().contains("청년 주택드림 통장으로 청약에 당첨");
   }
@@ -305,7 +305,7 @@ class LoanCheckTest {
         new Borrower(null, null, null, null, null, null, null, null, null, null, null);
     for (LoanTerms t : CATALOG.asOf(DAY)) {
       LoanJudgment j = LoanCheck.check(t, nothing, DAY);
-      assertThat(j.status()).as(t.productCode()).isEqualTo(Eligibility.CHECK_NEEDED);
+      assertThat(j.status()).as(t.productCode()).isEqualTo(Eligibility.NEEDS_INPUT);
       assertThat(j.missing())
           .as(t.productCode())
           .contains(LoanInput.HOMELESS, LoanInput.ANNUAL_INCOME, LoanInput.NET_ASSET);

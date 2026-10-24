@@ -12,7 +12,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
@@ -142,8 +142,8 @@ class MatchQueryServiceTest {
     }
   }
 
-  private static ApplicantRequest applicant(String json) {
-    return JSON.readValue(json, ApplicantRequest.class);
+  private static JudgmentApplicantRequest applicant(String json) {
+    return JSON.readValue(json, JudgmentApplicantRequest.class);
   }
 
   private static List<UUID> ids(MatchResult result) {
@@ -229,14 +229,14 @@ class MatchQueryServiceTest {
 
     // 틀이 없는 공고: 확인 필요 + 자격 조건 정리 중, 전국 공고라 regionCodes가 비어 있어요
     MatchResult.Item noFrame = result.items().get(1);
-    assertThat(noFrame.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(noFrame.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(noFrame.reason()).isEqualTo("CONDITIONS_NOT_READY");
     assertThat(noFrame.regionCodes()).isEmpty();
     assertThat(noFrame.groups()).isEmpty();
 
     // 서리풀: 나이·소득을 안 넣었고 예술인 질문에 답이 없어서 확인 필요. 지역 코드는 단지 두 곳 그대로
     MatchResult.Item seoripul = result.items().get(2);
-    assertThat(seoripul.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(seoripul.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(seoripul.reason()).isNull();
     assertThat(seoripul.version()).isEqualTo(2);
     assertThat(seoripul.regionCodes()).containsExactly("1165010800", "1165010700");
@@ -246,7 +246,7 @@ class MatchQueryServiceTest {
 
     // 다른 분야 틀이 들어간 공고는 오류로 끊지 않고 확인 필요로 둬요
     MatchResult.Item badFrame = result.items().get(3);
-    assertThat(badFrame.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(badFrame.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(badFrame.reason()).isEqualTo("CONDITIONS_NOT_READY");
     assertThat(badFrame.regionCodes()).containsExactly("2600000000");
   }
@@ -259,9 +259,9 @@ class MatchQueryServiceTest {
     assertThat(ids(result)).doesNotContain(JEONSE).hasSize(3);
     assertThat(result.items())
         .extracting(MatchResult.Item::status)
-        .containsOnly(Eligibility.CHECK_NEEDED);
+        .containsOnly(Eligibility.NEEDS_INPUT);
     assertThat(result.counts().eligible()).isZero();
-    assertThat(result.counts().checkNeeded()).isEqualTo(3);
+    assertThat(result.counts().needsInput()).isEqualTo(3);
   }
 
   @Test
@@ -272,7 +272,7 @@ class MatchQueryServiceTest {
     assertThat(result.items()).hasSize(4);
     assertThat(result.items())
         .extracting(MatchResult.Item::status)
-        .containsOnly(Eligibility.CHECK_NEEDED);
+        .containsOnly(Eligibility.NEEDS_INPUT);
     assertThat(result.items().getFirst().noticeId()).isEqualTo(NO_FRAME);
     assertThat(result.items())
         .filteredOn(i -> i.noticeId().equals(JEONSE))
@@ -287,12 +287,12 @@ class MatchQueryServiceTest {
             () -> matches.matchHousing(applicant("{\"household\": {\"monthlyIncomeWon\": -1}}")))
         .isInstanceOfSatisfying(
             CustomException.class,
-            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_REQUEST));
+            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
   }
 
   @Test
   void personalInputsNeverReachTheLogs(CapturedOutput output) {
-    ApplicantRequest applicant =
+    JudgmentApplicantRequest applicant =
         applicant(
             """
             {"birthDate": "1987-06-05", "residenceRegionCode": "1165000000",

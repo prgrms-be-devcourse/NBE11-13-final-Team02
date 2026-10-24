@@ -3,7 +3,7 @@ package kr.mujuthaek.api.eligibility.rule.loan;
 /**
  * 대출 자격 판정에 쓰는 사용자 입력 칸. 값이 없어서 결과가 정해지지 않으면 결과(LoanResult)의 missingInputs로 알려 줘요.
  *
- * <p>field는 공고 판정의 Input과 같이 ApplicantRequest 안의 칸 경로예요 (예: loan.annualIncomeWon).
+ * <p>field는 공고 판정의 Input과 같이 JudgmentApplicantRequest 안의 칸 경로예요 (예: loan.annualIncomeWon).
  */
 public enum LoanInput {
   BIRTH_DATE("birthDate", "생년월일"),

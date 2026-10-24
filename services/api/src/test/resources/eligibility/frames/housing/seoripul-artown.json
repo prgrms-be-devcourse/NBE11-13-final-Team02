@@ -437,7 +437,7 @@
       },
       "answers": {},
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "criteria": {
           "arts-proof": "UNKNOWN"
         },
@@ -452,7 +452,7 @@
       "applicant": {},
       "answers": {},
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "missingInputs": [
           "birthDate",
           "residenceRegionCode",

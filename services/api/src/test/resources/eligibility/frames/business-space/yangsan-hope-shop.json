@@ -409,7 +409,7 @@
         "industry-other": "NO"
       },
       "expect": {
-        "result": "CHECK_NEEDED",
+        "result": "NEEDS_INPUT",
         "groups": {
           "national-merit": "UNKNOWN"
         },

@@ -17,6 +17,7 @@ EC2 1대에 Docker 컨테이너 3개, DB는 RDS(PostgreSQL + PostGIS) 1대에 �
 ```bash
 cp infra/.env.example infra/.env           # 값 채우기 (extraction은 OPENAI_API_KEY 또는 LOCAL_AI_URL 필요)
 make infra                                 # PostgreSQL·RabbitMQ·MinIO (make help로 명령 보기)
+make migrate-collector migrate-extraction  # 파이썬 워커 DB 테이블 (Flyway)
 cd services/api && ./gradlew bootRun       # api
 ```
 파이썬 워커는 `services/collector`, `services/extraction`에서 `uv sync` 후 `uv run python -m mujuthaek_collector run`처럼 실행해요.

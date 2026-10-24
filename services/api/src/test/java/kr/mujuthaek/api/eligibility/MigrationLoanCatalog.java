@@ -12,7 +12,7 @@ import kr.mujuthaek.api.eligibility.rule.loan.LoanCatalog;
 import kr.mujuthaek.api.eligibility.rule.loan.LoanTerms;
 import kr.mujuthaek.api.eligibility.rule.loan.LoanType;
 
-/** 테스트용 대출 상품 조건: 마이그레이션 SQL의 loan_products 행을 그대로 읽어요. DB 없이도 실제로 넣은 숫자로 판정을 돌리려고요. */
+/** 테스트용 대출 상품 조건: 마이그레이션 SQL의 loan_rules 행을 그대로 읽어요. DB 없이도 실제로 넣은 숫자로 판정을 돌리려고요. */
 public final class MigrationLoanCatalog implements LoanCatalog {
 
   private final List<LoanTerms> rows;
@@ -28,7 +28,7 @@ public final class MigrationLoanCatalog implements LoanCatalog {
       for (Path file :
           files.filter(f -> f.getFileName().toString().contains("__eligibility_")).toList()) {
         String sql = Files.readString(file);
-        int insert = sql.indexOf("insert into eligibility.loan_products");
+        int insert = sql.indexOf("insert into eligibility.loan_rules");
         if (insert < 0) {
           continue;
         }

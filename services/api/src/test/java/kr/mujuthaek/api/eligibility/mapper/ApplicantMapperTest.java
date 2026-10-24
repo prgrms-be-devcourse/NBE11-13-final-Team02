@@ -6,7 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.Map;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.rule.frame.Applicant;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.json.JsonMapper;
@@ -16,8 +16,8 @@ class ApplicantMapperTest {
 
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
-  private static ApplicantRequest request(String json) {
-    return JSON.readValue(json, ApplicantRequest.class);
+  private static JudgmentApplicantRequest request(String json) {
+    return JSON.readValue(json, JudgmentApplicantRequest.class);
   }
 
   private static void invalid(String json, String at) {
@@ -25,7 +25,7 @@ class ApplicantMapperTest {
         .isInstanceOfSatisfying(
             CustomException.class,
             e -> {
-              assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_REQUEST);
+              assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED);
               assertThat(e.getMessage()).startsWith(at);
             });
   }

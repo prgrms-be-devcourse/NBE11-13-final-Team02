@@ -7,7 +7,7 @@ import java.time.LocalDate;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.model.LoanResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
@@ -36,7 +36,7 @@ class LoanQueryServiceTest {
   @Autowired private LoanQueryService loans;
 
   private LoanResult judge(String applicant) {
-    return loans.judge(JSON.readValue(applicant, ApplicantRequest.class), AS_OF);
+    return loans.judge(JSON.readValue(applicant, JudgmentApplicantRequest.class), AS_OF);
   }
 
   private static LoanResult.Item product(LoanResult result, String code) {
@@ -75,7 +75,7 @@ class LoanQueryServiceTest {
     // 확인 필요: 청년 주택드림 (청약 당첨은 입력으로 알 수 없어요)
     LoanResult.Item dream = result.items().get(4);
     assertThat(dream.productCode()).isEqualTo("DIDIMDOL_YOUTH_DREAM");
-    assertThat(dream.status()).isEqualTo(Eligibility.CHECK_NEEDED);
+    assertThat(dream.status()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(dream.checkReasons().getFirst()).contains("청년 주택드림 통장");
     // 불가: 이유가 있고, 넣을 입력은 보여 주지 않아요
     LoanResult.Item newlywed = result.items().get(5);
@@ -121,7 +121,7 @@ class LoanQueryServiceTest {
     assertThatThrownBy(() -> judge("{\"loan\": {\"annualIncomeWon\": -7654321}}"))
         .isInstanceOfSatisfying(
             CustomException.class,
-            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.INVALID_REQUEST))
+            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED))
         .hasMessageNotContaining("7654321");
     assertThatThrownBy(
             () ->
