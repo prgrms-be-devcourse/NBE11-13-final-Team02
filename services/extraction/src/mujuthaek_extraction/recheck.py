@@ -566,8 +566,6 @@ def recheck_problems(
     if _improved(first, second, sections) and not _lost_values(first, second):
         return RecheckResult(merged, second, rechecked, True, run, rejected=tuple(format_rejected))
     rejected = [*format_rejected, ("전체", _rejection(first, second, sections))]
-    if len(sections) < 2 and not format_rejected:
-        return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))
     # 섹션마다 따로: 그 섹션만 합쳐 어디에도 새 문제가 없고 그 섹션 문제가 줄면 받고, 받은 결과 위에 다음 섹션을 봅니다.
     # 거절된 섹션은 다른 섹션을 받은 뒤 한 번 더 봅니다(2026-10-24 다섯 번째 채점: 공고 칸 답이 자격 섹션의 문제 때문에 거절됐는데,
     # 이어서 자격 섹션을 받은 뒤 다시 보지 않아 공고 전체가 검수로 감)
@@ -594,6 +592,26 @@ def recheck_problems(
             break
         waiting = still
     rejected += [(section, reasons[section]) for section in waiting if section in reasons]
+    # 섹션째 거절된 섹션은 항목마다 따로 봅니다(2026-10-24 일곱 번째 채점: 재확인 답이 빠진 서류 4개를 원문 인용으로 맞게 되살렸는데,
+    # 같은 섹션의 다른 항목 문제가 줄지 않아 섹션째 버려짐). 항목 하나만 합쳐 어디에도 새 문제가 없고 문제가 줄며 값이 줄지 않으면 받습니다
+    for section in waiting:
+        if section == "notice" or not isinstance(answer.get(section), list):
+            continue
+        existing = {item.get("id") for part in current if isinstance(part.get(section), list) for item in part[section] if isinstance(item, dict)}
+        wanted = sent["items"].get(section, set())
+        for item in answer[section]:
+            if not isinstance(item, dict) or "id" not in item:
+                continue
+            added = section in whole and item["id"] not in existing
+            if item["id"] not in wanted and not added:
+                continue
+            only = {key: value for key, value in answer.items() if key not in SECTIONS} | {section: [item]}
+            single = {"items": {section: {item["id"]}}, "notice": set()}
+            trial = merge_recheck(current, only, (section,) if added else (), single)
+            trial_report = evaluate(trial)
+            if _improved(report, trial_report, [section]) and not _lost_values(report, trial_report):
+                current, report = trial, trial_report
+                adopted.append(f"{section}/{item['id']}")
     if adopted:
         return RecheckResult(current, report, rechecked, True, run, tuple(adopted), tuple(rejected))
     return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))
