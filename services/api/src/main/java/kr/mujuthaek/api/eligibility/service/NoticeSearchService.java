@@ -5,8 +5,6 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
-import kr.mujuthaek.api.common.exception.CustomException;
-import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
 import kr.mujuthaek.api.eligibility.dto.request.NoticeSearchRequest;
@@ -67,7 +65,7 @@ public class NoticeSearchService {
             .filter(i -> includeIneligible || i.overall() != Overall.INELIGIBLE)
             .sorted(order(sort))
             .toList();
-    int from = page.after() == null ? 0 : position(page.after().value()) + 1;
+    int from = page.after() == null ? 0 : page.after().position() + 1;
     List<Integer> positions =
         java.util.stream.IntStream.range(Math.min(from, shown.size()), shown.size())
             .limit(page.fetchSize())
@@ -139,13 +137,5 @@ public class NoticeSearchService {
 
   private static int count(List<NoticeSearchResponse.Item> items, Overall overall) {
     return (int) items.stream().filter(i -> i.overall() == overall).count();
-  }
-
-  private static int position(String value) {
-    try {
-      return Integer.parseInt(value);
-    } catch (NumberFormatException e) {
-      throw new CustomException(ErrorCode.INVALID_CURSOR, ErrorCode.INVALID_CURSOR.message());
-    }
   }
 }

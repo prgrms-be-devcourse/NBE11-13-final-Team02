@@ -65,6 +65,34 @@ class NoticeSearchApiTest {
   }
 
   @Test
+  void alwaysOpenNoticesAreIncludedByDefaultLikeThePublicList() throws Exception {
+    UUID always = f.notice(p -> schedule(p, null, null)); // 접수 시작·마감 둘 다 없음 → 상시
+
+    mvc.perform(
+            post("/api/v1/notices/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body("")))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items[?(@.id == '%s')].status".formatted(always)).value("ALWAYS"));
+  }
+
+  @Test
+  void craftedPositionCursorIs400Not500() throws Exception {
+    noticeForAges(19, 39, "2026-10-30");
+    String cursor =
+        kr.mujuthaek.api.common.pagination.CursorCodec.encode(
+            new kr.mujuthaek.api.common.pagination.CursorKey(
+                "RECOMMENDED", "-5", UUID.randomUUID()));
+
+    mvc.perform(
+            post("/api/v1/notices/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(body(",\"cursor\":\"" + cursor + "\"")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.code").value("INVALID_CURSOR"));
+  }
+
+  @Test
   void judgesEachNoticeAndPutsEligibleFirst() throws Exception {
     UUID unknown = f.notice(p -> schedule(p, "2026-10-01", "2026-10-24")); // 판정 틀 없음 → 확인 필요
     UUID eligible = noticeForAges(19, 39, "2026-10-30");

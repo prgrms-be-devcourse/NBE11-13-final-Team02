@@ -165,7 +165,7 @@ public class NoticeQueryService {
             tenure,
             noticeTypes,
             providers,
-            statuses == null || statuses.isEmpty() ? List.of("UPCOMING", "APPLYING") : statuses,
+            statuses, // 비우면 공개 목록(GET /notices)과 같은 기본값 (상시 공고 ALWAYS 포함)
             "DEADLINE");
     LocalDate today = LocalDate.now(clock);
     return queries.list(filter, today, null, limit).stream()
