@@ -53,6 +53,19 @@ class PostgresLegalDongCentroidTest {
   }
 
   @Test
+  void findsByTheLegalDongNameInsideTheSigungu() {
+    PostgresLegalDongCentroid.Named found = centroid.findByName("99980", "시험동").orElseThrow();
+    assertThat(found.bjdCode()).isEqualTo("9998010100");
+    assertThat(found.point()).isEqualTo(centroid.find("9998010100").orElseThrow());
+    // 리가 붙으면 앞 이름(읍·면)으로
+    assertThat(centroid.findByName("99980", "시험동 용기리")).isPresent();
+    assertThat(centroid.findByName("99970", "시험동")).isEmpty(); // 다른 시군구
+    assertThat(centroid.findByName("99980", "없는동")).isEmpty();
+    assertThat(centroid.findByName(null, "시험동")).isEmpty();
+    assertThat(centroid.findByName("99980", " ")).isEmpty();
+  }
+
+  @Test
   void emptyWithoutABoundaryOrAValidCode() {
     assertThat(centroid.find("9998020100")).isEmpty(); // 경계 없음
     assertThat(centroid.find("99980101")).isEmpty(); // 10자리 아님

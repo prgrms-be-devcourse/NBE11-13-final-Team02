@@ -49,4 +49,46 @@ public final class PostgresLegalDongCentroid {
       throw new DataAccessResourceFailureException("법정동 대표점을 찾지 못했어요: " + e.getMessage(), e);
     }
   }
+
+  /** 이름으로 찾은 대표점과 그 법정동코드(읍면동 경계 8자리 + 00). */
+  public record Named(String bjdCode, Coordinate point) {}
+
+  private static final String BY_NAME =
+      """
+      select code, st_y(p) as lat, st_x(p) as lng
+      from (select code, st_pointonsurface(geom::geometry) as p from area.region_boundaries
+            where level = 'EMD' and left(code, 5) = ? and name = ?) b
+      limit 2
+      """;
+
+  /**
+   * 주소의 법정동 이름으로 대표점 (공고가 법정동코드를 주지 않았을 때). 그 시군구 안에서 이름이 정확히 같은 읍면동 하나일 때만이에요(시군구 안 읍면동 이름은 겹치지
+   * 않아요). 리가 붙은 이름(「낭산면 용기리」)은 앞의 읍·면으로 찾아요.
+   */
+  public Optional<Named> findByName(String sigunguCode, String dongName) {
+    if (sigunguCode == null || !sigunguCode.matches("[0-9]{5}") || dongName == null) {
+      return Optional.empty();
+    }
+    String name = dongName.strip().split("\\s+")[0];
+    if (name.isEmpty()) {
+      return Optional.empty();
+    }
+    try (Connection conn = dataSource.getConnection();
+        PreparedStatement ps = conn.prepareStatement(BY_NAME)) {
+      ps.setString(1, sigunguCode);
+      ps.setString(2, name);
+      try (ResultSet rs = ps.executeQuery()) {
+        if (!rs.next()) {
+          return Optional.empty();
+        }
+        Named found =
+            new Named(
+                rs.getString("code") + "00",
+                new Coordinate(rs.getDouble("lat"), rs.getDouble("lng")));
+        return rs.next() ? Optional.empty() : Optional.of(found);
+      }
+    } catch (SQLException e) {
+      throw new DataAccessResourceFailureException("법정동 대표점을 찾지 못했어요: " + e.getMessage(), e);
+    }
+  }
 }
