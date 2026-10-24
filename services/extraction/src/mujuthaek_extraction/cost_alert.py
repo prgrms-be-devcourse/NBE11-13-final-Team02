@@ -3,7 +3,8 @@
 집계: 비용 장부(extraction_spend)의 유료 호출 수·비용을 분야(수집 이벤트 field: HOUSING·BUSINESS_SPACE·STARTUP_SUPPORT·SPACE_RECRUITMENT)별로
   한국 시간 달 단위로 셉니다. 응답을 못 받은 호출은 최악 비용으로 셉니다(상한 계산과 같음). 분야 칸이 생기기 전 줄은 작업 기록의 분야로,
   그것도 없으면 UNKNOWN. 로컬 AI 호출은 비용이 없어 장부에 없습니다. 검수 API GET /costs로도 봅니다.
-경고: 이번 달 합계가 월 상한(EXTRACTION_MONTHLY_BUDGET_USD)의 80%를 넘으면 슬랙 수신 웹훅(EXTRACTION_SLACK_WEBHOOK_URL)으로 한 번 보냅니다.
+경고: 이번 달 합계가 월 상한(EXTRACTION_MONTHLY_BUDGET_USD)의 80%를 넘으면 슬랙 수신 웹훅(EXTRACTION_SLACK_WEBHOOK_URL,
+  없으면 공통 SLACK_WEBHOOK_URL)으로 한 번 보냅니다. 전송은 팀 공통 mujuthaek_platform.slack.SlackNotifier가 합니다(2026-10-23 공통으로 옮김).
   보냈다는 기록을 DB(extraction_alerts, 종류·달)에 두어 워커를 다시 시작하거나 워커가 여럿이어도 달마다 한 번만 보냅니다.
   보내기에 실패하면 기록을 되돌려 다음 처리 때 다시 보냅니다. 주소가 없으면 보내지 않고 경고 로그만 한 번 남깁니다.
   경고 확인·전송 실패는 추출을 막지 않습니다(로그만). 웹훅 주소는 로그에 남기지 않습니다.
@@ -11,17 +12,17 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import threading
-import urllib.request
 from collections.abc import Callable
 from typing import Any
+
+from mujuthaek_platform.slack import DEFAULT_TIMEOUT_SECONDS, SlackNotifier
 
 log = logging.getLogger(__name__)
 ALERT_RATIO = 0.8
 ALERT_KIND = "monthly_budget_80"
-SLACK_TIMEOUT_SECONDS = 5
+SLACK_TIMEOUT_SECONDS = DEFAULT_TIMEOUT_SECONDS
 
 # 달 경계는 한국 시간(model/spend.py와 같음). month는 'YYYY-MM', 없으면 이번 달
 _MONTH = "coalesce(to_date(%(month)s, 'YYYY-MM'), date_trunc('month', now() at time zone 'Asia/Seoul')::date)"
@@ -46,20 +47,8 @@ def monthly_costs(conn, month: str | None = None, budget_usd: float | None = Non
 
 
 def slack_sender(url: str, timeout: float = SLACK_TIMEOUT_SECONDS) -> Callable[[str], None]:
-    """슬랙 수신 웹훅으로 글 하나를 보내는 함수. 실패하면 예외를 냅니다(주소는 예외 문구에 넣지 않음)."""
-
-    def send(text: str) -> None:
-        request = urllib.request.Request(
-            url, data=json.dumps({"text": text}, ensure_ascii=False).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST"
-        )
-        try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310 - 운영자가 설정한 슬랙 주소만 씁니다
-                if response.status >= 300:
-                    raise RuntimeError(f"슬랙 응답 {response.status}")
-        except OSError as error:  # 연결 실패·시간 초과·HTTP 오류
-            raise RuntimeError(f"슬랙 전송 실패: {type(error).__name__}") from None
-
-    return send
+    """슬랙 수신 웹훅으로 글 하나를 보내는 함수(공통 SlackNotifier.send). 실패하면 SlackError(주소는 문구에 넣지 않음)."""
+    return SlackNotifier(url, timeout=timeout).send
 
 
 def alert_text(costs: dict[str, Any]) -> str:
@@ -104,7 +93,7 @@ class CostAlert:
                 if not self._warned_no_url:
                     self._warned_no_url = True
                     log.warning(
-                        "월 비용이 상한의 80%를 넘었지만 슬랙 주소(EXTRACTION_SLACK_WEBHOOK_URL)가 없어 알리지 않았습니다",
+                        "월 비용이 상한의 80%를 넘었지만 슬랙 주소(EXTRACTION_SLACK_WEBHOOK_URL 또는 SLACK_WEBHOOK_URL)가 없어 알리지 않았습니다",
                         extra={"month": costs["month"], "costUsd": costs["costUsd"], "budgetUsd": self.monthly_usd},
                     )
             return False

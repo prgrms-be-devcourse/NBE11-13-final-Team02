@@ -26,7 +26,9 @@
                                  응답은 기다리지 않아 늘어나는 시간은 최대 (호출 수-1)×간격. 0이면 한꺼번에
 
 비용 경고 (2026-10-23, cost_alert.py)
-  EXTRACTION_SLACK_WEBHOOK_URL   슬랙 수신 웹훅 주소(없으면 services/extraction/.env에서 읽음).
+  EXTRACTION_SLACK_WEBHOOK_URL   슬랙 수신 웹훅 주소(없으면 services/extraction/.env에서 읽음). 이 이름이 어디에도 없으면
+                                 팀 공통 이름 SLACK_WEBHOOK_URL을 같은 순서(환경 변수 → .env)로 찾습니다.
+                                 전송은 공통 라이브러리 mujuthaek_platform.slack이 합니다(다른 워커도 같이 씀).
                                  이번 달 유료 비용이 EXTRACTION_MONTHLY_BUDGET_USD의 80%를 넘으면 달마다 한 번 보냅니다.
                                  비우면 보내지 않고 경고 로그만 남깁니다. 주소는 출력·로그에 남기지 않습니다
 
@@ -42,11 +44,13 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from mujuthaek_extraction.method import extraction_method
+from mujuthaek_platform.slack import read_env_value
 
 SERVICE_DIR = Path(__file__).resolve().parents[2]
 LOCAL_S3_ENDPOINT = "http://127.0.0.1:9000"  # infra/docker-compose.yml의 MinIO
 LOCAL_S3_KEYS = ("minio", "minio-pass")  # infra/.env.example의 MINIO_ROOT_USER·MINIO_ROOT_PASSWORD
 MODEL_MODES = {"auto", "recorded"}
+SLACK_WEBHOOK_ENV_NAMES = ("EXTRACTION_SLACK_WEBHOOK_URL", "SLACK_WEBHOOK_URL")  # 서비스 전용 이름 먼저(이전 이름 유지), 공통 이름은 나중
 
 
 @dataclass(frozen=True)
@@ -127,7 +131,7 @@ class Settings:
             notice_budget_usd=float(os.getenv("EXTRACTION_NOTICE_BUDGET_USD", "0.5")),
             daily_budget_usd=float(os.getenv("EXTRACTION_DAILY_BUDGET_USD", "30")),
             monthly_budget_usd=float(os.getenv("EXTRACTION_MONTHLY_BUDGET_USD", "600")),
-            slack_webhook_url=os.getenv("EXTRACTION_SLACK_WEBHOOK_URL") or _from_env_file("EXTRACTION_SLACK_WEBHOOK_URL"),
+            slack_webhook_url=read_env_value(SLACK_WEBHOOK_ENV_NAMES, SERVICE_DIR / ".env"),
             review_host=os.getenv("EXTRACTION_REVIEW_HOST", "127.0.0.1"),
             review_port=int(os.getenv("EXTRACTION_REVIEW_PORT", "8092")),
             review_token=os.getenv("EXTRACTION_REVIEW_TOKEN") or None,
@@ -145,11 +149,3 @@ class Settings:
         from mujuthaek_extraction.model.openai_responses import read_api_key
 
         return os.getenv("OPENAI_API_KEY") or (read_api_key(self.env_file) if self.env_file.exists() else None)
-
-
-def _from_env_file(name: str) -> str | None:
-    """services/extraction/.env 파일에서 값 하나를 읽습니다(OPENAI_API_KEY와 같은 방식). 값은 출력하지 않습니다."""
-    from mujuthaek_extraction.model.openai_responses import read_api_key
-
-    env_file = SERVICE_DIR / ".env"
-    return read_api_key(env_file, name) if env_file.exists() else None

@@ -11,6 +11,7 @@ import pytest
 from mujuthaek_extraction import cost_alert
 from mujuthaek_extraction.config import Settings
 from mujuthaek_extraction.cost_alert import CostAlert, alert_text, slack_sender
+from mujuthaek_platform.slack import SlackError
 
 COSTS = {
     "month": "2026-10",
@@ -33,24 +34,25 @@ class FakeResponse:
         return False
 
 
-def test_slack_sender_posts_json_text_with_short_timeout(monkeypatch):
+def test_slack_sender_uses_the_shared_notifier(monkeypatch):
+    # 전송 자체(형식·시간 제한·주소 숨김)는 libs/python-platform/tests/test_slack.py에서 봅니다
+    from mujuthaek_platform import slack
+
     sent = []
 
     def fake_urlopen(request, timeout):
-        sent.append((request.full_url, request.get_method(), json.loads(request.data), request.headers["Content-type"], timeout))
+        sent.append((request.full_url, json.loads(request.data), timeout))
         return FakeResponse(200)
 
-    monkeypatch.setattr(cost_alert.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(slack.urllib.request, "urlopen", fake_urlopen)
     slack_sender("https://hooks.example.invalid/T/B/x")("안녕")
-    assert sent == [("https://hooks.example.invalid/T/B/x", "POST", {"text": "안녕"}, "application/json", cost_alert.SLACK_TIMEOUT_SECONDS)]
+    assert sent == [("https://hooks.example.invalid/T/B/x", {"text": "안녕"}, cost_alert.SLACK_TIMEOUT_SECONDS)]
 
-
-def test_slack_failure_raises_without_the_webhook_address(monkeypatch):
     def refused(request, timeout):
         raise urllib.error.URLError("연결 거부")
 
-    monkeypatch.setattr(cost_alert.urllib.request, "urlopen", refused)
-    with pytest.raises(RuntimeError) as error:
+    monkeypatch.setattr(slack.urllib.request, "urlopen", refused)
+    with pytest.raises(SlackError) as error:
         slack_sender("https://hooks.example.invalid/T/B/secret")("x")
     assert "secret" not in str(error.value)
 
@@ -110,6 +112,7 @@ def test_ledger_close_checks_the_alert_only_after_spending():
 
 
 def test_webhook_url_comes_from_env_and_is_not_in_settings_repr(monkeypatch):
+    monkeypatch.delenv("SLACK_WEBHOOK_URL", raising=False)
     monkeypatch.setenv("EXTRACTION_SLACK_WEBHOOK_URL", "https://hooks.example.invalid/T/B/hookToken123")
     settings = Settings.from_env()
     assert settings.slack_webhook_url.endswith("/hookToken123") and "hookToken123" not in repr(settings)
@@ -123,6 +126,19 @@ def test_webhook_url_falls_back_to_service_env_file(monkeypatch, tmp_path):
     (tmp_path / ".env").write_text("OPENAI_API_KEY=x\nEXTRACTION_SLACK_WEBHOOK_URL=https://hooks.example.invalid/T/B/fileToken\n", encoding="utf-8")
     monkeypatch.setattr(config, "SERVICE_DIR", tmp_path)
     monkeypatch.delenv("EXTRACTION_SLACK_WEBHOOK_URL", raising=False)
-    assert Settings.from_env().slack_webhook_url.endswith("/fileToken")
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.invalid/T/B/commonToken")
+    assert Settings.from_env().slack_webhook_url.endswith("/fileToken")  # 서비스 전용 이름이 공통 이름보다 먼저
     monkeypatch.setenv("EXTRACTION_SLACK_WEBHOOK_URL", "https://hooks.example.invalid/T/B/envToken")
     assert Settings.from_env().slack_webhook_url.endswith("/envToken")  # 환경 변수가 먼저
+
+
+def test_common_slack_webhook_name_is_the_fallback(monkeypatch, tmp_path):
+    # 팀 공통 이름(SLACK_WEBHOOK_URL)은 EXTRACTION_SLACK_WEBHOOK_URL이 환경 변수·.env 어디에도 없을 때만 씁니다
+    from mujuthaek_extraction import config
+
+    monkeypatch.setattr(config, "SERVICE_DIR", tmp_path)
+    monkeypatch.delenv("EXTRACTION_SLACK_WEBHOOK_URL", raising=False)
+    monkeypatch.setenv("SLACK_WEBHOOK_URL", "https://hooks.example.invalid/T/B/commonToken")
+    assert Settings.from_env().slack_webhook_url.endswith("/commonToken")
+    monkeypatch.delenv("SLACK_WEBHOOK_URL")
+    assert Settings.from_env().slack_webhook_url is None
