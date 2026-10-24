@@ -3,7 +3,7 @@
   "info": {
     "title": "무주택자들 공고 API",
     "version": "1.0.0",
-    "description": "누구나 보는 공고 조회 API입니다(로그인 없음, GET만). services/api의 NoticeController와 같아야 하고, NoticeOpenApiSyncTest가 경로·요청 방식·요청 값 이름을 코드와 대조합니다. 자격 판정은 이 API에 없습니다(eligibility).\n\n- 공개된 공고만 나옵니다: 검수 대기 등 공개하지 않은 결과와 관리자가 숨긴 공고는 없는 공고와 같습니다(404 NOTICE_NOT_FOUND).\n- 다른 공고에 합쳐진 공고는 목록에 나오지 않고, 그 ID로 상세·주택목록·정정 이력을 물으면 합친(남은) 공고의 것이 나옵니다(상세의 header.id가 요청 ID와 다를 수 있음).\n- 값이 없는 칸도 null(목록은 빈 목록)로 내려갑니다. 날짜는 yyyy-MM-dd, 시각은 서울 시간(+09:00)입니다.\n- 오류는 모두 Problem Details(application/problem+json)이고 code로 구분합니다. 문서에 없는 경로는 404 NOT_FOUND, GET이 아닌 요청 방식은 405 METHOD_NOT_ALLOWED(Allow 헤더 포함), 그 밖의 표준 요청 오류(406 등)는 REQUEST_NOT_SUPPORTED에 실제 상태 코드를 넣습니다.\n- 특정 버전의 내용을 그대로 돌려주는 API는 아직 없습니다(정정 이력은 버전별로 바뀐 목록 값만 줍니다)."
+    "description": "누구나 보는 공고 조회 API입니다(로그인 없음, GET만). services/api의 NoticeController와 같아야 하고, NoticeOpenApiSyncTest가 경로·요청 방식·요청 값 이름을 코드와 대조합니다. 자격 판정은 이 API에 없습니다(eligibility).\n\n- 공개된 공고만 나옵니다: 검수 대기 등 공개하지 않은 결과와 관리자가 숨긴 공고는 없는 공고와 같습니다(404 NOTICE_NOT_FOUND).\n- 다른 공고에 합쳐진 공고는 목록에 나오지 않고, 그 ID로 상세·주택목록·정정 이력을 물으면 합친(남은) 공고의 것이 나옵니다(상세의 header.id가 요청 ID와 다를 수 있음).\n- 값이 없는 칸도 null(목록은 빈 목록)로 내려갑니다. 날짜는 yyyy-MM-dd, 시각은 서울 시간(+09:00)입니다.\n- 오류는 모두 Problem Details(application/problem+json)이고 code로 구분합니다. 문서에 없는 경로는 404 NOT_FOUND, GET이 아닌 요청 방식은 405 METHOD_NOT_ALLOWED(Allow 헤더 포함), 그 밖의 표준 요청 오류(406 등)는 REQUEST_NOT_SUPPORTED에 실제 상태 코드를 넣습니다.\n- 특정 버전의 내용을 그대로 돌려주는 API는 아직 없습니다(정정 이력은 버전별로 바뀐 목록 값만 줍니다). 관리자 검수 API(/api/admin/reviews, ADMIN 권한)도 같은 컨트롤러 모듈이라 여기에 적습니다. 추출 서비스 검수 API(:8092)를 api 서버가 대신 부릅니다."
   },
   "servers": [
     {
@@ -14,6 +14,10 @@
     {
       "name": "notice",
       "description": "공고 조회"
+    },
+    {
+      "name": "admin-review",
+      "description": "관리자 검수 (ADMIN)"
     }
   ],
   "paths": {
@@ -320,6 +324,234 @@
           }
         }
       }
+    },
+    "/api/admin/reviews": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "listAdminReviews",
+        "summary": "검수 대기 목록",
+        "parameters": [
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AdminReviewReason"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "대기 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/counts": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "countAdminReviews",
+        "summary": "검수 대기 건수 (사이드바·개요)",
+        "responses": {
+          "200": {
+            "description": "대기 건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/{id}": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "getAdminReview",
+        "summary": "검수 상세",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "검수 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/{id}/approve": {
+      "post": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "approveAdminReview",
+        "summary": "승인 (결과를 다시 발행)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/{id}/reject": {
+      "post": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "rejectAdminReview",
+        "summary": "반려 (발행 없음)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -354,6 +586,16 @@
           "default": 20
         },
         "description": "한 페이지 개수. 범위를 벗어나면 400 VALIDATION_FAILED"
+      },
+      "ReviewId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "검수 작업 ID",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
       }
     },
     "responses": {
@@ -379,6 +621,56 @@
       },
       "InternalError": {
         "description": "서버 오류 (code: INTERNAL_ERROR). detail에 원인을 넣지 않고 timestamp를 붙여요",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "AdminForbidden": {
+        "description": "로그인하지 않았거나(UNAUTHENTICATED) 관리자가 아님(FORBIDDEN)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewNotFound": {
+        "description": "검수 항목이 없음 (code: NOTICE_REVIEW_NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewConflict": {
+        "description": "이미 처리됐거나 같은 공고의 새 버전으로 대체된 검수 항목 (code: NOTICE_REVIEW_CONFLICT). detail에 검수 API 설명",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewInvalid": {
+        "description": "검수 결과가 공고 형식에 맞지 않음 (code: NOTICE_REVIEW_INVALID)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewUnavailable": {
+        "description": "검수 서버에 연결하지 못함 (code: NOTICE_REVIEW_UNAVAILABLE)",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -1715,6 +2007,292 @@
               "$ref": "#/components/schemas/Evidence"
             },
             "description": "이 서류의 근거 원문"
+          }
+        }
+      },
+      "AdminReviewReason": {
+        "type": "string",
+        "enum": [
+          "MUST",
+          "CHECK",
+          "FORMAT"
+        ],
+        "description": "MUST 공개 전 꼭 볼 것(발행 전) · CHECK 발행했지만 보류한 칸이 있음 · FORMAT 원본 자료 문제(자료끼리 맞지 않아 추출 안 함)"
+      },
+      "AdminReviewItem": {
+        "type": "object",
+        "description": "검수 대기 한 건",
+        "required": [
+          "id",
+          "reason",
+          "title",
+          "sourceCode",
+          "rawVersion",
+          "receivedAt",
+          "issueCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AdminReviewReason"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "추출한 공고 제목, 없으면 수집한 글 제목"
+          },
+          "sourceCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rawVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "receivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "issueCount": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "AdminReviewList": {
+        "type": "object",
+        "required": [
+          "total",
+          "items"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "사유로 거르기 전 대기 건수(오래된 것부터 최대 50건)"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminReviewItem"
+            }
+          }
+        }
+      },
+      "AdminReviewCounts": {
+        "type": "object",
+        "required": [
+          "reviewPending",
+          "oldestReceivedAt"
+        ],
+        "properties": {
+          "reviewPending": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "oldestReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminReviewDetail": {
+        "type": "object",
+        "description": "검수 상세의 머리·이슈·처리 기록. 원문 강조와 칸별 값은 다음 단계에서 붙입니다",
+        "required": [
+          "id",
+          "reason",
+          "reviewStatus",
+          "title",
+          "field",
+          "provider",
+          "sourceCode",
+          "rawVersion",
+          "rawPostId",
+          "receivedAt",
+          "issues",
+          "note",
+          "log"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AdminReviewReason"
+          },
+          "reviewStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "SUPERSEDED"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rawVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rawPostId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "receivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "target"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "검증 이슈 코드 (예: VALUE_NOT_IN_QUOTE)"
+                },
+                "target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "가리키는 칸(JSON Pointer). 공고 전체면 null"
+                }
+              }
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "검수자 메모 (반려 사유는 [사유] 머리로)"
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "at",
+                "who",
+                "text"
+              ],
+              "properties": {
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "who": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AdminReviewDecisionRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "DUPLICATE",
+              "SOURCE_MISMATCH",
+              "OUT_OF_SCOPE",
+              "CLOSED",
+              null
+            ],
+            "description": "반려 사유(승인에서는 무시): DUPLICATE 중복 공고 · SOURCE_MISMATCH 원문과 다름·다시 추출 · OUT_OF_SCOPE 서비스 대상 아님 · CLOSED 마감된 공고"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          }
+        }
+      },
+      "AdminReviewDecision": {
+        "type": "object",
+        "required": [
+          "id",
+          "reviewStatus",
+          "pendingCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reviewStatus": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "pendingCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "처리 뒤 남은 대기 건수"
           }
         }
       }

@@ -83,6 +83,11 @@ mujuthaek:
     region: ${AWS_REGION:ap-northeast-2}
     access-key: ${MINIO_ROOT_USER:minio}        # endpoint가 있을 때만 써요 (로컬 MinIO)
     secret-key: ${MINIO_ROOT_PASSWORD:minio-pass}
+  notice:
+    extraction-review:                  # 추출 서비스 검수 API. 관리자 검수 화면이 이 서버를 거쳐 불러요
+      base-url: ${EXTRACTION_REVIEW_URL:http://localhost:8092}
+      token: ${EXTRACTION_REVIEW_TOKEN:}  # 추출 서비스와 같은 값. 비면 보내지 않아요(로컬은 같은 컴퓨터 요청만 받음)
+      timeout: 5s
   area:
     score-version: "2026.1"             # area.score_rules의 생활권 점수 규칙 버전. 바꾸면 전체 다시 계산
     juso-search:                        # 도로명주소 검색 API. 키가 비면 부르지 않아요 (주소 사전으로만 찾음)
