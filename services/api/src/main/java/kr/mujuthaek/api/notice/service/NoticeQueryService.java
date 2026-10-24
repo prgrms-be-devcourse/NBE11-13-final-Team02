@@ -166,7 +166,7 @@ public class NoticeQueryService {
   /**
    * 맞춤 목록(POST /notices/search)의 후보: 필터에 맞는 공개 공고를 마감 임박순으로 최대 limit개. 판정은 계산값이라 먼저 필터로 줄여요.
    *
-   * @param statuses 비우면 접수예정·접수중
+   * @param statuses 비우면 공개 목록과 같은 기본값 (마감 CLOSED를 뺀 전부)
    */
   public List<Candidate> searchCandidates(
       String field,
@@ -183,10 +183,10 @@ public class NoticeQueryService {
             tenure,
             noticeTypes,
             providers,
-            statuses, // 비우면 공개 목록(GET /notices)과 같은 기본값 (상시 공고 ALWAYS 포함)
+            statuses, // 비우면 공개 목록(GET /notices)과 같은 기본값 (상시 ALWAYS·확인 필요 UNKNOWN 포함)
             "DEADLINE");
     LocalDate today = LocalDate.now(clock);
-    return queries.list(filter, today, null, limit).stream()
+    return queries.list(filter, null, limit).stream()
         .map(row -> summary(row, today))
         .map(
             s ->
