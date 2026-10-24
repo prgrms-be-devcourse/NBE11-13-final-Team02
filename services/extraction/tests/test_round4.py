@@ -253,3 +253,24 @@ def test_recheck_order_puts_whole_section_first_then_alternates_sections():
     order = [key for key, _ in ordered_problems(problems)]
     assert order[:4] == [("requiredDocuments", None), ("schedules", "s1"), ("requiredDocuments", "d1"), ("eligibility", "e0")]
     assert len(order) == len(problems)
+
+
+# ---- 8. 두 금액 칸 뒤에 다른 표가 와도 표 순서가 깨지지 않음 ----
+
+
+def test_two_amount_conversion_cell_followed_by_another_table():
+    # 실측 5차(2026-10-24): 두 금액 칸을 나눈 뒤 다음 표에서 표 순서 변수가 덮여 공고 처리 전체가 실패함
+    rows = (("형", "보증금", "월세", "한도", "전환 보증금", "전환 월세"), ("21A", "12,614", "57,810", "(+) 5,000 (-) 10,000", "17,614 2,614", "40,000 86,970"))
+    first = st.Table("6-1", 6, "임대조건", rows[0], rows, ((0, 1, 2, 3, 4, 5), (6, 7, 8, 9, 10, 11)))
+    second = st.Table("6-2", 6, "임대조건", rows[0], (rows[0], ("26A", "15,000", "70,000", "-", "-", "-")), None)
+    columns = [
+        {"column": 1, "meaning": "HOUSING_TYPE"},
+        {"column": 2, "meaning": "PRICE", "priceKind": "DEPOSIT", "unit": "천원", "plan": "기본", "priceStage": "STANDARD"},
+        {"column": 3, "meaning": "PRICE", "priceKind": "MONTHLY_RENT", "unit": "원", "plan": "기본", "priceStage": "STANDARD"},
+        {"column": 4, "meaning": "CONVERSION_LIMIT"},
+        {"column": 5, "meaning": "PRICE", "priceKind": "DEPOSIT", "unit": "천원", "plan": "최대 전환", "priceStage": "CONVERSION_DEPOSIT_UP"},
+        {"column": 6, "meaning": "PRICE", "priceKind": "MONTHLY_RENT", "unit": "원", "plan": "최대 전환", "priceStage": "CONVERSION_DEPOSIT_UP"},
+    ]
+    mapping = {"tables": [{"table": t, "role": "SUPPLY", "rowUnit": "HOUSING_TYPE", "complex": None, "columns": columns} for t in ("6-1", "6-2")]}
+    part = st.build_part([first, second], mapping, "pdf-text")
+    assert {g["housingTypeCode"] for g in part["supplyGroups"]} == {"21A", "26A"}
