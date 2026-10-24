@@ -98,7 +98,7 @@ public class NoticeQueryService {
       UUID noticeId, String siteId, String cursor, Integer size) {
     CursorQuery page = CursorQuery.of(cursor, size, UNITS_SORT);
     var all = NoticeDetailMapper.units(payload(current(noticeId)).path("notice"), siteId);
-    int from = page.after() == null ? 0 : position(page.after().value()) + 1;
+    int from = page.after() == null ? 0 : page.after().position() + 1;
     List<Integer> positions =
         java.util.stream.IntStream.range(Math.min(from, all.size()), all.size())
             .limit(page.fetchSize())
@@ -133,14 +133,6 @@ public class NoticeQueryService {
   /** API의 시각은 서울 시간(+09:00)이에요. DB에서는 UTC로 읽혀요. */
   private OffsetDateTime local(OffsetDateTime time) {
     return time == null ? null : time.atZoneSameInstant(clock.getZone()).toOffsetDateTime();
-  }
-
-  private static int position(String value) {
-    try {
-      return Integer.parseInt(value);
-    } catch (NumberFormatException e) {
-      throw new CustomException(ErrorCode.INVALID_CURSOR, ErrorCode.INVALID_CURSOR.message());
-    }
   }
 
   CurrentRow current(UUID noticeId) {
