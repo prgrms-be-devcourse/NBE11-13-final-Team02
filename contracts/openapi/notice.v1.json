@@ -237,7 +237,7 @@
         ],
         "operationId": "listNoticeUnits",
         "summary": "주택목록 (호별)",
-        "description": "호별 주소·면적·금액입니다. 주택목록이 없는 공고(상세의 hasUnits가 false)는 빈 목록입니다. 원문 확인 전까지 보류한 호는 빠집니다.",
+        "description": "호별 주소·면적·금액입니다. 주택목록이 없는 공고(상세의 hasUnits가 false)는 빈 목록입니다. 원문 확인 전까지 보류한 호(호 전체나 수량·가격 밖의 칸)는 빠지고, 가격만 보류한 호는 보증금·월임대료가 null(근거도 빠짐)입니다.",
         "parameters": [
           {
             "$ref": "#/components/parameters/NoticeId"
@@ -662,7 +662,7 @@
             "items": {
               "$ref": "#/components/schemas/UnitType"
             },
-            "description": "주택형별 조건 (보류한 공급 묶음이 있는 주택형은 빠짐)"
+            "description": "주택형별 조건 (공급 묶음 전체나 수량·가격 밖의 칸을 보류한 묶음이 있는 주택형은 빠짐. 수량만 보류했으면 supplyCount만, 가격만 보류했으면 그 보증금·월임대료만 null)"
           },
           "conditions": {
             "type": "array",
@@ -882,7 +882,7 @@
               "integer",
               "null"
             ],
-            "description": "모집 호수 (공고에 적힌 수, 없으면 주택형별 합)"
+            "description": "모집 호수 (공고에 적힌 수, 없으면 주택형별 합. 수량을 보류했거나 빠진 공급 묶음이 있으면 합을 쓰지 않아 null)"
           },
           "exclusiveM2Min": {
             "type": [
@@ -1131,21 +1131,21 @@
               "integer",
               "null"
             ],
-            "description": "보증금 (원)"
+            "description": "보증금 (원, 보류했으면 null)"
           },
           "rentWon": {
             "type": [
               "integer",
               "null"
             ],
-            "description": "월임대료 (원)"
+            "description": "월임대료 (원, 보류했으면 null)"
           },
           "supplyCount": {
             "type": [
               "integer",
               "null"
             ],
-            "description": "공급 호수 (같은 주택형 합)"
+            "description": "공급 호수 (같은 주택형 합, 수량을 보류한 묶음이 있으면 null)"
           },
           "evidence": {
             "type": "array",

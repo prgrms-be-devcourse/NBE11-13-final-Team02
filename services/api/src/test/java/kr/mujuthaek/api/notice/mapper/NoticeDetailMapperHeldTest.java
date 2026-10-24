@@ -47,10 +47,10 @@ class NoticeDetailMapperHeldTest {
 
   @Test
   void 보류한_일정_공급_묶음_첨부는_빼고_무엇을_뺐는지_알려준다() {
-    NoticeDetailResponse detail = map("/schedules/0", "/supplyGroups/0/prices", "/documents/0");
+    NoticeDetailResponse detail = map("/schedules/0", "/supplyGroups/0", "/documents/0");
 
     assertThat(detail.schedules()).isEmpty();
-    assertThat(detail.unitTypes()).isEmpty(); // 가격 하나만 보류해도 그 주택형은 빼요
+    assertThat(detail.unitTypes()).isEmpty(); // 공급 묶음 전체를 보류하면 그 주택형은 빼요
     assertThat(detail.files()).isEmpty();
     assertThat(detail.heldItems())
         .extracting(NoticeDetailResponse.HeldItem::section)
