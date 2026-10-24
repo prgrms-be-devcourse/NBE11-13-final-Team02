@@ -69,3 +69,43 @@ def test_quote_with_a_different_numbering_mark_is_found():
     found, _ = candidates(text, "1. 가상 입주신청서 및 개인정보 동의서 각 1부", index)
     assert len(found) == 1 and text[found[0][0] : found[0][1]].startswith("가상 입주신청서")
     assert candidates(text, "① 가상 자기소개서 및 활동 계획서 각 1부", index)[0]
+
+
+# ---- 4. 보류 범위: 주택형 코드에서 옮긴 면적 ----
+
+
+def test_area_taken_from_the_lh_type_code_is_supported_by_the_code():
+    from mujuthaek_extraction.verify.claims import TYPE_CODE_AREA
+
+    assert float(TYPE_CODE_AREA.match("084.9079A")[1]) == 84.9
+    assert TYPE_CODE_AREA.match("84A") is None
+
+
+# ---- 5. 주택형 이름 맞추기·병합된 총 세대수 ----
+
+
+def test_joined_type_code_matches_its_lettered_name():
+    from mujuthaek_extraction import supply_tables as st
+
+    assert st._same_type({"housingTypeCode": "24 24ABC"}, {"housingTypeCode": "24ABC"})
+    assert not st._same_type({"housingTypeCode": "26 26AB"}, {"housingTypeCode": "26C"})
+
+
+def test_total_housing_merged_over_rows_is_dropped_not_held():
+    from test_supply_tables import column
+
+    from mujuthaek_extraction import supply_tables as st
+
+    rows = (("단지", "주택형", "모집", "총 세대수"), ("가상단지", "24A", "5", "204"), ("", "36A", "7", ""))
+    cells = ((0, 1, 2, 3), (4, 5, 6, 7), (4, 8, 9, 7))  # 총 세대수 칸이 두 행에 병합
+    table = st.Table("1-1", 1, "공급", rows[0], rows, cells)
+    entry = {
+        "table": "1-1",
+        "role": "SUPPLY",
+        "rowUnit": "HOUSING_TYPE",
+        "complex": None,
+        "columns": [column(1, "COMPLEX"), column(2, "HOUSING_TYPE"), column(3, "COUNT", ck="OFFERED"), column(4, "COUNT", ck="TOTAL_HOUSING")],
+    }
+    part = st.build_part([table], {"tables": [entry]}, "pdf-text")
+    assert [[(c["kind"], c["value"]) for c in g["counts"]] for g in part["supplyGroups"]] == [[("OFFERED", 5)], [("OFFERED", 7)]]
+    assert not [i for i in part.get(st.ISSUES_KEY) or [] if i["code"] == "COUNT_MERGED_AMBIGUOUS"]
