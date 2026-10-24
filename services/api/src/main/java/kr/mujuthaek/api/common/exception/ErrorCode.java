@@ -30,6 +30,8 @@ public enum ErrorCode {
 
   // eligibility
   CRITERIA_NOT_FOUND(HttpStatus.NOT_FOUND, "그 연도의 판정 기준값이 아직 없어요"),
+  ELIGIBILITY_FIELD_MISMATCH(HttpStatus.BAD_REQUEST, "판정하려는 분야와 판정 틀의 분야(schema)가 달라요"),
+  ELIGIBILITY_INVALID_FRAME(HttpStatus.BAD_REQUEST, "판정 틀 형식이 올바르지 않아요"),
   ;
 
   private static final String TYPE_BASE = "https://mujuthaek.kr/problems/";

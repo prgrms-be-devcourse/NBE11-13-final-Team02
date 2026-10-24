@@ -259,4 +259,23 @@ public class NoticeQueryService {
     }
     return regionCode;
   }
+
+  /**
+   * 판정용 공고 목록: 이 분야의 열린 공고(접수예정·접수중) 전부를 한 번에 줘요. 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요.
+   *
+   * <p>TODO(권상록): 공고·판정 틀 저장이 생기면 채워요. 지금은 빈 목록이에요 (2026-10-21 이석우가 합의한 모양으로 먼저 만든 자리). 공고 판정 API는
+   * {@link #judgingSource}로 판정 틀을 읽어요.
+   */
+  public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
+    return List.of();
+  }
+
+  /**
+   * 판정용 창업지원 사업 목록: 마감되지 않은 창업지원 사업 전부를 한 번에 줘요. programId는 수집 DB 정책 ID(rawPolicyId)예요.
+   *
+   * <p>TODO(권상록): #70에서 채워요. 지금은 빈 목록이에요 (2026-10-23 이석우가 #70과 같은 모양으로 먼저 만든 자리).
+   */
+  public List<ProgramForJudgment> findOpenProgramsForJudgment() {
+    return List.of();
+  }
 }
