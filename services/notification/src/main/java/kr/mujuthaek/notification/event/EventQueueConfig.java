@@ -2,12 +2,14 @@ package kr.mujuthaek.notification.event;
 
 import java.util.ArrayList;
 import java.util.List;
+import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.BindingBuilder;
 import org.springframework.amqp.core.Declarable;
 import org.springframework.amqp.core.Declarables;
 import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.core.QueueBuilder;
 import org.springframework.amqp.core.TopicExchange;
+import org.springframework.boot.amqp.autoconfigure.RabbitListenerRetrySettingsCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -48,5 +50,24 @@ public class EventQueueConfig {
     declarables.add(BindingBuilder.bind(dlq).to(dlx).with(DEAD_ROUTING_KEY));
     ROUTING_KEYS.forEach(key -> declarables.add(BindingBuilder.bind(queue).to(events).with(key)));
     return new Declarables(declarables);
+  }
+
+  /**
+   * 받기 재시도(application.yml spring.rabbitmq.listener.simple.retry)는 DB가 잠깐 끊기는 것 같은 오류에만 해요.
+   * 봉투·payload가 계약에 맞지 않아 던진 AmqpRejectAndDontRequeueException은 다시 해도 같아서 바로 실패 큐로 보내요 (재시도하면 그동안
+   * 큐가 막혀요).
+   */
+  @Bean
+  RabbitListenerRetrySettingsCustomizer doNotRetryPermanentFailures() {
+    return settings -> settings.setExceptionPredicate(EventQueueConfig::retryable);
+  }
+
+  static boolean retryable(Throwable error) {
+    for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+      if (cause instanceof AmqpRejectAndDontRequeueException) {
+        return false;
+      }
+    }
+    return true;
   }
 }

@@ -45,36 +45,77 @@ public class DeliveryRepository {
         == 1;
   }
 
-  /** 보낼 시각이 지난 줄. 서버가 여러 대여도 같은 줄을 두 번 가져가지 않게 잠가요 (트랜잭션 안에서 불러요) */
-  public List<DueDelivery> lockDue(Instant now, int limit) {
+  /** 보낼 시각이 지난 묶음이 아닌 줄. 서버가 여러 대여도 같은 줄을 두 번 가져가지 않게 잠가요 (트랜잭션 안에서 불러요) */
+  public List<DueDelivery> lockDueSingles(Instant now, int limit) {
     return jdbc.sql(
             """
             select id, user_id, channel, address, type, title, body, link_path, digest, quiet,
                    scheduled_at, attempts
               from deliveries
-             where status = 'PENDING' and scheduled_at <= :now
+             where status = 'PENDING' and not digest and scheduled_at <= :now
              order by scheduled_at, user_id
              limit :limit
                for update skip locked
             """)
         .param("now", at(now))
         .param("limit", limit)
+        .query(DeliveryRepository::due)
+        .list();
+  }
+
+  /** 보낼 시각이 지난 묶음 메일 단위 (회원·채널·주소·시각). 잠그지 않고 고르기만 해요 */
+  public List<DigestKey> dueDigestKeys(Instant now, int limit) {
+    return jdbc.sql(
+            """
+            select user_id, channel, address, scheduled_at
+              from deliveries
+             where status = 'PENDING' and digest and scheduled_at <= :now
+             group by user_id, channel, address, scheduled_at
+             order by scheduled_at, user_id
+             limit :limit
+            """)
+        .param("now", at(now))
+        .param("limit", limit)
         .query(
             (rs, i) ->
-                new DueDelivery(
-                    rs.getObject("id", UUID.class),
+                new DigestKey(
                     rs.getObject("user_id", UUID.class),
                     Channel.valueOf(rs.getString("channel")),
                     rs.getString("address"),
-                    rs.getBoolean("digest"),
-                    rs.getBoolean("quiet"),
-                    rs.getObject("scheduled_at", OffsetDateTime.class).toInstant(),
-                    rs.getInt("attempts"),
-                    new OutgoingNotification(
-                        NotificationType.valueOf(rs.getString("type")),
-                        rs.getString("title"),
-                        rs.getString("body"),
-                        rs.getString("link_path"))))
+                    rs.getObject("scheduled_at", OffsetDateTime.class).toInstant()))
+        .list();
+  }
+
+  /**
+   * 이 묶음을 이 서버가 맡아요 (트랜잭션이 끝날 때까지). 다른 서버가 맡고 있으면 false라 건너뛰어요. 묶음 줄은 맡은 서버만 잠가서, 같은 묶음이 두 통으로 나뉘지
+   * 않아요.
+   */
+  public boolean tryLockDigest(DigestKey key) {
+    return Boolean.TRUE.equals(
+        jdbc.sql("select pg_try_advisory_xact_lock(hashtextextended(:key, 0))")
+            .param("key", key.lockName())
+            .query(Boolean.class)
+            .single());
+  }
+
+  /** 맡은 묶음의 줄을 모두 잠가요. 다른 트랜잭션이 잠깐 잡고 있으면 놓을 때까지 기다려요 (빠지는 줄 없이 한 통으로) */
+  public List<DueDelivery> lockDigestGroup(DigestKey key) {
+    return jdbc.sql(
+            """
+            select id, user_id, channel, address, type, title, body, link_path, digest, quiet,
+                   scheduled_at, attempts
+              from deliveries
+             where status = 'PENDING' and digest
+               and user_id = :userId and channel = :channel and address = :address
+               and scheduled_at = :at
+             order by created_at
+               for update
+            """)
+        .param("userId", key.userId())
+        .param("channel", key.channel().name())
+        .param("address", key.address())
+        .param("at", at(key.scheduledAt()))
+        .query(DeliveryRepository::due)
         .list();
   }
 
@@ -126,6 +167,23 @@ public class DeliveryRepository {
         .update();
   }
 
+  private static DueDelivery due(java.sql.ResultSet rs, int row) throws java.sql.SQLException {
+    return new DueDelivery(
+        rs.getObject("id", UUID.class),
+        rs.getObject("user_id", UUID.class),
+        Channel.valueOf(rs.getString("channel")),
+        rs.getString("address"),
+        rs.getBoolean("digest"),
+        rs.getBoolean("quiet"),
+        rs.getObject("scheduled_at", OffsetDateTime.class).toInstant(),
+        rs.getInt("attempts"),
+        new OutgoingNotification(
+            NotificationType.valueOf(rs.getString("type")),
+            rs.getString("title"),
+            rs.getString("body"),
+            rs.getString("link_path")));
+  }
+
   private static OffsetDateTime at(Instant instant) {
     return instant.atOffset(ZoneOffset.UTC);
   }
@@ -144,6 +202,13 @@ public class DeliveryRepository {
       boolean digest,
       boolean quiet,
       Instant scheduledAt) {}
+
+  /** 묶음 메일 한 통의 단위 */
+  public record DigestKey(UUID userId, Channel channel, String address, Instant scheduledAt) {
+    String lockName() {
+      return "delivery-digest:" + userId + ":" + channel + ":" + address + ":" + scheduledAt;
+    }
+  }
 
   /** 보낼 차례가 된 발송 줄 1개 */
   public record DueDelivery(

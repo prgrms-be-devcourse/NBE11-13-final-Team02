@@ -43,9 +43,16 @@ class EmailChannel implements NotificationChannel {
   }
 
   private static String subject(List<OutgoingNotification> notifications) {
-    return notifications.size() == 1
-        ? "[무주택자들] " + notifications.getFirst().title()
-        : "[무주택자들] 관심 조건에 맞는 새 소식 " + notifications.size() + "건";
+    String subject =
+        notifications.size() == 1
+            ? "[무주택자들] " + notifications.getFirst().title()
+            : "[무주택자들] 관심 조건에 맞는 새 소식 " + notifications.size() + "건";
+    return oneLine(subject);
+  }
+
+  /** 메일 제목은 한 줄이어야 해요. 줄바꿈이 들어오면 메일 머리글이 깨지거나 SES가 거절해요 */
+  static String oneLine(String value) {
+    return value.replaceAll("[\\r\\n]+", " ").strip();
   }
 
   private String text(List<OutgoingNotification> notifications) {
