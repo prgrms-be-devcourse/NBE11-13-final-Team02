@@ -67,6 +67,7 @@ spring:
 
 app:
   frontend-url: ${FRONTEND_URL:http://localhost:3000}  # 로그인 뒤 돌아갈 화면, CORS 허용 주소
+  cors-origins: ${CORS_ORIGINS:}        # 더 허용할 프론트 주소, 쉼표로 여러 개 (예: http://localhost:3200,https://preview.mujuthaek.kr)
   jwt:
     # HS256 서명 키 (32바이트 이상). 운영은 반드시 JWT_SECRET으로 바꿔요 (README)
     secret: ${JWT_SECRET:local-dev-only-jwt-secret-change-me-0123456789}
