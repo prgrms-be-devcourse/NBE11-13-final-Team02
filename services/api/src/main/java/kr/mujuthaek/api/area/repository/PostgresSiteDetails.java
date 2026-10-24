@@ -90,4 +90,21 @@ public final class PostgresSiteDetails {
   private static List<BigDecimal> decimals(java.sql.Array array) throws java.sql.SQLException {
     return java.util.Arrays.stream((Object[]) array.getArray()).map(v -> (BigDecimal) v).toList();
   }
+
+  /** 여러 위치의 지표 (태그 계산용). 지표가 없는 위치는 빠져요. */
+  public Map<UUID, Map<AreaMetric, BigDecimal>> metricsOf(java.util.Collection<UUID> locationIds) {
+    Map<UUID, Map<AreaMetric, BigDecimal>> out = new java.util.HashMap<>();
+    if (locationIds.isEmpty()) {
+      return out;
+    }
+    jdbc.query(
+        "select location_id, metric, value from area.location_metrics where location_id = any(?::uuid[])",
+        rs -> {
+          out.computeIfAbsent(
+                  rs.getObject("location_id", UUID.class), k -> new EnumMap<>(AreaMetric.class))
+              .put(AreaMetric.ofCode(rs.getString("metric")), rs.getBigDecimal("value"));
+        },
+        (Object) locationIds.toArray(UUID[]::new));
+    return out;
+  }
 }
