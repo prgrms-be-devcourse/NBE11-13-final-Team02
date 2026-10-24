@@ -17,6 +17,8 @@ public record NoticeSearchResponse(
 
   /**
    * @param prepareCostWon 주택형 중 가장 적은 준비할 돈 (모르면 null)
+   * @param areaScore 대표 위치의 생활권 총점 (공고 목록과 같음, 없으면 null)
+   * @param tags·lat·lng·siteCount 대표 위치의 세권 태그·좌표, 위치 수 (공고 목록과 같음)
    * @param prepareCostNote prepareCostWon이 null인 이유 (ASSET_UNKNOWN · INCOME_UNKNOWN ·
    *     PRICE_NOT_ANNOUNCED …)
    */
@@ -35,5 +37,9 @@ public record NoticeSearchResponse(
       Long prepareCostWon,
       String prepareCostNote,
       Integer areaScore,
-      Boolean favorite) {}
+      Boolean favorite,
+      List<String> tags,
+      Double lat,
+      Double lng,
+      int siteCount) {}
 }

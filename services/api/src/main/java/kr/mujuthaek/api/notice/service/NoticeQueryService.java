@@ -6,6 +6,8 @@ import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import kr.mujuthaek.api.area.service.NoticeAreaQueryService;
+import kr.mujuthaek.api.area.service.NoticeAreaQueryService.NoticeSite;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
@@ -16,6 +18,7 @@ import kr.mujuthaek.api.notice.domain.CompletedNotice;
 import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeMapResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeVersionResponse;
@@ -48,6 +51,7 @@ public class NoticeQueryService {
   private final FollowUpRepository followUps;
   private final AreaScoreRepository areaScores;
   private final RegionQueryService regions;
+  private final NoticeAreaQueryService areas;
   private final Clock clock;
   private final JsonMapper json;
 
@@ -56,12 +60,14 @@ public class NoticeQueryService {
       FollowUpRepository followUps,
       AreaScoreRepository areaScores,
       RegionQueryService regions,
+      NoticeAreaQueryService areas,
       Clock clock,
       JsonMapper json) {
     this.queries = queries;
     this.followUps = followUps;
     this.areaScores = areaScores;
     this.regions = regions;
+    this.areas = areas;
     this.clock = clock;
     this.json = json;
   }
@@ -71,15 +77,36 @@ public class NoticeQueryService {
     CursorQuery page = CursorQuery.of(cursor, size, filter.sort());
     LocalDate today = LocalDate.now(clock);
     var rows = queries.list(filter, page.after(), page.fetchSize());
+    var sites = areas.sitesOf(rows.stream().map(ListRow::id).toList());
     return CursorPageResponse.from(
         rows,
         page.size(),
-        row -> summary(row, today),
+        row -> summary(row, today, sites.getOrDefault(row.id(), List.of())),
         row -> CursorKey.of(filter.sort(), NoticeQueries.sortValue(row, filter.sort()), row.id()));
   }
 
-  /** 상세. 없거나 숨김·공개 전이면 404 NOTICE_NOT_FOUND. */
+  /** 상세. 없거나 숨김·공개 전이면 404 NOTICE_NOT_FOUND. 위치(sites)에는 area의 siteId·좌표·세권 태그를 붙여요. */
   public NoticeDetailResponse detail(UUID noticeId) {
+    NoticeDetailResponse detail = detailWithoutArea(noticeId);
+    var area =
+        areas
+            .sitesOf(List.of(detail.header().id()))
+            .getOrDefault(detail.header().id(), List.of())
+            .stream()
+            .collect(
+                java.util.stream.Collectors.toMap(
+                    NoticeSite::noticeLocationId, s -> s, (a, b) -> a));
+    return detail.withSites(
+        detail.sites().stream()
+            .map(
+                site -> {
+                  NoticeSite a = site.id() == null ? null : area.get(site.id());
+                  return a == null ? site : site.withArea(a.siteId(), a.lat(), a.lng(), a.tags());
+                })
+            .toList());
+  }
+
+  private NoticeDetailResponse detailWithoutArea(UUID noticeId) {
     CurrentRow current = current(noticeId);
     LocalDate today = LocalDate.now(clock);
     ListRow row = current.row();
@@ -186,7 +213,12 @@ public class NoticeQueryService {
       LocalDate applyStart,
       LocalDate applyEnd,
       Integer dday,
-      LocalDate postedOn) {}
+      LocalDate postedOn,
+      Double lat,
+      Double lng,
+      int siteCount,
+      Integer areaScore,
+      List<String> tags) {}
 
   /**
    * 맞춤 목록(POST /notices/search)의 후보: 필터에 맞는 공개 공고를 마감 임박순으로 최대 limit개. 판정은 계산값이라 먼저 필터로 줄여요.
@@ -211,8 +243,10 @@ public class NoticeQueryService {
             statuses, // 비우면 공개 목록(GET /notices)과 같은 기본값 (상시 ALWAYS·확인 필요 UNKNOWN 포함)
             "DEADLINE");
     LocalDate today = LocalDate.now(clock);
-    return queries.list(filter, null, limit).stream()
-        .map(row -> summary(row, today))
+    var rows = queries.list(filter, null, limit);
+    var sites = areas.sitesOf(rows.stream().map(ListRow::id).toList());
+    return rows.stream()
+        .map(row -> summary(row, today, sites.getOrDefault(row.id(), List.of())))
         .map(
             s ->
                 new Candidate(
@@ -227,7 +261,12 @@ public class NoticeQueryService {
                     s.applyStart(),
                     s.applyEnd(),
                     s.dday(),
-                    s.postedOn()))
+                    s.postedOn(),
+                    s.lat(),
+                    s.lng(),
+                    s.siteCount(),
+                    s.areaScore(),
+                    s.tags()))
         .toList();
   }
 
@@ -402,7 +441,9 @@ public class NoticeQueryService {
     return json.readTree(current.payload());
   }
 
-  private NoticeSummaryResponse summary(ListRow row, LocalDate today) {
+  /** 목록 한 줄. 대표 위치 = area 좌표가 있는 첫 위치(notice 위치 ID 순). */
+  private NoticeSummaryResponse summary(ListRow row, LocalDate today, List<NoticeSite> sites) {
+    NoticeSite main = sites.stream().filter(s -> s.lat() != null).findFirst().orElse(null);
     return new NoticeSummaryResponse(
         row.id(),
         row.field(),
@@ -416,7 +457,12 @@ public class NoticeQueryService {
         row.applyEnd(),
         NoticeStatus.dday(row.applyEnd(), today),
         row.postedOn(),
-        row.needsCheck());
+        row.needsCheck(),
+        main == null ? null : main.lat(),
+        main == null ? null : main.lng(),
+        sites.size(),
+        main == null ? null : main.livingScore(),
+        main == null ? List.of() : main.tags());
   }
 
   /** 시도 단위 코드(11000)는 시도 이름으로 찾아요. */
@@ -425,5 +471,116 @@ public class NoticeQueryService {
       return regionCode.substring(0, 2);
     }
     return regionCode;
+  }
+
+  /** 지도에 핀으로 줄 수 있는 공고 수 (넘으면 묶음). */
+  static final int MAP_PINS = 300;
+
+  /** 지도 범위에서 area에 묻는 좌표 수 (화면에 다 못 그리는 수라 넉넉히). */
+  static final int MAP_POINTS = 5000;
+
+  /**
+   * 지도 (GET /notices/map). area가 지도 범위 안 공고 대표 좌표를 주고, 공고 정보·필터는 여기서 입혀요(숨김·공개 전은 빠지고 합쳐진 공고는 남은
+   * 공고로 하나). 필터는 공개 목록과 같은 뜻이에요: statuses가 비면 마감을 뺀 전부, tenure는 공고 유형으로.
+   */
+  public NoticeMapResponse map(
+      double swLat,
+      double swLng,
+      double neLat,
+      double neLng,
+      Integer zoom,
+      String tenure,
+      List<String> noticeTypes,
+      List<String> providers,
+      List<String> statuses) {
+    return map(
+        swLat, swLng, neLat, neLng, zoom, tenure, noticeTypes, providers, statuses, MAP_PINS);
+  }
+
+  /** 핀 한도를 정해서 (테스트에서 묶음을 보려고). */
+  NoticeMapResponse map(
+      double swLat,
+      double swLng,
+      double neLat,
+      double neLng,
+      Integer zoom,
+      String tenure,
+      List<String> noticeTypes,
+      List<String> providers,
+      List<String> statuses,
+      int maxPins) {
+    if (swLat >= neLat || swLng >= neLng) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "지도 범위: 남서쪽(sw)이 북동쪽(ne)보다 작아야 해요");
+    }
+    var points = areas.pointsWithin(swLat, swLng, neLat, neLng, MAP_POINTS);
+    var summaries =
+        findSummaries(points.stream().map(NoticeAreaQueryService.NoticePoint::noticeId).toList());
+    java.util.Map<UUID, NoticeMapResponse.Pin> pins = new java.util.LinkedHashMap<>();
+    java.util.Map<UUID, String> regionOf = new java.util.HashMap<>();
+    for (var point : points) {
+      NoticeSummary s = summaries.get(point.noticeId());
+      if (s == null
+          || pins.containsKey(s.noticeId())
+          || !mapShows(s, tenure, noticeTypes, providers, statuses)) {
+        continue;
+      }
+      pins.put(
+          s.noticeId(),
+          new NoticeMapResponse.Pin(
+              s.noticeId(), s.title(), s.noticeType(), s.applyEnd(), point.lat(), point.lng()));
+      regionOf.put(
+          s.noticeId(),
+          s.regionCodes() == null || s.regionCodes().isEmpty() ? null : s.regionCodes().getFirst());
+    }
+    if (pins.size() <= maxPins) {
+      return new NoticeMapResponse(List.of(), List.copyOf(pins.values()));
+    }
+    boolean bySido = zoom != null && zoom < 10;
+    java.util.Map<String, List<NoticeMapResponse.Pin>> groups =
+        new java.util.TreeMap<>(
+            java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder()));
+    pins.forEach(
+        (id, pin) -> {
+          String code = regionOf.get(id);
+          String key =
+              code == null ? null : code.substring(0, bySido ? 2 : Math.min(5, code.length()));
+          groups.computeIfAbsent(key, k -> new java.util.ArrayList<>()).add(pin);
+        });
+    List<NoticeMapResponse.Cluster> clusters = new java.util.ArrayList<>();
+    groups.forEach(
+        (code, list) ->
+            clusters.add(
+                new NoticeMapResponse.Cluster(
+                    code,
+                    code == null
+                        ? null
+                        : regions.displayName(
+                            regionLookup(code.length() == 2 ? code + "000" : code)),
+                    list.size(),
+                    list.stream().mapToDouble(NoticeMapResponse.Pin::lat).average().orElse(0),
+                    list.stream().mapToDouble(NoticeMapResponse.Pin::lng).average().orElse(0))));
+    return new NoticeMapResponse(clusters, List.of());
+  }
+
+  private static boolean mapShows(
+      NoticeSummary s,
+      String tenure,
+      List<String> noticeTypes,
+      List<String> providers,
+      List<String> statuses) {
+    boolean statusOk =
+        statuses == null || statuses.isEmpty()
+            ? !"CLOSED".equals(s.status())
+            : statuses.contains(s.status());
+    boolean tenureOk =
+        tenure == null
+            || ("BUY".equals(tenure) && NoticeListFilter.BUY_TYPES.contains(s.noticeType()))
+            || ("RENT".equals(tenure)
+                && s.noticeType() != null
+                && !NoticeListFilter.BUY_TYPES.contains(s.noticeType()));
+    return statusOk
+        && tenureOk
+        && (noticeTypes == null || noticeTypes.isEmpty() || noticeTypes.contains(s.noticeType()))
+        && (providers == null || providers.isEmpty() || providers.contains(s.provider()));
   }
 }

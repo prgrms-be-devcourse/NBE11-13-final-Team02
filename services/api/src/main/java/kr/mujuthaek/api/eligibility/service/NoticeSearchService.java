@@ -108,8 +108,12 @@ public class NoticeSearchService {
         e.overall(),
         prepare,
         note,
+        c.areaScore(),
         null,
-        null);
+        c.tags(),
+        c.lat(),
+        c.lng(),
+        c.siteCount());
   }
 
   /** RECOMMENDED: 지원 가능 → 확인 필요 → 지원 불가, 같으면 마감 임박. PREPARE_COST: 준비할 돈 적은 순 (모르면 뒤). */
