@@ -196,6 +196,50 @@ SHORT_QUOTES = "인용은 표 한 행씩(한 행 또는 한 줄, 300자 이내) 
 SPLIT_PARTIAL = "서류를 표 묶음별로 나눠 다시 불렀지만 일부 묶음을 받지 못했어요."
 
 
+def _item_key(section: str, item: dict[str, Any]) -> str:
+    """같은 항목인지 볼 열쇠: 서류는 이름·제출 시점, 일정은 이름·시작, 그 밖에는 이름·설명 글."""
+    if section == "requiredDocuments":
+        parts = [item.get("name"), item.get("submissionTime")]
+    elif section == "schedules":
+        parts = [item.get("rawLabel"), json.dumps(item.get("startsAt"), sort_keys=True)]
+    else:
+        parts = [item.get("name") or item.get("rawLabel") or item.get("title") or item.get("description") or item.get("originalText")]
+    return "|".join(re.sub(r"\s+", "", str(p or "")) for p in parts)
+
+
+def fill_from_cuts(part: dict[str, Any], cut_raws: list[str], sections: tuple[str, ...]) -> int:
+    """잘린 응답들에서 끝까지 적힌 항목 중 part에 없는 것을 더합니다(2026-10-24 여덟 번째 채점: 서류 호출 첫 응답은 일반공급 서류까지
+    읽고 잘렸는데, 나중 응답(더 앞에서 잘림)·나눠 부른 결과만 써서 서류 11개가 빠짐). 인용 ref는 응답마다 앞머리(c1-, c2-)를 붙입니다.
+    더한 항목 수를 돌려줍니다. 형식이 틀린 항목은 결합기가 뺍니다."""
+    added = 0
+    for number, raw in enumerate(cut_raws, start=1):
+        salvaged = salvage_truncated(raw, sections)
+        if not salvaged:
+            continue
+        prefix = f"c{number}-"
+        rename = {q["ref"]: prefix + q["ref"] for q in salvaged.get("quotes") or [] if isinstance(q, dict) and isinstance(q.get("ref"), str)}
+        used: set[str] = set()
+        for section in sections:
+            if not isinstance(part.get(section), list) or not isinstance(salvaged.get(section), list):
+                continue
+            have = {_item_key(section, item) for item in part[section] if isinstance(item, dict)}
+            ids = {item.get("id") for item in part[section] if isinstance(item, dict)}
+            for item in copy.deepcopy(salvaged[section]):
+                if not isinstance(item, dict) or _item_key(section, item) in have:
+                    continue
+                _rename_quote_refs(item, rename)
+                used |= set(_used_refs(item))
+                if item.get("id") in ids:
+                    item["id"] = f"{item['id']}~c{number}"
+                ids.add(item.get("id"))
+                have.add(_item_key(section, item))
+                part[section].append(item)
+                added += 1
+        part.setdefault("quotes", [])
+        part["quotes"] += [{**q, "ref": rename[q["ref"]]} for q in salvaged.get("quotes") or [] if isinstance(q, dict) and rename.get(q.get("ref")) in used]
+    return added
+
+
 def merge_split_parts(parts: list[dict[str, Any]], sections: tuple[str, ...]) -> dict[str, Any] | None:
     """나눠 부른 호출들의 조각을 한 조각으로 합칩니다. 인용 ref는 조각마다 앞머리(s1-, s2-)를 붙이고, 겹치는 항목 id는 뒤에 「~s2」를 붙이며,
     누락 기록 위치는 붙인 자리만큼 옮깁니다. 섹션 범위: 모두 EXTRACTED면 EXTRACTED, 하나라도 받지 못했거나 PARTIAL이면 PARTIAL(재확인·검수로),
@@ -366,6 +410,7 @@ def run_extraction(
         part, reason, repairs, truncations = None, None, 0, 0
         unrepaired = None  # 형식 위반이 있는 첫 응답. 수정 호출이 실패하면(예산 한도 등) 이것을 넘깁니다
         truncated_raw: str | None = None  # 다시 받아도 잘린 마지막 응답(나눠 부르기·끝까지 적힌 항목 살리기에 씀)
+        cut_raws: list[str] = []  # 이 호출에서 잘린 응답 전부(앞 응답이 더 멀리 읽었을 수 있어 모두 모읍니다)
         while part is None and reason is None:
             response, reason = call_model(request, repairs > 0, sink)
             if response is None:
@@ -374,6 +419,8 @@ def run_extraction(
             loop = runaway(response.raw_text) if cut or response.stop_reason is StopReason.END else None
             if loop is not None:
                 sink.attempts[-1] = replace(sink.attempts[-1], runaway=loop)
+            if cut:
+                cut_raws.append(response.raw_text)
             if cut or loop is not None:
                 # 잘렸거나 폭주한 응답: 짧게 인용하라는 지시를 덧붙인 요청으로 다시 받습니다(같은 요청은 같은 곳에서 다시 폭주했음)
                 if truncations < policy.truncation_retries and (budget is None or budget(guarded(request))):
@@ -425,7 +472,9 @@ def run_extraction(
                     part, how = fix_format_slips(salvaged), "잘린 응답에서 끝까지 적힌 항목"
             if part is not None:
                 reason = None
-                sink.notes.append(f"{call.name}: 다시 받아도 출력 한도로 잘려 {how}를 썼습니다")
+                added = fill_from_cuts(part, cut_raws, call.sections)
+                more = f", 앞서 잘린 응답에서 끝까지 적힌 항목 {added}개를 더했습니다" if added else ""
+                sink.notes.append(f"{call.name}: 다시 받아도 출력 한도로 잘려 {how}를 썼습니다{more}")
         if part is None:
             sink.failed_calls.append((call.name, reason))
             sink.parts.append(_failed_part(call, reason))
