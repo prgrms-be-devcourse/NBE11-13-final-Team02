@@ -290,7 +290,10 @@ def serve_health() -> None:
 def run_scheduler(settings: Settings) -> None:
     from apscheduler.schedulers.blocking import BlockingScheduler
 
+    from mujuthaek_collector import admin_api
+
     serve_health()
+    admin_api.serve(settings.db_url)  # 관리자 수집 현황 API (:8093, admin_api.py)
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     common = {"max_instances": 1, "coalesce": True, "misfire_grace_time": 600}
     scheduler.add_job(collect_all, "cron", day_of_week="mon-fri", hour="9-18", minute=5, args=[settings], id="collect", **common)

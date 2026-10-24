@@ -24,6 +24,7 @@ public enum ErrorCode {
 
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
+  NOTICE_COLLECTOR_UNAVAILABLE(HttpStatus.SERVICE_UNAVAILABLE, "수집기에 연결하지 못했어요. 잠시 뒤에 다시 해 주세요"),
   NOTICE_REPORT_NOT_FOUND(HttpStatus.NOT_FOUND, "제보를 찾을 수 없어요"),
   NOTICE_REVIEW_NOT_FOUND(HttpStatus.NOT_FOUND, "검수 항목을 찾을 수 없어요"),
   NOTICE_REVIEW_CONFLICT(HttpStatus.CONFLICT, "이미 처리됐거나 새 버전으로 바뀐 검수 항목이에요"),

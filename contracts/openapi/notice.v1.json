@@ -22,6 +22,10 @@
     {
       "name": "notice-report",
       "description": "공고 제보 (회원 제보·관리자 처리)"
+    },
+    {
+      "name": "admin-source",
+      "description": "관리자 수집 현황 (수집기 관리자 API 대행)"
     }
   ],
   "paths": {
@@ -947,6 +951,124 @@
           }
         }
       }
+    },
+    "/api/admin/sources": {
+      "get": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "adminSources",
+        "summary": "출처별 수집 상태",
+        "responses": {
+          "200": {
+            "description": "수집 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSources"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/sources/{code}/pause": {
+      "post": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "pauseAdminSource",
+        "summary": "멈춤 (수집하지 않음)",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "description": "수집 출처 코드 (sh, gh, lh_myhome …)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "바꾼 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSourceToggle"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/SourceNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/sources/{code}/resume": {
+      "post": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "resumeAdminSource",
+        "summary": "다시 켜기",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "description": "수집 출처 코드 (sh, gh, lh_myhome …)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "바꾼 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSourceToggle"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/SourceNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1116,6 +1238,26 @@
       },
       "LoginRequired": {
         "description": "로그인이 필요함 (code: UNAUTHENTICATED)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "CollectorUnavailable": {
+        "description": "수집기에 연결하지 못함 (code: NOTICE_COLLECTOR_UNAVAILABLE)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "SourceNotFound": {
+        "description": "없는 수집 출처 (code: NOT_FOUND)",
         "content": {
           "application/problem+json": {
             "schema": {
@@ -3351,6 +3493,174 @@
           "reopened": {
             "type": "boolean",
             "description": "false면 이미 대기 중이던 검수를 이은 것"
+          }
+        }
+      },
+      "AdminSourceRun": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RUNNING",
+              "SUCCESS",
+              "BLOCKED",
+              "FAILED"
+            ]
+          },
+          "newCount": {
+            "type": "integer"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AdminSource": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "enabled",
+          "state",
+          "lastRun",
+          "lastSuccessAt",
+          "consecutiveEmpty",
+          "consecutiveFailures",
+          "totalCollected",
+          "recentRuns"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "late",
+              "fail",
+              "paused"
+            ],
+            "description": "ok 정상 · late 26시간 넘게 성공 회차 없음 · fail 마지막 회차 실패·차단 · paused 멈춤"
+          },
+          "lastRun": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AdminSourceRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastSuccessAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "consecutiveEmpty": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "최근 연속 0건 성공 회차 수(목록 구조 변경 의심)"
+          },
+          "consecutiveFailures": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalCollected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recentRuns": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/AdminSourceRun"
+            }
+          }
+        }
+      },
+      "AdminSources": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "summary",
+          "sources"
+        ],
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "ok",
+              "late",
+              "fail",
+              "paused"
+            ],
+            "properties": {
+              "ok": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "late": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "fail": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "paused": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminSource"
+            }
+          }
+        }
+      },
+      "AdminSourceToggle": {
+        "type": "object",
+        "required": [
+          "code",
+          "enabled"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
           }
         }
       }
