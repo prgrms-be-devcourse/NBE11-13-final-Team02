@@ -2,3 +2,8 @@ logging:
   structured:
     format:
       console: ecs                      # JSON 한 줄 로그
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}                # 운영은 기본값 없이 꼭 넣어요
+    cookie-secure: true                  # refresh token 쿠키는 HTTPS에서만
