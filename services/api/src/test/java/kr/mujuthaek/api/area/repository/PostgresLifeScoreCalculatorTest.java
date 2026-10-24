@@ -33,10 +33,10 @@ class PostgresLifeScoreCalculatorTest {
   @BeforeEach
   void insertLocationWithMetrics() throws Exception {
     exec(
-        "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
+        "insert into area.notice_locations (location_id, notice_id, notice_location_id, notice_version, kind,"
             + " address_text, geom, status, method) values ('"
             + at
-            + "', gen_random_uuid(), 1, 'COMPLEX', '시험 위치 점수',"
+            + "', gen_random_uuid(), 'building-a', 1, 'COMPLEX', '시험 위치 점수',"
             + " st_makepoint(125.8, 34.8)::geography, 'OK', 'FILE')");
     exec(
         "insert into area.location_metrics (location_id, metric, value) select '"
@@ -91,10 +91,10 @@ class PostgresLifeScoreCalculatorTest {
   void failedLocationGetsNoScores() throws Exception {
     UUID failed = UUID.randomUUID();
     exec(
-        "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
+        "insert into area.notice_locations (location_id, notice_id, notice_location_id, notice_version, kind,"
             + " address_text, status, fail_reason) values ('"
             + failed
-            + "', gen_random_uuid(), 1, 'COMPLEX', '시험 위치 점수 실패', 'FAILED', 'NOT_FOUND')");
+            + "', gen_random_uuid(), 'building-a', 1, 'COMPLEX', '시험 위치 점수 실패', 'FAILED', 'NOT_FOUND')");
 
     assertThat(calculator.calculate(List.of(failed), "2026.1")).isZero();
   }

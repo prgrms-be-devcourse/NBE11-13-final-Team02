@@ -1,0 +1,231 @@
+{
+  "description": "신청 순위: 1·2·3순위 소득 사다리 (LH 행복주택 추가모집 소득 완화, 기준일 2026-10-01). 내 순위 = 충족한 대상군 중 가장 앞 rank",
+  "frame": {
+    "schema": "housing-judgment.v1",
+    "rawPostId": "test",
+    "rawVersion": 1,
+    "referenceDate": "2026-10-01",
+    "common": [],
+    "groups": [
+      {
+        "id": "rank-1",
+        "name": "1순위 (일반 조건)",
+        "rank": 1,
+        "criteria": [
+          {
+            "id": "rank1-income",
+            "kind": "INCOME",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "HOUSEHOLD",
+            "standard": "URBAN_WORKER_INCOME",
+            "year": 2025,
+            "percent": 100,
+            "bonuses": [
+              {
+                "when": {
+                  "factor": "HOUSEHOLD_SIZE",
+                  "min": 1,
+                  "max": 1,
+                  "since": null,
+                  "countRule": null
+                },
+                "addPercent": 20
+              },
+              {
+                "when": {
+                  "factor": "HOUSEHOLD_SIZE",
+                  "min": 2,
+                  "max": 2,
+                  "since": null,
+                  "countRule": null
+                },
+                "addPercent": 10
+              }
+            ],
+            "bonusCombine": "SUM",
+            "printedTable": []
+          }
+        ]
+      },
+      {
+        "id": "rank-2",
+        "name": "2순위 (완화 조건)",
+        "rank": 2,
+        "criteria": [
+          {
+            "id": "rank2-income",
+            "kind": "INCOME",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "HOUSEHOLD",
+            "standard": "URBAN_WORKER_INCOME",
+            "year": 2025,
+            "percent": 120,
+            "bonuses": [
+              {
+                "when": {
+                  "factor": "HOUSEHOLD_SIZE",
+                  "min": 1,
+                  "max": 1,
+                  "since": null,
+                  "countRule": null
+                },
+                "addPercent": 20
+              },
+              {
+                "when": {
+                  "factor": "HOUSEHOLD_SIZE",
+                  "min": 2,
+                  "max": 2,
+                  "since": null,
+                  "countRule": null
+                },
+                "addPercent": 10
+              }
+            ],
+            "bonusCombine": "SUM",
+            "printedTable": []
+          }
+        ]
+      },
+      {
+        "id": "rank-3",
+        "name": "3순위",
+        "rank": 3,
+        "criteria": [
+          {
+            "id": "rank3-income",
+            "kind": "INCOME",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "basis": "HOUSEHOLD",
+            "standard": "URBAN_WORKER_INCOME",
+            "year": 2025,
+            "percent": 150,
+            "bonuses": [],
+            "bonusCombine": "SUM",
+            "printedTable": []
+          }
+        ]
+      }
+    ],
+    "notes": []
+  },
+  "cases": [
+    {
+      "name": "1인 월 450만원 → 1순위 기준 4,576,036원 이하라 1순위",
+      "applicant": {
+        "household": {
+          "size": 1,
+          "monthlyIncomeWon": 4500000
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "rank": 1,
+        "groups": {
+          "rank-1": "MET",
+          "rank-2": "MET",
+          "rank-3": "MET"
+        }
+      }
+    },
+    {
+      "name": "1인 월 4,576,036원 (1순위 기준과 같음) → 1순위",
+      "applicant": {
+        "household": {
+          "size": 1,
+          "monthlyIncomeWon": 4576036
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "rank": 1,
+        "groups": {
+          "rank-1": "MET"
+        }
+      }
+    },
+    {
+      "name": "1인 월 500만원 → 1순위 불충족, 2순위 기준 5,338,708원 이하라 2순위",
+      "applicant": {
+        "household": {
+          "size": 1,
+          "monthlyIncomeWon": 5000000
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "rank": 2,
+        "groups": {
+          "rank-1": "NOT_MET",
+          "rank-2": "MET",
+          "rank-3": "MET"
+        }
+      }
+    },
+    {
+      "name": "1인 월 560만원 → 3순위 기준 5,720,045원 이하라 3순위",
+      "applicant": {
+        "household": {
+          "size": 1,
+          "monthlyIncomeWon": 5600000
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "rank": 3,
+        "groups": {
+          "rank-1": "NOT_MET",
+          "rank-2": "NOT_MET",
+          "rank-3": "MET"
+        }
+      }
+    },
+    {
+      "name": "1인 월 580만원 → 모든 순위 불충족, 순위 없음",
+      "applicant": {
+        "household": {
+          "size": 1,
+          "monthlyIncomeWon": 5800000
+        }
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "rank": null,
+        "groups": {
+          "rank-1": "NOT_MET",
+          "rank-2": "NOT_MET",
+          "rank-3": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "월소득 미입력 → 확인 필요, 순위 없음",
+      "applicant": {
+        "household": {
+          "size": 1
+        }
+      },
+      "expect": {
+        "result": "NEEDS_INPUT",
+        "rank": null,
+        "groups": {
+          "rank-1": "UNKNOWN",
+          "rank-2": "UNKNOWN",
+          "rank-3": "UNKNOWN"
+        },
+        "missingInputs": [
+          "household.monthlyIncomeWon"
+        ]
+      }
+    }
+  ]
+}

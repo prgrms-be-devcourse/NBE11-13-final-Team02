@@ -56,6 +56,9 @@ EVIDENCE_ONLY_CODES = frozenset(
         "ITEM_DROPPED_NO_EVIDENCE",
     }
 )
+# AI 재확인으로 보내지 않는 이슈: 공급표 금액 빈칸(SUPPLY_PRICE_MISSING)은 코드가 공고문 글을 이미 찾아봤고, 표 칸이 비어 있어
+# AI가 다시 읽어도 근거 있는 값을 더 얻기 어렵습니다. 이 이슈만으로 유료 재확인 호출이 늘지 않게 사람 확인으로 둡니다
+NO_RECHECK_CODES = frozenset({"SUPPLY_PRICE_MISSING"})
 # 뜻 비교에서 빼는 글 칸(설명·인용 참조). 나머지(대상·종류·조건식·단위·기준표·예외)는 그대로 같아야 합니다
 TEXT_KEYS = frozenset({"quoteRefs", "basis", "description", "originalText", "reason", "appliesTo"})
 INSTRUCTIONS = """검증에서 아래 항목에 문제가 발견되었습니다. 원문 전체를 다시 확인해 각 항목을 고친 뒤 같은 섹션·같은 id로 돌려줍니다.
@@ -115,6 +118,8 @@ def problem_items(report: VerificationReport) -> dict[tuple[str, str | None], li
     candidate = report.candidate
     problems: dict[tuple[str, str | None], list[str]] = {}
     for issue in candidate["quality"]["reviewIssues"]:
+        if issue["code"] in NO_RECHECK_CODES:
+            continue
         key = _item_key(candidate, issue["target"])
         if key:
             problems.setdefault(key, []).append(f"{issue['code']} {issue['target']}: {issue['description']}")

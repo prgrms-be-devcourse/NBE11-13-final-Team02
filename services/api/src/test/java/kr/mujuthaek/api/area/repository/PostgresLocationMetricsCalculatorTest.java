@@ -55,8 +55,8 @@ class PostgresLocationMetricsCalculatorTest {
             + "', '점포' || i, (array['CONVENIENCE_STORE', 'MART', 'FOOD', 'CAFE'])[1 + i % 4], "
             + point()
             + ", date '2026-09-30' from generate_series(1, 400) i;"
-            + "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
-            + " address_text, geom, status, method) select gen_random_uuid(), gen_random_uuid(), 1,"
+            + "insert into area.notice_locations (location_id, notice_id, notice_location_id, notice_version, kind,"
+            + " address_text, geom, status, method) select gen_random_uuid(), gen_random_uuid(), 'loc-' || i, 1,"
             + " 'COMPLEX', '시험 위치 ' || i, "
             + point()
             + ", 'OK', 'FILE' from generate_series(1, 30) i;"
@@ -125,10 +125,10 @@ class PostgresLocationMetricsCalculatorTest {
             + ","
             + station("1호선", "먼역", 0.0135, "T5"));
     exec(
-        "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
+        "insert into area.notice_locations (location_id, notice_id, notice_location_id, notice_version, kind,"
             + " address_text, geom, status, method) values ('"
             + at
-            + "', gen_random_uuid(), 1, 'COMPLEX', '시험 위치 환승',"
+            + "', gen_random_uuid(), 'building-a', 1, 'COMPLEX', '시험 위치 환승',"
             + " st_makepoint(125.5, 34.5)::geography, 'OK', 'FILE')");
 
     calculator.calculate(List.of(at));
@@ -155,10 +155,10 @@ class PostgresLocationMetricsCalculatorTest {
             + SOURCE
             + "', 'SPH-E', date '2026-09-30')");
     exec(
-        "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
+        "insert into area.notice_locations (location_id, notice_id, notice_location_id, notice_version, kind,"
             + " address_text, geom, status, method) values ('"
             + at
-            + "', gen_random_uuid(), 1, 'COMPLEX', '시험 위치 구면', "
+            + "', gen_random_uuid(), 'building-a', 1, 'COMPLEX', '시험 위치 구면', "
             + p
             + ", 'OK', 'FILE')");
     assertThat(
@@ -181,10 +181,10 @@ class PostgresLocationMetricsCalculatorTest {
   void failedLocationGetsNoMetricsAndRerunReplacesRows() throws Exception {
     UUID failed = UUID.randomUUID();
     exec(
-        "insert into area.notice_locations (location_id, notice_id, notice_version, kind,"
+        "insert into area.notice_locations (location_id, notice_id, notice_location_id, notice_version, kind,"
             + " address_text, status, fail_reason) values ('"
             + failed
-            + "', gen_random_uuid(), 1, 'COMPLEX', '시험 위치 실패', 'FAILED', 'NOT_FOUND')");
+            + "', gen_random_uuid(), 'building-a', 1, 'COMPLEX', '시험 위치 실패', 'FAILED', 'NOT_FOUND')");
     List<UUID> targets = List.of(locations.get(0), failed);
 
     int first = calculator.calculate(targets);

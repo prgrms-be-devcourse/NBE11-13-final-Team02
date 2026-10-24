@@ -16,10 +16,21 @@ def test_store_keys_use_english_sido_names():
     assert len(sources.STORES_SCOPES) == 16
 
 
+def test_address_entrance_keys_use_the_file_sido_code():
+    assert sources.s3_key("ADDRESS_ENTRANCE", date(2026, 9, 30), "36") == "area/ADDRESS_ENTRANCE/2026-09-30/address_entrance_36110.txt"
+    assert sources.check_scope("ADDRESS_ENTRANCE", "36110") == "36"  # 원본 파일 이름의 코드도 받아요
+    assert sources.check_scope("ADDRESS_ENTRANCE", "11000") == "11"
+    assert len(sources.ADDRESS_SCOPES) == 16
+    assert sources.headerless("ADDRESS_ENTRANCE") and not sources.headerless("STORES")
+
+
 @pytest.mark.parametrize(
     "source,scope",
     [
         ("SUPERMARKET", "ALL"),  # 모르는 원천
+        ("ADDRESS_ENTRANCE", None),  # 도로명주소는 시도 코드가 있어야 해요
+        ("ADDRESS_ENTRANCE", "29"),  # 광주(29)는 전남광주(12)로 합쳐짐
+        ("ADDRESS_ENTRANCE", "세종"),  # 이름이 아니라 코드
         ("STORES", None),  # 상가는 시도가 있어야 해요
         ("STORES", "광주"),  # 광주는 전남과 한 파일(전남광주)
         ("BUS_STOP", "서울"),  # 시설은 ALL만
@@ -34,7 +45,8 @@ def test_keys_match_the_area_source_ready_contract():
     # contracts/events/area.source.ready.v1.json의 s3Key 패턴과 같아야 api가 받아요
     import re
 
-    pattern = re.compile(r"^area/(SUBWAY_STATION|BUS_STOP|SCHOOL|PARK|HOSPITAL|STORES)/\d{4}-\d{2}-\d{2}/[a-z0-9_]+\.csv$")
+    pattern = re.compile(r"^area/(SUBWAY_STATION|BUS_STOP|SCHOOL|PARK|HOSPITAL|STORES|ADDRESS_ENTRANCE)/\d{4}-\d{2}-\d{2}/[a-z0-9_]+\.(csv|txt)$")
     keys = [sources.s3_key(s, date(2026, 6, 30)) for s in sources.FILE_NAMES]
     keys += [sources.s3_key("STORES", date(2026, 6, 30), sido) for sido in sources.STORES_SCOPES]
+    keys += [sources.s3_key("ADDRESS_ENTRANCE", date(2026, 9, 30), code) for code in sources.ADDRESS_SCOPES]
     assert all(pattern.match(k) for k in keys)
