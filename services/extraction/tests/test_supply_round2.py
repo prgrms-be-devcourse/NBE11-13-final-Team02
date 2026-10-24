@@ -140,7 +140,7 @@ def test_structure_answer_standard_price_under_restricted_heading_is_suspected()
     c = candidate(text=text, prices=[standard])
     c["evidence"][0]["locator"]["start"] = text.index(ROW)
     c["evidence"][0]["locator"]["end"] = text.index(ROW) + len(ROW)
-    assert ("PRICE_SCOPE_UNCERTAIN", "/supplyGroups/0") in codes(c, text=text)
+    assert ("PRICE_SCOPE_UNCERTAIN", "/supplyGroups/0/prices") in codes(c, text=text)  # 가격만 보류(2026-10-24 네 번째 채점)
     targeted = candidate(text=text, prices=[price("DEPOSIT", 1_000_000, "1순위") | {"priceStage": "STANDARD"}])
     targeted["evidence"] = c["evidence"]
     assert "PRICE_SCOPE_UNCERTAIN" not in {code for code, _ in codes(targeted, text=text)}

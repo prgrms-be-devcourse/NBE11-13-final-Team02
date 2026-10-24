@@ -672,6 +672,9 @@ def _check_unattached_prices(candidate: dict[str, Any], find: Any) -> None:
 PRICE_SCOPE_UNCERTAIN = "PRICE_SCOPE_UNCERTAIN"
 RESTRICTED_PRICE = re.compile(r"(?<!분양가)(?<!분양가 )상한(?!\s*제)|수급자|적용\s*대상|해당자에\s*한|에\s*한하여|에\s*한함|만\s*해당|만\s*적용")
 PRICE_HEADING_LINES = 3  # 표 위로 볼 글 줄 수(쪽 표시·빈 줄 제외)
+# 표 위 글은 요금을 말하고 법령 인용이 아닌 줄만 봅니다(2026-10-24 네 번째 채점: 입지 설명 속 「(산업단지 근로자인 경우에만 해당)」에 걸림)
+PRICE_TITLE_WORDS = re.compile(r"임대\s*조건|임대료|요금|보증금|월\s*세|가격|분양가|전환")
+LAW_TEXT = re.compile(r"「[^」]*법[^」]*」|제\s*\d+\s*조")
 
 
 def _price_restriction(found: _Located, price: dict[str, Any]) -> str | None:
@@ -682,7 +685,7 @@ def _price_restriction(found: _Located, price: dict[str, Any]) -> str | None:
         lines = found.lines[located[0]]
         top, _ = _table_bounds(lines, located[1])
         above = [line for line in reversed(lines[max(top - 12, 0) : top]) if line.strip() and not PAGE_MARK.match(line)][:PRICE_HEADING_LINES]
-        word = RESTRICTED_PRICE.search(" ".join(above))
+        word = RESTRICTED_PRICE.search(" ".join(line for line in above if PRICE_TITLE_WORDS.search(line) and not LAW_TEXT.search(line)))
         if word:
             return word[0]
         row = found.row(evidence_id)
@@ -696,6 +699,8 @@ def _price_restriction(found: _Located, price: dict[str, Any]) -> str | None:
 
 def _check_price_scope(candidate: dict[str, Any], found: _Located, find: Any) -> None:
     for g, group in enumerate(candidate["supplyGroups"]):
+        if (group.get("scope") or {}).get("targetGroups"):
+            continue  # 행의 대상 칸에서 대상이 정해진 묶음은 대상 미정이 아닙니다(2026-10-24 네 번째 채점)
         for price in group["prices"]:
             if price.get("priceStage") != "STANDARD" or price["scope"]["targetGroups"]:
                 continue
@@ -706,7 +711,7 @@ def _check_price_scope(candidate: dict[str, Any], found: _Located, find: Any) ->
                     f"「{label}」 가격 {price.get('sourceAmount')}의 표가 특정 대상의 요금으로 보이는데(「{word}」) 대상 없이 기본 요금으로 적혔습니다. "
                     "원문에서 적용 대상을 확인해야 합니다"
                 )
-                find("V8", PRICE_SCOPE_UNCERTAIN, f"/supplyGroups/{g}", description)
+                find("V8", PRICE_SCOPE_UNCERTAIN, f"/supplyGroups/{g}/prices", description)  # 요금 대상만 애매: 가격만 보류
                 break
 
 

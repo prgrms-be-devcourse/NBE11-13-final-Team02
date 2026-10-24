@@ -1,0 +1,105 @@
+"""네 번째 시험 채점(2026-10-24)의 일반 규칙: 대상 한정 요금표 판단 좁히기, 「(+) -」 행의 가짜 전환안.
+합성 원문·합성 표만 씁니다. AI·네트워크 호출 없음."""
+
+from test_round3 import LEASE_ENTRY
+from test_supply_round2 import COUNT_ENTRY, count_table, issues, price_entry
+
+from mujuthaek_extraction import supply_tables as st
+
+# ---- 1. 대상 한정 요금표 판단 ----
+
+
+def price_table(heading, above=None, rows=None):
+    rows = rows or (("공급형", "보증금", "월임대료"), ("31A", "3,000,000", "60,000"))
+    return st.Table("3-3", 3, heading, rows[0], rows, None, above=above if above is not None else (heading,))
+
+
+def test_location_note_with_law_citation_above_table_is_not_a_price_restriction():
+    # 표 위 입지 설명의 괄호 단서(「…에만 해당」)는 요금의 적용 대상이 아닙니다
+    note = "「가상특구의 지정에 관한 특별법」 제2조제1호에 따른 가상특구(가상근로자인 경우에만 해당)에 건설되는 주택"
+    part = st.build_part(
+        [count_table(), price_table("(단위: 원)", above=("(단위: 원)", note))],
+        {"tables": [COUNT_ENTRY, price_entry("3-3", "HOUSING_TYPE")]},
+        "pdf-text",
+    )
+    assert issues(part, "PRICE_SCOPE_UNCERTAIN") == []
+    assert {g["housingTypeCode"]: len(g["prices"]) for g in part["supplyGroups"]}["31A"] == 2
+
+
+def test_restriction_line_without_price_words_is_not_read():
+    part = st.build_part(
+        [count_table(), price_table("(단위: 원)", above=("(단위: 원)", "가상근로자에 한하여 신청할 수 있습니다"))],
+        {"tables": [COUNT_ENTRY, price_entry("3-3", "HOUSING_TYPE")]},
+        "pdf-text",
+    )
+    assert issues(part, "PRICE_SCOPE_UNCERTAIN") == []
+
+
+def test_restricted_price_title_holds_only_prices():
+    part = st.build_part(
+        [count_table(), price_table("가상 급여 수급자만 해당하는 임대조건")],
+        {"tables": [COUNT_ENTRY, price_entry("3-3", "HOUSING_TYPE")]},
+        "pdf-text",
+    )
+    [issue] = [i for i in part[st.ISSUES_KEY] if i["code"] == "PRICE_SCOPE_UNCERTAIN"]
+    assert issue["field"] == "prices"  # 수량은 화면에 남김
+
+
+def test_rows_with_their_own_target_are_not_target_unknown():
+    # 표 제목이 대상 한정처럼 보여도 행의 대상 칸이 대상을 정하면 그 대상의 요금입니다
+    rows = (("공급형", "대상", "보증금", "월임대료"), ("31A", "가상청년", "3,000,000", "60,000"))
+    entry = {
+        "table": "3-3",
+        "role": "SUPPLY",
+        "rowUnit": "HOUSING_TYPE",
+        "complex": None,
+        "columns": [
+            *price_entry("3-3", "HOUSING_TYPE")["columns"][:1],
+            {"column": 2, "meaning": "TARGET_GROUP"},
+            *[{**c, "column": c["column"] + 1} for c in price_entry("3-3", "HOUSING_TYPE")["columns"][1:]],
+        ],
+    }
+    part = st.build_part([price_table("가상 급여 수급자만 해당하는 임대조건", rows=rows)], {"tables": [entry]}, "pdf-text")
+    assert issues(part, "PRICE_SCOPE_UNCERTAIN") == []
+    [group] = part["supplyGroups"]
+    assert [p["scope"]["targetGroups"] for p in group["prices"]] == [["가상청년"], ["가상청년"]]
+
+
+# ---- 2. 「(+) -」 한도 칸: 그 방향 전환이 없는 행 ----
+
+
+def lease_table(limit_cell, deposit="10,800", rent="54,540"):
+    rows = (
+        ("형", "대상", "모집", "보증금", "계약금", "잔금", "월임대료", "전환 한도", "전환 보증금", "전환 월임대료"),
+        ("16", "가상청년", "10", "10,800", "500", "10,300", "54,540", "-", "-", "-"),
+        ("", "", "", "", "", "", "", limit_cell, deposit, rent),
+    )
+    cells = (
+        (0, 1, 2, 3, 4, 5, 6, 7, 8, 9),
+        (10, 11, 12, 13, 14, 15, 16, 17, 18, 19),
+        (10, 11, 12, 13, 14, 15, 16, 20, 21, 22),
+    )
+    return st.Table("4-1", 4, "(단위: 천원, 원)", rows[0], rows, cells)
+
+
+def stages(part):
+    [group] = part["supplyGroups"]
+    return sorted({p["priceStage"] for p in group["prices"]})
+
+
+def test_limit_cell_with_sign_but_no_amount_makes_no_conversion_plan():
+    part = st.build_part([lease_table("(+) -")], {"tables": [LEASE_ENTRY]}, "pdf-text")
+    assert stages(part) == ["STANDARD"]
+    assert not [i for i in part.get(st.ISSUES_KEY) or [] if i["code"] == "CONVERSION_DIRECTION_UNCERTAIN"]
+
+
+def test_conversion_plan_equal_to_the_base_is_dropped_not_held():
+    # 한도 칸에 금액이 있어도 전환 보증금·월세가 기본과 똑같으면 전환이 아닙니다(기본 조건을 옮긴 것)
+    part = st.build_part([lease_table("(+)5,000")], {"tables": [LEASE_ENTRY]}, "pdf-text")
+    assert stages(part) == ["STANDARD"]
+    assert not [i for i in part.get(st.ISSUES_KEY) or [] if i["code"] == "CONVERSION_DIRECTION_UNCERTAIN"]
+
+
+def test_real_conversion_plan_is_kept():
+    part = st.build_part([lease_table("(+)5,000", deposit="15,800", rent="30,000")], {"tables": [LEASE_ENTRY]}, "pdf-text")
+    assert stages(part) == ["CONVERSION_DEPOSIT_UP", "STANDARD"]

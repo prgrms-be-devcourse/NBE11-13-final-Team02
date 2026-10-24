@@ -52,8 +52,12 @@ def numeric_direction(base: dict[str, tuple[float, str]], plan: dict[str, tuple[
     return None
 
 
+SAME_AS_BASE = "SAME_AS_BASE"
+
+
 def plan_directions(prices: list[dict[str, Any]]) -> dict[str, tuple[str, str | None]]:
-    """공급 묶음 가격 → 전환안 요금안마다 (적힌 단계, 숫자로 본 방향 또는 None). 검산할 수 없는 요금안은 (단계, UNCHECKED)."""
+    """공급 묶음 가격 → 전환안 요금안마다 (적힌 단계, 숫자로 본 방향 또는 None). 검산할 수 없는 요금안은 (단계, UNCHECKED).
+    보증금·월세가 기본 요금과 똑같은 전환안은 (단계, SAME_AS_BASE): 전환이 없는 행의 기본 조건을 옮긴 것입니다(2026-10-24 네 번째 채점)."""
     plans: dict[str, list[dict[str, Any]]] = {}
     for price in prices:
         if isinstance(price, dict) and price.get("pricePlanId"):
@@ -77,5 +81,6 @@ def plan_directions(prices: list[dict[str, Any]]) -> dict[str, tuple[str, str | 
         if len(bases) != 1 or bases[0] is None or own is None:
             out[plan_id] = (stage, UNCHECKED)
             continue
-        out[plan_id] = (stage, numeric_direction(bases[0], own))
+        same = all(bases[0][kind] == own[kind] for kind in ("DEPOSIT", "MONTHLY_RENT"))
+        out[plan_id] = (stage, SAME_AS_BASE if same else numeric_direction(bases[0], own))
     return out
