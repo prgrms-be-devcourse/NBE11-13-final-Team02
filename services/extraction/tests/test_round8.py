@@ -23,3 +23,36 @@ def test_items_finished_in_an_earlier_cut_answer_are_added():
     new = part["requiredDocuments"][1]
     assert new["id"] == "d2~c1" or new["id"] == "d2"
     assert any(q["ref"] == "c1-q2" for q in part["quotes"]) and new["quoteRefs"] == ["c1-q2"]
+
+
+# ---- 1. 접수 방식 막는 말의 범위 ----
+
+
+def test_blocking_a_sub_method_does_not_block_the_whole_channel():
+    from mujuthaek_extraction.assemble.details import channel_mentions
+
+    assert "ONLINE" not in channel_mentions("인터넷 청약 (※모바일청약 불가)")[1]
+    assert "ONSITE" not in channel_mentions("특별공급은 은행창구 접수 불가")[1]
+    assert "ONLINE" in channel_mentions("인터넷 신청 불가")[1]
+
+
+def test_channel_named_only_in_a_condition_is_kept():
+    from test_round4 import assembled_extra
+    from test_schedule_details import visit_schedule
+
+    line = "2순위 접수: 인터넷 청약이 불가한 경우 가상 은행에서 접수 2026.10.05."
+    schedule = visit_schedule(
+        id="second",
+        kinds=["APPLICATION"],
+        rawLabel="2순위 접수",
+        channels=["ONLINE"],
+        places=[],
+        dailyHours=[],
+        breaks=[],
+        excludedDays=[],
+        timeNote=None,
+        quoteRefs=["second"],
+    )
+    result = assembled_extra([line], {"second": line}, schedules=[schedule])
+    [kept] = [s for s in result.candidate["schedules"] if s["id"] == "second"]
+    assert kept["channels"] == ["ONLINE"]

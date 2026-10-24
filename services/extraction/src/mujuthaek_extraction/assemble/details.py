@@ -89,6 +89,9 @@ DAY_PATTERNS = {code: _day_word(word) for code, word in DAY_WORDS.items()}
 
 # 막는 말처럼 보이지만 방법을 막지 않는 꼴(2026-10-24 일곱 번째 채점): 괄호 안의 예외 대상(「우편접수만 가능 (고령자 제외)」), 앞에 「가능」이
 # 있는 말, 시간·날 조건(「점심시간과 휴일에는 현장접수를 하지 않아요」 — 그 시간만 안 받음)
+# 방법 전체가 아니라 그 일부(모바일 앱, 은행 창구)를 가리키는 낱말(2026-10-24 여덟 번째 채점: 「(※모바일청약 불가)」가 인터넷 접수 전체를,
+# 특별공급의 「은행창구 접수 불가」가 방문 접수 전체를 막은 것으로 읽혀 맞는 ONLINE·ONSITE가 지워짐)
+SUB_METHOD = re.compile(r"모바일|창구")
 TIME_CONDITION = re.compile(r"점심|휴일|공휴일|주말|야간|토요일|일요일|시간\s*외")
 
 
@@ -97,6 +100,11 @@ def _not_a_block(text: str, start: int, between: str) -> bool:
         return True
     before = re.split(r"[.。\n;]", text[max(0, start - 20) : start])[-1]  # 같은 문장 안에서만 봅니다
     return bool(TIME_CONDITION.search(before))
+
+
+def mentioned_channels(text: str) -> set[str]:
+    """글에 낱말이 나온 방법(막는 말·조건 말과 함께여도)."""
+    return {channel for channel, pattern in CHANNEL_WORDS if pattern.search(text)}
 
 
 def channel_mentions(text: str) -> tuple[set[str], set[str]]:
@@ -108,6 +116,8 @@ def channel_mentions(text: str) -> tuple[set[str], set[str]]:
     for channel, pattern in CHANNEL_WORDS:
         for match in pattern.finditer(text):
             blocked = NEGATION.match(text[match.end() :])
+            if blocked is not None and SUB_METHOD.fullmatch(match[0].strip()):
+                continue  # 「(※모바일청약 불가)」「은행창구 접수 불가」는 그 방법의 일부만 막은 말입니다(인터넷·방문 전체를 막지 않음)
             if blocked is not None and _not_a_block(text, match.start(), text[match.end() : match.end() + blocked.end()]):
                 positive.add(channel)  # 「우편접수만 가능 (고령자 제외)」「점심시간·휴일에는 현장접수 안 함」은 그 방법을 막은 말이 아닙니다
                 continue
@@ -554,7 +564,10 @@ class _Checker:
             # 계약·열람처럼 그 장소에 가야 하는 일정은 근거로 확인한 장소가 있으면 방문 접수입니다(2026-10-24 여섯 번째 채점: 인용에 「방문」 낱말이
             # 없다고 계약 일정의 ONSITE를 지움). 위 장소 확인을 거친 뒤라 장소는 근거가 있는 값입니다
             positive = positive | {"ONSITE"}
-        kept = [c for c in given if c in positive and c not in blocked]  # 막는 말과만 나온 방법(「인터넷 신청 불가」)은 positive에 없습니다
+        # 막는 말과만 나온 방법(「인터넷 신청 불가」)은 positive에 없습니다. 조건 말(「인터넷 청약이 불가한 경우」)로만 나온 방법은 막은 것이
+        # 아니므로 AI가 적은 값을 둡니다(2026-10-24 여덟 번째 채점: 2순위 접수의 ONLINE이 지워짐)
+        said = mentioned_channels(f"{schedule.get('rawLabel') or ''}\n{text}")
+        kept = [c for c in given if (c in positive or c in said) and c not in blocked]
         if given and kept != given:
             dropped = ", ".join(c for c in given if c not in kept)
             self.clear("/schedules", label, f"신청 방법 {dropped}을(를)")
