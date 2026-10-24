@@ -38,7 +38,8 @@ public final class PostgresAddressPointLookup {
       select address_id, bjd_code, road_name, underground, bldg_main, bldg_sub,
              st_y(geom::geometry) as lat, st_x(geom::geometry) as lng
       from area.address_points
-      where sigungu_code = ? and road_name = ? and underground = ? and bldg_main = ? and bldg_sub = ?
+      where sigungu_code = ? and road_name = ? and underground = coalesce(?, underground)
+        and bldg_main = ? and bldg_sub = ?
       limit 2
       """;
 
@@ -86,11 +87,30 @@ public final class PostgresAddressPointLookup {
     }
   }
 
+  /**
+   * 지하 여부를 빼고 정확히만 찾아요. 검색 API는 지하 여부를 0·1로만 주는데 사전에는 원천 코드 그대로 2·3도 있어서(경남 통영 섬 주소 52줄은 3), 0·1로 못
+   * 찾았을 때 한 번 더 써요. 하나일 때만 돌려줘요.
+   */
+  public Optional<AddressMatch> findAnyLevel(
+      String sigunguCode, String roadName, int bldgMain, int bldgSub) {
+    String road = roadName == null ? "" : roadName.replaceAll("\\s+", "");
+    if (sigunguCode == null || road.isEmpty()) {
+      return Optional.empty();
+    }
+    try (Connection conn = dataSource.getConnection()) {
+      List<AddressMatch> found =
+          exact(conn, sigunguCode, road, null, bldgMain, bldgSub, Method.FILE);
+      return found.size() == 1 ? Optional.of(found.getFirst()) : Optional.empty();
+    } catch (SQLException e) {
+      throw new DataAccessResourceFailureException("주소 사전을 찾지 못했어요: " + e.getMessage(), e);
+    }
+  }
+
   private static List<AddressMatch> exact(
       Connection conn,
       String sigunguCode,
       String road,
-      int underground,
+      Integer underground,
       int bldgMain,
       int bldgSub,
       Method method)
@@ -98,7 +118,7 @@ public final class PostgresAddressPointLookup {
     try (PreparedStatement ps = conn.prepareStatement(EXACT)) {
       ps.setString(1, sigunguCode);
       ps.setString(2, road);
-      ps.setInt(3, underground);
+      ps.setObject(3, underground, java.sql.Types.SMALLINT);
       ps.setInt(4, bldgMain);
       ps.setInt(5, bldgSub);
       List<AddressMatch> found = new ArrayList<>();
