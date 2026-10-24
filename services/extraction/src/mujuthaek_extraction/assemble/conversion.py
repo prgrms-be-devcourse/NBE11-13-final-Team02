@@ -55,7 +55,7 @@ def numeric_direction(base: dict[str, tuple[float, str]], plan: dict[str, tuple[
 SAME_AS_BASE = "SAME_AS_BASE"
 
 
-def plan_directions(prices: list[dict[str, Any]]) -> dict[str, tuple[str, str | None]]:
+def plan_directions(prices: list[dict[str, Any]], fallback: list[dict[str, Any]] | None = None) -> dict[str, tuple[str, str | None]]:
     """공급 묶음 가격 → 전환안 요금안마다 (적힌 단계, 숫자로 본 방향 또는 None). 검산할 수 없는 요금안은 (단계, UNCHECKED).
     보증금·월세가 기본 요금과 똑같은 전환안은 (단계, SAME_AS_BASE): 전환이 없는 행의 기본 조건을 옮긴 것입니다(2026-10-24 네 번째 채점)."""
     plans: dict[str, list[dict[str, Any]]] = {}
@@ -66,21 +66,34 @@ def plan_directions(prices: list[dict[str, Any]]) -> dict[str, tuple[str, str | 
     def targets(items: list[dict[str, Any]]) -> tuple[str, ...]:
         return tuple(sorted({t for p in items for t in (p.get("scope") or {}).get("targetGroups") or []}))
 
-    standards: dict[tuple[str, ...], list[dict[str, tuple[float, str]] | None]] = {}
-    for items in plans.values():
-        if all(p.get("priceStage") == "STANDARD" for p in items):
-            standards.setdefault(targets(items), []).append(_pair(items))
+    def bases(source: dict[str, list[dict[str, Any]]]) -> dict[tuple[str, ...], list[dict[str, tuple[float, str]]]]:
+        # 기준 기본안은 보증금·월세가 모두 있는 STANDARD 요금안만(전세·분납처럼 월세가 없는 안은 빼요, 2026-10-24 다섯 번째 채점)
+        out: dict[tuple[str, ...], list[dict[str, tuple[float, str]]]] = {}
+        for items in source.values():
+            pair = _pair(items) if all(p.get("priceStage") == "STANDARD" for p in items) else None
+            if pair is not None and pair not in out.setdefault(targets(items), []):
+                out[targets(items)].append(pair)
+        return out
+
+    standards = bases(plans)
+    others: dict[str, list[dict[str, Any]]] = {}
+    for price in fallback or []:
+        if isinstance(price, dict) and price.get("pricePlanId"):
+            others.setdefault(price["pricePlanId"], []).append(price)
+    borrowed = bases(others)  # 묶음에 기본안이 없으면 같은 주택형 다른 묶음의 기본안과 비교합니다
     out: dict[str, tuple[str, str | None]] = {}
     for plan_id, items in plans.items():
         stages = {p.get("priceStage") for p in items}
         if len(stages) != 1 or next(iter(stages)) not in (UP, DOWN):
             continue
         stage = next(iter(stages))
-        bases = standards.get(targets(items)) or []
+        found = standards.get(targets(items)) or borrowed.get(targets(items)) or []
         own = _pair(items)
-        if len(bases) != 1 or bases[0] is None or own is None:
+        if own is None or not found:
             out[plan_id] = (stage, UNCHECKED)
             continue
-        same = all(bases[0][kind] == own[kind] for kind in ("DEPOSIT", "MONTHLY_RENT"))
-        out[plan_id] = (stage, SAME_AS_BASE if same else numeric_direction(bases[0], own))
+        if any(all(base[kind] == own[kind] for kind in ("DEPOSIT", "MONTHLY_RENT")) for base in found):
+            out[plan_id] = (stage, SAME_AS_BASE)  # 기본안 어느 것과든 같으면 전환이 아닙니다
+            continue
+        out[plan_id] = (stage, numeric_direction(found[0], own) if len(found) == 1 else UNCHECKED)
     return out
