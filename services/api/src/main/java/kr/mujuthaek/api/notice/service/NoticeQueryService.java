@@ -91,7 +91,7 @@ public class NoticeQueryService {
     return NoticeDetailMapper.map(
         header,
         payload(current),
-        followUps.findByNotice(noticeId).stream()
+        followUps.findByNotice(row.id()).stream()
             .map(
                 f ->
                     NoticeDetailMapper.followUp(

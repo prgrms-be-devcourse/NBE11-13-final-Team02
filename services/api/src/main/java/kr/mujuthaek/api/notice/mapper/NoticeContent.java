@@ -10,6 +10,7 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -323,6 +324,82 @@ public final class NoticeContent {
     return schedules != null && schedules.isArray()
         ? schedules
         : tools.jackson.databind.node.JsonNodeFactory.instance.arrayNode();
+  }
+
+  /** 상세 공고의 공급 기관·공급 유형 (목록 표시·필터용). */
+  public static String publisher(ExtractionEvent event) {
+    return noticeText(event, "publisher");
+  }
+
+  /** 결과에 공고문 PDF가 있는지 (기준 출처 고르기). */
+  public static boolean hasPdf(ExtractionEvent event) {
+    if (event.notice() == null) {
+      return false;
+    }
+    for (JsonNode document : event.notice().path("documents")) {
+      if ("PDF".equals(document.path("kind").asString(""))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** 위치의 단지·건물 이름 (같은 공고 판별용). 보류한 위치는 빼요. */
+  public static Set<String> complexNames(ExtractionEvent event) {
+    Set<String> names = new TreeSet<>();
+    if (event.notice() == null) {
+      return names;
+    }
+    JsonNode all = event.notice().path("locations");
+    for (int i = 0; i < all.size(); i++) {
+      if (held(event.heldItems(), "/locations/" + i)) {
+        continue;
+      }
+      String name = textOrNull(all.get(i), "complexName");
+      name = name != null ? name : textOrNull(all.get(i), "buildingName");
+      if (name != null) {
+        names.add(name);
+      }
+    }
+    return names;
+  }
+
+  /**
+   * 공고일 (상세 공고의 notice.announcedOn). 없거나 날짜가 아니거나 보류한 칸이면(부분 게시, 2026-10-20) null. 같은 공고 후보 찾기에 쓰므로
+   * 보류한 공고일로 후보를 만들지 않아요.
+   */
+  public static LocalDate announcedOn(ExtractionEvent event) {
+    if (event.notice() == null || heldNoticeField(event, "announcedOn")) {
+      return null;
+    }
+    return date(event.notice().path("notice"), "announcedOn");
+  }
+
+  /** 공급 유형 (목록 표시·필터용). 보류한 칸이면 null. */
+  public static String supplyType(ExtractionEvent event) {
+    return heldNoticeField(event, "supplyType") ? null : noticeText(event, "supplyType");
+  }
+
+  /** 공고 기본 정보 칸(/notice/{name})이 보류됐는지. 칸 자체나 그 안을 보류해도 그 칸은 쓰지 않아요. */
+  static boolean heldNoticeField(ExtractionEvent event, String name) {
+    String pointer = "/notice/" + name;
+    for (JsonNode item : event.heldItems()) {
+      String target = item.path("target").asString("");
+      if (target.equals(pointer)
+          || target.startsWith(pointer + "/")
+          || pointer.startsWith(target + "/")) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private static String noticeText(ExtractionEvent event, String name) {
+    if (event.notice() == null) {
+      return null;
+    }
+    JsonNode value = event.notice().path("notice").path(name);
+    return value.isString() && !value.asString().isBlank() ? value.asString() : null;
   }
 
   private static String textOrNull(JsonNode node, String name) {

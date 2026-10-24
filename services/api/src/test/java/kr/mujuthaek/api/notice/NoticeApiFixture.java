@@ -13,6 +13,7 @@ import kr.mujuthaek.api.notice.repository.NoticeQueries;
 import kr.mujuthaek.api.notice.repository.NoticeRepository;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
+import kr.mujuthaek.api.notice.service.internal.NoticeMergeService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
@@ -28,11 +29,14 @@ public class NoticeApiFixture {
   private final JdbcClient client = JdbcClient.create(jdbc);
   private final Clock clock =
       Clock.fixed(TODAY.atStartOfDay(ZoneId.of("Asia/Seoul")).toInstant(), ZoneId.of("Asia/Seoul"));
+  private final NoticeRepository notices = new NoticeRepository(client);
+  private final FollowUpRepository followUps = new FollowUpRepository(client);
   public final NoticeIngestionService ingest =
       new NoticeIngestionService(
-          new NoticeRepository(client),
+          notices,
           new ExtractionResultRepository(client),
-          new FollowUpRepository(client),
+          followUps,
+          new NoticeMergeService(notices, followUps, event -> {}, clock),
           event -> {},
           NoticeFixtures.JSON,
           clock);
@@ -46,6 +50,8 @@ public class NoticeApiFixture {
 
   /** 테스트마다 다른 기관 이름이라, providers 필터로 이 테스트의 공고만 봐요. */
   public final String provider = "T" + UUID.randomUUID().toString().substring(0, 8);
+
+  private int count;
 
   public MockMvc mvc(Object... controllers) {
     return MockMvcBuilders.standaloneSetup(controllers)
@@ -61,6 +67,8 @@ public class NoticeApiFixture {
     UUID raw = UUID.randomUUID();
     ObjectNode p = NoticeFixtures.payload(raw, 1);
     p.put("provider", provider);
+    // 같은 내용의 공고를 여러 개 만들어도 같은 공고로 합쳐지지 않게 공급 기관을 공고마다 달리 해요
+    ((ObjectNode) p.get("notice").get("notice")).put("publisher", provider + "-" + ++count);
     edit.accept(p);
     receive(p);
     return jdbc
