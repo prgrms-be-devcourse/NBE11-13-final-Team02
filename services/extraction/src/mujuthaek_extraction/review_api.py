@@ -1,7 +1,8 @@
 """검수 API (:8092). 사람이 확인할 공고를 조회하고 승인·반려합니다.
 
   GET  /health                       상태 (워커의 큐 소비·발행·다시 처리 중 하나라도 신호가 끊기면 503)
-  GET  /reviews?status=PENDING       검수 목록 (PENDING·APPROVED·REJECTED)
+  GET  /reviews?status=PENDING       검수 목록 (PENDING·APPROVED·REJECTED·SUPERSEDED). 기본 PENDING에는 대체된 건이 없습니다
+                                     SUPERSEDED: 같은 공고의 새 버전(또는 정정공고)이 발행되어 대체된 건, supersededBy에 대체한 작업·공고·버전
   GET  /reviews/{jobId}              검수 상세 (표준 공고 후보·이슈·받은 이벤트)
   POST /reviews/{jobId}/approve      승인 → extraction.completed(reviewStatus APPROVED) 다시 발행
                                      본문(선택): {"candidate": 고친 표준 공고, "note": "메모"}
@@ -11,6 +12,7 @@
 인증(검토 2026-10-16): EXTRACTION_REVIEW_TOKEN이 있으면 /health 밖의 모든 요청에 'Authorization: Bearer <토큰>'이 필요합니다.
 토큰이 없으면 같은 컴퓨터(127.0.0.1·::1)에서 온 요청만 받습니다 — Docker처럼 0.0.0.0에 열어도 밖에서는 못 씁니다.
 승인할 후보는 그 작업의 원본·버전·분야와 같아야 합니다(다른 공고의 결과를 발행하지 못하게).
+대체된(SUPERSEDED) 건은 승인·반려하면 409와 함께 대체한 버전을 알려 줍니다(store.py 검수 대기 건 대체).
 """
 
 from __future__ import annotations
@@ -28,6 +30,7 @@ from urllib.parse import parse_qs, urlparse
 
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.publish import approved_payload
+from mujuthaek_extraction.store import SUPERSEDED, superseded_message
 
 log = logging.getLogger(__name__)
 CANDIDATE_SCHEMA = "schemas/extracted-notice.v1.json"
@@ -36,6 +39,7 @@ REVIEW_PATH = re.compile(r"^/reviews/([0-9a-fA-F-]{36})(?:/(approve|reject))?$")
 MAX_BODY = 5 * 1024 * 1024
 LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
+REVIEW_LIST_STATUSES = ("PENDING", "APPROVED", "REJECTED", SUPERSEDED)
 
 
 def _same_notice(candidate: dict[str, Any], raw_payload: dict[str, Any]) -> bool:
@@ -69,8 +73,8 @@ class ReviewService:
             return 200, store.monthly_costs(month, self.monthly_budget_usd)
 
     def list(self, status: str) -> tuple[int, Any]:
-        if status not in {"PENDING", "APPROVED", "REJECTED"}:
-            return 400, {"error": "status는 PENDING·APPROVED·REJECTED 중 하나입니다."}
+        if status not in REVIEW_LIST_STATUSES:
+            return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
         with self.store_session() as store:
             return 200, {"items": store.reviews(status)}
 
@@ -85,6 +89,9 @@ class ReviewService:
             item = store.review(job_id)
             if item is None:
                 return 404, {"error": "검수 항목이 없습니다."}
+            if item["reviewStatus"] == SUPERSEDED and item.get("supersededBy"):
+                by = item["supersededBy"]
+                return 409, {"error": superseded_message(item.get("rawPostId"), by["rawPostId"], by["version"], by["jobId"]), "supersededBy": by}
             if item["reviewStatus"] != "PENDING":
                 return 409, {"error": f"이미 {item['reviewStatus']} 처리된 항목입니다."}
             candidate = body.get("candidate") or item["candidate"]

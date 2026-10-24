@@ -157,6 +157,16 @@ def test_approve_republishes_approved_event_that_matches_contract():
     assert tools().validate(event, "events/extraction.completed.v1.json") == []
 
 
+def test_approving_a_superseded_review_names_the_newer_version():
+    # 같은 공고의 새 버전이 발행되어 대체된 건(store.py 검수 대기 건 대체). 실제 DB 판은 test_store_postgres
+    item = pending_item() | {"reviewStatus": "SUPERSEDED", "rawPostId": "01929a3e-0000-7000-8000-000000000001"}
+    item["supersededBy"] = {"jobId": "01929a3e-0000-7000-8000-0000000000b2", "rawPostId": item["rawPostId"], "version": 2}
+    service, store = service_with(item)
+    status, body = service.approve("job", {})
+    assert status == 409 and "v2" in body["error"] and body["supersededBy"]["version"] == 2 and store.approved is None
+    assert service.list("SUPERSEDED") == (200, {"items": [item]}) and service.list("PENDING") == (200, {"items": []})
+
+
 def partial_item():
     """부분 게시된 작업: 보류 항목(자격 조건 하나·접수 일정 하나)이 있는 후보."""
     item = pending_item()
