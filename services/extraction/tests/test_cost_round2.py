@@ -1,9 +1,9 @@
-"""비용 절감 2차(2026-10-25): 큰 서류 표는 처음부터 나눠 부르기, 재확인에서 안내 섹션 빼고 항목 상한 6. 설정으로 이전 동작으로 되돌릴 수 있음."""
+"""비용 절감 2차(2026-10-25): 큰 서류 표는 처음부터 나눠 부르기(설정 EXTRACTION_PRESPLIT_DOC_ROWS=0이면 이전 동작)."""
 
 import json
 from types import SimpleNamespace
 
-from mujuthaek_extraction import extract, recheck
+from mujuthaek_extraction import extract
 from mujuthaek_extraction.extract import document_rows
 
 
@@ -52,11 +52,3 @@ def test_presplit_off_keeps_the_single_documents_call(monkeypatch):
     model = RecordedModel(split_script(data, [good]))
     extract.run_extraction(RULES, source.material, model)
     assert "documents" in [r.call_name for r in model.requests]
-
-
-def test_recheck_skips_guidance_and_caps_items(monkeypatch):
-    problems = {("guidance", "g1"): ["x"], **{("eligibility", f"e{n}"): ["x"] for n in range(9)}}
-    monkeypatch.setattr(recheck, "SKIP_SECTIONS", frozenset({"guidance"}))
-    order = [key for key, _ in recheck.ordered_problems(problems)]
-    assert ("guidance", "g1") not in order and len(order) == 9
-    assert recheck.MAX_ITEMS == 6
