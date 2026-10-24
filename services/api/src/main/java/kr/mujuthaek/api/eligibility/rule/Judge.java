@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.eligibility.rule;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -28,16 +29,24 @@ public final class Judge {
   public record Summary(int total, int met, int notMet, int unknown) {}
 
   public static Result evaluate(Judgment judgment, Applicant applicant) {
+    return evaluate(judgment, applicant, IncomeBenchmarks.NONE);
+  }
+
+  /**
+   * @param benchmarks 공고에 인쇄된 소득표가 없을 때 쓰는 기준 소득 월액
+   */
+  public static Result evaluate(
+      Judgment judgment, Applicant applicant, IncomeBenchmarks benchmarks) {
+    LocalDate ref = judgment.referenceDate();
     List<Item> common =
         judgment.common().stream()
-            .map(c -> CriterionJudge.judge(c, applicant, judgment.referenceDate()))
+            .map(c -> CriterionJudge.judge(c, applicant, ref, benchmarks))
             .toList();
     List<Target> targets = new ArrayList<>();
     Set<String> missing = new LinkedHashSet<>();
     for (Judgment.Group g : judgment.groups()) {
       List<Item> items = new ArrayList<>(common);
-      g.criteria()
-          .forEach(c -> items.add(CriterionJudge.judge(c, applicant, judgment.referenceDate())));
+      g.criteria().forEach(c -> items.add(CriterionJudge.judge(c, applicant, ref, benchmarks)));
       Overall overall = Overall.of(Status.all(items.stream().map(Item::status).toList()));
       targets.add(new Target(g.id(), g.name(), overall, summary(items), List.copyOf(items)));
       if (overall != Overall.INELIGIBLE) {
