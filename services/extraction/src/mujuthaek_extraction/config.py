@@ -8,8 +8,10 @@
 
 유료 API 비용 줄이기 (2026-10-18, 끄면 이전 방식)
   OPENAI_SHARED_SCHEMA=true      모든 호출이 같은 출력 형식을 보내고 원문 끝에 캐시 지점을 둡니다(원문 캐시 읽기). false면 호출마다 형식
-  OPENAI_LIGHT_CALLS=supply_tables,structure,documents  추론 강도를 낮출 호출(비우면 모두 OPENAI_REASONING_EFFORT)
+  OPENAI_LIGHT_CALLS=             추론 강도를 낮출 호출, 쉼표로(기본 빈 값 = 모두 OPENAI_REASONING_EFFORT).
+                                 추론 강도가 다르면 원문 캐시를 따로 써서 공고마다 원문 캐시 쓰기 요금을 한 번 더 냅니다(2026-10-24 실측)
   OPENAI_LIGHT_EFFORT=low        위 호출의 추론 강도
+  OPENAI_STREAM=true             응답을 스트리밍으로 받아, 받는 도중 반복 폭주가 보이면 끊습니다(남은 출력 요금 절약). false면 한 번에 받음
   EXTRACTION_REPAIR_MIN_BAD_ITEMS=3  형식이 틀린 항목이 이보다 적으면 다시 요청하지 않고 그 항목만 뺍니다(1이면 이전처럼 늘 다시 요청)
 
 성공한 호출 다시 쓰기·누적 예산 (2026-10-20, model/call_cache.py)
@@ -69,8 +71,9 @@ class Settings:
     openai_model: str = "gpt-6-luna"
     openai_effort: str = "medium"
     openai_shared_schema: bool = True
-    openai_light_calls: tuple[str, ...] = ("supply_tables", "structure", "documents")
+    openai_light_calls: tuple[str, ...] = ()  # 비움(2026-10-24): 추론 강도가 다르면 캐시가 나뉘어 원문을 두 번 씀
     openai_light_effort: str = "low"
+    openai_stream: bool = True  # 2026-10-24: 폭주를 받는 도중 끊음(실측 4차: 출력의 22%가 폭주로 버린 글)
     env_file: Path = SERVICE_DIR / ".env"
     recorded_dir: Path | None = None  # recorded 모드: <호출 이름>.json (응답 문자열 목록) 파일이 있는 폴더
     require_pdf: bool = True  # 공고는 PDF가 반드시 옴(2026-10-16). false는 글자만 있는 시험 이벤트용
@@ -122,8 +125,9 @@ class Settings:
             openai_model=os.getenv("OPENAI_MODEL", "gpt-6-luna"),
             openai_effort=os.getenv("OPENAI_REASONING_EFFORT", "medium"),
             openai_shared_schema=os.getenv("OPENAI_SHARED_SCHEMA", "true").lower() != "false",
-            openai_light_calls=tuple(n.strip() for n in os.getenv("OPENAI_LIGHT_CALLS", "supply_tables,structure,documents").split(",") if n.strip()),
+            openai_light_calls=tuple(n.strip() for n in os.getenv("OPENAI_LIGHT_CALLS", "").split(",") if n.strip()),
             openai_light_effort=os.getenv("OPENAI_LIGHT_EFFORT", "low"),
+            openai_stream=os.getenv("OPENAI_STREAM", "true").lower() != "false",
             recorded_dir=Path(recorded) if recorded else None,
             require_pdf=os.getenv("EXTRACTION_REQUIRE_PDF", "true").lower() != "false",
             extraction_method=extraction_method(),
