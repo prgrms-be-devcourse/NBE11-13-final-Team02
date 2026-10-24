@@ -29,20 +29,25 @@ public class SocialLoginService {
     this.clock = clock;
   }
 
+  /** 로그인 결과. joined = 이번에 처음 가입했는지 (프론트가 약관 동의 화면으로 보낼지 정해요) */
+  public record SocialLogin(LoginUser user, boolean joined) {}
+
   @Transactional
   public LoginUser login(SocialProfile profile) {
+    return loginOrJoin(profile).user();
+  }
+
+  @Transactional
+  public SocialLogin loginOrJoin(SocialProfile profile) {
     Instant now = clock.instant();
-    User user =
+    var existing =
         socialAccounts
             .findByProviderAndProviderUserId(profile.provider(), profile.providerUserId())
-            .flatMap(account -> users.findById(account.getUserId()))
-            .map(
-                existing -> {
-                  existing.loggedIn(profile.nickname(), now);
-                  return existing;
-                })
-            .orElseGet(() -> join(profile, now));
-    return new LoginUser(user.getId(), user.getNickname(), user.getRole().name());
+            .flatMap(account -> users.findById(account.getUserId()));
+    existing.ifPresent(user -> user.loggedIn(profile.nickname(), now));
+    User user = existing.orElseGet(() -> join(profile, now));
+    return new SocialLogin(
+        new LoginUser(user.getId(), user.getNickname(), user.getRole().name()), existing.isEmpty());
   }
 
   private User join(SocialProfile profile, Instant now) {

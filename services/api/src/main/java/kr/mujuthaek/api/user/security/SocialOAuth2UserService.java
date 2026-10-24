@@ -18,6 +18,9 @@ import org.springframework.web.context.request.ServletRequestAttributes;
 @Component
 class SocialOAuth2UserService extends DefaultOAuth2UserService {
 
+  /** 이번 로그인에서 처음 가입했으면 콜백 요청에 남기는 표시. LoginSuccessHandler가 읽어요 */
+  static final String JOINED_ATTRIBUTE = SocialOAuth2UserService.class.getName() + ".joined";
+
   /** 제공자 응답에 회원번호가 없는 등 우리가 쓸 수 없는 응답. */
   static final String INVALID_SOCIAL_PROFILE = "invalid_social_profile";
 
@@ -66,8 +69,13 @@ class SocialOAuth2UserService extends DefaultOAuth2UserService {
    */
   OAuth2User toLoginUser(String registrationId, OAuth2User provided) {
     try {
-      return socialLoginService.login(
-          SocialProfiles.from(registrationId, provided.getAttributes()));
+      var login =
+          socialLoginService.loginOrJoin(
+              SocialProfiles.from(registrationId, provided.getAttributes()));
+      if (login.joined()) {
+        currentRequest().ifPresent(r -> r.setAttribute(JOINED_ATTRIBUTE, true));
+      }
+      return login.user();
     } catch (CustomException e) {
       throw failure(INVALID_SOCIAL_PROFILE, e);
     } catch (RuntimeException e) {

@@ -46,6 +46,16 @@ class SocialLoginServiceTest {
   }
 
   @Test
+  void joinedOnlyOnFirstLogin() {
+    var first = socialLoginService.loginOrJoin(new SocialProfile(SocialProvider.NAVER, "j1", "처음"));
+    var again = socialLoginService.loginOrJoin(new SocialProfile(SocialProvider.NAVER, "j1", "처음"));
+
+    assertThat(first.joined()).isTrue();
+    assertThat(again.joined()).isFalse();
+    assertThat(again.user().userId()).isEqualTo(first.user().userId());
+  }
+
+  @Test
   void secondLoginKeepsSameUserAndUpdatesNickname() {
     LoginUser first =
         socialLoginService.login(new SocialProfile(SocialProvider.KAKAO, "222", "처음"));
