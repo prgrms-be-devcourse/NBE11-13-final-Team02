@@ -18,7 +18,19 @@ class AreaMigrationTest {
                     + " where table_schema = 'area'"))
         .isEqualTo(
             "address_points,facilities,industry_group_rules,load_runs,location_metrics,"
-                + "location_scores,notice_locations,region_boundaries,score_rules,score_weights,stores");
+                + "location_scores,notice_locations,region_boundaries,road_names,score_rules,"
+                + "score_weights,stores");
+  }
+
+  @Test
+  void trigramOperatorsWorkFromAnAppConnection() throws Exception {
+    // pg_trgm은 public에 있어야 앱 연결(기본 search_path)에서 %·similarity를 찾아요
+    assertThat(
+            one(
+                "select extnamespace::regnamespace::text from pg_extension where extname = 'pg_trgm'"))
+        .isEqualTo("public");
+    assertThat(one("select round(similarity('초량상로', '초량상노')::numeric, 2)")).isEqualTo("0.43");
+    assertThat(one("select '초량상로' % '초량상노'")).isEqualTo("t");
   }
 
   @Test
