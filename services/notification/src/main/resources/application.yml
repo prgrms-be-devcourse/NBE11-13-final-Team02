@@ -23,6 +23,11 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false # 실패 메시지는 무한 재시도 대신 실패 큐(mujuthaek.notification.dlq)로
+        retry:                          # DB 연결 오류 같은 일시적인 예외는 몇 번 더 해 보고 실패 큐로 (2초 → 4초, api와 같게)
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2s
+          multiplier: 2
 
 server:
   port: 8081                            # api가 8080
