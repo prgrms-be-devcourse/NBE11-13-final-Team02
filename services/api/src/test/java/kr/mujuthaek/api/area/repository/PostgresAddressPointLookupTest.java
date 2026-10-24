@@ -32,6 +32,8 @@ class PostgresAddressPointLookupTest {
     address("99110", "본오로7길", 0, 10, 0, "a8");
     address("99110", "본오로9길", 0, 3, 0, "a9");
     address("99110", "본오로길", 0, 10, 0, "c1");
+    // 섬 주소: 원천 지하 여부 코드 3 (검색 API는 0·1만 줘요)
+    address("99110", "산양일주로", 3, 700, 0, "c2");
     address("99170", "초량상로", 0, 1, 2, "b1"); // 다른 시군구의 같은 이름
     exec(
         "insert into area.road_names select distinct sigungu_code, road_name from area.address_points"
@@ -90,6 +92,18 @@ class PostgresAddressPointLookupTest {
     assertThat(lookup.find("99110", "본오로8길", 0, 10, 0)).isEmpty();
     // 번호가 깨져 사라진 이름도 고치지 않아요 (번호 없는 본오로길에도 10번지가 있어서 그리로 가면 틀린 좌표)
     assertThat(lookup.find("99110", "본오로가길", 0, 10, 0)).isEmpty();
+  }
+
+  @Test
+  void findsAnyLevelOnlyWhenOneAddressRemains() {
+    assertThat(lookup.find("99110", "산양일주로", 0, 700, 0)).isEmpty(); // 0으로는 못 찾음
+    AddressMatch island = lookup.findAnyLevel("99110", "산양 일주로", 700, 0).orElseThrow();
+    assertThat(island.addressId()).isEqualTo(id("c2"));
+    assertThat(island.underground()).isEqualTo(3);
+    // 지상(a1)·지하(a2)가 둘 다 있는 번지는 지하 여부를 빼면 둘이라 고르지 않아요
+    assertThat(lookup.findAnyLevel("99110", "초량상로", 1, 2)).isEmpty();
+    assertThat(lookup.findAnyLevel("99110", "초량상노", 1, 2)).isEmpty(); // 오타는 고치지 않음 (정확히만)
+    assertThat(lookup.findAnyLevel(null, "산양일주로", 700, 0)).isEmpty();
   }
 
   @Test
