@@ -31,6 +31,8 @@ class AmountResult:
     reason: str | None  # amount_krw가 None일 때 검수 사유
 
 
+# 글자만 든 괄호 꼬리말(「(정액)」「(부가세 포함)」). 단위(「(만원)」)·미정 표시는 금액을 바꾸므로 떼지 않습니다
+AMOUNT_NOTE = re.compile(r"\s*\(\s*(?![^)]*(?:원|미정))[가-힣][가-힣\s]{0,9}\)\s*$")
 TWO_AMOUNTS = re.compile(r"\d[\d,.]*\s+\(?[+\-−]?\)?\s*\d")
 
 
@@ -71,7 +73,9 @@ def to_krw(source_amount: str | None, source_unit: str | None) -> AmountResult:
     # (실측 2026-10-18 LH 포항 행복주택: 1,261억 원 보증금이 자동 게시됨). 공백으로 떨어진 숫자가 둘 이상이면 읽지 않습니다
     if TWO_AMOUNTS.search(unicodedata.normalize("NFKC", source_amount)):
         return AmountResult(None, f"금액이 둘 이상 적혀 있습니다: {source_amount!r}")
-    amount = _clean(source_amount)
+    # 금액 뒤 괄호 꼬리말(「500 (정액)」「1,000(부가세 포함)」)은 금액의 성격을 말할 뿐이라 떼고 읽습니다(2026-10-24 세 번째 채점:
+    # 계약금 「500 (정액)」이 환산되지 않아 화면에 계약금 숫자가 없었음). 꼬리말에 숫자가 있으면 다른 금액일 수 있어 떼지 않습니다
+    amount = _clean(AMOUNT_NOTE.sub("", unicodedata.normalize("NFKC", source_amount)))
     unit = _clean(source_unit or "")
     # "원/호", "만원/월"처럼 단위 뒤에 붙은 기준(호당·월당)은 금액 환산과 무관해 뗍니다(기준은 billingPeriod·scope로 표현).
     # 실측: 청년 전세임대 지원한도액 "120백만" / "원/호"

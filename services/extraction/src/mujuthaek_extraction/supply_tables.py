@@ -22,6 +22,7 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from mujuthaek_extraction.assemble.ai_output import CODE_ISSUES
+from mujuthaek_extraction.assemble.conversion import UNCHECKED, plan_directions
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 from mujuthaek_extraction.intake.pdf_reader import NUMERIC_VALUE
 from mujuthaek_extraction.model.base import ModelRequest
@@ -78,6 +79,9 @@ SCOPE_UNCERTAIN = "PRICE_SCOPE_UNCERTAIN"
 # 병합된 한 칸의 수량을 여러 공급 행이 나눠 가짐: 행마다 그 수 전체로 보이므로(2026-10-24 채점: 49형 두 행이 「금회 모집 60」을 둘 다 가져
 # 합이 120으로 보임) 표의 합계 행이 그 칸을 한 번만 센 합과 같을 때만 그대로 두고, 아니면 그 묶음들을 보류합니다
 COUNT_MERGED = "COUNT_MERGED_AMBIGUOUS"
+# 전환안 방향 검산(2026-10-24 세 번째 채점: 부호 「(+)」만 보고 기본 보증금보다 줄어든 감액안을 증액안으로 둠). assemble.conversion
+DIRECTION_CORRECTED = "CONVERSION_DIRECTION_CORRECTED"  # 숫자로 분명해 고침(표시만)
+DIRECTION_UNCERTAIN = "CONVERSION_DIRECTION_UNCERTAIN"  # 숫자로도 정할 수 없음(그 묶음 가격 보류)
 
 
 def _nullable(schema: dict[str, Any]) -> dict[str, Any]:
@@ -707,6 +711,17 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     continue
                 if origin[r][c] != r and origin[r][c] in current_rows:
                     continue  # 같은 묶음의 위 행에서 세로로 이어진 값: 이미 넣음
+                price_refs = [ref]
+                if origin[r][c] != r:
+                    # 다른 행에서 세로로 병합된 칸의 값(2026-10-24 세 번째 채점: 표 전체에 병합된 계약금 「500 (정액)」이 전환안 줄·거주기간 줄
+                    # 같은 보조 줄마다 다시 붙어 묶음마다 계약금이 셋까지 생기고, 그 줄 인용에 「500」이 없어 묶음 전체가 보류됨).
+                    # 한 묶음에는 병합 칸 하나의 값을 한 번만 붙이고, 값이 적힌 원래 행도 근거로 함께 인용합니다
+                    used = current.setdefault("_merged_cells", set())
+                    if (c, origin[r][c]) in used:
+                        continue
+                    used.add((c, origin[r][c]))
+                    if origin[r][c] >= 0:
+                        price_refs.append(quote(_row_line(table.rows[origin[r][c]])))
                 base_plan = f"{row_plan} {column['plan']}" if row_plan and column.get("plan") else row_plan or column.get("plan") or "기본"
                 base_stage = column.get("priceStage") or _guess_stage(column, base_plan, limit_column, first_price, sign)
                 if base_stage in ("STANDARD", "CONVERSION_DEPOSIT_UP", "CONVERSION_DEPOSIT_DOWN"):
@@ -737,7 +752,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     if restriction and stage == "STANDARD" and not column.get("targetGroup"):
                         # 특정 대상의 요금표인데 대상 없이 기본 요금으로 답함: 다른 표의 모집 묶음에 붙이지 않고 보류합니다
                         current.setdefault("_scope_uncertain", {})[f"{table.columns[c] or plan} 칸"] = restriction
-                    _add_price(current, column, table.columns[c], ref, cell_value, plan, stage)
+                    _add_price(current, column, table.columns[c], price_refs, cell_value, plan, stage)
     for group in groups:  # 전용면적 열이 없거나 비면 LH 주택형 코드(「059.9800A」 → 59.98)로 채웁니다(실측: LH 충북혁신)
         code = TYPE_CODE_AREA.match(group.get("housingTypeCode") or "")
         if code and group["exclusiveAreaSqm"] is None and group["exclusiveAreaRange"] is None:
@@ -758,6 +773,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
     issues = []
     for group in groups:
         group.pop("_plans")
+        group.pop("_merged_cells", None)
         name = group.get("unitLabel") or group.get("housingTypeCode") or group["id"]
         uncertain = group.pop("_scope_uncertain", None)
         if uncertain:
@@ -784,10 +800,12 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                 {
                     "supplyGroupId": group["id"],
                     "code": COUNT_MERGED,
+                    "field": "counts",  # 수량만 애매하므로 그 묶음의 수량 칸만 보류합니다(가격은 그대로 게시)
                     "description": f"「{name}」 수량 {', '.join(merged_counts[group['id']])}은(는) 병합된 한 칸을 여러 행이 나눠 가진 값이라 "
                     "이 행만의 수인지 정하지 못했습니다(표 합계로도 확인되지 않음). 원문 확인이 필요합니다",
                 }
             )
+        issues += _direction_issues(group, name)
         cells = group.pop("_unsplit", None)
         if cells:
             issues.append(
@@ -810,6 +828,42 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
     if locations:
         part["locations"] = locations
     return part
+
+
+def _direction_issues(group: dict[str, Any], name: str) -> list[dict[str, Any]]:
+    """전환안 방향을 기본 요금과 숫자로 검산합니다(assemble.conversion). 부호와 숫자가 어긋나고 숫자로 방향이 분명하면 숫자를 따르고
+    표시 메모(CONVERSION_DIRECTION_CORRECTED)를, 숫자로도 정할 수 없으면 그 묶음의 가격만 보류하는 검수 이슈를 남깁니다."""
+    issues = []
+    for plan_id, (stage, numeric) in plan_directions(group["prices"]).items():
+        if numeric == UNCHECKED or numeric == stage:
+            continue
+        if numeric is None:
+            issues.append(
+                {
+                    "supplyGroupId": group["id"],
+                    "code": DIRECTION_UNCERTAIN,
+                    "field": "prices",
+                    "description": f"「{name}」 전환안({plan_id})의 보증금·월세가 기본 요금과 비교해 증액·감액 어느 쪽으로도 맞지 않습니다. "
+                    "원문 확인이 필요합니다",
+                }
+            )
+            continue
+        down = numeric == "CONVERSION_DEPOSIT_DOWN"
+        for price in group["prices"]:
+            if price.get("pricePlanId") == plan_id:
+                price["priceStage"] = numeric
+                scope = price["scope"]
+                scope["description"] = re.sub(r"\(보증금 (?:증액|감액)\)", f"(보증금 {'감액' if down else '증액'})", scope["description"])
+        issues.append(
+            {
+                "supplyGroupId": group["id"],
+                "code": DIRECTION_CORRECTED,
+                "field": "prices",
+                "description": f"「{name}」 전환안({plan_id})의 표 부호는 {'증액' if down else '감액'}이지만 기본 요금보다 보증금이 "
+                f"{'줄고 월세가 늘어' if down else '늘고 월세가 줄어'} 보증금 {'감액' if down else '증액'}안으로 고쳤습니다",
+            }
+        )
+    return issues
 
 
 def _address_locations(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -896,7 +950,7 @@ def _split_shifted_pairs(values: dict[int, str], columns: list[dict[str, Any]]) 
             values[c], values[c + 1] = amounts[0], amounts[1]
 
 
-def _add_price(group: dict[str, Any], column: dict[str, Any], title: str, ref: str, value: str, plan: str, stage: str) -> None:
+def _add_price(group: dict[str, Any], column: dict[str, Any], title: str, refs: list[str], value: str, plan: str, stage: str) -> None:
     """공급 묶음에 표 칸 하나의 가격을 붙입니다. 같은 요금안·단계·대상이면 같은 요금안 ID를 쓰고, 금액 앞 증감 부호는 뗍니다."""
     groups_for_price = [column["targetGroup"]] if column.get("targetGroup") else group["scope"]["targetGroups"]
     plan_id = group["_plans"].setdefault((plan, stage, tuple(groups_for_price)), f"{group['id']}.plan{len(group['_plans']) + 1}")
@@ -909,7 +963,7 @@ def _add_price(group: dict[str, Any], column: dict[str, Any], title: str, ref: s
             "scope": _scope(group["id"], list(groups_for_price), f"{plan} 요금안입니다."),
             "sourceAmount": amount,
             "sourceUnit": _unit(column, title),
-            "quoteRefs": [ref],
+            "quoteRefs": list(dict.fromkeys(refs)),
             "taxTreatment": "UNKNOWN",
             "vatRate": None,
             "billingPeriod": "MONTHLY" if kind == "MONTHLY_RENT" else "ONCE",

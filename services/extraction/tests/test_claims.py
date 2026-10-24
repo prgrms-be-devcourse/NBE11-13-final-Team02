@@ -83,7 +83,8 @@ def test_date_year_must_match_when_written_or_be_the_notice_year():
 
 
 def test_supply_value_found_nowhere_in_source_is_held_not_noted():
-    """공급 가격이 원문 어디에도 없으면 메모로 두지 않고 그 공급 묶음만 보류합니다(틀린 값보다 누락이 낫다)."""
+    """공급 가격이 원문 어디에도 없으면 메모로 두지 않고 그 공급 묶음의 가격만 보류합니다(틀린 값보다 누락이 낫다).
+    2026-10-24부터 가격 칸의 문제는 그 묶음의 가격 목록(/supplyGroups/N/prices)만 보류하고 수량·주택형은 게시합니다."""
     candidate, sources = assembled()
     wrong = copy.deepcopy(candidate)
     group = next(g for g in wrong["supplyGroups"] if g["prices"])
@@ -95,7 +96,8 @@ def test_supply_value_found_nowhere_in_source_is_held_not_noted():
     assert any(i["code"] == "VALUE_NOT_IN_QUOTE" and i["target"].startswith(f"/supplyGroups/{index}/") for i in quality["reviewIssues"])
     assert not any(n["code"] == "VALUE_NOT_IN_QUOTE" for n in quality["notes"])
     assert quality["verification"]["status"] == "PARTIALLY_PASSED"
-    assert any(h["target"] == f"/supplyGroups/{index}" for h in quality["heldItems"])
+    assert any(h["target"] == f"/supplyGroups/{index}/prices" for h in quality["heldItems"])
+    assert not any(h["target"] == f"/supplyGroups/{index}" for h in quality["heldItems"])
 
 
 def test_dropped_eligibility_condition_is_not_auto_passed():

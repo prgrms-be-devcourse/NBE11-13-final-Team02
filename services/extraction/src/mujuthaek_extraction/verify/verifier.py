@@ -67,6 +67,8 @@ NOTE_CODES = {
     # 틀린 값은 이미 지웠으므로 표시만 합니다(2026-10-23). 일정의 종류·날짜 등 뜻 있는 칸을 바꾼 AI_OUTPUT_ITEM_COERCED는 넣지 않습니다(보류)
     "DETAIL_UNVERIFIED_CLEARED",
     "AI_OUTPUT_FIELD_CLEARED",
+    # 공급표 전환안의 부호와 숫자가 어긋나 숫자(기본 요금 대비 보증금·월세 증감)로 방향을 고침(supply_tables, 2026-10-24). 고친 값이라 표시만
+    "CONVERSION_DIRECTION_CORRECTED",
 }
 # 비교를 못 했을 뿐 불일치가 아닌 API 대조 결과: 섹션과 상관없이 표시만 (불일치 API_MISMATCH는 사람 확인)
 # API_VALUE_NOT_EXTRACTED: API에는 값이 있는데 추출값이 비어 있음(누락). 틀린 값이 아니라 빠진 값이라 공고를 막지 않습니다(2026-10-20)
@@ -243,6 +245,12 @@ def verify_extraction(
 LIST_SECTIONS = ("locations", "supplyGroups", "schedules", "eligibility", "selectionRules", "requiredDocuments", "guidance")
 
 
+# 공급 묶음 안에서 칸 단위로 보류하는 곳(2026-10-24 세 번째 채점: 병합 칸 수량만 애매한 묶음을 통째로 보류해 맞는 가격 120값이 숨음).
+# 수량(counts)·가격(prices) 칸의 문제는 그 목록만 보류하고 묶음의 주택형·면적·나머지 칸은 게시합니다. 가격은 요금안끼리 짝(보증금·월세)이라
+# 가격 하나가 아니라 그 묶음의 가격 목록 전체를 보류합니다. 그 밖의 칸(주택형·면적·범위)은 묶음의 정체라 묶음 전체를 보류합니다
+GROUP_FIELD_HOLDS = ("counts", "prices")
+
+
 def held_target(candidate: dict[str, Any], pointer: str) -> tuple[str, str] | None:
     """검수 이슈 위치 → 보류할 (범위, ITEM/SECTION). 보류할 수 없는 위치면 None."""
     pointer = pointer.split(" ", 1)[0]
@@ -264,6 +272,8 @@ def held_target(candidate: dict[str, Any], pointer: str) -> tuple[str, str] | No
         return f"/notice/{parts[1]}", "ITEM"
     if parts[0] in LIST_SECTIONS:
         if len(parts) >= 2 and parts[1].isdigit() and int(parts[1]) < len(candidate[parts[0]]):
+            if parts[0] == "supplyGroups" and len(parts) >= 3 and parts[2] in GROUP_FIELD_HOLDS:
+                return f"/supplyGroups/{parts[1]}/{parts[2]}", "ITEM"
             return f"/{parts[0]}/{parts[1]}", "ITEM"
         return f"/{parts[0]}", "SECTION"
     return None
@@ -305,9 +315,10 @@ def hold_plan(candidate: dict[str, Any], contract_errors: list[str]) -> list[dic
             add(f"/{section}", "SECTION", f"COVERAGE_{entry['status']}", "섹션을 다 추출하지 못해 확인 전까지 쓰지 않습니다")
     if not held:
         return None
-    # 섹션 전체를 보류하면 그 안의 항목 보류는 섹션에 합칩니다
-    sections = {t for t, h in held.items() if h["extent"] == "SECTION"}
-    for target in [t for t in held if any(t.startswith(s + "/") for s in sections)]:
-        section = next(s for s in sections if target.startswith(s + "/"))
-        held[section]["codes"] = list(dict.fromkeys([*held[section]["codes"], *held.pop(target)["codes"]]))
+    # 넓은 보류(섹션 전체, 항목 전체)가 있으면 그 안의 좁은 보류(항목, 칸)는 넓은 쪽에 합칩니다
+    for target in sorted(held, key=len):
+        if target not in held:
+            continue
+        for inner in [t for t in held if t.startswith(target + "/")]:
+            held[target]["codes"] = list(dict.fromkeys([*held[target]["codes"], *held.pop(inner)["codes"]]))
     return list(held.values())
