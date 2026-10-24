@@ -46,7 +46,7 @@ DROPPED_PROBLEM = (
     "ITEM_DROPPED_NO_EVIDENCE: 인용문을 원문에서 찾지 못해 이 항목이 결과에서 빠졌습니다. 원문에 글자 그대로 이어져 나오는 구간으로 다시 인용합니다."
 )
 DETAIL_LOST_PROBLEM = (
-    "DETAIL_UNVERIFIED_CLEARED: 인용문 일부를 원문에서 찾지 못해, 남은 근거로 확인할 수 없는 세부 값(접수 시각·장소·쉬는 시각·제외 요일 등)을 지웠습니다. "
+    "DETAIL_UNVERIFIED_CLEARED: 근거 인용문에서 확인할 수 없는 세부 값(접수 방법·시각·장소·쉬는 시각·제외 요일 등)을 지웠습니다. "
     "그 값이 적힌 원문 줄을 글자 그대로(표 번호·[열 제목] 표시 없이, 한 줄 안에서) 다시 인용하고 값을 돌려줍니다. 지운 값: "
 )
 UNVERIFIED_MARK = "근거 인용문에서 확인하지 못해"  # details.clear의 설명(근거로 확인 못 해 지운 값)
@@ -75,7 +75,10 @@ EVIDENCE_ONLY_CODES = frozenset(
 # AI 재확인으로 보내지 않는 이슈: 공급표 금액 빈칸(SUPPLY_PRICE_MISSING)은 코드가 공고문 글을 이미 찾아봤고, 표 칸이 비어 있어
 # AI가 다시 읽어도 근거 있는 값을 더 얻기 어렵습니다. 이 이슈만으로 유료 재확인 호출이 늘지 않게 사람 확인으로 둡니다
 # 대상 한정 요금표의 대상 미정·표 제목의 주택형 여럿·병합 칸 수량(2026-10-24)도 코드가 표에서 정한 보류라 AI 재확인에 보내지 않습니다
-NO_RECHECK_CODES = frozenset({"SUPPLY_PRICE_MISSING", "PRICE_SCOPE_UNCERTAIN", "SUPPLY_TYPE_AMBIGUOUS", "COUNT_MERGED_AMBIGUOUS"})
+# 전환안 방향을 숫자로도 정할 수 없음(2026-10-24)도 코드가 표 숫자로 정한 보류입니다
+NO_RECHECK_CODES = frozenset(
+    {"SUPPLY_PRICE_MISSING", "PRICE_SCOPE_UNCERTAIN", "SUPPLY_TYPE_AMBIGUOUS", "COUNT_MERGED_AMBIGUOUS", "CONVERSION_DIRECTION_UNCERTAIN"}
+)
 # 화면 메모(verifier.NOTE_CODES)지만 AI 재확인에 보내는 것: 원문 서류 표 행을 어느 서류도 인용하지 않음(2026-10-23).
 # 누락이라 사람 확인으로 막지는 않지만, 재확인이 서류 섹션 전체를 다시 읽어 빠진 서류를 더할 수 있습니다
 RECHECK_NOTE_CODES = frozenset({DOCUMENT_OMISSION})
@@ -110,6 +113,20 @@ class RecheckResult:
     accepted: bool
     run: ExtractionRun | None  # 재확인 호출 기록 (사용량·비용)
     adopted_sections: tuple[str, ...] = ()  # 섹션별로 채택한 경우 그 섹션들(응답 전체를 채택했으면 빈 값)
+    # 채택하지 않은 범위와 이유(2026-10-24 세 번째 채점: 어느 섹션을 왜 버렸는지 결과에 없어 평가에서 추정해야 했음).
+    # (「전체」 또는 섹션 이름, 이유: 새로 생긴 (코드, 위치) 목록이나 「줄어든 문제 없음」)
+    rejected: tuple[tuple[str, str], ...] = ()
+
+    def summary(self) -> dict[str, Any] | None:
+        """작업 기록(usage)·로그에 남길 재확인 요약. 다시 본 항목이 없으면 None."""
+        if not self.rechecked:
+            return None
+        return {
+            "rechecked": list(self.rechecked),
+            "accepted": self.accepted,
+            "adoptedSections": list(self.adopted_sections),
+            "rejected": [{"scope": scope, "reason": reason} for scope, reason in self.rejected],
+        }
 
 
 def _item_key(candidate: dict[str, Any], pointer: str) -> tuple[str, str | None] | None:
@@ -140,21 +157,19 @@ def _rechecked_notes(candidate: dict[str, Any]) -> list[dict[str, str]]:
 
 
 def _lost_details(candidate: dict[str, Any]) -> dict[str, list[str]]:
-    """인용문 일부를 원문에서 찾지 못했고(EVIDENCE_QUOTE_NOT_FOUND) 세부 값이 근거로 확인되지 않아 지워진 일정 → 지운 값 설명들.
-    지운 값 메모는 일정 섹션(/schedules)을 가리키고 설명에 「이름(id):」로 일정을 적습니다(details.clear)."""
+    """세부 값이 근거 인용문으로 확인되지 않아 지워진 일정 → 지운 값 설명들.
+    지운 값 메모는 일정 섹션(/schedules)을 가리키고 설명에 「이름(id):」로 일정을 적습니다(details.clear).
+    예전엔 같은 일정의 인용문 일부를 원문에서 찾지 못했을(EVIDENCE_QUOTE_NOT_FOUND) 때만 보냈는데, 2026-10-24 세 번째 채점에서
+    지워진 맞는 값(「12~13시」 점심시간, 인용에 「현장」 낱말이 없어 지운 유일한 접수 방법 ONSITE)은 모두 인용을 찾은 일정이라
+    재확인에 가지 않았습니다. 인용을 찾았어도 값이 적힌 다른 줄을 인용하면 되찾을 수 있어 함께 보냅니다.
+    「연속 구간이라 접수 시각을 비움」처럼 근거와 맞지 않아 지운 값(UNVERIFIED_MARK 없음)은 보내지 않습니다(다시 받아도 또 지움)."""
     quality = candidate["quality"]
-    entries = [*quality["reviewIssues"], *quality["notes"]]
-    unquoted = set()
-    for entry in entries:
-        if entry.get("code") == "EVIDENCE_QUOTE_NOT_FOUND":
-            key = _item_key(candidate, entry["target"])
-            if key and key[0] == "schedules" and key[1]:
-                unquoted.add(key[1])
+    ids = [s.get("id") for s in candidate.get("schedules") or [] if isinstance(s, dict) and s.get("id")]
     lost: dict[str, list[str]] = {}
-    for entry in entries:
+    for entry in [*quality["reviewIssues"], *quality["notes"]]:
         if entry.get("code") != CLEARED or entry.get("target") != "/schedules" or UNVERIFIED_MARK not in entry.get("description", ""):
             continue
-        for schedule_id in unquoted:
+        for schedule_id in ids:
             if f"({schedule_id}):" in entry["description"]:
                 lost.setdefault(schedule_id, []).append(entry["description"].split(": ", 1)[-1])
     return lost
@@ -209,6 +224,17 @@ def _problem_keys(report: VerificationReport) -> tuple[Counter, Counter]:
     for schedule_id, cleared in _lost_details(candidate).items():  # 세부 값을 되찾으면 줄어든 것으로 봅니다
         issues[(CLEARED, ("schedules", schedule_id))] += len(cleared)
     return errors, issues
+
+
+def rejection_reason(first: VerificationReport, second: VerificationReport, sections: list[str], limit: int = 6) -> str:
+    """채택하지 않은 이유: 새로 생기거나 늘어난 (코드, 위치) 목록, 없으면 다시 본 섹션의 문제가 줄지 않았다는 말."""
+    grown = []
+    for before, after in zip(_problem_keys(first), _problem_keys(second), strict=True):
+        grown += [f"{code} {location[0]}/{location[1]}" for code, location in (after - before)]
+    if grown:
+        more = f" 외 {len(grown) - limit}건" if len(grown) > limit else ""
+        return "새 문제: " + ", ".join(sorted(grown)[:limit]) + more
+    return f"다시 본 섹션({', '.join(sections)})의 문제가 줄지 않음"
 
 
 def _improved(first: VerificationReport, second: VerificationReport, sections: list[str]) -> bool:
@@ -458,11 +484,12 @@ def recheck_problems(
     run = run_extraction(one_call, material, model, structure=structure_summary(parts[0]), **run_options)
     rechecked = [f"{t['section']}/{t['id']}" if t["id"] else t["section"] for t in targets]
     if run.failed_calls:
-        return RecheckResult(parts, first, rechecked, False, run)
+        reason = "재확인 호출 실패: " + "; ".join(why for _, why in run.failed_calls)
+        return RecheckResult(parts, first, rechecked, False, run, rejected=(("전체", reason),))
     # 수정 호출 뒤에도 형식 위반이 남은 응답(extract가 첫 응답을 살려 넘김)은 고친 결과가 아니므로 섞지 않습니다(검토 2026-10-16)
     schema = one_call.build_request(call, material, structure_summary(parts[0])).output_schema
     if schema_errors(run.parts[0], schema) is not None:
-        return RecheckResult(parts, first, rechecked, False, run)
+        return RecheckResult(parts, first, rechecked, False, run, rejected=(("전체", "재확인 응답 형식 위반"),))
     answer = _keep_verified_dates(parts, _keep_meaning(parts, run.parts[0], targets))
     whole = tuple(t["section"] for t in targets if t["id"] is None and t["section"] != "notice")
     sent = sent_scope(targets)
@@ -470,12 +497,14 @@ def recheck_problems(
     second = evaluate(merged)
     if _improved(first, second, sections):
         return RecheckResult(merged, second, rechecked, True, run)
+    rejected = [("전체", rejection_reason(first, second, sections))]
     if len(sections) < 2:
-        return RecheckResult(parts, first, rechecked, False, run)
+        return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))
     # 섹션마다 따로: 그 섹션만 합쳐 어디에도 새 문제가 없고 그 섹션 문제가 줄면 받고, 받은 결과 위에 다음 섹션을 봅니다
     current, report, adopted = parts, first, []
     for section in sections:
         if section not in answer:
+            rejected.append((section, "재확인 응답에 그 섹션이 없음"))
             continue
         only = {key: value for key, value in answer.items() if key not in SECTIONS or key == section}
         trial = merge_recheck(current, only, tuple(s for s in whole if s == section), sent)
@@ -483,6 +512,8 @@ def recheck_problems(
         if _improved(report, trial_report, [section]):
             current, report = trial, trial_report
             adopted.append(section)
+        else:
+            rejected.append((section, rejection_reason(report, trial_report, [section])))
     if adopted:
-        return RecheckResult(current, report, rechecked, True, run, tuple(adopted))
-    return RecheckResult(parts, first, rechecked, False, run)
+        return RecheckResult(current, report, rechecked, True, run, tuple(adopted), tuple(rejected))
+    return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))

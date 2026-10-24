@@ -195,6 +195,8 @@ def _process(
         run, first_run = run_extraction(rules, material, models.primary, usage=usage, parallel=parallel_calls, stagger=parallel_stagger), None
         model_used, recheck_model = models.names.get("primary", "primary"), models.primary
     cost = lambda: models.budget.spent_usd if models.budget else 0.0  # noqa: E731
+    if run.notes:  # 잘림 뒤 나눠 부르기·항목 살리기(extract, 2026-10-24): 작업 기록에 남겨 평가에서 볼 수 있게
+        usage.record("extractionNotes", list(run.notes))
 
     def assembled(parts: list[dict[str, Any]]) -> dict[str, Any] | None:
         source_code = context.source_references[0]["sourceCode"] if context.source_references else None
@@ -224,6 +226,12 @@ def _process(
         recheck = recheck_problems(rules, material, recheck_model, run.parts, lambda parts: evaluate(parts) or first)
     report = recheck.report
     repairs = [f"재확인 {'채택' if recheck.accepted else '미채택'}: {', '.join(recheck.rechecked)}"] if recheck.rechecked else []
+    # 섹션별 채택·거절 이유를 작업 기록(usage.recheck)과 로그에 남깁니다(2026-10-24: 평가에서 어느 섹션을 왜 버렸는지 볼 수 있게)
+    if recheck.adopted_sections:
+        repairs.append(f"재확인 섹션별 채택: {', '.join(recheck.adopted_sections)}")
+    repairs += [f"재확인 미채택({scope}): {reason}" for scope, reason in recheck.rejected]
+    if (summary := recheck.summary()) is not None:
+        usage.record("recheck", summary)
     # 2) 그래도 남은 계약 오류는 위치만 보고 그 항목만 낮춥니다 (검증 전 후보에 적용하고 다시 검증)
     if report.contract_errors:
         with usage.stage("quarantine"):
