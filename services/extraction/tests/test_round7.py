@@ -114,3 +114,28 @@ def test_channel_words_for_mail_address_and_exceptions():
     assert "ONSITE" not in negative
     assert "ONSITE" in channel_mentions("방문 접수 불가")[1]  # 진짜로 막은 말은 그대로
     assert "MAIL" in channel_mentions("우편 접수는 받지 않습니다")[1]
+
+
+# ---- 재실행(A)에서 본 것: 증감 구분 칸, 병합 칸 수량 근거, 원문에 없는 합계 ----
+
+
+def test_sign_only_column_keeps_conversion_plans():
+    assert st._direction_amounts("(+)") == {}
+    assert st._direction_amounts("(+) -") == {"(+)": False}
+    assert st._direction_amounts("(+) - (-) 10,000") == {"(+)": False, "(-)": True}
+
+
+def test_sign_column_with_amounts_beside_it_makes_conversion_plans():
+    from test_round5 import limit_part
+
+    prices = limit_part("(+)", "61,920", "91,170")
+    assert ("DEPOSIT", "61,920", "CONVERSION_DEPOSIT_UP") in prices
+
+
+def test_notice_partial_only_for_a_total_not_in_the_source_is_extracted():
+    from mujuthaek_extraction.assemble.assembler import _total_not_written
+
+    assert _total_not_written(
+        {"status": "PARTIAL", "reason": "주택형별 모집호수는 표에 있지만 공고 전체 모집호수 합계는 따로 적혀 있지 않아 합산하지 않았어요."}
+    )
+    assert not _total_not_written({"status": "PARTIAL", "reason": "공급 대상 일부를 읽지 못했어요"})

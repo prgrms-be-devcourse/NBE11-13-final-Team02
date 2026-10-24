@@ -734,7 +734,11 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                                 "aggregationRole": "STANDALONE",
                                 "parentCountId": None,
                                 "aggregationComplete": False,
-                                "quoteRefs": [quote(_row_line(table.rows[origin[r][c]]))],
+                                # 세로 병합 칸의 수량은 자기 행과 칸이 시작한 행을 함께 인용합니다(2026-10-24 일곱 번째 채점: 시작한 행만 인용해
+                                # 그 행의 주택형과 달라 위치 의심 151건). 가격의 병합 칸과 같은 방식입니다
+                                "quoteRefs": list(dict.fromkeys([ref, quote(_row_line(table.rows[origin[r][c]]))]))
+                                if origin[r][c] != r and origin[r][c] >= 0
+                                else [quote(_row_line(table.rows[origin[r][c]]))],
                             }
                             current["counts"].append(count)
                             cell = (table.label, _cell_id(table, origin[r][c], c), kind)  # 「7/8」처럼 한 칸의 두 수는 종류별로 따로 묶음
@@ -800,17 +804,11 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                         down = cell_sign.startswith(("(-)", "-", "−", "(−)"))
                         stage = "CONVERSION_DEPOSIT_DOWN" if down else "CONVERSION_DEPOSIT_UP"
                         plan = f"{plan} (보증금 {'감액' if down else '증액'})"
-                    if (
-                        stage.startswith("CONVERSION")
-                        and limit_column is not None
-                        and cell_sign in ("(+)", "(-)")
-                        and not _direction_amounts(sign).get(cell_sign, True)
-                    ):
-                        # 「(+) - (-) 10,000」: 증액 쪽 한도가 「-」라 증액 전환이 없는 행입니다. 방향마다 금액이 있는지 봅니다(2026-10-24 다섯 번째 채점)
-                        continue
-                    if stage.startswith("CONVERSION") and limit_column is not None and sign and not AMOUNT_IN_CELL.search(sign):
-                        # 한도 칸이 「(+) -」처럼 부호만 있고 금액이 없으면 그 방향 전환이 없는 행입니다. 옆 칸에는 기본 조건이 그대로 적혀
-                        # 있어(2026-10-24 네 번째 채점: 「(+) - | 10,948,000 | 56,560」) 전환안으로 넣으면 기본과 같은 가짜 증액안이 됩니다
+                    direction = "(-)" if stage == "CONVERSION_DEPOSIT_DOWN" else "(+)"
+                    if stage.startswith("CONVERSION") and limit_column is not None and _direction_amounts(sign).get(direction) is False:
+                        # 한도 칸이 그 방향을 「-」로 적었으면(「(+) -」「(+) - (-) 10,000」) 그 방향 전환이 없는 행입니다. 옆 칸에는 기본 조건이
+                        # 그대로 적혀 있어 전환안으로 넣으면 기본과 같은 가짜 전환안이 됩니다(2026-10-24 네·다섯 번째 채점).
+                        # 부호만 적는 「증감 구분」 칸(「(+)」)은 금액이 옆 칸에 있으므로 빼지 않습니다(일곱 번째 채점: 전환안 전부가 빠짐)
                         continue
                     if restriction and stage == "STANDARD" and not column.get("targetGroup") and not current["scope"]["targetGroups"]:
                         # 특정 대상의 요금표인데 대상 없이 기본 요금으로 답함: 다른 표의 모집 묶음에 붙이지 않고 보류합니다.
@@ -981,13 +979,18 @@ ISSUES_KEY = CODE_ISSUES  # 코드 조각이 결합기에 넘기는 검수 이�
 
 
 def _direction_amounts(sign: str) -> dict[str, bool]:
-    """한도 칸의 부호마다 바로 뒤에 금액이 있는지: 「(+) - (-) 10,000」 → {「(+)」: False, 「(-)」: True}. 부호가 없으면 빈 사전."""
+    """한도 칸의 부호마다 그 방향 전환이 있는지: 바로 뒤에 금액이 있으면 True, 「-」(없음)이면 False, 아무것도 없으면(부호만 적는
+    「증감 구분」 칸) 정하지 않습니다(사전에 넣지 않음). 「(+) - (-) 10,000」 → {「(+)」: False, 「(-)」: True}, 「(+)」 → {}."""
     marks = list(SIGN_MARK.finditer(sign or ""))
     out: dict[str, bool] = {}
     for n, mark in enumerate(marks):
         end = marks[n + 1].start() if n + 1 < len(marks) else len(sign)
         key = "(+)" if mark["up"] else "(-)"
-        out[key] = out.get(key, False) or bool(AMOUNT_IN_CELL.search(sign[mark.end() : end]))
+        rest = sign[mark.end() : end].strip()
+        if AMOUNT_IN_CELL.search(rest):
+            out[key] = True
+        elif re.fullmatch(r"[-−–]+", rest) and key not in out:
+            out[key] = False
     return out
 
 

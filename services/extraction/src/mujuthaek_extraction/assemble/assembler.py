@@ -132,6 +132,14 @@ def _pointer(tokens: list[str | int]) -> str:
     return "".join("/" + str(t).replace("~", "~0").replace("/", "~1") for t in tokens)
 
 
+# AI가 「합계·총수가 원문에 따로 없어 적지 않음」을 이유로 공고 기본 정보를 PARTIAL로 적은 경우(원문에 없는 값이지 덜 뽑은 것이 아님)
+TOTAL_NOT_WRITTEN = re.compile(r"(?:합계|합산|총\s*(?:모집|공급|세대|호|수))[^.]{0,40}(?:없|적혀\s*있지\s*않|기재되지\s*않|나와\s*있지\s*않)")
+
+
+def _total_not_written(entry: dict[str, Any]) -> bool:
+    return entry.get("status") == "PARTIAL" and bool(TOTAL_NOT_WRITTEN.search(str(entry.get("reason") or "")))
+
+
 def _walk(value: Any, tokens: list[str | int]):
     if isinstance(value, dict):
         yield tokens, value
@@ -213,6 +221,14 @@ class _Assembler:
                     adopted.add(section)
                     if section in reported:
                         self.coverage[section] = dict(reported[section])
+                        if section == "notice" and _total_not_written(reported[section]):
+                            # 공고 전체 합계가 원문에 따로 없어 적지 않은 것은 덜 뽑은 것이 아닙니다(원문에 없는 값). 공고 기본 정보 PARTIAL은
+                            # 공고 전체 검수가 되므로(2026-10-24 일곱 번째 채점: 「주택형별 모집호수는 있지만 공고 전체 합계는 따로 없어」로
+                            # 맞는 공고가 통째로 비공개) 메모만 남기고 다 뽑은 것으로 봅니다
+                            self.notes.append(
+                                f"/notice: AI가 「{reported[section].get('reason')}」로 일부라고 적었지만 원문에 없는 합계라 다 뽑은 것으로 봤어요"
+                            )
+                            self.coverage[section] = {"status": "EXTRACTED", "reason": None}
                     elif self.coverage.get(section, {}).get("status") == "FAILED":  # 앞 응답이 깨져 남긴 FAILED는 이 응답 내용과 맞지 않습니다
                         del self.coverage[section]
                 elif section in reported and reported[section]["status"] in {"NOT_IN_SOURCE", "NOT_APPLICABLE", "FAILED"}:
