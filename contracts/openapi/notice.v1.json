@@ -1557,6 +1557,65 @@
           }
         }
       }
+    },
+    "/api/v1/benefits/{id}/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportBenefit",
+        "summary": "주거·복지 정책(혜택) 제보 (로그인한 회원)",
+        "description": "혜택 정책의 틀린 값을 알려요. id는 정책 원본 ID(policy.extracted의 rawPolicyId)이고, 추출 서비스에 정제 결과가 있는 정책에만 받아요. 관리자 「고치기」는 혜택 검수(/api/admin/benefit-reviews)로 이어지고, 답은 BenefitReportAnswered 이벤트로 알림 쪽에 가요. 하루 20건까지.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "혜택 정책 원본 ID (policy.extracted의 rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticeReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3837,6 +3896,7 @@
           "targetType",
           "noticeId",
           "programId",
+          "benefitPolicyId",
           "noticeTitle",
           "field",
           "currentValue",
@@ -3870,9 +3930,10 @@
             "type": "string",
             "enum": [
               "NOTICE",
-              "PROGRAM"
+              "PROGRAM",
+              "BENEFIT"
             ],
-            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보"
+            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보 · BENEFIT 주거·복지 정책(혜택) 제보"
           },
           "noticeId": {
             "type": [
@@ -3936,6 +3997,14 @@
               null
             ],
             "description": "FIXED 고침 · KEPT 원문대로 그대로 둠"
+          },
+          "benefitPolicyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "혜택 정책 제보면 정책 원본 ID (그 밖이면 null). 「고치기」는 혜택 검수로 이어져요"
           }
         }
       },

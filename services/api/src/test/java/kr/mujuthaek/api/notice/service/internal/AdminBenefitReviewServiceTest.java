@@ -73,7 +73,7 @@ class AdminBenefitReviewServiceTest {
   void unknownStatusIsRefusedBeforeCalling() {
     assertThatThrownBy(() -> service.list("DONE"))
         .isInstanceOf(CustomException.class)
-        .extracting("errorCode")
+        .extracting(e -> ((CustomException) e).errorCode())
         .isEqualTo(ErrorCode.VALIDATION_FAILED);
   }
 
@@ -149,7 +149,7 @@ class AdminBenefitReviewServiceTest {
                 .body("{\"error\":\"이미 APPROVED 처리된 항목입니다.\"}"));
     assertThatThrownBy(() -> service.approve(REVIEW, null, null))
         .isInstanceOf(CustomException.class)
-        .extracting("errorCode")
+        .extracting(e -> ((CustomException) e).errorCode())
         .isEqualTo(ErrorCode.NOTICE_REVIEW_CONFLICT);
   }
 }

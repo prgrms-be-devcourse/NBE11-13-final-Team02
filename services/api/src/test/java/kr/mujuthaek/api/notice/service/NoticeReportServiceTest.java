@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.content;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.time.Clock;
@@ -25,6 +26,7 @@ import kr.mujuthaek.api.notice.dto.request.NoticeReportRequest;
 import kr.mujuthaek.api.notice.repository.NoticeReportRepository;
 import kr.mujuthaek.api.notice.service.internal.NoticeReportService;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.client.MockRestServiceServer;
@@ -218,5 +220,49 @@ class NoticeReportServiceTest {
         .isInstanceOfSatisfying(
             kr.mujuthaek.api.common.event.ProgramReportAnswered.class,
             e -> assertThat(e.programId()).isEqualTo(program));
+  }
+
+  @Test
+  void benefitPoliciesAreReportedReopenedAsBenefitReviewsAndAnswered() {
+    UUID policy = UUID.randomUUID();
+    reviewServer
+        .expect(requestTo("http://extraction.test/benefits/" + policy))
+        .andRespond(withSuccess("{\"title\":\"가상 청년 월세\"}", MediaType.APPLICATION_JSON));
+    UUID reporter = UUID.randomUUID();
+    UUID id = service.reportBenefit(policy, deposit("공고문 3쪽"), reporter.toString()).id();
+
+    var detail = service.detail(id);
+    assertThat(detail.report().targetType()).isEqualTo("BENEFIT");
+    assertThat(detail.report().benefitPolicyId()).isEqualTo(policy);
+    assertThat(detail.report().noticeTitle()).isEqualTo("가상 청년 월세");
+
+    UUID review = UUID.randomUUID();
+    reviewServer
+        .expect(requestTo("http://extraction.test/benefit-reviews/reopen"))
+        .andExpect(content().json("{\"rawPolicyId\":\"" + policy + "\",\"reviewer\":\"admin-1\"}"))
+        .andRespond(
+            withSuccess(
+                "{\"reviewId\":\"" + review + "\",\"reopened\":true}", MediaType.APPLICATION_JSON));
+    assertThat(service.openReview(id, "admin-1").reviewId()).isEqualTo(review);
+
+    reviewServer
+        .expect(requestTo("http://extraction.test/benefits/" + policy.toString().replace('0', '1')))
+        .andRespond(withStatus(HttpStatus.NOT_FOUND));
+    assertThatThrownBy(
+            () ->
+                service.reportBenefit(
+                    UUID.fromString(policy.toString().replace('0', '1')),
+                    deposit("x"),
+                    reporter.toString()))
+        .isInstanceOfSatisfying(
+            CustomException.class, e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.NOT_FOUND));
+
+    service.resolve(id, new AdminReportResolveRequest(Result.FIXED, "고쳤어요", null), "admin-1");
+    assertThat(events)
+        .singleElement()
+        .isInstanceOfSatisfying(
+            kr.mujuthaek.api.common.event.BenefitReportAnswered.class,
+            e -> assertThat(e.policyId()).isEqualTo(policy));
+    reviewServer.verify();
   }
 }
