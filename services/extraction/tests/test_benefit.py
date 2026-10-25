@@ -556,3 +556,46 @@ def test_core_values_without_a_basis_get_the_default_basis_and_need_review():
     values = {c["type"]: c["value"] for c in data["conditions"] if c["origin"] == "AI"}
     assert values == {"INCOME_MEDIAN_PCT": {"max": 150, "basis": "HOUSEHOLD"}, "HOMELESS": {"basis": "PERSON"}}
     assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+
+
+def test_documents_how_to_apply_and_contact_come_from_the_source_fields():
+    record = RECORD | {
+        "sbmsnDcmntCn": "□ 공통 제출 서류\n1. 지원신청서\n2. 주민등록등본\n신분증, 확정일자부 임대차(전세)계약서 사본\n9. 기타 추가서류 ※ 공고에 따름",
+        "plcyAplyMthdCn": "□ 온라인 신청: 가상 누리집\n※ 지점마다 다름",
+        "sprvsnInstCdNm": "가상광역시 주택과",
+        "sprvsnInstPicNm": "홍길동",
+    }
+    data = built_text(TEXT, [], record)
+    assert data["documents"] == ["지원신청서", "주민등록등본", "신분증", "확정일자부 임대차(전세)계약서 사본", "기타 추가서류"]
+    assert data["howToApply"] == "가상 누리집 온라인 신청"  # AI 답이 있으면 AI 요약
+    assert data["contact"] == "가상광역시 주택과"  # AI 답이 없으면 주관 기관 이름만(담당자 실명 제외)
+    empty = build_payload(payload(record=record), BenefitReading(answer(howToApply=None), False, "recorded"), rules_for("youth", record, TEXT), REGIONS)
+    assert empty["howToApply"] == "온라인 신청: 가상 누리집"
+
+
+def test_a_district_name_without_its_city_uses_the_registering_city():
+    table = RegionCodeTable(
+        [
+            ("2700000000", "대구광역시", True),
+            ("2723000000", "대구광역시 북구", True),
+            ("2900000000", "광주광역시", True),
+            ("2917000000", "광주광역시 북구", True),
+        ],
+        "2026-10-01",
+    )
+    record = RECORD | {"rgtrHghrkInstCdNm": "대구광역시"}
+    text = TEXT + "\n북구에 주소를 둔 청년"
+    data = build_payload(
+        payload(text=text, record=record),
+        BenefitReading(answer([condition("RESIDENCE", "북구에 주소를 둔 청년", regionNames=["북구"])]), False, "recorded"),
+        rules_for("youth", record, text),
+        table,
+    )
+    assert [c["value"] for c in data["conditions"] if c["type"] == "RESIDENCE"] == [{"regions": ["27230"]}]
+    vague = build_payload(  # 「관내」는 지역 이름이 아니므로 시도 전체로 잡지 않음
+        payload(text=text, record=record),
+        BenefitReading(answer([condition("RESIDENCE", "북구에 주소를 둔 청년", regionNames=["관내"])]), False, "recorded"),
+        rules_for("youth", record, text),
+        table,
+    )
+    assert [c["known"] for c in vague["conditions"] if c["type"] == "RESIDENCE"] == [False]

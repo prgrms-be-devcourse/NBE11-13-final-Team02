@@ -12,6 +12,7 @@ source.regionCodes로 보내고, 거주 조건은 AI가 글에 적힌 대로 읽
 
 from __future__ import annotations
 
+import html
 import re
 from dataclasses import dataclass, field
 from datetime import date
@@ -102,6 +103,10 @@ class RuleResult:
     conditions: list[dict[str, Any]] = field(default_factory=list)
     schedule: dict[str, Any] = field(default_factory=dict)  # 규칙으로 정한 일정 칸만
     income: dict[str, int] = field(default_factory=dict)  # 출처 칸의 연소득 금액(만 원, min·max). 기준(본인·부부)은 모름
+    # 출처 칸에서 그대로 옮긴 안내(2026-10-25). 제출 서류 칸은 수집기가 AI에 보내는 글에 없어 규칙으로만 채울 수 있습니다
+    documents: list[str] = field(default_factory=list)
+    how_to_apply: str | None = None
+    contact: str | None = None
 
 
 def _codes(value: Any) -> list[str]:
@@ -134,6 +139,51 @@ def _evidence(text: str, key: str, value: Any) -> str:
             if line.strip().startswith(f"{label}:"):
                 return line.strip()
     return f"{key}: {value}"
+
+
+_BULLET = re.compile(r"^[\s□■○●◎ㅇ\-*·•▶]*(?:\d+[.)]\s*)?")
+
+
+def _clean_text(value: Any) -> str:
+    """칸 값의 HTML 문자(&rarr; 등)를 풀고 「-」「.」같은 빈 값은 빈 문자열로."""
+    text = html.unescape(str(value or "")).strip()
+    return "" if text in ("-", ".", "0") else text
+
+
+def _split_outside_parens(line: str) -> list[str]:
+    """쉼표로 나누되 괄호 안 쉼표(「(받는분, 보내는분)」)는 나누지 않습니다."""
+    parts, depth, current = [], 0, ""
+    for ch in line:
+        depth += ch in "([{"
+        depth -= ch in ")]}"
+        if ch == "," and depth <= 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += ch
+    return [*parts, current]
+
+
+def documents_from(value: Any) -> list[str]:
+    """제출 서류 칸(sbmsnDcmntCn) → 서류 이름 목록. 줄·번호·쉼표로 나누고, 「□ 공통 제출 서류」같은 머리말과 「※」 안내는 뺍니다."""
+    found: list[str] = []
+    for raw in _clean_text(value).splitlines():
+        line = raw.strip()
+        if not line or line.startswith(("□", "■", "※", "[")):
+            continue
+        for piece in re.split(r"\s+(?=\d+\.\s)", line):
+            for part in _split_outside_parens(piece):
+                name = _BULLET.sub("", part).split("※")[0].strip(" ,")
+                if len(name) >= 2 and not name.startswith("※"):
+                    found.append(name)
+    return list(dict.fromkeys(found))
+
+
+def _first_lines(value: Any, limit: int = 200) -> str | None:
+    """여러 줄 안내를 한 줄로(머리말 기호 제거, 빈 줄·※ 안내 제외, limit자까지)."""
+    lines = [_BULLET.sub("", line).strip() for line in _clean_text(value).splitlines()]
+    joined = " / ".join(line for line in lines if line and not line.startswith("※"))
+    return joined[:limit].rstrip() or None
 
 
 def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
@@ -210,6 +260,12 @@ def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
             value = {"kind": values} if kind == "WORKPLACE" else {"in": list(dict.fromkeys(values))}
             rows.append((kind, value, f"특화 분야: {', '.join(KO.get(v, v) for v in values)}"))
         add(rows, f"sbizCd: {record.get('sbizCd')}")
+
+    # 안내: 제출 서류·신청 방법·문의처(주관 기관). AI 답이 비면 이 값을 씁니다(서류는 이 값이 우선)
+    out.documents = documents_from(record.get("sbmsnDcmntCn"))
+    out.how_to_apply = _first_lines(record.get("plcyAplyMthdCn"))
+    # 문의처는 주관 기관 이름만(담당자 칸은 공무원 실명이 많아 넣지 않음)
+    out.contact = _clean_text(record.get("sprvsnInstCdNm")) or None
 
     # 일정: 신청 기간 「YYYYMMDD ~ YYYYMMDD」, 구분 상시, 사업 기간
     period = str(record.get("aplyYmd") or "")

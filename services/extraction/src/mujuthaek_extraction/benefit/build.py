@@ -101,6 +101,32 @@ def manwon(won: int | None) -> int | None:
     return won // 10000
 
 
+class LocalRegions:
+    """정책을 등록한 기관의 시도로 시도 없는 지역 이름(「북구」는 여러 시도에 있음)을 찾습니다(2026-10-25).
+    기본 시도로 찾은 결과는 시군구까지 정해졌을 때만 씁니다(「관내」같은 말이 시도 전체로 잡히지 않게)."""
+
+    def __init__(self, table: Any, sido: str | None):
+        self.table = table
+        self.sido = sido
+
+    def lookup(self, name: str) -> Any:
+        first = self.table.lookup(name)
+        if (first.code is not None and not first.note) or not self.sido:
+            return first
+        local = self.table.lookup(name, default_sido=self.sido)
+        return local if local.code is not None and not local.note and local.level in ("SIGUNGU", "DONG") else first
+
+
+def _local_regions(regions: Any, record: dict[str, Any]) -> Any:
+    if regions is None:
+        return None
+    for key in ("rgtrHghrkInstCdNm", "rgtrUpInstCdNm"):
+        name = str(record.get(key) or "").strip()
+        if name and (match := regions.lookup(name)).level == "SIDO" and not match.note:
+            return LocalRegions(regions, name)
+    return regions
+
+
 def region_code(regions: Any, name: str) -> str | None:
     """지역 이름 → 시도 2자리 또는 시군구 5자리. 못 찾거나 모호하면 None."""
     if regions is None or not name or not name.strip():
@@ -423,6 +449,7 @@ def _settle_income(rule_rows: list[dict[str, Any]], income: dict[str, int], item
 def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleResult, regions: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """policy.extracted payload. reading은 AI 답, rules는 출처 코드 칸에서 옮긴 조건·일정."""
     answer = reading.answer
+    regions = _local_regions(regions, payload.get("record") or {})
     text = str(payload.get("text") or "")
     record_lines = [f"{k}: {v}" for k, v in (payload.get("record") or {}).items() if isinstance(v, str | int)]
     sources = [text, *record_lines]
@@ -594,9 +621,10 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
         "summary": summary,
         "supports": supports,
         "schedule": schedule,
-        "howToApply": (answer.get("howToApply") or "").strip() or None,
-        "documents": [d.strip() for d in answer.get("documents") or [] if d and d.strip()],
-        "contact": (answer.get("contact") or "").strip() or None,
+        "howToApply": (answer.get("howToApply") or "").strip() or rules.how_to_apply,
+        # 제출 서류는 출처 칸 목록이 있으면 그것을(AI는 그 칸을 못 봄), 없으면 AI가 글에서 읽은 목록
+        "documents": rules.documents or [d.strip() for d in answer.get("documents") or [] if d and d.strip()],
+        "contact": (answer.get("contact") or "").strip() or rules.contact,
         "conditions": conditions,
         "quality": {
             "confidence": confidence,
