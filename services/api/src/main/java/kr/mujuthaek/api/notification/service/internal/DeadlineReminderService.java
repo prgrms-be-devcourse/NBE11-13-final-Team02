@@ -51,11 +51,12 @@ public class DeadlineReminderService {
       RecipientFinder recipients,
       ReminderRunRepository runs,
       Outbox outbox,
+      PushDeviceFinder push,
       Clock clock) {
     this.benefits = benefits;
     this.recipients = recipients;
     this.runs = runs;
-    this.requests = new NotificationRequests(outbox);
+    this.requests = new NotificationRequests(outbox, push);
     this.clock = clock;
   }
 

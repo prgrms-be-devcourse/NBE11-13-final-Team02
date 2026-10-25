@@ -41,7 +41,7 @@ class NoticeNotificationServiceTest {
   final Outbox outbox = mock(Outbox.class);
   final Clock clock = Clock.fixed(Instant.parse("2026-10-25T00:00:00Z"), ZoneId.of("Asia/Seoul"));
   final NoticeNotificationService service =
-      new NoticeNotificationService(notices, finder, outbox, clock);
+      new NoticeNotificationService(notices, finder, outbox, ids -> Map.of(), clock);
   final UUID id = UUID.randomUUID();
   final Recipient me = new Recipient(UUID.randomUUID(), "me@example.com", false);
 

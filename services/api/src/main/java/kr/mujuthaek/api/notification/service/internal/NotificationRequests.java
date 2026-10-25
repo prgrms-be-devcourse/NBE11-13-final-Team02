@@ -12,6 +12,9 @@ import org.slf4j.LoggerFactory;
 /**
  * notification.requested를 아웃박스에 적어요 (contracts/schemas/notification-events.draft.md). 받는 사람은 한 요청에
  * 500명까지라 넘으면 나눠 적어요. 부르는 쪽의 트랜잭션 안에서 써요.
+ *
+ * <p>받는 사람마다 웹 푸시 구독 기기를 붙여요 (recipients[].push, contracts/schemas/web-push.draft.md 3장). 기기가 없으면
+ * null이에요. 누구에게 보낼지(종류별 켬·끔)는 받는 사람을 고를 때 이미 정해서, 여기서는 기기만 찾아 붙여요. 500명마다 한 번 조회해요.
  */
 final class NotificationRequests {
 
@@ -21,9 +24,11 @@ final class NotificationRequests {
   static final int MAX_RECIPIENTS = 500;
 
   private final Outbox outbox;
+  private final PushDeviceFinder push;
 
-  NotificationRequests(Outbox outbox) {
+  NotificationRequests(Outbox outbox, PushDeviceFinder push) {
     this.outbox = outbox;
+    this.push = push;
   }
 
   /** 적은 요청 수를 돌려줘요. 받는 사람이 없으면 0 */
@@ -40,8 +45,12 @@ final class NotificationRequests {
       return 0;
     }
     int sent = 0;
+    int withPush = 0;
     for (int from = 0; from < to.size(); from += MAX_RECIPIENTS) {
       List<Recipient> chunk = to.subList(from, Math.min(from + MAX_RECIPIENTS, to.size()));
+      Map<UUID, List<PushDevice>> devices =
+          push.latest(chunk.stream().map(Recipient::userId).toList());
+      withPush += devices.size();
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("type", type);
       payload.put("dedupKey", dedupKey);
@@ -49,20 +58,39 @@ final class NotificationRequests {
       payload.put("title", title);
       payload.put("body", body);
       payload.put("linkPath", linkPath(targetType, targetId));
-      payload.put("recipients", chunk.stream().map(NotificationRequests::recipient).toList());
+      payload.put(
+          "recipients", chunk.stream().map(r -> recipient(r, devices.get(r.userId()))).toList());
       outbox.add(EVENT_TYPE, 1, payload);
       sent++;
     }
     log.info(
-        "알림 요청을 아웃박스에 적음: type={}, targetId={}, 받는 사람={}, 요청={}", type, targetId, to.size(), sent);
+        "알림 요청을 아웃박스에 적음: type={}, targetId={}, 받는 사람={}, 푸시 기기 있는 사람={}, 요청={}",
+        type,
+        targetId,
+        to.size(),
+        withPush,
+        sent);
     return sent;
   }
 
-  private static Map<String, Object> recipient(Recipient r) {
+  private static Map<String, Object> recipient(Recipient r, List<PushDevice> devices) {
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("userId", r.userId());
     m.put("email", r.email());
     m.put("quietEnabled", r.quietEnabled());
+    m.put(
+        "push",
+        devices == null || devices.isEmpty()
+            ? null
+            : devices.stream().map(NotificationRequests::device).toList());
+    return m;
+  }
+
+  private static Map<String, String> device(PushDevice d) {
+    Map<String, String> m = new LinkedHashMap<>();
+    m.put("endpoint", d.endpoint());
+    m.put("p256dh", d.p256dh());
+    m.put("auth", d.auth());
     return m;
   }
 

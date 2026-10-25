@@ -3,8 +3,12 @@ package kr.mujuthaek.api.notification.service.internal;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -23,7 +27,7 @@ import org.springframework.transaction.annotation.Transactional;
  * <p>주소(endpoint)·키는 알면 그 기기에 알림을 보낼 수 있는 값이라 로그·오류 문구에 넣지 않아요. 로그에는 회원 ID와 푸시 서비스 도메인만 남겨요.
  */
 @Service
-public class PushSubscriptionService {
+public class PushSubscriptionService implements PushDeviceFinder {
 
   private static final Logger log = LoggerFactory.getLogger(PushSubscriptionService.class);
 
@@ -111,6 +115,18 @@ public class PushSubscriptionService {
   @Transactional(readOnly = true)
   public List<Device> devices(UUID userId) {
     return subscriptions.findDevices(userId);
+  }
+
+  /** 알림 요청에 실을 기기. 알림 요청을 적는 트랜잭션 안에서 불러요 (회원당 최근 {@code maxDevices}대) */
+  @Override
+  public Map<UUID, List<PushDevice>> latest(Collection<UUID> userIds) {
+    Map<UUID, List<PushDevice>> byUser = new LinkedHashMap<>();
+    for (var d : subscriptions.findLatestForSend(userIds, properties.maxDevices())) {
+      byUser
+          .computeIfAbsent(d.userId(), id -> new ArrayList<>())
+          .add(new PushDevice(d.endpoint(), d.p256dh(), d.auth()));
+    }
+    return byUser;
   }
 
   /** https 주소이고 푸시 서비스 도메인이어야 해요. 그 도메인을 돌려줘요 (로그용) */

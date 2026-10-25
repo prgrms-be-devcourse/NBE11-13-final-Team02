@@ -3,6 +3,7 @@ package kr.mujuthaek.api.notification.repository;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -18,6 +19,14 @@ public class PushSubscriptionRepository {
 
   public PushSubscriptionRepository(JdbcClient jdbc) {
     this.jdbc = jdbc;
+  }
+
+  /** 알림 요청에 실을 기기 (주소·키 포함. 로그에 남기지 않아요) */
+  public record SendableDevice(UUID userId, String endpoint, String p256dh, String auth) {
+    @Override
+    public String toString() {
+      return "SendableDevice[userId=" + userId + ", ***]";
+    }
   }
 
   /** 기기 목록에 보여 줄 칸만 (주소·키는 빼요) */
@@ -99,6 +108,34 @@ public class PushSubscriptionRepository {
     return jdbc.sql("delete from notification.push_subscriptions where user_id = :userId")
         .param("userId", userId)
         .update();
+  }
+
+  /** 회원마다 최근에 등록한 {@code perUser}대까지. 회원·최근 순이에요 */
+  public List<SendableDevice> findLatestForSend(Collection<UUID> userIds, int perUser) {
+    if (userIds.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.sql(
+            """
+            select user_id, endpoint, p256dh, auth from (
+                select user_id, endpoint, p256dh, auth,
+                       row_number() over (partition by user_id order by updated_at desc, id desc) as n
+                  from notification.push_subscriptions
+                 where user_id in (:userIds)
+            ) d
+            where n <= :perUser
+            order by user_id, n
+            """)
+        .param("userIds", userIds)
+        .param("perUser", perUser)
+        .query(
+            (rs, i) ->
+                new SendableDevice(
+                    rs.getObject("user_id", UUID.class),
+                    rs.getString("endpoint"),
+                    rs.getString("p256dh"),
+                    rs.getString("auth")))
+        .list();
   }
 
   /** 최근에 쓴 기기부터 */
