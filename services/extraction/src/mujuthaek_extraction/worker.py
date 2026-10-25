@@ -28,6 +28,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 from mujuthaek_extraction.assemble.regions import RegionCodeTable
+from mujuthaek_extraction.benefit.build import build_payload
+from mujuthaek_extraction.benefit.codes import rules_for
+from mujuthaek_extraction.benefit.reading import read_benefit
 from mujuthaek_extraction.config import Settings
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.cost_alert import CostAlert
@@ -61,6 +64,10 @@ POLICY_QUEUE = "mujuthaek.raw.policy"
 POLICY_DLQ = POLICY_QUEUE + ".dlq"
 POLICY_ROUTING_KEY = "raw.policy.collected"
 COMPLETED_SCHEMA = "events/extraction.completed.v1.json"
+# 주거·이주 혜택 정제 결과 (담당자3 초안 policy-extracted.draft.md, 2026-10-25). 받는 쪽은 api benefit
+BENEFIT_EVENT_TYPE = "policy.extracted"
+BENEFIT_SCHEMA = "events/policy.extracted.v1.json"
+BENEFIT_FIELDS = frozenset({"BENEFIT"})
 CLAIM_LEASE_SECONDS = 300  # 처리권 기한. 워커가 죽으면 이 시간 뒤 다른 처리가 이어받습니다
 CLAIM_RENEW_SECONDS = 60  # 처리 중 기한을 늘리는 간격(공고 하나가 30분 넘게 걸린 실측이 있어 기한을 계속 늘림)
 CLAIM_BUSY_SECONDS = 30  # 다른 처리가 잡고 있을 때 큐로 되돌리기 전 기다림
@@ -409,6 +416,42 @@ def judge_policy(store: JobStore, raw_event: dict[str, Any], model: Any = None, 
     return event["eventId"]
 
 
+def judge_benefit(store: JobStore, raw_event: dict[str, Any], model: Any, regions: Any = None) -> str | None:
+    """주거·이주 혜택 정책 수집 이벤트 → policy.extracted를 아웃박스에 넣고 그 eventId. 이미 넣은 수집 이벤트면 None.
+    AI로 글을 읽고(관련성·요약·지원 내용·일정·조건), 출처 코드 칸(온통청년)은 규칙으로 옮겨 규칙 값을 우선합니다(benefit/).
+    전체 비용 상한이면 BudgetExhausted, AI 일시 실패면 AiUnavailable(큐로 되돌림), AI 영구 실패면 AiFailed(.dlq),
+    만든 이벤트가 계약에 맞지 않으면 ValueError(.dlq)."""
+    payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
+    if payload.get("field") not in BENEFIT_FIELDS or store.judged(raw_event):
+        return None
+    try:
+        reading = read_benefit(payload, model)
+    except ModelError as error:
+        if error.code == "GLOBAL_BUDGET":
+            raise BudgetExhausted(str(error)) from error
+        if error.transient or error.code in POLICY_RETRY_CODES:
+            raise AiUnavailable(error.code or "transient") from error
+        raise AiFailed(error.code or "unknown") from error
+    rules = rules_for(str(payload.get("sourceCode") or ""), payload.get("record"), str(payload.get("text") or ""))
+    extracted = build_payload(payload, reading, rules, regions)
+    event = {**new_event(BENEFIT_EVENT_TYPE, PRODUCER, extracted), "traceId": raw_event.get("traceId")}
+    if errors := tools().validate(event, BENEFIT_SCHEMA):
+        raise ValueError(f"혜택 정제 이벤트가 계약에 맞지 않습니다: {errors[:3]}")
+    if not store.save_judgment(raw_event, event):
+        return None
+    log.info(
+        "혜택 정제 결과 발행 대기",
+        extra={
+            "eventId": event["eventId"],
+            "rawPolicyId": extracted["rawPolicyId"],
+            "relevant": extracted["relevant"],
+            "conditions": len(extracted["conditions"]),
+            "needsReview": extracted["quality"]["needsReview"],
+        },
+    )
+    return event["eventId"]
+
+
 @contextmanager
 def store_session(settings: Settings):
     conn = db.connect(settings.db_url)
@@ -445,7 +488,8 @@ def judge_message(settings: Settings, processor: Processor, raw_event: dict[str,
     """정책 수집 이벤트 하나 → "ack"·"requeue"·"dlq". 창업지원·사업공간이면 판정 틀 이벤트를 넣고 ack, 전체 비용 상한·DB 장애·AI 일시
     실패면 requeue, AI 일시 실패가 retries.limit번 이어지거나 AI 영구 실패로 틀을 못 만들었거나 계약 위반이면 .dlq."""
     payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
-    if payload.get("field") not in POLICY_FIELDS:  # 판정 틀이 없는 분야(BENEFIT): 비용 장부·DB를 열지 않고 넘김
+    benefit = payload.get("field") in BENEFIT_FIELDS and getattr(settings, "benefit_enabled", False)
+    if payload.get("field") not in POLICY_FIELDS and not benefit:  # 혜택 정제가 꺼져 있으면 BENEFIT: 비용 장부·DB를 열지 않고 넘김
         return "ack"
     key = _policy_retry_key(raw_event)
     trace = {"eventId": raw_event.get("eventId"), "rawPolicyId": payload.get("rawPolicyId"), "rawVersion": payload.get("version")}
@@ -457,7 +501,10 @@ def judge_message(settings: Settings, processor: Processor, raw_event: dict[str,
             models = processor.models.for_notice(ledger=ledger)
             model = FallbackOnErrorModel(models.primary, models.fallback) if models.fallback is not None else models.primary
             with store_session(settings) as store:
-                judge_policy(store, raw_event, model, processor.regions)
+                if benefit:
+                    judge_benefit(store, raw_event, model, processor.regions)
+                else:
+                    judge_policy(store, raw_event, model, processor.regions)
         finally:
             if ledger is not None:
                 ledger.close()

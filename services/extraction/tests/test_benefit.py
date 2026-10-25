@@ -1,0 +1,375 @@
+"""주거·이주 혜택(BENEFIT) 정제 → policy.extracted (2026-10-25, 담당자3 초안 모양). 합성 자료와 녹화 응답만 씁니다. AI·네트워크 호출 없음."""
+
+import json
+from contextlib import contextmanager
+
+import pytest
+
+from mujuthaek_extraction.assemble.regions import RegionCodeTable
+from mujuthaek_extraction.benefit.build import build_payload, has_won, quoted, same_value, won_amounts
+from mujuthaek_extraction.benefit.codes import rules_for, youth_rules
+from mujuthaek_extraction.benefit.reading import BenefitReading, read_benefit
+from mujuthaek_extraction.contracts import tools
+from mujuthaek_extraction.model import ModelError, RecordedModel
+
+REGIONS = RegionCodeTable(
+    [
+        ("2700000000", "대구광역시", True),
+        ("2711000000", "대구광역시 중구", True),
+        ("2714000000", "대구광역시 동구", True),
+        ("5200000000", "전북특별자치도", True),
+        ("5273000000", "전북특별자치도 무주군", True),
+    ],
+    "2026-10-01",
+)
+
+TEXT = """제목: 가상 청년 전월세 보증금 이자 지원
+기관: 가상광역시 주택과
+지역: 시군구
+분야: 주거, 전월세 및 주거급여 지원
+[항목]
+정책 설명: 목돈 마련이 어려운 가상 청년을 위해 전월세 임차보증금 대출이자 지원
+지원 내용: 대출금 최대 1억원(임차보증금의 90% 이내)의 최대 연 3.5% 이자지원
+지원 대상 최소 연령: 19
+지원 대상 최대 연령: 39
+추가 신청 자격: 19 ~ 39세 대구시 거주 무주택 청년
+ - (물건기준) 전세보증금 2.5억원 이하 주거용 주택
+ - (소득기준) 연소득 6천만원(부부합산 8천만원)이하
+신청 방법: 가상 누리집 온라인 신청
+사업 시작일: 20260107
+사업 종료일: 20261231"""
+
+RECORD = {
+    "jobCd": "0013010",
+    "zipCd": "27110,27140",
+    "plcyNo": "20261021000000000001",
+    "sbizCd": "0014010",
+    "aplyYmd": None,
+    "schoolCd": "0049010",
+    "mrgSttsCd": "0055003",
+    "earnCndSeCd": "0043001",
+    "earnMaxAmt": "0",
+    "earnMinAmt": "0",
+    "aplyPrdSeCd": "0057002",
+    "bizPrdBgngYmd": "20260107",
+    "bizPrdEndYmd": "20261231",
+    "sprtTrgtMaxAge": "39",
+    "sprtTrgtMinAge": "19",
+    "sprtTrgtAgeLmtYn": "N",
+}
+
+
+def payload(**changes):
+    base = {
+        "rawPolicyId": "01929a3e-0000-7000-8000-0000000b0001",
+        "version": 1,
+        "sourceCode": "youth",
+        "provider": "YOUTHCENTER",
+        "field": "BENEFIT",
+        "policyId": "20261021000000000001",
+        "title": "가상 청년 전월세 보증금 이자 지원",
+        "agency": "가상광역시 주택과",
+        "regionScope": "SIGUNGU",
+        "regionNames": [],
+        "regionCodes": ["27110", "27140"],
+        "categories": ["주거", "전월세 및 주거급여 지원"],
+        "detailUrl": "https://example.test/policy/1",
+        "applyUrl": None,
+        "sourceModifiedAt": None,
+        "text": TEXT,
+        "textKey": None,
+        "record": RECORD,
+        "hasDocument": False,
+        "hasOriginText": False,
+        "documentStatus": "NONE",
+        "originStatus": "NONE",
+        "files": [],
+        "reprocess": False,
+    }
+    return base | changes
+
+
+def condition(type_, evidence, **fields):
+    empty = {
+        "group": 1,
+        "type": type_,
+        "rawText": evidence,
+        "evidence": evidence,
+        "confidence": 0.9,
+        "min": None,
+        "max": None,
+        "values": [],
+        "basis": None,
+        "regionNames": [],
+        "months": None,
+        "amountMinWon": None,
+        "amountMaxWon": None,
+        "amountPer": None,
+        "assetKind": None,
+        "leaseKinds": [],
+        "depositMaxWon": None,
+        "monthlyMaxWon": None,
+    }
+    return empty | fields
+
+
+def answer(conditions=None, supports=None, **changes):
+    base = {
+        "relevant": True,
+        "relevanceReason": "가상 청년의 전월세 보증금 대출 이자를 지원하는 주거 혜택",
+        "summary": "가상 청년 전월세 보증금 대출 이자 최대 연 3.5% 지원",
+        "supports": supports
+        if supports is not None
+        else [
+            {
+                "kind": "DEPOSIT_LOAN",
+                "amountMaxWon": None,
+                "amountPer": None,
+                "months": None,
+                "ratePct": 3.5,
+                "rawText": "대출금 최대 1억원의 최대 연 3.5% 이자지원",
+                "evidence": "대출금 최대 1억원(임차보증금의 90% 이내)의 최대 연 3.5% 이자지원",
+            }
+        ],
+        "schedule": {"applyStart": None, "applyEnd": None, "applyAlways": True, "businessStart": "2026-01-07", "businessEnd": "2026-12-31", "rawText": None},
+        "howToApply": "가상 누리집 온라인 신청",
+        "documents": [],
+        "contact": None,
+        "conditions": conditions or [],
+    }
+    return base | changes
+
+
+def built(conditions=None, **kw):
+    reading = BenefitReading(answer(conditions, **kw), truncated=False, model="recorded")
+    data = payload()
+    return build_payload(data, reading, rules_for("youth", data["record"], data["text"]), REGIONS)
+
+
+# ---- 규칙 (온통청년 코드 칸) ----
+
+
+def test_youth_rules_move_age_region_and_schedule_and_skip_no_limit_codes():
+    rules = youth_rules(RECORD, TEXT)
+    by_type = {c["type"]: c for c in rules.conditions}
+    assert set(by_type) == {"AGE", "RESIDENCE"}  # 취업·학력·특화·결혼은 「제한없음」 코드라 줄 없음
+    assert by_type["AGE"]["value"] == {"min": 19, "max": 39} and by_type["AGE"]["evidence"] == "지원 대상 최대 연령: 39"
+    assert by_type["RESIDENCE"]["value"] == {"regions": ["27110", "27140"]}
+    assert all(c["origin"] == "RULE" and c["confidence"] == 1 for c in rules.conditions)
+    assert rules.schedule == {"applyAlways": True, "rawText": "상시", "businessStart": "2026-01-07", "businessEnd": "2026-12-31"}
+
+
+def test_youth_codes_with_several_values_become_one_or_group():
+    record = RECORD | {
+        "jobCd": "0013001,0013008",
+        "mrgSttsCd": "0055001",
+        "earnCndSeCd": "0043002",
+        "earnMaxAmt": "5000",
+        "aplyPrdSeCd": "0057001",
+        "aplyYmd": "20260123 ~ 20260202",
+    }
+    rules = youth_rules(record, TEXT)
+    jobs = [c for c in rules.conditions if c["type"] in ("EMPLOYMENT", "OCCUPATION")]
+    assert [(c["type"], c["value"]) for c in jobs] == [("EMPLOYMENT", {"in": ["EMPLOYED"]}), ("OCCUPATION", {"in": ["FARMER"]})]
+    assert len({c["group"] for c in jobs}) == 1  # 「재직자 또는 영농종사자」
+    assert {"type": "MARITAL", "value": {"in": ["MARRIED"]}}.items() <= next(c for c in rules.conditions if c["type"] == "MARITAL").items()
+    income = next(c for c in rules.conditions if c["type"] == "INCOME_AMOUNT")
+    assert income["value"] == {"unit": "MANWON_PER_YEAR", "basis": "PERSONAL", "max": 5000} and income["rawText"] == "연소득 5000만 원 이하"
+    assert rules.schedule["applyStart"] == "2026-01-23" and rules.schedule["applyEnd"] == "2026-02-02" and rules.schedule["applyAlways"] is False
+
+
+def test_other_sources_have_no_rules_yet():
+    assert rules_for("gov24", {"JA0110": "Y"}, TEXT).conditions == []
+
+
+# ---- 금액·근거 ----
+
+
+@pytest.mark.parametrize(
+    ("quote", "won"),
+    [
+        ("연소득 6천만원 이하", 60_000_000),
+        ("전세보증금 2.5억원 이하", 250_000_000),
+        ("최대 1억 5천만원", 150_000_000),
+        ("5,000만 원", 50_000_000),
+        ("월 20만원", 200_000),
+    ],
+)
+def test_korean_amounts_are_read(quote, won):
+    assert has_won(quote, won)
+
+
+def test_numbers_without_money_unit_are_not_amounts():
+    assert won_amounts("만 19~39세, 2026년") == set()
+
+
+def test_quote_must_be_in_the_source():
+    assert quoted("연소득 6천만원(부부합산 8천만원)이하", [TEXT])
+    assert not quoted("연소득 7천만원 이하", [TEXT])
+    assert not quoted("청년", [TEXT])  # 너무 짧은 인용
+
+
+# ---- 조립 ----
+
+
+def test_ai_conditions_are_checked_and_converted_to_manwon():
+    data = built(
+        [
+            condition("HOMELESS", "대구시 거주 무주택 청년", basis="PERSON", group=1),
+            condition("INCOME_AMOUNT", "연소득 6천만원(부부합산 8천만원)이하", group=2, amountMaxWon=60_000_000, amountPer="YEAR", basis="PERSONAL"),
+            condition("INCOME_AMOUNT", "연소득 6천만원(부부합산 8천만원)이하", group=2, amountMaxWon=80_000_000, amountPer="YEAR", basis="HOUSEHOLD"),
+            condition("LEASE", "전세보증금 2.5억원 이하 주거용 주택", group=3, leaseKinds=["JEONSE"], depositMaxWon=250_000_000),
+        ]
+    )
+    ai = [c for c in data["conditions"] if c["origin"] == "AI"]
+    assert [(c["type"], c["value"]) for c in ai] == [
+        ("HOMELESS", {"basis": "PERSON"}),
+        ("INCOME_AMOUNT", {"unit": "MANWON_PER_YEAR", "basis": "PERSONAL", "max": 6000}),
+        ("INCOME_AMOUNT", {"unit": "MANWON_PER_YEAR", "basis": "HOUSEHOLD", "max": 8000}),
+        ("LEASE", {"unit": "MANWON", "kind": ["JEONSE"], "depositMax": 25000}),
+    ]
+    rule_groups = {c["group"] for c in data["conditions"] if c["origin"] == "RULE"}
+    assert min(c["group"] for c in ai) > max(rule_groups)  # AI 묶음 번호는 규칙 뒤로
+    assert ai[1]["group"] == ai[2]["group"]  # 본인 또는 부부 기준
+    assert data["supports"][0]["ratePct"] == 3.5 and data["supports"][0]["amountMax"] is None
+    assert data["quality"]["needsReview"] is False and data["quality"]["reviewReasons"] == ["NO_DOCUMENT"]
+    assert (
+        tools().validate(
+            {
+                "eventId": "01929a3e-0000-7000-8000-000000000e01",
+                "eventType": "policy.extracted",
+                "schemaVersion": 1,
+                "occurredAt": "2026-10-25T00:00:00Z",
+                "producer": "extraction",
+                "payload": data,
+            },
+            "events/policy.extracted.v1.json",
+        )
+        == []
+    )
+
+
+def test_wrong_number_or_missing_quote_leaves_the_value_empty():
+    data = built(
+        [
+            condition("INCOME_AMOUNT", "연소득 6천만원(부부합산 8천만원)이하", amountMaxWon=70_000_000, amountPer="YEAR", basis="PERSONAL"),
+            condition("HOMELESS", "주택을 소유하지 않은 세대주", basis="HOUSEHOLD", group=2),
+        ]
+    )
+    ai = [c for c in data["conditions"] if c["origin"] == "AI"]
+    assert [(c["type"], c["known"], c["value"]) for c in ai] == [("INCOME_AMOUNT", False, None), ("HOMELESS", False, None)]
+    assert ai[1]["confidence"] <= 0.3
+    assert "EVIDENCE_NOT_FOUND" in data["quality"]["reviewReasons"] and data["quality"]["needsReview"] is True
+
+
+def test_rule_wins_over_ai_and_only_real_differences_are_conflicts():
+    same = built(
+        [
+            condition("AGE", "19 ~ 39세 대구시 거주 무주택 청년", min=19, max=39),
+            condition("RESIDENCE", "19 ~ 39세 대구시 거주 무주택 청년", regionNames=["대구광역시"], group=2),
+        ]
+    )
+    assert [c["origin"] for c in same["conditions"]] == ["RULE", "RULE"]  # AI의 나이·거주는 규칙 줄로 대신
+    assert "RULE_AI_CONFLICT" not in same["quality"]["reviewReasons"]
+    differ = built([condition("AGE", "19 ~ 39세 대구시 거주 무주택 청년", min=19, max=34)])
+    assert "RULE_AI_CONFLICT" not in differ["quality"]["reviewReasons"]  # 34가 근거에 없어 값이 비므로 비교하지 않음
+    other = built([condition("AGE", "만 19세 이상 34세 이하", min=19, max=34)], summary="가상")
+    assert other["conditions"][0]["value"] == {"min": 19, "max": 39}
+
+
+def test_same_value_treats_region_containment_as_same():
+    assert same_value("RESIDENCE", {"regions": ["27110", "27140"]}, {"regions": ["27"]})
+    assert not same_value("RESIDENCE", {"regions": ["27110"]}, {"regions": ["52"]})
+
+
+def test_text_only_conditions_are_unknown_and_source_regions_are_filled():
+    data = build_payload(
+        payload(regionCodes=[], regionNames=["전북특별자치도 무주군"], sourceCode="gov24", provider="GOV24", record={}),
+        BenefitReading(answer([condition("EXCLUSIVE", "대구시 거주 무주택 청년")]), truncated=True, model="recorded"),
+        rules_for("gov24", {}, TEXT),
+        REGIONS,
+    )
+    assert data["conditions"][0]["known"] is False and data["conditions"][0]["value"] is None
+    assert data["source"]["regionCodes"] == ["52730"]
+    assert {"TEXT_TRUNCATED", "LOW_CONFIDENCE"} <= set(data["quality"]["reviewReasons"]) and data["quality"]["confidence"] <= 0.5
+
+
+# ---- AI 읽기·worker ----
+
+
+def test_read_benefit_refuses_bad_shape():
+    with pytest.raises(ModelError) as caught:
+        read_benefit(payload(), RecordedModel({"benefit_reading": ['{"relevant": true}']}))
+    assert caught.value.code == "BAD_SHAPE"
+
+
+class FakeStore:
+    def __init__(self):
+        self.saved = []
+
+    def judged(self, raw_event):
+        return False
+
+    def save_judgment(self, raw_event, event):
+        self.saved.append(event)
+        return True
+
+
+def raw_event(**changes):
+    return {"eventId": "01929a3e-0000-7000-8000-00000000e0b1", "eventType": "raw.policy.collected", "payload": payload(**changes)}
+
+
+def test_judge_benefit_publishes_a_contract_valid_policy_extracted():
+    from mujuthaek_extraction.worker import judge_benefit
+
+    store = FakeStore()
+    model = RecordedModel({"benefit_reading": [json.dumps(answer([condition("HOMELESS", "대구시 거주 무주택 청년", basis="PERSON")]), ensure_ascii=False)]})
+    event_id = judge_benefit(store, raw_event(), model, REGIONS)
+    [event] = store.saved
+    assert event_id == event["eventId"] and event["eventType"] == "policy.extracted"
+    assert tools().validate(event, "events/policy.extracted.v1.json") == []
+    assert judge_benefit(store, raw_event(field="STARTUP_SUPPORT"), model, REGIONS) is None
+
+
+def test_judge_benefit_maps_model_failures():
+    from mujuthaek_extraction.worker import AiFailed, judge_benefit
+
+    with pytest.raises(AiFailed):
+        judge_benefit(FakeStore(), raw_event(), RecordedModel({"benefit_reading": ["not json"]}), REGIONS)
+
+
+def test_benefit_is_skipped_unless_enabled(monkeypatch):
+    from mujuthaek_extraction import worker
+
+    called = []
+    monkeypatch.setattr(worker, "judge_benefit", lambda *a: called.append("benefit"))
+    monkeypatch.setattr(worker, "judge_policy", lambda *a: called.append("policy"))
+
+    class Settings:
+        benefit_enabled = False
+        notice_budget_usd = 1.0
+
+    class Models:
+        fallback = None
+
+        def for_notice(self, ledger=None):
+            return self
+
+        primary = None
+
+    class Processor:
+        models = Models()
+        regions = None
+
+        def open_ledger(self, raw_event):
+            return None
+
+    @contextmanager
+    def session(settings):
+        yield FakeStore()
+
+    monkeypatch.setattr(worker, "store_session", session)
+    retries = worker.RetryCounter(3) if hasattr(worker, "RetryCounter") else None
+    assert worker.judge_message(Settings(), Processor(), raw_event(), retries) == "ack" and called == []
+    Settings.benefit_enabled = True
+    assert worker.judge_message(Settings(), Processor(), raw_event(), retries) == "ack" and called == ["benefit"]
