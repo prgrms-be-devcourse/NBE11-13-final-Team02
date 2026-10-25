@@ -109,8 +109,7 @@ public class AdminBenefitReviewService {
   }
 
   private int remaining() {
-    JsonNode rows = client.benefitList("PENDING");
-    return rows == null ? 0 : rows.size();
+    return ExtractionReviewClient.total(client.benefitPage("PENDING"));
   }
 
   static AdminBenefitReviewListResponse.Item item(JsonNode row) {

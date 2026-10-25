@@ -35,6 +35,9 @@ public class ExtractionReviewClient {
   private final RestClient http;
 
   @Autowired
+  /** 목록 한 번에 받는 최대 건수(검수 API 상한과 같음). */
+  private static final int LIST_LIMIT = 1000;
+
   public ExtractionReviewClient(ExtractionReviewProperties properties) {
     this(properties, defaultBuilder(properties));
   }
@@ -48,11 +51,42 @@ public class ExtractionReviewClient {
     this.http = builder.build();
   }
 
-  /** 그 상태(PENDING·APPROVED·REJECTED·SUPERSEDED)의 검수 목록. 응답의 items 배열. */
+  /** 그 상태(PENDING·APPROVED·REJECTED·SUPERSEDED)의 검수 목록. 응답의 items 배열(오래된 것부터 최대 1000건). */
   public JsonNode list(String status) {
-    JsonNode body =
-        call(() -> http.get().uri("/reviews?status={s}", status).retrieve().body(JsonNode.class));
+    JsonNode body = listBody("/reviews", status);
     return body == null ? null : body.get("items");
+  }
+
+  /** 공고 검수 목록 응답 전체 {items, total}. 건수는 목록 길이 대신 {@link #total}로 읽어요(2026-10-25 검토). */
+  public JsonNode page(String status) {
+    return listBody("/reviews", status);
+  }
+
+  /** 혜택 검수 목록 응답 전체 {items, total}. */
+  public JsonNode benefitPage(String status) {
+    return listBody("/benefit-reviews", status);
+  }
+
+  private JsonNode listBody(String path, String status) {
+    return call(
+        () ->
+            http.get()
+                .uri(path + "?status={s}&limit={n}", status, LIST_LIMIT)
+                .retrieve()
+                .body(JsonNode.class));
+  }
+
+  /** 목록 응답의 전체 건수(total이 없는 옛 응답이면 items 길이). */
+  public static int total(JsonNode body) {
+    if (body == null) {
+      return 0;
+    }
+    JsonNode total = body.get("total");
+    if (total != null && total.isNumber()) {
+      return total.asInt();
+    }
+    JsonNode items = body.get("items");
+    return items == null ? 0 : items.size();
   }
 
   /** 검수 상세(후보·이슈·받은 이벤트 포함). */
@@ -106,13 +140,7 @@ public class ExtractionReviewClient {
 
   /** 혜택(주거·이주 정책) 검수 목록. 응답의 items 배열. */
   public JsonNode benefitList(String status) {
-    JsonNode body =
-        call(
-            () ->
-                http.get()
-                    .uri("/benefit-reviews?status={s}", status)
-                    .retrieve()
-                    .body(JsonNode.class));
+    JsonNode body = listBody("/benefit-reviews", status);
     return body == null ? null : body.get("items");
   }
 

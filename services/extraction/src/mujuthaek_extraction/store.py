@@ -300,6 +300,10 @@ class JobStore:
                 )
         return True
 
+    def benefit_review_count(self, status: str = "PENDING") -> int:
+        """그 상태의 혜택 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토)."""
+        return int(self.conn.execute("select count(*) from benefit_reviews where status = %s", (status,)).fetchone()[0])
+
     def benefit_reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
         """혜택 검수 목록(오래된 것부터). applyEndsOn은 결과의 신청 마감일, reported는 정책 제보로 다시 연 건인지."""
         rows = self.conn.execute(
@@ -411,6 +415,10 @@ class JobStore:
         self.conn.execute("delete from extraction_claims where raw_post_id = %s and raw_version = %s and owner = %s", (raw_post_id, raw_version, owner))
 
     # ---- 검수 ----
+    def review_count(self, status: str = "PENDING") -> int:
+        """그 상태의 공고 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토)."""
+        return int(self.conn.execute("select count(*) from review_queue where status = %s", (status,)).fetchone()[0])
+
     def reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
         """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다.
         applyEndsOn은 후보의 신청(APPLICATION) 일정 중 가장 이른 끝 날짜예요(관리자 개요의 「마감이 가까운 검수 대기」, 2026-10-25)."""

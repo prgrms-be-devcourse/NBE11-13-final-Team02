@@ -92,21 +92,23 @@ public class AdminReviewService {
     if (reason != null && !REASONS.contains(reason)) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "reason은 MUST·CHECK·FORMAT 중 하나예요");
     }
-    List<Item> all = items(client.list(PENDING));
+    JsonNode page = client.page(PENDING);
+    List<Item> all = items(page == null ? null : page.get("items"));
     List<Item> shown =
         reason == null ? all : all.stream().filter(i -> reason.equals(i.reason())).toList();
-    return new AdminReviewListResponse(all.size(), shown);
+    return new AdminReviewListResponse(ExtractionReviewClient.total(page), shown);
   }
 
   public AdminReviewCountsResponse counts() {
-    List<Item> all = items(client.list(PENDING));
+    JsonNode page = client.page(PENDING);
+    List<Item> all = items(page == null ? null : page.get("items"));
     OffsetDateTime oldest =
         all.stream()
             .map(Item::receivedAt)
             .filter(Objects::nonNull)
             .min(Comparator.naturalOrder())
             .orElse(null);
-    return new AdminReviewCountsResponse(all.size(), oldest);
+    return new AdminReviewCountsResponse(ExtractionReviewClient.total(page), oldest);
   }
 
   /** 처리 통계. days는 1~90. */
@@ -473,8 +475,7 @@ public class AdminReviewService {
   }
 
   private int remaining() {
-    JsonNode list = client.list(PENDING);
-    return list == null ? 0 : list.size();
+    return ExtractionReviewClient.total(client.page(PENDING));
   }
 
   private static List<Item> items(JsonNode list) {

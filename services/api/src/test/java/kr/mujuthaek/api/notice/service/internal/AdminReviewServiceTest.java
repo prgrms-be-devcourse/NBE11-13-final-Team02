@@ -60,8 +60,24 @@ class AdminReviewServiceTest {
 
   private void expectList(int times) {
     server
-        .expect(ExpectedCount.times(times), requestTo(BASE + "/reviews?status=PENDING"))
+        .expect(ExpectedCount.times(times), requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
         .andRespond(withSuccess(LIST, MediaType.APPLICATION_JSON));
+  }
+
+  @Test
+  void countsUseTheTotalNotTheTruncatedListLength() {
+    var service = service();
+    server
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
+        .andRespond(
+            withSuccess(
+                """
+                {"total":1200,"items":[{"jobId":"%s","jobStatus":"IN_REVIEW","reasons":[],
+                 "queuedAt":"2026-10-24 21:00:00+00:00","title":"가상 공고"}]}
+                """
+                    .formatted(A),
+                MediaType.APPLICATION_JSON));
+    assertThat(service.counts().reviewPending()).isEqualTo(1200);
   }
 
   @Test

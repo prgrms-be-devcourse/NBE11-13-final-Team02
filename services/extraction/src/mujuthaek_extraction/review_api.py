@@ -126,6 +126,16 @@ def _same_notice(candidate: dict[str, Any], raw_payload: dict[str, Any]) -> bool
     return all((str(r.get("rawPostId")), r.get("rawVersion")) == expected[:2] for r in references)
 
 
+MAX_LIST_LIMIT = 1000
+
+
+def _list_limit(raw: str | None) -> int | None:
+    """목록 limit 칸: 비우면 최대값, 1~MAX_LIST_LIMIT 정수가 아니면 None(400)."""
+    if raw is None or raw == "":
+        return MAX_LIST_LIMIT
+    return int(raw) if raw.isdigit() and 1 <= int(raw) <= MAX_LIST_LIMIT else None
+
+
 class ReviewService:
     """HTTP와 분리한 검수 동작. store_session은 JobStore를 여는 컨텍스트입니다(요청마다 DB 연결)."""
 
@@ -170,11 +180,15 @@ class ReviewService:
         log.info("검수 다시 열기", extra={"jobId": opened["jobId"], "reopened": opened["reopened"]})
         return 200, opened
 
-    def list(self, status: str) -> tuple[int, Any]:
+    def list(self, status: str, limit: str | None = None) -> tuple[int, Any]:
+        """검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 그 상태의 전체 건수 total. 건수는 목록 길이가 아니라 total을 쓰세요(2026-10-25 검토)."""
         if status not in REVIEW_LIST_STATUSES:
             return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
+        size = _list_limit(limit)
+        if size is None:
+            return 400, {"error": f"limit은 1~{MAX_LIST_LIMIT} 사이 정수입니다."}
         with self.store_session() as store:
-            return 200, {"items": store.reviews(status)}
+            return 200, {"items": store.reviews(status, size), "total": store.review_count(status)}
 
     def detail(self, job_id: str) -> tuple[int, Any]:
         with self.store_session() as store:
@@ -240,11 +254,15 @@ class ReviewService:
         return 200, {"jobId": job_id, "reviewStatus": "REJECTED"}
 
     # ---- 혜택 검수 (2026-10-25) ----
-    def benefit_list(self, status: str) -> tuple[int, Any]:
+    def benefit_list(self, status: str, limit: str | None = None) -> tuple[int, Any]:
+        """혜택 검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 전체 건수 total."""
         if status not in REVIEW_LIST_STATUSES:
             return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
+        size = _list_limit(limit)
+        if size is None:
+            return 400, {"error": f"limit은 1~{MAX_LIST_LIMIT} 사이 정수입니다."}
         with self.store_session() as store:
-            return 200, {"items": store.benefit_reviews(status)}
+            return 200, {"items": store.benefit_reviews(status, size), "total": store.benefit_review_count(status)}
 
     def benefit_detail(self, review_id: str) -> tuple[int, Any]:
         with self.store_session() as store:
@@ -385,13 +403,15 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
             if not self._allowed():
                 return self._send(401, {"error": "인증이 필요합니다."})
             if url.path == "/reviews":
-                return self._send(*service.list(parse_qs(url.query).get("status", ["PENDING"])[0]))
+                query = parse_qs(url.query)
+                return self._send(*service.list(query.get("status", ["PENDING"])[0], query.get("limit", [None])[0]))
             if url.path == "/reviews/stats":
                 return self._send(*service.stats(parse_qs(url.query).get("days", [None])[0]))
             if url.path == "/costs":
                 return self._send(*service.costs(parse_qs(url.query).get("month", [None])[0]))
             if url.path == "/benefit-reviews":
-                return self._send(*service.benefit_list(parse_qs(url.query).get("status", ["PENDING"])[0]))
+                query = parse_qs(url.query)
+                return self._send(*service.benefit_list(query.get("status", ["PENDING"])[0], query.get("limit", [None])[0]))
             match = REVIEW_PATH.match(url.path)
             if match and not match[2]:
                 job_id = self._job_id(match)

@@ -414,6 +414,10 @@ def test_publishing_newer_version_supersedes_older_pending_review(store):
     assert status == 409 and "v2" in body["error"] and "새 버전" in body["error"]
     assert review_status(store, v1) == "SUPERSEDED" and store.review(v1)["note"] == "v2 발행으로 대체됨"
     assert service.list("SUPERSEDED")[0] == 200 and service.list("NOPE")[0] == 400
+    # 목록은 limit에서 잘려도 total은 그 상태의 전체 건수(2026-10-25 검토)
+    status, body = service.list("SUPERSEDED", "1")
+    assert status == 200 and len(body["items"]) <= 1 and body["total"] >= len(body["items"])
+    assert service.list("PENDING", "0")[0] == 400 and service.list("PENDING", "x")[0] == 400
     assert count(store, "select count(*) from outbox") == 1  # v2 발행 한 번뿐(대체된 v1은 발행 없음)
 
     # 여러 번 해도 같음: v3 발행은 v2만 대체하고 이미 대체된 v1의 기록(대체한 버전)은 그대로

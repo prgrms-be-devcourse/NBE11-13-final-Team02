@@ -113,8 +113,11 @@ class FakeStore:
     def __init__(self, item):
         self.item, self.approved, self.rejected = item, None, None
 
-    def reviews(self, status):
-        return [self.item] if self.item and self.item["reviewStatus"] == status else []
+    def reviews(self, status, limit=50):
+        return ([self.item] if self.item and self.item["reviewStatus"] == status else [])[:limit]
+
+    def review_count(self, status):
+        return len(self.reviews(status))
 
     def review(self, job_id):
         return self.item
@@ -173,7 +176,8 @@ def test_approving_a_superseded_review_names_the_newer_version():
     service, store = service_with(item)
     status, body = service.approve("job", {})
     assert status == 409 and "v2" in body["error"] and body["supersededBy"]["version"] == 2 and store.approved is None
-    assert service.list("SUPERSEDED") == (200, {"items": [item]}) and service.list("PENDING") == (200, {"items": []})
+    assert service.list("SUPERSEDED") == (200, {"items": [item], "total": 1})
+    assert service.list("PENDING") == (200, {"items": [], "total": 0})
 
 
 def partial_item():
