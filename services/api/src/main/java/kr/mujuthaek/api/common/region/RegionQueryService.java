@@ -78,6 +78,27 @@ public class RegionQueryService {
         .findFirst();
   }
 
+  /** 여러 코드의 화면 이름을 한 번에 (목록용). 모르는 코드는 빠져요. */
+  public Map<String, String> displayNames(java.util.Collection<String> codes) {
+    List<String> distinct = codes.stream().filter(c -> c != null).distinct().toList();
+    Map<String, String> out = new java.util.HashMap<>();
+    if (distinct.isEmpty()) {
+      return out;
+    }
+    new org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate(jdbc)
+        .query(
+            """
+            select r.code, coalesce(s.short_name || ' ' || r.name, r.short_name, r.name)
+            from common.regions r left join common.regions s on s.code = r.parent_code
+            where r.code in (:codes)
+            """,
+            java.util.Map.of("codes", distinct),
+            rs -> {
+              out.put(rs.getString(1), rs.getString(2));
+            });
+    return out;
+  }
+
   /** 화면에 붙일 지역 이름 ("서울 마포구"). 모르는 코드면 null. */
   public String displayName(String code) {
     if (code == null) {

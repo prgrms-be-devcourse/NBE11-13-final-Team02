@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import kr.mujuthaek.api.area.service.NoticeAreaQueryService;
@@ -78,10 +79,11 @@ public class NoticeQueryService {
     LocalDate today = LocalDate.now(clock);
     var rows = queries.list(filter, page.after(), page.fetchSize());
     var sites = areas.sitesOf(rows.stream().map(ListRow::id).toList());
+    var names = regionNames(rows);
     return CursorPageResponse.from(
         rows,
         page.size(),
-        row -> summary(row, today, sites.getOrDefault(row.id(), List.of())),
+        row -> summary(row, today, sites.getOrDefault(row.id(), List.of()), names),
         row -> CursorKey.of(filter.sort(), NoticeQueries.sortValue(row, filter.sort()), row.id()));
   }
 
@@ -245,8 +247,9 @@ public class NoticeQueryService {
     LocalDate today = LocalDate.now(clock);
     var rows = queries.list(filter, null, limit);
     var sites = areas.sitesOf(rows.stream().map(ListRow::id).toList());
+    var names = regionNames(rows);
     return rows.stream()
-        .map(row -> summary(row, today, sites.getOrDefault(row.id(), List.of())))
+        .map(row -> summary(row, today, sites.getOrDefault(row.id(), List.of()), names))
         .map(
             s ->
                 new Candidate(
@@ -340,33 +343,97 @@ public class NoticeQueryService {
    *
    * @param judgment 판정 틀 (contracts/schemas/housing-judgment.v1.json). 아직 없으면 null
    * @param unitTypes 주택형별 보증금·월임대료 (준비할 돈 계산)
+   * @param eligibilityComplete 추출이 자격 조건을 다 읽었는지 (quality.coverage.eligibility가
+   *     EXTRACTED·NOT_IN_SOURCE· NOT_APPLICABLE). 일부만 읽었거나 실패했으면 false라서, 빠진 조건이 있을 수 있어요
    */
   public record JudgingSource(
       UUID noticeId,
       String field,
       String noticeType,
       JsonNode judgment,
-      List<UnitPrice> unitTypes) {}
+      List<UnitPrice> unitTypes,
+      boolean eligibilityComplete) {}
 
   public record UnitPrice(
       String houseType, java.math.BigDecimal exclusiveM2, Long depositWon, Long rentWon) {}
 
+  /** 자격 조건을 다 읽었다고 볼 수 있는 추출 상태. */
+  private static final java.util.Set<String> ELIGIBILITY_COMPLETE =
+      java.util.Set.of("EXTRACTED", "NOT_IN_SOURCE", "NOT_APPLICABLE");
+
   /** 없거나 숨김·공개 전이면 404 NOTICE_NOT_FOUND. */
   public JudgingSource judgingSource(UUID noticeId) {
     CurrentRow current = current(noticeId);
-    JsonNode payload = payload(current);
+    return judgingSource(
+        noticeId, current.row().field(), current.row().noticeType(), payload(current));
+  }
+
+  /**
+   * 판정에 쓰는 공고 내용 여러 개를 한 번에 (맞춤 목록). 현재 버전 번호만 먼저 묻고, 판정 틀은 공고 ID·버전으로 기억해 둔 것을 써요. 처음 보는 버전만
+   * payload를 한 번에 읽어요. 숨김·공개 전·없는 공고는 빠져요.
+   */
+  public java.util.Map<UUID, JudgingSource> judgingSources(java.util.Collection<UUID> ids) {
+    java.util.Map<UUID, JudgingSource> found = new java.util.HashMap<>();
+    if (ids.isEmpty()) {
+      return found;
+    }
+    java.util.Map<UUID, Integer> versions = queries.currentVersions(ids);
+    List<UUID> missing = new java.util.ArrayList<>();
+    versions.forEach(
+        (id, version) -> {
+          JudgingSource cached = judgingCache.get(new JudgingKey(id, version));
+          if (cached == null) {
+            missing.add(id);
+          } else {
+            found.put(id, cached);
+          }
+        });
+    if (!missing.isEmpty()) {
+      for (var row : queries.judgingRows(missing)) {
+        JudgingSource source =
+            judgingSource(row.id(), row.field(), row.noticeType(), json.readTree(row.payload()));
+        judgingCache.put(new JudgingKey(row.id(), row.version()), source);
+        found.put(row.id(), source);
+      }
+    }
+    return found;
+  }
+
+  private static JudgingSource judgingSource(
+      UUID noticeId, String field, String noticeType, JsonNode payload) {
     JsonNode judgment = payload.path("judgment");
+    JsonNode notice = payload.path("notice");
     var units =
-        NoticeDetailMapper.unitTypes(payload.path("notice")).stream()
+        NoticeDetailMapper.unitTypes(notice).stream()
             .map(u -> new UnitPrice(u.houseType(), u.exclusiveM2(), u.depositWon(), u.rentWon()))
             .toList();
+    String coverage =
+        notice.path("quality").path("coverage").path("eligibility").path("status").asString("");
     return new JudgingSource(
         noticeId,
-        current.row().field(),
-        current.row().noticeType(),
+        field,
+        noticeType,
         judgment.isObject() ? judgment : null,
-        units);
+        units,
+        ELIGIBILITY_COMPLETE.contains(coverage));
   }
+
+  private record JudgingKey(UUID id, int version) {}
+
+  /**
+   * 판정 틀 기억 (공고 ID·버전 → 판정에 쓰는 내용). 공개 데이터만 담아요(사용자 조건·판정 결과는 담지 않아요). 새 버전이 오면 키가 달라져서 옛 값은 오래된
+   * 순으로 밀려나요.
+   */
+  private final java.util.Map<JudgingKey, JudgingSource> judgingCache =
+      java.util.Collections.synchronizedMap(
+          new java.util.LinkedHashMap<>(256, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(java.util.Map.Entry<JudgingKey, JudgingSource> e) {
+              return size() > JUDGING_CACHE_SIZE;
+            }
+          });
+
+  static final int JUDGING_CACHE_SIZE = 2000;
 
   /**
    * 공고 요약 여러 개를 한 번에 (알림 담당 요청: 공고 ID로 제목·마감일 등). 물은 ID → 요약이며 물은 순서를 지켜요. 다른 공고에 합쳐진 공고 ID는 상세
@@ -441,8 +508,14 @@ public class NoticeQueryService {
     return json.readTree(current.payload());
   }
 
+  /** 목록 줄들의 지역 이름을 한 번에 (줄마다 묻지 않게). */
+  private Map<String, String> regionNames(List<ListRow> rows) {
+    return regions.displayNames(rows.stream().map(r -> regionLookup(r.regionCode())).toList());
+  }
+
   /** 목록 한 줄. 대표 위치 = area 좌표가 있는 첫 위치(notice 위치 ID 순). */
-  private NoticeSummaryResponse summary(ListRow row, LocalDate today, List<NoticeSite> sites) {
+  private NoticeSummaryResponse summary(
+      ListRow row, LocalDate today, List<NoticeSite> sites, Map<String, String> names) {
     NoticeSite main = sites.stream().filter(s -> s.lat() != null).findFirst().orElse(null);
     return new NoticeSummaryResponse(
         row.id(),
@@ -451,7 +524,7 @@ public class NoticeQueryService {
         row.provider(),
         row.noticeType(),
         row.regionCode(),
-        regions.displayName(regionLookup(row.regionCode())),
+        names.get(regionLookup(row.regionCode())),
         row.status(),
         row.applyStart(),
         row.applyEnd(),

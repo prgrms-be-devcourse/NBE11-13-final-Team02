@@ -185,7 +185,9 @@ public final class CriterionJudge {
 
   /** 소득: 공고에 인쇄된 가구원 수별 상한표가 있으면 그걸, 없으면 기준 소득 월액 × 비율(가산 포함, 원 단위 버림)을 상한으로 써요. */
   static Item income(Income c, Applicant a, LocalDate ref, IncomeBenchmarks benchmarks) {
-    String standard = INCOME_STANDARDS.getOrDefault(c.standard(), "기준 소득");
+    // 공고 표만 있는 소득 조건은 기준 종류가 없어요 (계약: standard null). Map.of는 null 키를 못 찾아요
+    String standard =
+        c.standard() == null ? "기준 소득" : INCOME_STANDARDS.getOrDefault(c.standard(), "기준 소득");
     String label =
         "소득 · " + standard + (c.percent() == null ? "" : " " + number(c.percent()) + "%") + " 이하";
     Long annual;

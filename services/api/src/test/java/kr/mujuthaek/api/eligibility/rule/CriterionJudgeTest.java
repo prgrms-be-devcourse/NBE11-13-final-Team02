@@ -92,6 +92,24 @@ class CriterionJudgeTest {
   }
 
   @Test
+  void incomeWithOnlyAPrintedTableHasNoStandard() {
+    // 계약상 standard·percent가 null일 수 있어요 (공고 표만 있음). 예전엔 NPE로 맞춤 목록 전체가 500이었어요
+    var c =
+        new Judgment.Income(
+            B,
+            "HOUSEHOLD",
+            null,
+            null,
+            null,
+            List.of(),
+            "SUM",
+            List.of(new Judgment.PrintedRow(1, 3_000_000)));
+    Item ok = judge(c, applicant().household(1).personalIncome(3_000_000L * 12).build());
+    assertThat(ok.status()).isEqualTo(MET);
+    assertThat(ok.label()).isEqualTo("소득 · 기준 소득 이하");
+  }
+
+  @Test
   void incomeWithoutAPrintedTableWaitsForCriteria() {
     var c =
         new Judgment.Income(
