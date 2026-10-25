@@ -68,6 +68,10 @@ COMPLETED_SCHEMA = "events/extraction.completed.v1.json"
 BENEFIT_EVENT_TYPE = "policy.extracted"
 BENEFIT_SCHEMA = "events/policy.extracted.v1.json"
 BENEFIT_FIELDS = frozenset({"BENEFIT"})
+# 혜택 정제 결과를 보관할 큐(2026-10-25 로컬 실제 흐름 시험에서 발견): 받는 쪽(api benefit)이 아직 큐를 만들지 않아 아웃박스 발행기(mandatory)가
+# 「받을 곳 없음」으로 거절당하고, 그 뒤의 공고 결과 이벤트까지 막혔습니다. raw.policy와 같은 까닭으로 보내는 쪽이 인자 없이 선언해 둡니다
+# (받는 쪽이 같은 이름을 다른 인자로 선언하면 PRECONDITION_FAILED이니 인자 없이 쓰거나 이 선언을 함께 바꿔야 함)
+BENEFIT_QUEUE = "mujuthaek.policy.extracted"
 CLAIM_LEASE_SECONDS = 300  # 처리권 기한. 워커가 죽으면 이 시간 뒤 다른 처리가 이어받습니다
 CLAIM_RENEW_SECONDS = 60  # 처리 중 기한을 늘리는 간격(공고 하나가 30분 넘게 걸린 실측이 있어 기한을 계속 늘림)
 CLAIM_BUSY_SECONDS = 30  # 다른 처리가 잡고 있을 때 큐로 되돌리기 전 기다림
@@ -92,6 +96,8 @@ def declare(channel) -> None:
     channel.queue_declare(queue=POLICY_QUEUE, durable=True)
     channel.queue_bind(queue=POLICY_QUEUE, exchange=EXCHANGE, routing_key=POLICY_ROUTING_KEY)
     channel.queue_declare(queue=POLICY_DLQ, durable=True)
+    channel.queue_declare(queue=BENEFIT_QUEUE, durable=True)
+    channel.queue_bind(queue=BENEFIT_QUEUE, exchange=EXCHANGE, routing_key=BENEFIT_EVENT_TYPE)
 
 
 DLQ_TARGETS = {"notice": (DLQ, QUEUE), "policy": (POLICY_DLQ, POLICY_QUEUE)}

@@ -600,7 +600,9 @@ def test_policy_events_get_a_waiting_queue_so_collector_relay_is_not_blocked():
     assert bindings == {
         ("mujuthaek.raw.collected", "raw.notice.collected"),
         ("mujuthaek.raw.policy", "raw.policy.collected"),
+        ("mujuthaek.policy.extracted", "policy.extracted"),  # 혜택 결과: 받는 쪽이 생기기 전까지 보관(없으면 아웃박스가 막힘)
     }
+    assert ("queue_declare", {"queue": "mujuthaek.policy.extracted", "durable": True}) in calls
     # 이미 있는 큐와 인자가 달라 거절당하지 않게 인자 없이 선언합니다
     assert ("queue_declare", {"queue": "mujuthaek.raw.policy", "durable": True}) in calls
     assert ("queue_declare", {"queue": "mujuthaek.raw.policy.dlq", "durable": True}) in calls
