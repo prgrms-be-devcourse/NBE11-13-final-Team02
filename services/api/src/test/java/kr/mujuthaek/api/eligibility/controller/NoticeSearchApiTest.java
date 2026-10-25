@@ -136,6 +136,43 @@ class NoticeSearchApiTest {
         .containsExactly(unknown.toString(), ineligible.toString(), eligible.toString());
   }
 
+  /** area가 계산해 둔 생활권 점수(교통 한 항목)를 시험 DB에 직접 넣어요. 좌표는 동해 바다 위예요. */
+  private void areaScore(UUID notice, int transit) {
+    UUID site =
+        f.jdbc.queryForObject(
+            "insert into area.notice_locations (notice_id, notice_location_id, notice_version, kind,"
+                + " address_text, geom, status, method) values (?, 'building-a', 1, 'BUILDING', '주소',"
+                + " st_makepoint(132.1, 38.1)::geography, 'OK', 'FILE') returning location_id",
+            UUID.class,
+            notice);
+    f.jdbc.update(
+        "insert into area.location_scores (location_id, score_kind, category, score, score_version)"
+            + " values (?, 'LIFE', 'TRANSIT', ?, '2026.1')",
+        site,
+        transit);
+  }
+
+  @Test
+  void areaScoreSortPutsTheBetterAreaFirst() throws Exception {
+    UUID soonLow = noticeForAges(19, 39, "2026-10-30");
+    UUID laterHigh = noticeForAges(19, 39, "2026-11-30");
+    areaScore(soonLow, 30);
+    areaScore(laterHigh, 90);
+
+    String body =
+        mvc.perform(
+                post("/api/v1/notices/search")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content(body(",\"sort\":\"AREA_SCORE\"")))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.items[0].areaScore").value(90))
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+    assertThat((List<String>) JsonPath.read(body, "$.items[*].id"))
+        .containsExactly(laterHigh.toString(), soonLow.toString());
+  }
+
   @Test
   void pagesAndRejectsBadValues() throws Exception {
     noticeForAges(19, 39, "2026-10-30");
