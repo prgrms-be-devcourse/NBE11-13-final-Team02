@@ -40,6 +40,14 @@ class AdminCriteriaServiceTest {
   }
 
   @Test
+  void validFromMustBeInsideTheYear() {
+    AdminCriteriaService.checkValidFrom(2026, java.time.LocalDate.of(2026, 2, 26));
+    assertThatThrownBy(
+            () -> AdminCriteriaService.checkValidFrom(2027, java.time.LocalDate.of(2026, 12, 1)))
+        .isInstanceOf(CustomException.class);
+  }
+
+  @Test
   void rankCriteriaNeedsRanksOrByNoticeType() {
     assertThatCode(
             () -> AdminCriteriaService.checkData("RANK_CRITERIA", json.readTree("{\"ranks\":[]}")))

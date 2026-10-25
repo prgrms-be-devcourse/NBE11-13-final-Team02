@@ -42,6 +42,29 @@ class NoticeRegulationServiceTest {
   }
 
   @Test
+  void citiesWithGeneralDistrictsMatchTheirDistricts() {
+    // 수원시(41110)를 지정하면 장안구(41111) 공고도 걸려요
+    var city = List.of(area("41110", "ADJUSTMENT_TARGET"));
+    assertThat(NoticeRegulationService.match(List.of("4111100000"), city))
+        .singleElement()
+        .extracting(Area::partial)
+        .isEqualTo(false);
+    // 영통구(41117)만 지정됐으면 수원시 전체 공고는 일부만 걸려요(partial)
+    var district = List.of(area("41117", "SPECULATION_OVERHEATED"));
+    assertThat(NoticeRegulationService.match(List.of("4111000000"), district))
+        .singleElement()
+        .extracting(Area::partial)
+        .isEqualTo(true);
+    // 다른 구(권선구 41113)는 걸리지 않아요
+    assertThat(NoticeRegulationService.match(List.of("4111300000"), district)).isEmpty();
+    // 시 단위 코드끼리는 앞 4자리가 달라 섞이지 않아요(남양주 41360 · 오산 41370)
+    assertThat(
+            NoticeRegulationService.match(
+                List.of("4136000000"), List.of(area("41370", "SPECULATION"))))
+        .isEmpty();
+  }
+
+  @Test
   void nationwideNoticeIsNotRegulatedAndCityWideNoticeIsPartial() {
     var active = List.of(area("11680", "SPECULATION_OVERHEATED"));
     assertThat(NoticeRegulationService.match(List.of(), active)).isEmpty();
