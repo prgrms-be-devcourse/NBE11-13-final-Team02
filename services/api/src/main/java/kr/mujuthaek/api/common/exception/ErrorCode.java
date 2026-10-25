@@ -25,6 +25,9 @@ public enum ErrorCode {
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
 
+  // area
+  AREA_SITE_NOT_FOUND(HttpStatus.NOT_FOUND, "위치를 찾을 수 없어요 (좌표를 아직 못 찾은 위치 포함)"),
+
   // user
   UNSUPPORTED_SOCIAL_PROVIDER(HttpStatus.BAD_REQUEST, "지원하지 않는 소셜 로그인이에요"),
   INVALID_REFRESH_TOKEN(HttpStatus.UNAUTHORIZED, "로그인이 만료됐어요. 다시 로그인해 주세요"),
