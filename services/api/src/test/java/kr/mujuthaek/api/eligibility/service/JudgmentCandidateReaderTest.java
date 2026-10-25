@@ -35,7 +35,7 @@ class JudgmentCandidateReaderTest {
       JSON.readTree("{\"schema\": \"startup-support-judgment.v1\"}");
 
   private final NoticeQueryService notices =
-      new NoticeQueryService(null, null, null, null, null, null) { // 판정용 메서드만 덮어써서 씀
+      new NoticeQueryService(null, null, null, null, null, null, null) { // 판정용 메서드만 덮어써서 씀
         @Override
         public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
           return switch (field) {

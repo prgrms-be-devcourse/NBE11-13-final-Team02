@@ -236,7 +236,11 @@ public final class NoticeDetailMapper {
               text(l.path("kind")),
               name,
               held(detail, at + "/address") ? null : text(l.path("address")),
-              code == null || code.length() < 5 ? code : code.substring(0, 5)));
+              code == null || code.length() < 5 ? code : code.substring(0, 5),
+              null,
+              null,
+              null,
+              List.of()));
     }
     return out;
   }

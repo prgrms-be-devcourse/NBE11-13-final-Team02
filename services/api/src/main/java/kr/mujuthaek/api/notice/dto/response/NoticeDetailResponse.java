@@ -125,7 +125,46 @@ public record NoticeDetailResponse(
       List<String> targetGroups,
       List<Evidence> evidence) {}
 
-  public record Site(String id, String kind, String name, String address, String regionCode) {}
+  /**
+   * @param siteId area 위치 ID (GET /areas/sites/{siteId}). area가 아직 모르는 위치면 null
+   * @param lat 좌표 (area가 못 찾았으면 null)
+   * @param tags 세권 태그 (STATION, SCHOOL, ELEMENTARY_NEAR, PARK, CONVENIENCE, CLINIC)
+   */
+  public record Site(
+      String id,
+      String kind,
+      String name,
+      String address,
+      String regionCode,
+      UUID siteId,
+      Double lat,
+      Double lng,
+      List<String> tags) {
+
+    public Site withArea(UUID siteId, Double lat, Double lng, List<String> tags) {
+      return new Site(id, kind, name, address, regionCode, siteId, lat, lng, tags);
+    }
+  }
+
+  /** 같은 상세에 위치만 바꾼 것 (area 값을 붙일 때). */
+  public NoticeDetailResponse withSites(List<Site> sites) {
+    return new NoticeDetailResponse(
+        header,
+        summary,
+        schedules,
+        sites,
+        unitTypes,
+        conditions,
+        requiredDocuments,
+        files,
+        heldItems,
+        areaSummaries,
+        followUps,
+        hasUnits,
+        version,
+        reviewed,
+        updatedAt);
+  }
 
   /**
    * @param evidence 보여 주는 보증금·월임대료의 근거 원문

@@ -136,6 +136,8 @@ public final class PostgresAreaBaseDataLoader {
       case STORES -> {
         deleted = update(conn, sql("delete_stores.sql"), req.scope());
         iu = queryPair(conn, sql("apply_stores.sql"), req.scope(), dataDate);
+        // 상권 입지계수의 분모(업종 묶음별 전국 점포 수)도 같은 트랜잭션에서 다시 채워요
+        update(conn, sql("fill_industry_shares.sql"));
       }
       case ADDRESS_POINTS -> {
         deleted = update(conn, sql("delete_address_points.sql"), req.scope());

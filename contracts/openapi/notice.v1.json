@@ -1187,6 +1187,167 @@
           }
         }
       }
+    },
+    "/api/v1/notices/map": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "noticeMap",
+        "summary": "공고 지도",
+        "description": "지도 범위 안 공고의 대표 위치(area 좌표). 300개 이하면 핀, 넘으면 지역별 묶음이에요. 필터는 공개 목록과 같은 뜻이에요. 예: GET /api/v1/notices/map?swLat=37.4&swLng=126.8&neLat=37.7&neLng=127.2&zoom=12",
+        "parameters": [
+          {
+            "name": "swLat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "description": "지도 남서쪽 위도"
+          },
+          {
+            "name": "swLng",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "description": "지도 남서쪽 경도"
+          },
+          {
+            "name": "neLat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "description": "지도 북동쪽 위도 (swLat보다 커야 해요)"
+          },
+          {
+            "name": "neLng",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "description": "지도 북동쪽 경도 (swLng보다 커야 해요)"
+          },
+          {
+            "name": "zoom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "지도 확대 단계. 묶음일 때 10 미만은 시도, 아니면 시군구로 묶어요"
+          },
+          {
+            "name": "tenure",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RENT",
+                "BUY"
+              ]
+            },
+            "description": "RENT 빌려서 · BUY 사서. 공고 유형으로 정해요: PUBLIC_SALE·PRIVATE_SALE이 BUY, 그 밖의 유형이 RENT이고 유형을 모르는 공고는 둘 다에서 빠져요"
+          },
+          {
+            "name": "noticeTypes",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "YOUTH_SAFE_HOUSING",
+                  "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+                  "INTEGRATED_PUBLIC_RENTAL",
+                  "HAPPY_HOUSING",
+                  "NATIONAL_RENTAL",
+                  "PERMANENT_RENTAL",
+                  "PURCHASE_RENTAL",
+                  "JEONSE_RENTAL",
+                  "LONG_TERM_JEONSE",
+                  "PUBLIC_SALE",
+                  "PRIVATE_SALE",
+                  "STARTUP_SPACE",
+                  "SHOP_RENTAL",
+                  "MEETING_ROOM"
+                ]
+              }
+            },
+            "description": "공고 유형 (하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: noticeTypes=A,B)."
+          },
+          {
+            "name": "providers",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "공급 기관 이름 (원문 그대로, 하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: providers=A,B)."
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "UPCOMING",
+                  "APPLYING",
+                  "CLOSED",
+                  "ALWAYS",
+                  "UNKNOWN"
+                ]
+              }
+            },
+            "description": "접수 상태. 비우면 마감(CLOSED)을 뺀 전부(확인 필요 UNKNOWN 포함). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: statuses=A,B)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "지도",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeMap"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1520,7 +1681,12 @@
           "applyEnd",
           "dday",
           "postedOn",
-          "needsCheck"
+          "needsCheck",
+          "lat",
+          "lng",
+          "siteCount",
+          "areaScore",
+          "tags"
         ],
         "properties": {
           "id": {
@@ -1620,6 +1786,49 @@
           "needsCheck": {
             "type": "boolean",
             "description": "원문 확인 전까지 보여 주지 않는 항목이 있음 (화면의 「확인 필요」)"
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "대표 위치 위도 (좌표가 있는 첫 위치, 없으면 null)"
+          },
+          "lng": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "대표 위치 경도"
+          },
+          "siteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "위치 수 (단지·건물이 여럿이면 2 이상)"
+          },
+          "areaScore": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "대표 위치의 생활권 총점 (항목 5개 같은 비중, 없으면 null)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "STATION",
+                "SCHOOL",
+                "ELEMENTARY_NEAR",
+                "PARK",
+                "CONVENIENCE",
+                "CLINIC"
+              ]
+            },
+            "description": "세권 태그 (역·학·초품아·숲(공원)·편의·의세권)"
           }
         }
       },
@@ -2065,7 +2274,11 @@
           "kind",
           "name",
           "address",
-          "regionCode"
+          "regionCode",
+          "siteId",
+          "lat",
+          "lng",
+          "tags"
         ],
         "properties": {
           "id": {
@@ -2101,6 +2314,43 @@
               "null"
             ],
             "description": "지역 5자리"
+          },
+          "siteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "area 위치 ID (GET /areas/sites/{siteId}·POST /areas/score). area가 아직 모르는 위치면 null"
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "위도 (area가 좌표를 못 찾았으면 null)"
+          },
+          "lng": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "경도"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "STATION",
+                "SCHOOL",
+                "ELEMENTARY_NEAR",
+                "PARK",
+                "CONVENIENCE",
+                "CLINIC"
+              ]
+            },
+            "description": "세권 태그 (역·학·초품아·숲(공원)·편의·의세권)"
           }
         }
       },
@@ -3812,6 +4062,103 @@
           },
           "enabled": {
             "type": "boolean"
+          }
+        }
+      },
+      "NoticeMap": {
+        "type": "object",
+        "description": "지도 범위 안 공고가 300개 이하면 핀, 넘으면 지역별 묶음만",
+        "required": [
+          "clusters",
+          "pins"
+        ],
+        "properties": {
+          "clusters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeMapCluster"
+            }
+          },
+          "pins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeMapPin"
+            }
+          }
+        }
+      },
+      "NoticeMapCluster": {
+        "type": "object",
+        "required": [
+          "regionCode",
+          "regionName",
+          "count",
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "확대 10 미만은 시도 2자리, 아니면 시군구 5자리 (지역 모르면 null)"
+          },
+          "regionName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lat": {
+            "type": "number",
+            "description": "묶음 안 공고 좌표 평균"
+          },
+          "lng": {
+            "type": "number"
+          }
+        }
+      },
+      "NoticeMapPin": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "noticeType",
+          "applyEnd",
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "noticeType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
           }
         }
       }

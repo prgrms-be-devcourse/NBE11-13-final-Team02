@@ -5,6 +5,10 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.UUID;
 import kr.mujuthaek.api.TestDatabase;
+import kr.mujuthaek.api.area.repository.PostgresLocationScores;
+import kr.mujuthaek.api.area.repository.PostgresNoticeLocations;
+import kr.mujuthaek.api.area.repository.PostgresSiteDetails;
+import kr.mujuthaek.api.area.service.NoticeAreaQueryService;
 import kr.mujuthaek.api.common.exception.GlobalExceptionHandlerAccess;
 import kr.mujuthaek.api.common.region.RegionQueryService;
 import kr.mujuthaek.api.notice.repository.AreaScoreRepository;
@@ -47,6 +51,10 @@ public class NoticeApiFixture {
           new FollowUpRepository(client),
           new AreaScoreRepository(client),
           new RegionQueryService(jdbc),
+          new NoticeAreaQueryService(
+              new PostgresNoticeLocations(TestDatabase.dataSource()),
+              new PostgresSiteDetails(TestDatabase.dataSource()),
+              new PostgresLocationScores(TestDatabase.dataSource())),
           clock,
           NoticeFixtures.JSON);
 
