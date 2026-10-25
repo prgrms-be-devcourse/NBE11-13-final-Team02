@@ -264,14 +264,15 @@ def test_wrong_number_or_missing_quote_leaves_the_value_empty():
     assert "EVIDENCE_NOT_FOUND" in data["quality"]["reviewReasons"] and data["quality"]["needsReview"] is True
 
 
-def test_rule_replaces_the_same_ai_row_and_a_real_difference_empties_the_rule_value():
+def test_age_is_always_filled_and_the_text_value_wins_over_the_code_field():
     same = built([condition("AGE", "19 ~ 39세 대구시 거주 무주택 청년", min=19, max=39)])
     assert [(c["origin"], c["known"]) for c in same["conditions"]] == [("RULE", True)]  # AI의 나이는 규칙 줄로 대신
     assert "RULE_AI_CONFLICT" not in same["quality"]["reviewReasons"]
     differ = built([condition("AGE", "19 ~ 39세 대구시 거주 무주택 청년", min=19, max=34)])
     assert "RULE_AI_CONFLICT" not in differ["quality"]["reviewReasons"]  # 34가 근거에 없어 값이 비므로 비교하지 않음
     other = built_text(TEXT + "\n신청 자격: 만 19세 이상 34세 이하", [condition("AGE", "만 19세 이상 34세 이하", min=19, max=34)])
-    assert [(c["origin"], c["known"], c["value"]) for c in other["conditions"]] == [("RULE", False, None)]  # 확실하지 않으면 비움
+    # 원문 「만 19세 이상 34세 이하」가 코드 칸 19~39와 다름 → 원문 값을 채우고 확인 필요(나이는 비우지 않음, 2026-10-25 사용자 결정)
+    assert [(c["origin"], c["known"], c["value"]) for c in other["conditions"]] == [("AI", True, {"min": 19, "max": 34})]
     assert "RULE_AI_CONFLICT" in other["quality"]["reviewReasons"] and other["quality"]["needsReview"] is True
 
 
@@ -437,8 +438,8 @@ def test_unrelated_rows_in_one_ai_group_are_split_and_rules_stay_put():
     assert len({c["group"] for c in data["conditions"]}) == len(data["conditions"])
 
 
-def test_same_type_in_two_and_groups_is_a_track_condition_and_left_unknown():
-    # 「청년 전형은 미혼, 부부 전형은 기혼」을 「미혼 그리고 기혼」으로 담으면 아무도 못 맞추므로 값을 비움
+def test_core_values_split_by_track_become_one_or_group_and_need_review():
+    # 「청년 전형은 미혼, 부부 전형은 기혼」을 「미혼 그리고 기혼」으로 담으면 아무도 못 맞추므로 「미혼 또는 기혼」으로 모으고 확인 필요
     text = TEXT + "\n신청 자격: 청년 전형은 미혼 청년\n청년부부 전형은 혼인한 부부"
     data = built_text(
         text,
@@ -449,8 +450,10 @@ def test_same_type_in_two_and_groups_is_a_track_condition_and_left_unknown():
         ],
     )
     marital = [c for c in data["conditions"] if c["type"] == "MARITAL"]
-    assert [(c["known"], c["value"]) for c in marital] == [(False, None), (False, None)]
+    assert [(c["known"], c["value"]) for c in marital] == [(True, {"in": ["SINGLE"]}), (True, {"in": ["MARRIED"]})]
+    assert marital[0]["group"] == marital[1]["group"]
     assert next(c for c in data["conditions"] if c["type"] == "HOMELESS")["known"] is True
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"] and data["quality"]["needsReview"] is True
 
 
 INCOME_RECORD = RECORD | {"earnCndSeCd": "0043002", "earnMaxAmt": "6000"}
@@ -474,26 +477,30 @@ def test_source_income_is_replaced_by_the_ai_rows_that_read_the_same_amount_with
     assert "RULE_AI_CONFLICT" not in data["quality"]["reviewReasons"]
 
 
-def test_source_income_stays_unknown_without_a_text_reading_or_with_a_different_amount():
-    alone = built_text(TEXT, [], INCOME_RECORD)
-    assert [(c["origin"], c["known"]) for c in alone["conditions"] if c["type"] == "INCOME_AMOUNT"] == [("RULE", False)]
-    assert alone["quality"]["needsReview"] is False
+def test_source_income_without_a_text_basis_is_filled_as_household_and_a_text_amount_wins():
+    alone = built_text(TEXT, [], INCOME_RECORD)  # 원문에 기준이 없으면 가구(부부합산) 기준으로 채우고 확인 필요
+    assert [(c["origin"], c["value"]) for c in alone["conditions"] if c["type"] == "INCOME_AMOUNT"] == [
+        ("RULE", {"unit": "MANWON_PER_YEAR", "basis": "HOUSEHOLD", "max": 6000})
+    ]
+    assert alone["quality"]["needsReview"] is True and "LOW_CONFIDENCE" in alone["quality"]["reviewReasons"]
     guessed = built_text(  # 출처 칸 줄을 근거로 기준을 지어낸 줄은 세지 않음
         TEXT + "\n소득 최대 금액: 6000",
         [condition("INCOME_AMOUNT", "소득 최대 금액: 6000", amountMaxWon=60_000_000, amountPer="YEAR", basis="PERSONAL")],
         INCOME_RECORD,
     )
-    assert [(c["origin"], c["known"]) for c in guessed["conditions"] if c["type"] == "INCOME_AMOUNT"] == [("RULE", False)]
-    other = built_text(
+    assert [(c["origin"], c["value"]["basis"]) for c in guessed["conditions"] if c["type"] == "INCOME_AMOUNT"] == [("RULE", "HOUSEHOLD")]
+    other = built_text(  # 원문 금액(부부합산 8천만)이 코드 칸(5천만)과 다르면 원문 줄을 쓰고 확인 필요
         TEXT,
         [condition("INCOME_AMOUNT", INCOME_QUOTE, amountMaxWon=80_000_000, amountPer="YEAR", basis="HOUSEHOLD")],
         RECORD | {"earnCndSeCd": "0043002", "earnMaxAmt": "5000"},
     )
-    assert [(c["origin"], c["known"]) for c in other["conditions"] if c["type"] == "INCOME_AMOUNT"] == [("RULE", False)]
+    assert [(c["origin"], c["value"]) for c in other["conditions"] if c["type"] == "INCOME_AMOUNT"] == [
+        ("AI", {"unit": "MANWON_PER_YEAR", "basis": "HOUSEHOLD", "max": 8000})
+    ]
     assert "RULE_AI_CONFLICT" in other["quality"]["reviewReasons"]
 
 
-def test_amounts_that_differ_only_by_a_condition_in_one_or_group_are_left_unknown():
+def test_conditional_core_amounts_stay_as_or_and_need_review():
     text = TEXT + "\n(소득) 부부합산 연소득 1.3억원 이하 (단, 맞벌이 가구는 2억원 이하)"
     quote = "부부합산 연소득 1.3억원 이하 (단, 맞벌이 가구는 2억원 이하)"
     data = built_text(
@@ -503,7 +510,8 @@ def test_amounts_that_differ_only_by_a_condition_in_one_or_group_are_left_unknow
             condition("INCOME_AMOUNT", quote, amountMaxWon=200_000_000, amountPer="YEAR", basis="HOUSEHOLD"),
         ],
     )
-    assert [(c["known"], c["value"]) for c in data["conditions"] if c["type"] == "INCOME_AMOUNT"] == [(False, None), (False, None)]
+    assert [c["value"]["max"] for c in data["conditions"] if c["type"] == "INCOME_AMOUNT"] == [13000, 20000]  # 「1.3억 또는 (맞벌이) 2억」
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
 
 
 def test_an_unused_amount_in_the_quote_leaves_the_amount_unknown():
@@ -515,3 +523,36 @@ def test_an_unused_amount_in_the_quote_leaves_the_amount_unknown():
         [condition("LEASE", "보증금 6.5천만원, 월세금 70만원 이하", leaseKinds=["MONTHLY"], depositMaxWon=65_000_000, monthlyMaxWon=700_000)],
     )
     assert [c["value"] for c in both["conditions"] if c["type"] == "LEASE"] == [{"unit": "MANWON", "kind": ["MONTHLY"], "depositMax": 6500, "monthlyMax": 70}]
+
+
+def test_age_from_the_text_with_under_and_over_wording():
+    text = TEXT + "\n(대상)관내 거주 청년농업인 - 만18세이상, 만40세미만"
+    data = built_text(text, [condition("AGE", "만18세이상, 만40세미만", min=18, max=39)])
+    age = next(c for c in data["conditions"] if c["type"] == "AGE")
+    assert (age["value"], age["rawText"]) == ({"min": 18, "max": 39}, "만18세이상, 만40세미만")
+    assert "RULE_AI_CONFLICT" in data["quality"]["reviewReasons"]
+
+
+def test_ages_split_into_and_groups_are_merged_into_one_range():
+    text = TEXT + "\n(19세 ~ 34세) 복지로 신청\n(35세 ~ 39세) 인천청년포털 신청"
+    no_age = RECORD | {"sprtTrgtMinAge": "0", "sprtTrgtMaxAge": "0"}
+    data = built_text(
+        text,
+        [condition("AGE", "(19세 ~ 34세) 복지로 신청", group=1, min=19, max=34), condition("AGE", "(35세 ~ 39세) 인천청년포털 신청", group=2, min=35, max=39)],
+        no_age,
+    )
+    assert [(c["known"], c["value"]) for c in data["conditions"] if c["type"] == "AGE"] == [(True, {"min": 19, "max": 39})]
+
+
+def test_core_values_without_a_basis_get_the_default_basis_and_need_review():
+    text = TEXT + "\n추가 신청 자격: 무주택 및 자산요건 충족\n소득 기타 조건: 기준 중위소득 150% 이하"
+    data = built_text(
+        text,
+        [
+            condition("INCOME_MEDIAN_PCT", "기준 중위소득 150% 이하", max=150),
+            condition("HOMELESS", "무주택 및 자산요건 충족", group=2),
+        ],
+    )
+    values = {c["type"]: c["value"] for c in data["conditions"] if c["origin"] == "AI"}
+    assert values == {"INCOME_MEDIAN_PCT": {"max": 150, "basis": "HOUSEHOLD"}, "HOMELESS": {"basis": "PERSON"}}
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]

@@ -12,7 +12,7 @@ from typing import Any
 
 from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest, StopReason
 
-PROMPT_VERSION = "benefit/v3"
+PROMPT_VERSION = "benefit/v4"
 CALL_NAME = "benefit_reading"
 MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다. 잘렸으면 TEXT_TRUNCATED
 MAX_OUTPUT_TOKENS = 8000
@@ -158,8 +158,8 @@ summary: 화면에 보일 한 줄 요약(80자 안, 「누구에게 무엇을 �
 supports: 지원 내용 하나씩. kind는 RENT(월세·임대료), DEPOSIT_LOAN(전월세 보증금 대출·이자), PURCHASE_LOAN(주택 구입 대출·이자),
 HOUSING_SUPPLY(임대주택·빈집 등 집 제공), MOVE_IN_GRANT(전입·정착·이사 지원금), CASH(그 밖의 현금), OTHER(그 밖).
 amountMaxWon은 한 번에 받는 최대 금액(원), amountPer는 그 금액의 기간(ONCE 한 번, MONTH 매월, YEAR 매년), months는 지원 개월 수,
-ratePct는 지원 비율(이자·임대료의 50%면 50, 「연 3.5% 이자 지원」이면 3.5). 대출 한도(「대출금 최대 1억원」)는 지원금이 아니므로
-amountMaxWon에 넣지 않고 rawText에만 둡니다.
+ratePct는 지원 비율(이자·임대료의 50%면 50, 「연 3.5% 이자 지원」이면 3.5). 대출 상품(DEPOSIT_LOAN·PURCHASE_LOAN)은 대출 한도를
+amountMaxWon에 넣습니다(「구입자금 최대 4억원」→ 400000000, amountPer ONCE). 한도가 여러 개면(구입 4억·전세 2.4억) 지원 하나씩.
 
 schedule: 신청 시작·마감(applyStart·applyEnd), 상시 모집이거나 「예산 소진 시까지」면 applyAlways true, 사업 기간(businessStart·businessEnd),
 rawText는 기간 원문. howToApply는 신청 방법 요약 한 문장, documents는 제출 서류 이름 목록, contact는 문의처(기관·전화).
@@ -168,7 +168,9 @@ conditions: 신청 자격 조건 하나씩. 조건이 없으면 빈 목록(「�
 - group: 같은 번호끼리는 「또는」, 다른 번호끼리는 「그리고」. 「신혼부부 또는 한부모가족」은 두 조건을 같은 번호로.
   글에 「또는」 관계가 없는 조건은 모두 서로 다른 번호입니다(모든 조건을 같은 번호로 두지 않음).
 - 전형·유형마다 조건이 다르면(「청년 전형은 미혼·연소득 4,500만 원 이하, 부부 전형은 부부합산 1억 원 이하」, 「구입은 순자산 5억,
-  전세는 3억」) 모든 전형에 공통인 조건만 type으로 담고, 전형별 조건은 OTHER 하나에 원문대로 담습니다.
+  전세는 3억」) 전형별 값도 type으로 담고, 같은 type끼리는 같은 group에 둡니다(「미혼 또는 기혼」, 「4,500만 또는 1억」).
+  rawText에 어느 전형의 값인지 적습니다(「청년 전형: 연소득 4,500만 원 이하」).
+- 나이·거주·무주택·혼인·소득·자산은 판정에 꼭 필요한 값입니다. 원문에 있으면 빠뜨리지 말고 type으로 담습니다.
 - confidence: 이 조건을 맞게 읽었다고 보는 정도(0~1).
 - type별로 채울 칸(나머지는 null·빈 목록):
   AGE: min·max (만 나이. 「만 19~39세」→ 19, 39. 「만 40세 미만」→ max 39)

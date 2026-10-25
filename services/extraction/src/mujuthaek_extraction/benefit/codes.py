@@ -56,6 +56,31 @@ SPECIAL = {
 }
 SPECIAL_ANY = "0014010"
 MARITAL = {"0055001": "MARRIED", "0055002": "SINGLE"}  # 0055003 제한없음
+# 원문 칸(rawText)에 보여 줄 한글 이름(온통청년 코드표 이름)
+KO = {
+    "EMPLOYED": "재직자",
+    "SELF_EMPLOYED": "자영업자",
+    "UNEMPLOYED": "미취업자",
+    "FREELANCER": "프리랜서",
+    "DAILY_WORKER": "일용근로자",
+    "STARTUP": "(예비)창업자",
+    "SHORT_TERM": "단기근로자",
+    "FARMER": "영농종사자",
+    "OTHER": "기타",
+    "BELOW_HIGH": "고졸 미만",
+    "HIGH_ENROLLED": "고교 재학",
+    "HIGH_GRAD_EXPECTED": "고졸 예정",
+    "HIGH_GRAD": "고교 졸업",
+    "UNIV_ENROLLED": "대학 재학",
+    "UNIV_GRAD_EXPECTED": "대졸 예정",
+    "UNIV_GRAD": "대학 졸업",
+    "GRADUATE": "석·박사",
+    "SME": "중소기업",
+    "BASIC_LIVELIHOOD": "기초생활수급자",
+    "SINGLE_PARENT": "한부모가정",
+    "DISABLED": "장애인",
+    "SOLDIER": "군인",
+}
 INCOME_YEARLY = "0043002"  # 연소득 (0043001 무관, 0043003 기타는 글을 AI가 읽음)
 APPLY_ALWAYS = "0057002"  # 신청 기간 구분: 상시
 APPLY_CLOSED = "0057003"  # 마감
@@ -158,7 +183,7 @@ def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
         rows: list[tuple[str, dict[str, Any] | None, str]] = []
         employment = [JOB[c][1] for c in jobs if c in JOB and JOB[c][0] == "EMPLOYMENT"]
         if employment:
-            rows.append(("EMPLOYMENT", {"in": list(dict.fromkeys(employment))}, "취업 상태 " + ", ".join(employment)))
+            rows.append(("EMPLOYMENT", {"in": list(dict.fromkeys(employment))}, "취업 상태: " + ", ".join(KO.get(v, v) for v in employment)))
         if any(JOB.get(c, ("",))[0] == "OCCUPATION" for c in jobs):
             rows.append(("OCCUPATION", {"in": ["FARMER"]}, "영농종사자"))
         add(rows, f"jobCd: {record.get('jobCd')}")
@@ -167,7 +192,7 @@ def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
     if schools and SCHOOL_ANY not in schools:
         values = list(dict.fromkeys(SCHOOL[c] for c in schools if c in SCHOOL))
         if values:
-            add([("EDUCATION", {"in": values}, "학력 " + ", ".join(values))], f"schoolCd: {record.get('schoolCd')}")
+            add([("EDUCATION", {"in": values}, "학력: " + ", ".join(KO.get(v, v) for v in values))], f"schoolCd: {record.get('schoolCd')}")
 
     specials = _codes(record.get("sbizCd"))
     if specials and SPECIAL_ANY not in specials:
@@ -183,7 +208,7 @@ def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
                 merged.setdefault(kind, []).append(value)
         for kind, values in merged.items():
             value = {"kind": values} if kind == "WORKPLACE" else {"in": list(dict.fromkeys(values))}
-            rows.append((kind, value, f"특화 분야 {', '.join(values)}"))
+            rows.append((kind, value, f"특화 분야: {', '.join(KO.get(v, v) for v in values)}"))
         add(rows, f"sbizCd: {record.get('sbizCd')}")
 
     # 일정: 신청 기간 「YYYYMMDD ~ YYYYMMDD」, 구분 상시, 사업 기간

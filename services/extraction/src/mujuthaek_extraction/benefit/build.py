@@ -42,6 +42,11 @@ ENUMS = {
     "OCCUPATION": {"FARMER", "FISHER", "LIVESTOCK", "FORESTRY"},
 }
 TEXT_ONLY = {"EXCLUSIVE", "PRIORITY", "OTHER"}  # 판정하지 않고 글만 보여 주는 조건(known=false)
+# 핵심 값: 비우면 의미 없는 데이터가 되므로 확실하지 않아도 가장 근거 있는 값을 채우고 확인 필요로 표시합니다(2026-10-25 사용자 결정).
+# 근거 문장이 원문에서 확인되지 않은 AI 값은 지어낸 값일 수 있어 핵심 값이어도 비웁니다(같은 날 사용자 결정)
+CORE = {"AGE", "RESIDENCE", "HOMELESS", "MARITAL", "INCOME_AMOUNT", "INCOME_MEDIAN_PCT", "ASSET_AMOUNT"}
+# 기준이 원문에 없을 때 채우는 기본 기준: 소득은 가구(부부합산, 주거 지원에 많음), 무주택은 본인(「무주택 청년」)
+DEFAULT_BASIS = {"INCOME_AMOUNT": "HOUSEHOLD", "INCOME_MEDIAN_PCT": "HOUSEHOLD", "HOMELESS": "PERSON"}
 LOW_CONFIDENCE = 0.6
 AMOUNT_KEYS = {"min", "max", "depositMax", "monthlyMax"}  # 조건 값에서 금액·수치 칸
 
@@ -146,12 +151,11 @@ def ai_value(item: dict[str, Any], regions: Any) -> dict[str, Any] | None:
             value["months"] = item["months"]
         return value
     if kind == "AGE":
-        if (low is None and high is None) or not numbers_ok(low, high):
-            # 「만 40세 미만」→ max 39처럼 근거와 숫자가 하나 다를 수 있어 미만·초과면 하나 차이를 인정
-            if not (
-                (high is not None and has_number(quote, high + 1) and "미만" in quote) or (low is not None and has_number(quote, low - 1) and "초과" in quote)
-            ):
-                return None
+        # 「만 40세 미만」→ max 39처럼 근거와 숫자가 하나 다를 수 있어 미만·초과면 하나 차이를 인정
+        low_ok = low is None or has_number(quote, low) or (has_number(quote, low - 1) and "초과" in quote)
+        high_ok = high is None or has_number(quote, high) or (has_number(quote, high + 1) and "미만" in quote)
+        if (low is None and high is None) or not (low_ok and high_ok):
+            return None
         return {k: v for k, v in (("min", low), ("max", high)) if v is not None}
     if kind == "NEWLYWED_YEARS":
         return {"max": high} if high is not None and numbers_ok(high) else None
@@ -348,10 +352,56 @@ def _leftover_amounts(items: list[dict[str, Any]]) -> set[str]:
     return {quote for quote, won in used.items() if won_amounts(quote) - won}
 
 
+def _settle_age(rule_rows: list[dict[str, Any]], items: list[dict[str, Any]], sources: list[str], regions: Any) -> str | None:
+    """나이는 비우지 않습니다(2026-10-25 사용자 결정: 핵심 값은 반드시 채움). 출처 코드 칸 나이와 AI가 원문 글에서 읽은 나이가 다르면
+    원문 값을 쓰고 "RULE_AI_CONFLICT"(확인 필요)를 돌려줍니다(「만18세이상, 만40세미만」인데 코드 칸은 19~39인 경우).
+    원문 값이 근거로 확인되지 않거나 여러 개(전형별)면 코드 칸 값을 그대로 둡니다."""
+    rule = next((row for row in rule_rows if row["type"] == "AGE" and row["known"]), None)
+    if rule is None:
+        return None
+    rule_lines = {_norm(row["evidence"]) for row in rule_rows}
+    read = []
+    for item in items:
+        if item["type"] == "AGE" and quoted(item["evidence"], sources) and _norm(item["evidence"]) not in rule_lines:
+            if (value := ai_value(item, regions)) is not None:
+                read.append((value, item))
+    if not read or any(value == rule["value"] for value, _ in read):
+        return None
+    if len({json.dumps(value, sort_keys=True) for value, _ in read}) > 1:
+        return "RULE_AI_CONFLICT"
+    value, item = read[0]
+    rule.update(
+        value=value,
+        origin="AI",
+        rawText=(item["rawText"] or item["evidence"]).strip(),
+        evidence=item["evidence"].strip(),
+        confidence=round(min(float(item["confidence"]), 1.0), 2),
+    )
+    return "RULE_AI_CONFLICT"
+
+
+def _merge_ages(conditions: list[dict[str, Any]]) -> None:
+    """AI가 나이를 여러 묶음(「그리고」)에 나눠 담으면(「19~34세는 복지로, 35~39세는 인천청년포털」) 이어지는 범위를 한 줄로 합칩니다.
+    나이는 비우지 않습니다. 범위가 이어지지 않으면(19~24, 30~34) 첫 줄만 남기고 나머지는 글로 둡니다."""
+    ages = [row for row in conditions if row["type"] == "AGE" and row["known"]]
+    if len({row["group"] for row in ages}) < 2:
+        return
+    ranges = sorted((row["value"].get("min", 0), row["value"].get("max", 200)) for row in ages)
+    joined = all(nxt[0] <= cur[1] + 1 for cur, nxt in zip(ranges, ranges[1:], strict=False))
+    keep = ages[0]
+    if joined:
+        low, high = min(r[0] for r in ranges), max(r[1] for r in ranges)
+        keep["value"] = {k: v for k, v in (("min", low if low else None), ("max", high if high < 200 else None)) if v is not None}
+        keep["rawText"] = " / ".join(row["rawText"] for row in ages)
+    for row in ages[1:]:
+        conditions.remove(row)
+
+
 def _settle_income(rule_rows: list[dict[str, Any]], income: dict[str, int], items: list[dict[str, Any]], sources: list[str], regions: Any) -> str | None:
     """출처 칸 연소득(기준 모름)과 AI가 글에서 읽은 소득 조건을 맞춥니다. 같은 금액을 읽었으면 규칙 줄을 빼고 AI 줄(기준 포함)을 쓰며 None,
     다른 금액만 읽었으면 "RULE_AI_CONFLICT"(규칙 줄은 값 없는 채로 남고 AI 소득 줄은 버려짐), 글에 소득 조건이 없으면 None(규칙 줄은 값 없이 남음).
-    출처 칸 줄(「소득 최대 금액: 5000」)을 근거로 든 AI 줄은 기준을 지어낸 것이라 세지 않습니다."""
+    출처 칸 줄(「소득 최대 금액: 5000」)을 근거로 든 AI 줄은 기준을 지어낸 것이라 세지 않습니다.
+    (2026-10-25 핵심 값 결정 뒤) 원문 소득 줄이 있으면 금액이 달라도 원문 줄을 쓰고, 없으면 가구 기준으로 채워 "LOW_CONFIDENCE"."""
     if not income or not any(row["type"] == "INCOME_AMOUNT" and not row["known"] for row in rule_rows):
         return None
     rule_lines = {_norm(row["evidence"]) for row in rule_rows}
@@ -361,10 +411,13 @@ def _settle_income(rule_rows: list[dict[str, Any]], income: dict[str, int], item
         if item["type"] == "INCOME_AMOUNT" and quoted(item["evidence"], sources) and _norm(item["evidence"]) not in rule_lines
     ]
     values = [v for v in values if v is not None and v.get("unit") == "MANWON_PER_YEAR"]
-    if any(all(v.get(k) == amount for k, amount in income.items()) for v in values):
+    if values:  # 원문 글의 소득 줄(기준 포함)을 씁니다. 금액이 코드 칸과 다르면 확인 필요
         rule_rows[:] = [row for row in rule_rows if row["type"] != "INCOME_AMOUNT"]
-        return None
-    return "RULE_AI_CONFLICT" if values else None
+        return None if any(all(v.get(k) == amount for k, amount in income.items()) for v in values) else "RULE_AI_CONFLICT"
+    # 원문에 기준이 없으면 가구(부부합산) 기준으로 채우고 확인 필요(2026-10-25 사용자 결정: 주거 대출·지원은 부부합산이 많음)
+    row = next(row for row in rule_rows if row["type"] == "INCOME_AMOUNT")
+    row.update(value={"unit": "MANWON_PER_YEAR", "basis": "HOUSEHOLD", **income}, known=True, confidence=0.5)
+    return "LOW_CONFIDENCE"
 
 
 def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleResult, regions: Any, *, now: datetime | None = None) -> dict[str, Any]:
@@ -376,7 +429,8 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     reasons: list[str] = []
     failed_evidence = 0
 
-    # 조건: 규칙 줄 먼저, AI 줄은 그 뒤. 규칙에 있는 type의 AI 줄은 버리되 값이 다르면 충돌로 표시하고 규칙 값도 비움.
+    # 조건: 규칙 줄 먼저, AI 줄은 그 뒤. 규칙에 있는 type의 AI 줄은 버리되 값이 다르면 충돌로 표시하고,
+    # 핵심 값(CORE)이면 원문 글에서 읽은 값으로 바꾸고 아니면 규칙 값도 비움.
     # 묶음(group)은 같은 번호끼리 「또는」이라 아래 세 가지를 지킵니다(2026-10-25 첫 유료 시험에서 판정이 틀어진 경우):
     # - AI가 「또는」 묶음에 넣은 줄을 규칙 줄로 대신하면, 그 규칙 줄(규칙 묶음째)을 AI 묶음으로 옮깁니다.
     #   안 옮기면 「대전 거주 또는 대전 소재 대학·직장」이 「거주 그리고 (대학 또는 직장)」으로 더 엄격해집니다
@@ -385,6 +439,8 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     # - 규칙 줄의 근거 줄을 그대로 다시 낸 글 줄은 같은 조건이 두 번 보이므로 버립니다
     rule_rows = [dict(c) for c in rules.conditions]
     if conflict := _settle_income(rule_rows, rules.income, answer.get("conditions") or [], sources, regions):
+        reasons.append(conflict)
+    if conflict := _settle_age(rule_rows, answer.get("conditions") or [], sources, regions):
         reasons.append(conflict)
     rule_types: dict[str, dict[str, Any]] = {}
     for row in rule_rows:
@@ -395,16 +451,33 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     leftover = _leftover_amounts(answer.get("conditions") or [])
     for index, item in enumerate(answer.get("conditions") or []):
         evidence_ok = quoted(item["evidence"], sources)
+        if evidence_ok and item["type"] in DEFAULT_BASIS and item.get("basis") not in ("HOUSEHOLD", "PERSONAL", "PERSON"):
+            # 원문에 기준(가구·본인)이 없는 핵심 값은 기본 기준으로 채우고 확인 필요(2026-10-25 사용자 결정)
+            item = {**item, "basis": DEFAULT_BASIS[item["type"]]}
+            if ai_value(item, regions) is not None:
+                reasons.append("LOW_CONFIDENCE")
         value = ai_value(item, regions) if evidence_ok else None
         if value is not None and _norm(item["evidence"]) in leftover and any(item.get(k) for k in WON_FIELDS):
-            value = None  # 근거 문장의 다른 금액(조건부 금액일 수 있음)을 쓰지 않음
+            if item["type"] in CORE:
+                reasons.append("LOW_CONFIDENCE")  # 근거 문장에 다른 금액(조건부 금액일 수 있음)이 있음: 채우고 확인 필요
+            else:
+                value = None  # 근거 문장의 다른 금액(조건부 금액일 수 있음)을 쓰지 않음
         if not evidence_ok:
             failed_evidence += 1
         if item["type"] in rule_types:
             rule = rule_types[item["type"]]
-            if value is not None and rule["known"] and not same_value(item["type"], rule["value"], value):
-                reasons.append("RULE_AI_CONFLICT")  # 확실하지 않으므로 규칙 값도 내보내지 않음(2026-10-25 사용자 결정)
-                rule.update(known=False, value=None)
+            if value is not None and rule["known"] and item["type"] != "AGE" and not same_value(item["type"], rule["value"], value):
+                reasons.append("RULE_AI_CONFLICT")
+                if item["type"] in CORE:  # 핵심 값은 비우지 않고 원문 글에서 읽은 값을 씀
+                    rule.update(
+                        value=value,
+                        origin="AI",
+                        rawText=(item["rawText"] or item["evidence"]).strip(),
+                        evidence=item["evidence"].strip(),
+                        confidence=round(min(float(item["confidence"]), 1.0), 2),
+                    )
+                else:  # 핵심 값이 아니면 확실하지 않으므로 비움
+                    rule.update(known=False, value=None)
             covered.setdefault(item["group"], []).append((item["type"], item["evidence"]))
             continue
         if item["type"] in TEXT_ONLY and _norm(item["evidence"]) in rule_evidence:
@@ -432,26 +505,39 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     for key, row in keyed:
         row["group"] = numbers.setdefault(key, len(numbers) + 1)
     conditions = [row for _, row in keyed]
-    # 같은 type이 서로 다른 묶음(「그리고」)에 나오면 전형별 조건을 섞은 것으로 보고 값을 비웁니다(2026-10-25 사용자 결정).
-    # 「미혼 그리고 기혼」 「순자산 5.11억(구입) 그리고 3.45억(전세)」처럼 이 형식으로 나타낼 수 없는 「(A 그리고 B) 또는 (C 그리고 D)」입니다
-    groups_by_type: dict[str, set[int]] = {}
+    # 같은 type이 서로 다른 묶음(「그리고」)에 나오면 전형별 조건입니다(「미혼 그리고 기혼」 「순자산 5.11억(구입) 그리고 3.45억(전세)」).
+    # 이 형식은 「(A 그리고 B) 또는 (C 그리고 D)」를 나타내지 못해, 핵심 값은 한 묶음 「또는」으로 모아 어느 전형이든 맞으면 되게 하고
+    # 확인 필요로 표시합니다(2026-10-25 사용자 결정). 핵심 값이 아니면 비웁니다
+    _merge_ages(conditions)
+    groups_by_type: dict[str, list[int]] = {}
     for row in conditions:
-        if row["known"]:
-            groups_by_type.setdefault(row["type"], set()).add(row["group"])
+        if row["known"] and row["group"] not in groups_by_type.get(row["type"], []):
+            groups_by_type.setdefault(row["type"], []).append(row["group"])
     for row in conditions:
-        if row["known"] and len(groups_by_type[row["type"]]) > 1:
-            row.update(known=False, value=None)
+        groups = groups_by_type.get(row["type"], [])
+        if row["known"] and len(groups) > 1:
+            if row["type"] in CORE:
+                row["group"] = groups[0]
+                reasons.append("LOW_CONFIDENCE")
+            else:
+                row.update(known=False, value=None)
     # 같은 묶음(「또는」)에 type·기준이 같고 금액만 다른 줄이 있으면 조건부 금액입니다(「부부합산 1.3억, 맞벌이는 2억」).
-    # 「또는」으로 두면 큰 금액이 모두에게 적용되어 너그럽게 틀리므로 값을 비웁니다
+    # 핵심 값은 「또는」 그대로 두고(어느 쪽이든 맞으면 됨) 확인 필요, 핵심 값이 아니면 큰 금액이 모두에게 적용되어 너그럽게 틀리므로 비웁니다
     same_kind: dict[tuple, list[dict[str, Any]]] = {}
     for row in conditions:
-        if row["known"] and isinstance(row["value"], dict):
+        if row["known"] and isinstance(row["value"], dict) and row["type"] != "AGE":  # 나이 범위의 「또는」은 그대로 맞는 뜻
             kind = json.dumps({k: v for k, v in row["value"].items() if k not in AMOUNT_KEYS}, sort_keys=True, ensure_ascii=False)
             same_kind.setdefault((row["group"], row["type"], kind), []).append(row)
     for rows in same_kind.values():
         if len(rows) > 1 and len({json.dumps(r["value"], sort_keys=True) for r in rows}) > 1:
+            if rows[0]["type"] in CORE:
+                reasons.append("LOW_CONFIDENCE")
+                continue
             for row in rows:
                 row.update(known=False, value=None)
+    numbers = {}
+    for row in conditions:  # 묶음 번호를 나온 차례대로 다시 매김
+        row["group"] = numbers.setdefault(row["group"], len(numbers) + 1)
 
     supports = []
     for item in answer.get("supports") or []:
