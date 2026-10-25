@@ -28,7 +28,7 @@ import org.springframework.web.servlet.resource.NoResourceFoundException;
  * <pre>
  * { "type": "https://mujuthaek.kr/problems/validation-failed", "title": "입력값이 올바르지 않아요",
  *   "status": 400, "code": "VALIDATION_FAILED", "detail": "…", "instance": "/api/v1/…",
- *   "errors": [{ "field": "applicant.personalIncomeAnnualWon", "reason": "MIN" }] }
+ *   "errors": [{ "field": "applicant.assets.gtWon", "reason": "MIN" }] }
  * </pre>
  *
  * <p>입력값(소득·자산 등)은 detail·errors·로그 어디에도 넣지 않아요. 칸 이름과 어긴 규칙만 남겨요. 500은 코드와 시각만 보여줘요.

@@ -3,6 +3,7 @@ package kr.mujuthaek.api.eligibility.service;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -10,7 +11,9 @@ import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.eligibility.dto.response.CriteriaResponse;
 import kr.mujuthaek.api.eligibility.repository.CriteriaStore;
 import kr.mujuthaek.api.eligibility.repository.CriteriaStore.CriteriaRow;
+import kr.mujuthaek.api.eligibility.repository.LoanProductStore;
 import kr.mujuthaek.api.eligibility.rule.IncomeBenchmarks;
+import kr.mujuthaek.api.eligibility.rule.PrepareCost.LoanProduct;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -22,11 +25,14 @@ import tools.jackson.databind.json.JsonMapper;
 public class CriteriaService {
 
   private final CriteriaStore store;
+  private final LoanProductStore loans;
   private final JsonMapper json;
   private final Clock clock;
 
-  public CriteriaService(CriteriaStore store, JsonMapper json, Clock clock) {
+  public CriteriaService(
+      CriteriaStore store, LoanProductStore loans, JsonMapper json, Clock clock) {
     this.store = store;
+    this.loans = loans;
     this.json = json;
     this.clock = clock;
   }
@@ -36,28 +42,66 @@ public class CriteriaService {
    * @param noticeType 공고 유형별 순위 요건이 있으면 그것 (RANK_CRITERIA의 byNoticeType)
    */
   public CriteriaResponse criteria(Integer year, String noticeType) {
+    LocalDate today = LocalDate.now(clock);
     int y =
         year != null
             ? year
             : store
-                .latestYear(LocalDate.now(clock))
+                .latestYear(today)
+                .or(() -> store.latestBaseYear(today.getYear()))
                 .orElseThrow(() -> new CustomException(ErrorCode.CRITERIA_NOT_FOUND));
-    Optional<CriteriaRow> median = store.find("MEDIAN_INCOME", y);
     Optional<CriteriaRow> ranks = store.find("RANK_CRITERIA", y);
-    if (median.isEmpty() && ranks.isEmpty()) {
+    Map<String, Long> median = monthlyIncome("MEDIAN_INCOME", y);
+    Map<String, Long> urban = monthlyIncome("URBAN_WORKER_INCOME", y);
+    if (median.isEmpty() && urban.isEmpty() && ranks.isEmpty()) {
       throw new CustomException(ErrorCode.CRITERIA_NOT_FOUND);
     }
-    LocalDate validFrom = median.or(() -> ranks).map(CriteriaRow::validFrom).orElseThrow();
+    LocalDate validFrom =
+        store
+            .find("MEDIAN_INCOME", y)
+            .or(() -> ranks)
+            .map(CriteriaRow::validFrom)
+            .orElse(LocalDate.of(y, 1, 1));
     return new CriteriaResponse(
         y,
         validFrom,
-        median.map(r -> monthly(json.readTree(r.data()))).orElse(null),
-        ranks.map(r -> rankCriteria(json.readTree(r.data()), noticeType)).orElse(null));
+        nullIfEmpty(median),
+        nullIfEmpty(urban),
+        ranks.map(r -> rankCriteria(json.readTree(r.data()), noticeType)).orElse(null),
+        cuts(
+            store.assetCuts("TOTAL_ASSET", y),
+            loans.enabled().stream().map(LoanProduct::maxTotalAssetsWon)),
+        cuts(store.assetCuts("CAR_VALUE", y), java.util.stream.Stream.empty()));
   }
 
-  /** 가구원 수별 월 금액 (판정의 소득 기준). 그해 값이 없으면 빈 값. */
+  /**
+   * 가구원 수별 월 금액 (판정의 소득 기준). 관리자가 넣은 값(criteria_sets)을 먼저, 없으면 고시 값(base_values)을 써요. 그해 값이 없으면 빈
+   * 값.
+   */
   public Map<String, Long> monthlyIncome(String kind, int year) {
-    return store.find(kind, year).map(r -> monthly(json.readTree(r.data()))).orElse(Map.of());
+    Map<String, Long> set =
+        store.find(kind, year).map(r -> monthly(json.readTree(r.data()))).orElse(Map.of());
+    if (!set.isEmpty()) {
+      return set;
+    }
+    return store.baseIncome(
+        "MEDIAN_INCOME".equals(kind)
+            ? List.of("MEDIAN_INCOME")
+            : List.of("URBAN_WORKER_INCOME", "URBAN_WORKER_AVERAGE_INCOME"),
+        year);
+  }
+
+  private static Map<String, Long> nullIfEmpty(Map<String, Long> m) {
+    return m.isEmpty() ? null : m;
+  }
+
+  /** 구간 경계: 기준표 금액 + 대출 상품 상한, 겹치지 않게 작은 순. */
+  private static List<Long> cuts(List<Long> base, java.util.stream.Stream<Long> more) {
+    return java.util.stream.Stream.concat(base.stream(), more)
+        .filter(java.util.Objects::nonNull)
+        .distinct()
+        .sorted()
+        .toList();
   }
 
   /**

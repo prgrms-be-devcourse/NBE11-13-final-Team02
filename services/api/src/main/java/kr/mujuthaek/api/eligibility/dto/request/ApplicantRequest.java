@@ -1,49 +1,94 @@
 package kr.mujuthaek.api.eligibility.dto.request;
 
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.Past;
+import jakarta.validation.constraints.PastOrPresent;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.PositiveOrZero;
-import java.time.LocalDate;
 import java.time.YearMonth;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import kr.mujuthaek.api.common.logging.SensitiveFields;
 import kr.mujuthaek.api.eligibility.rule.Applicant;
+import kr.mujuthaek.api.eligibility.rule.Bands;
 
 /**
  * 판정 요청 본문의 {@code applicant} (API 설계 "판정 입력"). 모든 칸은 비워도 돼요. 형식만 검사하고 값은 어디에도 남기지 않아요.
  *
- * <p>연월(marriedOn, homelessSince, subscription.joinedOn)은 "2025-04" 모양이에요. workplace·priorities는
- * 생활권 점수용이라 판정에서는 쓰지 않아요(받기는 해요).
+ * <p>개인정보 기준(2026-10-26)으로 정확한 값 대신 구간을 받아요: 생년월일 → 출생 연월, 무주택 시작 연월 → 기간 구간, 청약 가입 연월 → 기간 구간, 소득
+ * → 기준 대비 % 구간, 자산·자동차가액 → 금액 구간. 쓸 수 있는 돈은 받지 않아요(준비할 돈과 비교는 화면이 해요).
+ *
+ * @param birthMonth 출생 연월 ("1997-03")
+ * @param homelessYears 무주택 기간: LT_1 · 1_3 · 3_5 · 5_PLUS (집이 있으면 homeOwner = true)
+ * @param income 본인 월평균소득의 기준 대비 % 구간. 키는 기준 종류 (MEDIAN_INCOME · URBAN_WORKER_INCOME)
+ * @param householdIncome 가구 월평균소득의 % 구간. 1인 가구면 비워도 돼요
+ * @param incomeYear 소득 % 구간을 계산한 기준 연도 (GET /eligibility/criteria의 year)
+ * @param assets 총자산 구간 (GET /eligibility/criteria의 assetCutsWon 사이)
+ * @param car 자동차가액 구간 (carCutsWon 사이)
  */
 public record ApplicantRequest(
-    @Past LocalDate birthDate,
+    @PastOrPresent YearMonth birthMonth,
     @Pattern(regexp = "[0-9]{5}") String regionCode,
     Boolean householdHead,
     @Min(1) @Max(20) Integer householdSize,
     @Min(0) @Max(20) Integer dependents,
     List<@Pattern(regexp = "UNIVERSITY_STUDENT|JOB_SEEKER|YOUTH|NEWLYWED") String> targetGroups,
     @Pattern(regexp = "SINGLE|MARRIED|ENGAGED") String marital,
-    YearMonth marriedOn,
+    @PastOrPresent YearMonth marriedOn,
     @Min(0) @Max(20) Integer children,
-    YearMonth homelessSince,
     Boolean homeOwner,
+    @Pattern(regexp = "LT_1|1_3|3_5|5_PLUS") String homelessYears,
     @Valid SubscriptionRequest subscription,
     List<@Pattern(regexp = "BASIC_LIVELIHOOD|NEAR_POOR|SINGLE_PARENT") String> welfareStatuses,
-    @PositiveOrZero Long personalIncomeAnnualWon,
-    @PositiveOrZero Long householdIncomeAnnualWon,
-    @PositiveOrZero Long totalAssetsWon,
-    @PositiveOrZero Long carValueWon,
-    @PositiveOrZero Long availableCashWon,
+    Map<@Pattern(regexp = "MEDIAN_INCOME|URBAN_WORKER_INCOME") String, @Valid PercentRange> income,
+    Map<@Pattern(regexp = "MEDIAN_INCOME|URBAN_WORKER_INCOME") String, @Valid PercentRange>
+        householdIncome,
+    @Min(2000) @Max(2200) Integer incomeYear,
+    @Valid WonRange assets,
+    @Valid WonRange car,
     List<@Pattern(regexp = "R[23]_[A-Z_]+") String> rankChecks) {
 
-  public record SubscriptionRequest(YearMonth joinedOn, @Min(0) @Max(1000) Integer payments) {}
+  /**
+   * @param months 가입 기간: NONE(통장 없음) · LT_6 · 6_12 · 12_24 · 24_PLUS (개월)
+   * @param payments 인정 납입 횟수
+   */
+  public record SubscriptionRequest(
+      @Pattern(regexp = "NONE|LT_6|6_12|12_24|24_PLUS") String months,
+      @Min(0) @Max(1000) Integer payments) {}
+
+  /** 기준 대비 % 구간 (gtPct 초과 ~ lePct 이하). 한쪽은 비워도 돼요. */
+  public record PercentRange(@Min(0) @Max(1000) Integer gtPct, @Min(0) @Max(1000) Integer lePct) {
+
+    @AssertTrue(message = "gtPct는 lePct보다 작아야 해요")
+    boolean isOrdered() {
+      return gtPct == null || lePct == null || gtPct < lePct;
+    }
+
+    Bands.Range toRange() {
+      return new Bands.Range(
+          gtPct == null ? null : gtPct.longValue(), lePct == null ? null : lePct.longValue());
+    }
+  }
+
+  /** 금액 구간 (gtWon 초과 ~ leWon 이하, 원). 한쪽은 비워도 돼요. */
+  public record WonRange(@PositiveOrZero Long gtWon, @PositiveOrZero Long leWon) {
+
+    @AssertTrue(message = "gtWon은 leWon보다 작아야 해요")
+    boolean isOrdered() {
+      return gtWon == null || leWon == null || gtWon < leWon;
+    }
+
+    Bands.Range toRange() {
+      return new Bands.Range(gtWon, leWon);
+    }
+  }
 
   public Applicant toApplicant() {
     return new Applicant(
-        birthDate,
+        birthMonth,
         regionCode,
         householdHead,
         householdSize,
@@ -52,18 +97,31 @@ public record ApplicantRequest(
         marital,
         marriedOn,
         children,
-        homelessSince,
         homeOwner,
+        homelessYears == null ? null : Bands.HOMELESS_YEARS.get(homelessYears),
         subscription == null
             ? null
-            : new Applicant.Subscription(subscription.joinedOn(), subscription.payments()),
+            : new Applicant.Subscription(
+                subscription.months() == null
+                    ? null
+                    : Bands.SUBSCRIPTION_MONTHS.get(subscription.months()),
+                subscription.payments()),
         welfareStatuses,
-        personalIncomeAnnualWon,
-        householdIncomeAnnualWon,
-        totalAssetsWon,
-        carValueWon,
-        availableCashWon,
+        ranges(income),
+        ranges(householdIncome),
+        incomeYear,
+        assets == null ? null : assets.toRange(),
+        car == null ? null : car.toRange(),
         rankChecks);
+  }
+
+  private static Map<String, Bands.Range> ranges(Map<String, PercentRange> byStandard) {
+    if (byStandard == null) {
+      return null;
+    }
+    Map<String, Bands.Range> out = new LinkedHashMap<>();
+    byStandard.forEach((k, v) -> out.put(k, v == null ? null : v.toRange()));
+    return out;
   }
 
   @Override

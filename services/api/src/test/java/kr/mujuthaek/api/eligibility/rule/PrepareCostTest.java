@@ -37,50 +37,64 @@ class PrepareCostTest {
 
   @Test
   void picksTheLargestLoanTheApplicantQualifiesFor() {
-    var a =
-        new ApplicantBuilder()
-            .birth(1997, 3, 15)
-            .household(1)
-            .personalIncome(32_000_000L)
-            .assets(45_000_000L)
-            .cash(5_000_000L)
-            .build();
+    var a = new ApplicantBuilder().birthMonth(1997, 3).household(1).assets(45_000_000L).build();
 
-    var r = PrepareCost.calculate(24_000_000L, a, List.of(GENERAL, YOUTH), REF);
+    var r =
+        PrepareCost.calculate(24_000_000L, a, exactly(32_000_000L), List.of(GENERAL, YOUTH), REF);
 
     assertThat(r.loan()).isEqualTo(new PrepareCost.Loan("YOUTH", "청년 전세자금", 19_200_000));
     assertThat(r.prepareWon()).isEqualTo(4_800_000);
-    assertThat(r.shortageWon()).isZero();
     assertThat(r.note()).isNull();
   }
 
   @Test
   void unknownIncomeThatCouldGiveMoreMeansNoAmountYet() {
-    var a = new ApplicantBuilder().birth(1997, 3, 15).build();
+    var a = new ApplicantBuilder().birthMonth(1997, 3).build();
 
-    var r = PrepareCost.calculate(24_000_000L, a, List.of(GENERAL, YOUTH), REF);
+    var r = PrepareCost.calculate(24_000_000L, a, null, List.of(GENERAL, YOUTH), REF);
 
     assertThat(r.prepareWon()).isNull();
     assertThat(r.note()).isEqualTo("INCOME_UNKNOWN");
   }
 
   @Test
-  void tooOldOrOverTheIncomeLimitFallsBackToTheGeneralLoan() {
-    var old = new ApplicantBuilder().birth(1980, 1, 1).cash(1_000_000L).build();
-    var rich =
-        new ApplicantBuilder()
-            .birth(1997, 3, 15)
-            .household(1)
-            .personalIncome(90_000_000L)
-            .assets(1L)
-            .build();
+  void incomeBandAcrossTheCapIsUnknownNotAGuess() {
+    // 연소득 구간 4천만~6천만 원: 청년 상한 5천만 원이 구간 안이라 받을 수 있는지 몰라요
+    var a = new ApplicantBuilder().birthMonth(1997, 3).household(1).assets(1L).build();
 
-    var r = PrepareCost.calculate(24_000_000L, old, List.of(GENERAL, YOUTH), REF);
+    var r =
+        PrepareCost.calculate(
+            24_000_000L,
+            a,
+            new Bands.Range(40_000_000L, 60_000_000L),
+            List.of(GENERAL, YOUTH),
+            REF);
+
+    assertThat(r.prepareWon()).isNull();
+    assertThat(r.note()).isEqualTo("INCOME_UNKNOWN");
+  }
+
+  @Test
+  void birthdayMonthAtTheAgeCapSkipsTheProduct() {
+    // 기준일 2026-10-22, 1991년 10월생: 만 34세 또는 35세 → 청년(19~34세)은 확실하지 않아서 쓰지 않아요
+    var a = new ApplicantBuilder().birthMonth(1991, 10).household(1).assets(1L).build();
+
+    var r = PrepareCost.calculate(24_000_000L, a, exactly(1L), List.of(GENERAL, YOUTH), REF);
+
+    assertThat(r.loan().productCode()).isEqualTo("GENERAL");
+  }
+
+  @Test
+  void tooOldOrOverTheIncomeLimitFallsBackToTheGeneralLoan() {
+    var old = new ApplicantBuilder().birthMonth(1980, 1).build();
+    var rich = new ApplicantBuilder().birthMonth(1997, 3).household(1).assets(1L).build();
+
+    var r = PrepareCost.calculate(24_000_000L, old, null, List.of(GENERAL, YOUTH), REF);
     assertThat(r.loan().productCode()).isEqualTo("GENERAL");
     assertThat(r.prepareWon()).isEqualTo(24_000_000 - 16_800_000);
-    assertThat(r.shortageWon()).isEqualTo(7_200_000 - 1_000_000);
     assertThat(
-            PrepareCost.calculate(24_000_000L, rich, List.of(GENERAL, YOUTH), REF)
+            PrepareCost.calculate(
+                    24_000_000L, rich, exactly(90_000_000L), List.of(GENERAL, YOUTH), REF)
                 .loan()
                 .productCode())
         .isEqualTo("GENERAL");
@@ -89,14 +103,19 @@ class PrepareCostTest {
   @Test
   void knownIncomeOverTheCapDropsTheProductEvenWhenAssetsAreUnknown() {
     // 소득 9천만 원(청년 상한 5천만 원 초과), 자산은 안 넣음: 청년 대출은 어차피 못 받으니 '자산을 몰라서 판정 불가'가 아니라 일반 대출로 계산
-    var a =
-        new ApplicantBuilder().birth(1997, 3, 15).household(1).personalIncome(90_000_000L).build();
+    var a = new ApplicantBuilder().birthMonth(1997, 3).household(1).build();
 
-    var r = PrepareCost.calculate(100_000_000L, a, List.of(YOUTH, GENERAL), REF);
+    var r =
+        PrepareCost.calculate(100_000_000L, a, exactly(90_000_000L), List.of(YOUTH, GENERAL), REF);
 
     assertThat(r.note()).isNull();
     assertThat(r.loan().productCode()).isEqualTo("GENERAL");
     assertThat(r.prepareWon()).isEqualTo(30_000_000);
+  }
+
+  /** 정확히 이 연소득 (구간 won-1 초과 ~ won 이하). */
+  private static Bands.Range exactly(long won) {
+    return new Bands.Range(won - 1, won);
   }
 
   @Test
@@ -109,9 +128,9 @@ class PrepareCostTest {
   @Test
   void noProductsOrNoPrice() {
     var a = Applicant.empty();
-    assertThat(PrepareCost.calculate(10_000_000L, a, List.of(), REF).prepareWon())
+    assertThat(PrepareCost.calculate(10_000_000L, a, null, List.of(), REF).prepareWon())
         .isEqualTo(10_000_000);
-    assertThat(PrepareCost.calculate(null, a, List.of(GENERAL), REF).note())
+    assertThat(PrepareCost.calculate(null, a, null, List.of(GENERAL), REF).note())
         .isEqualTo("PRICE_NOT_ANNOUNCED");
     var newlyweds =
         new LoanProduct(
@@ -124,6 +143,7 @@ class PrepareCostTest {
             null,
             null,
             List.of("NEWLYWED"));
-    assertThat(PrepareCost.calculate(10_000_000L, a, List.of(newlyweds), REF).loan()).isNull();
+    assertThat(PrepareCost.calculate(10_000_000L, a, null, List.of(newlyweds), REF).loan())
+        .isNull();
   }
 }

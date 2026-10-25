@@ -2,7 +2,6 @@ package kr.mujuthaek.api.eligibility.service;
 
 import java.time.Clock;
 import java.time.LocalDate;
-import kr.mujuthaek.api.eligibility.rule.Applicant;
 import kr.mujuthaek.api.eligibility.rule.SubscriptionScore;
 import org.springframework.stereotype.Service;
 
@@ -16,7 +15,7 @@ public class SubscriptionScoreService {
     this.clock = clock;
   }
 
-  public SubscriptionScore.Score score(Applicant applicant, LocalDate referenceDate) {
+  public SubscriptionScore.Score score(SubscriptionScore.Input applicant, LocalDate referenceDate) {
     return SubscriptionScore.calculate(
         applicant, referenceDate == null ? LocalDate.now(clock) : referenceDate);
   }

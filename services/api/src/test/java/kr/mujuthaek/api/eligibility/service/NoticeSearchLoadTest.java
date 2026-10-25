@@ -4,7 +4,6 @@ import static kr.mujuthaek.api.notice.NoticeApiFixture.schedule;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Clock;
-import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
@@ -15,7 +14,6 @@ import kr.mujuthaek.api.area.repository.PostgresNoticeLocations;
 import kr.mujuthaek.api.area.repository.PostgresSiteDetails;
 import kr.mujuthaek.api.area.service.NoticeAreaQueryService;
 import kr.mujuthaek.api.common.region.RegionQueryService;
-import kr.mujuthaek.api.eligibility.dto.request.ApplicantRequest;
 import kr.mujuthaek.api.eligibility.dto.request.NoticeSearchRequest;
 import kr.mujuthaek.api.eligibility.repository.CriteriaStore;
 import kr.mujuthaek.api.eligibility.repository.LoanProductStore;
@@ -37,15 +35,18 @@ class NoticeSearchLoadTest {
   private final NoticeApiFixture f = new NoticeApiFixture();
   private final CountingDataSource counting = new CountingDataSource(TestDatabase.dataSource());
   private final NoticeQueryService queries = queries(counting);
+  private final JdbcTemplate countingJdbc = new JdbcTemplate(counting.dataSource());
+  private final CriteriaService criteria =
+      new CriteriaService(
+          new CriteriaStore(countingJdbc),
+          new LoanProductStore(countingJdbc),
+          NoticeFixtures.JSON,
+          Clock.systemUTC());
   private final NoticeEvaluationService evaluations =
       new NoticeEvaluationService(
           queries,
-          new CriteriaService(
-              new CriteriaStore(new JdbcTemplate(counting.dataSource())),
-              NoticeFixtures.JSON,
-              Clock.systemUTC()),
-          new PrepareCostService(
-              new LoanProductStore(new JdbcTemplate(counting.dataSource())), Clock.systemUTC()));
+          criteria,
+          new PrepareCostService(new LoanProductStore(countingJdbc), criteria, Clock.systemUTC()));
   private final NoticeSearchService search = new NoticeSearchService(queries, evaluations);
 
   @Test
@@ -66,27 +67,7 @@ class NoticeSearchLoadTest {
   void partlyExtractedNoticesAreNeitherEligibleNorIneligible() {
     var evaluate =
         evaluations.evaluator(
-            new ApplicantRequest(
-                    LocalDate.of(1997, 3, 15),
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null)
-                .toApplicant());
+            new kr.mujuthaek.api.eligibility.rule.ApplicantBuilder().birthMonth(1997, 3).build());
     var fits = ageFrame(19, 39);
     var tooOld = ageFrame(40, 50);
 
