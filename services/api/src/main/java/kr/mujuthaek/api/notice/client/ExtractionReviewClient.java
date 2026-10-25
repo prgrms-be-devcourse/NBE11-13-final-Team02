@@ -32,12 +32,12 @@ public class ExtractionReviewClient {
 
   private static final Logger log = LoggerFactory.getLogger(ExtractionReviewClient.class);
 
-  private final RestClient http;
-
-  @Autowired
   /** 목록 한 번에 받는 최대 건수(검수 API 상한과 같음). */
   private static final int LIST_LIMIT = 1000;
 
+  private final RestClient http;
+
+  @Autowired
   public ExtractionReviewClient(ExtractionReviewProperties properties) {
     this(properties, defaultBuilder(properties));
   }
