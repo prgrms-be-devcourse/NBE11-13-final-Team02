@@ -15,7 +15,7 @@ spring:
     hibernate:
       ddl-auto: validate                # 테이블은 Flyway가 만들고 JPA는 확인만
   flyway:
-    schemas: common,notice,benefit,eligibility,area,account,notification
+    schemas: common,notice,benefit,eligibility,area,account,notification,chat
     locations: classpath:db/migration
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
