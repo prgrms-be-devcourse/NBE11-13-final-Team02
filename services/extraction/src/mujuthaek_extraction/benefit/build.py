@@ -333,6 +333,21 @@ def _split_or_groups(
     return rows, moved
 
 
+WON_FIELDS = ("amountMinWon", "amountMaxWon", "depositMaxWon", "monthlyMaxWon")  # AI 조건 답에서 원 단위 금액 칸
+
+
+def _leftover_amounts(items: list[dict[str, Any]]) -> set[str]:
+    """금액이 남는 근거 문장(정규화). 같은 문장을 근거로 든 조건들이 그 문장의 금액을 다 쓰지 않으면, 남은 금액은 조건부 금액일 수 있습니다
+    (「전세 보증금 5억원(지방 4억원 이하)」에서 5억만 쓰면 지방 거주자에게 너그럽게 틀림, 2026-10-25 시험). 그런 문장의 금액 값은 비웁니다.
+    「연소득 6천만원(부부합산 8천만원)」을 두 조건이 나눠 쓰면 남는 금액이 없어 그대로 둡니다."""
+    used: dict[str, set[int]] = {}
+    for item in items:
+        won = {int(item[k]) for k in WON_FIELDS if isinstance(item.get(k), int | float) and item[k] > 0}
+        if won:
+            used.setdefault(_norm(item["evidence"]), set()).update(won)
+    return {quote for quote, won in used.items() if won_amounts(quote) - won}
+
+
 def _settle_income(rule_rows: list[dict[str, Any]], income: dict[str, int], items: list[dict[str, Any]], sources: list[str], regions: Any) -> str | None:
     """출처 칸 연소득(기준 모름)과 AI가 글에서 읽은 소득 조건을 맞춥니다. 같은 금액을 읽었으면 규칙 줄을 빼고 AI 줄(기준 포함)을 쓰며 None,
     다른 금액만 읽었으면 "RULE_AI_CONFLICT"(규칙 줄은 값 없는 채로 남고 AI 소득 줄은 버려짐), 글에 소득 조건이 없으면 None(규칙 줄은 값 없이 남음).
@@ -377,9 +392,12 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     rule_evidence = {_norm(row["evidence"]) for row in rule_rows}
     ai_rows: list[tuple[tuple[str, int], dict[str, Any]]] = []
     covered: dict[int, list[tuple[str, str]]] = {}  # AI 묶음 번호 → 그 묶음에서 규칙 줄로 대신한 (type, 근거)
+    leftover = _leftover_amounts(answer.get("conditions") or [])
     for index, item in enumerate(answer.get("conditions") or []):
         evidence_ok = quoted(item["evidence"], sources)
         value = ai_value(item, regions) if evidence_ok else None
+        if value is not None and _norm(item["evidence"]) in leftover and any(item.get(k) for k in WON_FIELDS):
+            value = None  # 근거 문장의 다른 금액(조건부 금액일 수 있음)을 쓰지 않음
         if not evidence_ok:
             failed_evidence += 1
         if item["type"] in rule_types:

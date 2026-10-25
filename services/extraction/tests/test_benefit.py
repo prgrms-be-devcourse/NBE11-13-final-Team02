@@ -504,3 +504,14 @@ def test_amounts_that_differ_only_by_a_condition_in_one_or_group_are_left_unknow
         ],
     )
     assert [(c["known"], c["value"]) for c in data["conditions"] if c["type"] == "INCOME_AMOUNT"] == [(False, None), (False, None)]
+
+
+def test_an_unused_amount_in_the_quote_leaves_the_amount_unknown():
+    text = TEXT + "\n전세: 보증금 5억원(지방 4억원 이하)"
+    data = built_text(text, [condition("LEASE", "전세: 보증금 5억원(지방 4억원 이하)", leaseKinds=["JEONSE"], depositMaxWon=500_000_000)])
+    assert [(c["known"], c["value"]) for c in data["conditions"] if c["type"] == "LEASE"] == [(False, None)]
+    both = built_text(  # 보증금·월세 두 금액을 한 줄이 다 씀
+        TEXT + "\n보증금 6.5천만원, 월세금 70만원 이하",
+        [condition("LEASE", "보증금 6.5천만원, 월세금 70만원 이하", leaseKinds=["MONTHLY"], depositMaxWon=65_000_000, monthlyMaxWon=700_000)],
+    )
+    assert [c["value"] for c in both["conditions"] if c["type"] == "LEASE"] == [{"unit": "MANWON", "kind": ["MONTHLY"], "depositMax": 6500, "monthlyMax": 70}]
