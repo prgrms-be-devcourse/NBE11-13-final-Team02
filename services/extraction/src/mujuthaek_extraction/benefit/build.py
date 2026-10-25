@@ -72,9 +72,28 @@ def has_number(quote: str, value: float | int | None) -> bool:
     return str(number) in _numbers(quote)
 
 
-_UNITS = {"억": 10**8, "천만": 10**7, "백만": 10**6, "십만": 10**5, "만": 10**4, "천": 10**3}
-_MONEY = re.compile(r"((?:\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|십만|만|천)\s*)+(?:\d[\d,]*\s*)?원?|\d[\d,]*\s*원)")
-_PART = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(억|천만|백만|십만|만|천)?")
+_MONEY = re.compile(r"((?:\d[\d,]*(?:\.\d+)?\s*(?:억|천만|백만|십만|만|천|백|십)\s*)+(?:\d[\d,]*\s*)?원?|\d[\d,]*\s*원)")
+_PART = re.compile(r"(\d[\d,]*(?:\.\d+)?)?\s*(억|만|천|백|십)?")
+_SMALL = {"천": 1000, "백": 100, "십": 10}
+_BIG = {"만": 10**4, "억": 10**8}
+
+
+def _korean_amount(text: str) -> Decimal:
+    """「4천 5백만」「1억 5천만」「6.5천만」「122백만」「5,000만」「200,000」→ 원. 천·백·십은 만·억 앞 묶음 안에서 더하고 만·억에서 곱합니다
+    (2026-10-25 고침: 예전에는 「4천 5백만」을 4천 + 5백만 = 500만 4천 원으로 읽음)."""
+    total, group = Decimal(0), Decimal(0)
+    for number, unit in _PART.findall(text):
+        if not number and not unit:
+            continue
+        value = Decimal(number.replace(",", "")) if number else Decimal(1)
+        if unit in _SMALL:
+            group += value * _SMALL[unit]
+        elif unit in _BIG:
+            total += (group + (value if number else 0)) * _BIG[unit] if group else value * _BIG[unit]
+            group = Decimal(0)
+        else:
+            group += value
+    return total + group
 
 
 def won_amounts(quote: str) -> set[int]:
@@ -82,9 +101,7 @@ def won_amounts(quote: str) -> set[int]:
     text = unicodedata.normalize("NFKC", quote or "")
     found: set[int] = set()
     for match in _MONEY.finditer(text):
-        total = Decimal(0)
-        for number, unit in _PART.findall(match.group(1)):
-            total += Decimal(number.replace(",", "")) * _UNITS.get(unit, 1)
+        total = _korean_amount(match.group(1))
         if total == total.to_integral_value() and total > 0:
             found.add(int(total))
     return found
@@ -242,7 +259,7 @@ def ai_value(item: dict[str, Any], regions: Any) -> dict[str, Any] | None:
         return value if len(value) > 1 else None
     if kind == "WORKPLACE":
         value = {}
-        if "SME" in (item.get("values") or []):
+        if "SME" in (item.get("values") or []) and "중소" in quote:  # 「대전 소재 직장」에 중소기업을 붙이지 않게(2026-10-25 시험)
             value["kind"] = ["SME"]
         if item.get("regionNames"):
             codes = _regions(regions, item["regionNames"])
@@ -267,23 +284,34 @@ def same_value(kind: str, rule: dict[str, Any] | None, ai: dict[str, Any] | None
     return False
 
 
-def _support(item: dict[str, Any], sources: list[str]) -> tuple[dict[str, Any], bool]:
-    """AI 지원 내용 한 줄 → 계약 모양, 근거가 원문에 있었는지. 근거에 없는 금액·개월·비율은 비웁니다."""
+def _support(item: dict[str, Any], sources: list[str]) -> tuple[dict[str, Any], bool, bool]:
+    """AI 지원 내용 한 줄 → 계약 모양, 근거가 원문에 있었는지, 금액을 근거 밖에서 찾았는지(확인 필요).
+    지원 금액·대출 한도는 핵심 값이라(2026-10-25 사용자 결정) 근거 문장에 없어도 같은 금액이 원문 다른 줄에 있으면 채웁니다
+    (「(보증금) 연 1.3%」를 근거로 들고 한도 「최대 4,500만원」은 다음 줄에 있는 경우). 원문 어디에도 없는 금액·개월·비율은 비웁니다."""
     evidence_ok = quoted(item["evidence"], sources)
     quote = item["evidence"] if evidence_ok else ""
     amount = item.get("amountMaxWon")
     amount_ok = amount is not None and has_won(quote, amount) and manwon(amount) is not None
+    elsewhere = False
+    if evidence_ok and amount is not None and not amount_ok and manwon(amount) is not None:
+        elsewhere = amount_ok = any(has_won(line, amount) for source in sources for line in source.splitlines())
     months = item.get("months") if item.get("months") is not None and has_number(quote, item["months"]) else None
+    if evidence_ok and item.get("months") is not None and months is None and elsewhere:
+        months = item["months"] if any(has_number(line, item["months"]) and "개월" in line for source in sources for line in source.splitlines()) else None
     rate = item.get("ratePct") if item.get("ratePct") is not None and has_number(quote, item["ratePct"]) else None
-    return {
-        "kind": item["kind"],
-        "amountMax": manwon(amount) if amount_ok else None,
-        "amountPer": item.get("amountPer") if amount_ok else None,
-        "months": months,
-        "ratePct": rate,
-        "rawText": item["rawText"].strip() or item["evidence"].strip(),
-        "evidence": item["evidence"].strip(),
-    }, evidence_ok
+    return (
+        {
+            "kind": item["kind"],
+            "amountMax": manwon(amount) if amount_ok else None,
+            "amountPer": item.get("amountPer") if amount_ok else None,
+            "months": months,
+            "ratePct": rate,
+            "rawText": item["rawText"].strip() or item["evidence"].strip(),
+            "evidence": item["evidence"].strip(),
+        },
+        evidence_ok,
+        elsewhere,
+    )
 
 
 def _date(value: Any, sources_text: str) -> str | None:
@@ -568,9 +596,11 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
 
     supports = []
     for item in answer.get("supports") or []:
-        made, evidence_ok = _support(item, sources)
+        made, evidence_ok, elsewhere = _support(item, sources)
         if not evidence_ok:
             failed_evidence += 1
+        if elsewhere:
+            reasons.append("LOW_CONFIDENCE")
         if made["evidence"]:
             supports.append(made)
 

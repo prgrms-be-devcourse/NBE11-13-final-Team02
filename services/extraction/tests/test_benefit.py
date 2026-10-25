@@ -195,6 +195,9 @@ def test_other_sources_have_no_rules_yet():
         ("최대 1억 5천만원", 150_000_000),
         ("5,000만 원", 50_000_000),
         ("월 20만원", 200_000),
+        ("연소득 4천 5백만 원 이하", 45_000_000),
+        ("재산 122백만원 이하", 122_000_000),
+        ("보증금 6.5천만원", 65_000_000),
     ],
 )
 def test_korean_amounts_are_read(quote, won):
@@ -599,3 +602,28 @@ def test_a_district_name_without_its_city_uses_the_registering_city():
         table,
     )
     assert [c["known"] for c in vague["conditions"] if c["type"] == "RESIDENCE"] == [False]
+
+
+def test_workplace_is_an_sme_only_when_the_quote_says_so():
+    text = TEXT + "\n대구시 소재 직장에 재직하는 청년"
+    data = built_text(text, [condition("WORKPLACE", "대구시 소재 직장에 재직하는 청년", values=["SME"], regionNames=["대구광역시"])])
+    assert [c["value"] for c in data["conditions"] if c["type"] == "WORKPLACE"] == [{"regions": ["27"]}]
+
+
+def test_a_loan_limit_on_another_line_is_filled_and_needs_review():
+    text = TEXT + "\n(보증금) 연 1.3%\n(보증금) 최대 4,500만원 이내"
+    support = {
+        "kind": "DEPOSIT_LOAN",
+        "amountMaxWon": 45_000_000,
+        "amountPer": "ONCE",
+        "months": None,
+        "ratePct": 1.3,
+        "rawText": "보증금 최대 4,500만원, 연 1.3%",
+        "evidence": "(보증금) 연 1.3%",
+    }
+    data = build_payload(payload(text=text), BenefitReading(answer(supports=[support]), False, "recorded"), rules_for("youth", RECORD, text), REGIONS)
+    assert (data["supports"][0]["amountMax"], data["supports"][0]["ratePct"]) == (4500, 1.3)
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+    nowhere = {**support, "amountMaxWon": 55_000_000}  # 원문 어디에도 없는 금액은 비움
+    data = build_payload(payload(text=text), BenefitReading(answer(supports=[nowhere]), False, "recorded"), rules_for("youth", RECORD, text), REGIONS)
+    assert data["supports"][0]["amountMax"] is None
