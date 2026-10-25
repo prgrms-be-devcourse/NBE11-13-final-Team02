@@ -91,11 +91,8 @@ public class CriteriaService {
     if (!set.isEmpty()) {
       return set;
     }
-    return store.baseIncome(
-        "MEDIAN_INCOME".equals(kind)
-            ? List.of("MEDIAN_INCOME")
-            : List.of("URBAN_WORKER_INCOME", "URBAN_WORKER_AVERAGE_INCOME"),
-        year);
+    // 도시근로자 소득은 가구원수별(URBAN_WORKER_INCOME)과 가구당 평균(URBAN_WORKER_AVERAGE_INCOME, 공공분양)이 다른 표예요
+    return store.baseIncome(List.of(kind), year);
   }
 
   private static Map<String, Long> nullIfEmpty(Map<String, Long> m) {
@@ -112,14 +109,23 @@ public class CriteriaService {
   }
 
   /**
-   * 판정 엔진에 넘길 기준 소득 월액. 기준 중위소득은 MEDIAN_INCOME, 도시근로자 소득(두 이름)은 URBAN_WORKER_INCOME 값을 써요. 한 번의 판정
-   * 안에서 같은 연도를 여러 번 읽지 않게 기억해 둬요.
+   * 판정 엔진에 넘길 기준 소득 월액. 기준 중위소득은 MEDIAN_INCOME, 도시근로자 가구원수별은 URBAN_WORKER_INCOME, 가구당 평균(공공분양)은
+   * URBAN_WORKER_AVERAGE_INCOME 값을 써요(없으면 가구원수별). 한 번의 판정 안에서 같은 연도를 여러 번 읽지 않게 기억해 둬요.
    */
   public IncomeBenchmarks benchmarks() {
     Map<String, Map<String, Long>> cache = new java.util.HashMap<>();
     return (standard, year, householdSize) -> {
-      String kind = "MEDIAN_INCOME".equals(standard) ? "MEDIAN_INCOME" : "URBAN_WORKER_INCOME";
+      String kind =
+          "MEDIAN_INCOME".equals(standard) || "URBAN_WORKER_AVERAGE_INCOME".equals(standard)
+              ? standard
+              : "URBAN_WORKER_INCOME";
       Map<String, Long> table = cache.computeIfAbsent(kind + year, k -> monthlyIncome(kind, year));
+      // 가구당 평균 표가 없으면(관리자 표 등) 가구원수별 표로
+      if (table.isEmpty() && "URBAN_WORKER_AVERAGE_INCOME".equals(kind)) {
+        table =
+            cache.computeIfAbsent(
+                "URBAN_WORKER_INCOME" + year, k -> monthlyIncome("URBAN_WORKER_INCOME", year));
+      }
       return table.get(String.valueOf(householdSize));
     };
   }
