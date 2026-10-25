@@ -219,6 +219,19 @@ class CriterionJudgeTest {
             REF,
             twoYears);
     assertThat(item.status()).isEqualTo(MET);
+    // 기준 종류마다 연도를 따로 적으면 그 연도: 2025년 기준 95~100% = 3,800,000~4,000,000 ≤ 4,000,000
+    Item perStandard =
+        CriterionJudge.judge(
+            c,
+            applicant()
+                .household(1)
+                .income("URBAN_WORKER_INCOME", 95, 100)
+                .incomeYear(2026)
+                .incomeYear("URBAN_WORKER_INCOME", 2025)
+                .build(),
+            REF,
+            twoYears);
+    assertThat(perStandard.status()).isEqualTo(MET);
   }
 
   @Test

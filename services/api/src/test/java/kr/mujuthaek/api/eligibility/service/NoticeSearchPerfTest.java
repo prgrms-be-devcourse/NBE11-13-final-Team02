@@ -125,8 +125,8 @@ class NoticeSearchPerfTest {
             new ApplicantRequest.SubscriptionRequest("24_PLUS", 26),
             List.of(),
             Map.of(
-                "MEDIAN_INCOME", new ApplicantRequest.PercentRange(100, 110),
-                "URBAN_WORKER_INCOME", new ApplicantRequest.PercentRange(80, 90)),
+                "MEDIAN_INCOME", new ApplicantRequest.PercentRange(100, 110, null),
+                "URBAN_WORKER_INCOME", new ApplicantRequest.PercentRange(80, 90, 2025)),
             null,
             2026,
             new ApplicantRequest.WonRange(25_000_000L, 50_000_000L),

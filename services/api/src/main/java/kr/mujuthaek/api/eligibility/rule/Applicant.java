@@ -26,6 +26,7 @@ import kr.mujuthaek.api.eligibility.rule.Bands.Span;
  * @param personalIncome 본인 월평균소득의 기준 대비 % 구간 (기준 종류 MEDIAN_INCOME · URBAN_WORKER_INCOME마다)
  * @param householdIncome 가구 월평균소득의 % 구간. 1인 가구면 비워도 본인 값을 써요
  * @param incomeYear 소득 % 구간을 계산한 기준 연도 (GET /eligibility/criteria의 year). 비우면 공고 기준 연도와 같다고 봐요
+ * @param incomeYears 기준 종류마다 다른 연도로 계산했을 때 (도시근로자 소득은 보통 전해 값). 없으면 incomeYear
  * @param assets 총자산 구간 (원)
  * @param car 자동차가액 구간 (원)
  * @param rankChecks 2·3순위 자기 확인 체크 키 (GET /eligibility/criteria가 줘요)
@@ -47,6 +48,7 @@ public record Applicant(
     Map<String, Range> personalIncome,
     Map<String, Range> householdIncome,
     Integer incomeYear,
+    Map<String, Integer> incomeYears,
     Range assets,
     Range car,
     List<String> rankChecks) {
@@ -57,7 +59,13 @@ public record Applicant(
   public static Applicant empty() {
     return new Applicant(
         null, null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-        null, null, null, null);
+        null, null, null, null, null);
+  }
+
+  /** 이 기준 종류의 % 구간을 계산한 연도. 모르면 null. */
+  public Integer incomeYearOf(String standard) {
+    Integer own = incomeYears == null ? null : incomeYears.get(standard);
+    return own != null ? own : incomeYear;
   }
 
   /** 가구 소득 % 구간. 1인 가구면 가구 = 본인이라 본인 값으로 채워요. */
@@ -103,6 +111,8 @@ public record Applicant(
             + householdIncome
             + ", incomeYear="
             + incomeYear
+            + ", incomeYears="
+            + incomeYears
             + ", assets="
             + assets
             + ", car="

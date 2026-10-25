@@ -44,9 +44,9 @@ public class PrepareCostService {
     if (bands == null || a.householdSize() == null) {
       return null;
     }
-    int year = a.incomeYear() != null ? a.incomeYear() : today.getYear();
     for (String key : List.of("MEDIAN_INCOME", "URBAN_WORKER_INCOME")) {
       Bands.Range pct = bands.get(key);
+      int year = a.incomeYearOf(key) != null ? a.incomeYearOf(key) : today.getYear();
       Long base = pct == null ? null : benchmarks.monthlyWon(key, year, a.householdSize());
       if (base != null) {
         return pct.times(base * 12 / 100.0);

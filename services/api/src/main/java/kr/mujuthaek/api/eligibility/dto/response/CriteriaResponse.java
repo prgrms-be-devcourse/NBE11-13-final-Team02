@@ -12,7 +12,8 @@ import tools.jackson.databind.JsonNode;
  *
  * @param year 기준 연도. 판정 입력의 incomeYear로 그대로 보내요
  * @param medianIncomeMonthlyWon 가구원 수("1"·"2" …)별 기준 중위소득 월액. 그해 값이 없으면 null
- * @param urbanWorkerIncomeMonthlyWon 가구원 수별 도시근로자 가구당 월평균소득. 그해 값이 없으면 null
+ * @param urbanWorkerIncomeMonthlyWon 가구원 수별 도시근로자 가구당 월평균소득. 그해 값이 없으면 가장 가까운 앞 해(2년까지) 값
+ * @param urbanWorkerIncomeYear urbanWorkerIncomeMonthlyWon의 연도. 소득 % 구간의 year로 보내요
  * @param rankCriteria 순위 요건 [{ rank, rule(ANY·ALL), items: [{ key, label, … }] }]. 그해 값이 없으면 null
  * @param assetCutsWon 총자산 구간 경계 (주택 유형별 상한·대출 상한, 작은 순)
  * @param carCutsWon 자동차가액 구간 경계 (작은 순)
@@ -22,6 +23,7 @@ public record CriteriaResponse(
     LocalDate validFrom,
     Map<String, Long> medianIncomeMonthlyWon,
     Map<String, Long> urbanWorkerIncomeMonthlyWon,
+    Integer urbanWorkerIncomeYear,
     JsonNode rankCriteria,
     List<Long> assetCutsWon,
     List<Long> carCutsWon) {}
