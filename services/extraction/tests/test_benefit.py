@@ -312,7 +312,7 @@ class FakeStore:
     def judged(self, raw_event):
         return False
 
-    def save_judgment(self, raw_event, event):
+    def save_benefit(self, raw_event, event):
         self.saved.append(event)
         return True
 

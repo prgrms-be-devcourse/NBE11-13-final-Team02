@@ -437,7 +437,7 @@ def judge_benefit(store: JobStore, raw_event: dict[str, Any], model: Any, region
     event = {**new_event(BENEFIT_EVENT_TYPE, PRODUCER, extracted), "traceId": raw_event.get("traceId")}
     if errors := tools().validate(event, BENEFIT_SCHEMA):
         raise ValueError(f"혜택 정제 이벤트가 계약에 맞지 않습니다: {errors[:3]}")
-    if not store.save_judgment(raw_event, event):
+    if not store.save_benefit(raw_event, event):  # 결과를 쌓고, 확인 필요면 검수 대기로(관리자 혜택 검수)
         return None
     log.info(
         "혜택 정제 결과 발행 대기",
