@@ -3,9 +3,11 @@
   GET  /sources                출처별 상태: 켜짐 여부, 마지막 회차·마지막 성공, 최근 회차 10개, 연속 0건·연속 실패, 누적 수집 수
   POST /sources/{code}/pause   멈춤 (sources.enabled = false). 스케줄러는 켜진 출처만 돌아요(enabled_sources)
   POST /sources/{code}/resume  다시 켜기
+  POST /sources/{code}/run     지금 한 번 수집 (202, 뒤에서 돌아요). 다른 수집이 돌고 있거나(스케줄러와 같은 잠금) 그 출처가 수집 중·멈춤이면 409
 
 인증: COLLECTOR_ADMIN_TOKEN이 있으면 'Authorization: Bearer <토큰>'이 필요해요. 없으면 같은 컴퓨터(127.0.0.1·::1)에서 온 요청만 받아요.
-오류 글(crawl_runs.error)은 앞부분만 내보내요(키는 수집 단계에서 이미 가려요). 「지금 다시 수집」은 스케줄러 실행부를 건드려야 해서 넣지 않았어요.
+오류 글(crawl_runs.error)은 앞부분만 내보내요(키는 수집 단계에서 이미 가려요).
+「지금 다시 수집」은 스케줄러가 쓰는 수집 함수와 잠금(_run_lock)을 그대로 받아 써요(Runner). 잠금을 잡은 동안 정해진 수집 차례는 기존대로 건너뛰어요.
 """
 
 from __future__ import annotations
@@ -26,7 +28,8 @@ log = logging.getLogger(__name__)
 
 ADMIN_PORT = int(os.getenv("COLLECTOR_ADMIN_PORT", "8093"))
 LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
-ACTION_PATH = re.compile(r"^/sources/([a-z0-9_-]{1,40})/(pause|resume)$")
+ACTION_PATH = re.compile(r"^/sources/([a-z0-9_-]{1,40})/(pause|resume|run)$")
+RUNNING_WITHIN = timedelta(hours=2)  # 이보다 오래된 RUNNING 회차는 비정상 종료로 보고 무시해요
 RECENT_RUNS = 10
 ERROR_CHARS = 300
 # 켜진 출처가 이 시간 넘게 성공한 회차가 없으면 「지연」 (평일 매시간·하루 1회 출처가 섞여 있어 넉넉히)
@@ -105,7 +108,46 @@ def set_enabled(conn: Any, code: str, enabled: bool) -> bool:
     return cur.rowcount == 1
 
 
-def handler_for(connect: Callable[[], Any], token: str | None) -> type[BaseHTTPRequestHandler]:
+class Runner:
+    """출처 하나를 지금 한 번 수집해요. 스케줄러와 같은 잠금·수집 함수를 받아요(__main__.run_scheduler에서 만듦)."""
+
+    def __init__(self, lock: Any, collect: Callable[..., Any], collect_policy: Callable[..., Any], policy_codes: list[str], settings: Any):
+        self.lock = lock
+        self.collect = collect
+        self.collect_policy = collect_policy
+        self.policy_codes = set(policy_codes)
+        self.settings = settings
+
+    def start(self, conn: Any, code: str, now: datetime | None = None) -> tuple[int, Any]:
+        row = conn.execute("select enabled from sources where code = %s", (code,)).fetchone()
+        if row is None:
+            return 404, {"error": "없는 출처입니다."}
+        if not row[0]:
+            return 409, {"error": "멈춘 출처예요. 다시 켠 뒤 수집하세요."}
+        now = now or datetime.now(UTC)
+        running = conn.execute(
+            "select 1 from crawl_runs where source_code = %s and status = 'RUNNING' and started_at > %s limit 1", (code, now - RUNNING_WITHIN)
+        ).fetchone()
+        if running:
+            return 409, {"error": "이 출처는 지금 수집 중이에요."}
+        if not self.lock.acquire(blocking=False):
+            return 409, {"error": "다른 수집이 돌고 있어요. 끝난 뒤 다시 해 주세요."}
+        run = self.collect_policy if code in self.policy_codes else self.collect
+
+        def work() -> None:
+            try:
+                run(code, self.settings)
+            except Exception:  # noqa: BLE001 — 실패는 crawl_runs와 로그에 남아요
+                log.exception("관리자 요청 수집 실패", extra={"source": code})
+            finally:
+                self.lock.release()
+
+        threading.Thread(target=work, daemon=True, name=f"admin-run-{code}").start()
+        log.info("관리자 요청으로 수집 시작", extra={"source": code})
+        return 202, {"code": code, "started": True}
+
+
+def handler_for(connect: Callable[[], Any], token: str | None, runner: Runner | None = None) -> type[BaseHTTPRequestHandler]:
     """connect: 요청마다 DB 연결을 여는 함수(닫는 건 여기서). token: 있으면 Bearer 인증."""
 
     class Handler(BaseHTTPRequestHandler):
@@ -150,6 +192,10 @@ def handler_for(connect: Callable[[], Any], token: str | None) -> type[BaseHTTPR
             code, action = match[1], match[2]
 
             def work(conn: Any) -> tuple[int, Any]:
+                if action == "run":
+                    if runner is None:
+                        return 501, {"error": "지금 수집은 스케줄러와 함께 띄웠을 때만 돼요."}
+                    return runner.start(conn, code)
                 if not set_enabled(conn, code, action == "resume"):
                     return 404, {"error": "없는 출처입니다."}
                 log.info("수집 출처 켜기·끄기", extra={"source": code, "action": action})
@@ -163,7 +209,7 @@ def handler_for(connect: Callable[[], Any], token: str | None) -> type[BaseHTTPR
     return Handler
 
 
-def serve(db_url: str) -> ThreadingHTTPServer:
+def serve(db_url: str, runner: Runner | None = None) -> ThreadingHTTPServer:
     """스케줄러와 같이 뒤에서 도는 관리자 API를 시작해요."""
     from mujuthaek_collector.core.storage import PostgresStore
 
@@ -174,6 +220,6 @@ def serve(db_url: str) -> ThreadingHTTPServer:
     host = os.getenv("COLLECTOR_ADMIN_HOST", "0.0.0.0")
     if not token:
         log.warning("수집 현황 API 토큰(COLLECTOR_ADMIN_TOKEN)이 없어 같은 컴퓨터에서 온 요청만 받아요")
-    server = ThreadingHTTPServer((host, ADMIN_PORT), handler_for(connect, token))
+    server = ThreadingHTTPServer((host, ADMIN_PORT), handler_for(connect, token, runner))
     threading.Thread(target=server.serve_forever, daemon=True, name="collector-admin-api").start()
     return server

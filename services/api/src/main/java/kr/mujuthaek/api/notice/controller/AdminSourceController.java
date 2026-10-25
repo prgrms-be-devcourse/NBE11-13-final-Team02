@@ -9,12 +9,13 @@ import org.springframework.web.bind.annotation.RestController;
 import tools.jackson.databind.JsonNode;
 
 /**
- * 관리자 수집 현황 화면 API (ADMIN만). 수집기 관리자 API를 이 서버가 대신 불러요. 「지금 다시 수집」은 수집기 담당 영역이라 아직 없어요.
+ * 관리자 수집 현황 화면 API (ADMIN만). 수집기 관리자 API를 이 서버가 대신 불러요.
  *
  * <pre>
  * GET  /api/admin/sources               출처별 상태 (정상·지연·실패·멈춤, 최근 회차, 연속 0건)
  * POST /api/admin/sources/{code}/pause  멈춤
  * POST /api/admin/sources/{code}/resume 다시 켜기
+ * POST /api/admin/sources/{code}/run    지금 한 번 수집 (뒤에서 돌아요, 다른 수집 중이면 409)
  * </pre>
  */
 @RestController
@@ -35,6 +36,11 @@ class AdminSourceController {
   @PostMapping("/{code}/pause")
   JsonNode pause(@PathVariable String code) {
     return collector.setEnabled(code, false);
+  }
+
+  @PostMapping("/{code}/run")
+  JsonNode run(@PathVariable String code) {
+    return collector.runNow(code);
   }
 
   @PostMapping("/{code}/resume")

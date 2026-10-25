@@ -76,4 +76,31 @@ class CollectorAdminClientTest {
             CustomException.class,
             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.NOTICE_COLLECTOR_UNAVAILABLE));
   }
+
+  @Test
+  void runNowPassesConflictExplanation() {
+    var client = client(null);
+    server
+        .expect(requestTo(BASE + "/sources/sh/run"))
+        .andExpect(method(HttpMethod.POST))
+        .andRespond(
+            withStatus(HttpStatus.ACCEPTED)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"code\":\"sh\",\"started\":true}"));
+    assertThat(client.runNow("sh").path("started").asBoolean()).isTrue();
+    server.reset();
+    server
+        .expect(requestTo(BASE + "/sources/sh/run"))
+        .andRespond(
+            withStatus(HttpStatus.CONFLICT)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body("{\"error\":\"다른 수집이 돌고 있어요. 끝난 뒤 다시 해 주세요.\"}"));
+    assertThatThrownBy(() -> client.runNow("sh"))
+        .isInstanceOfSatisfying(
+            CustomException.class,
+            e -> {
+              assertThat(e.errorCode()).isEqualTo(ErrorCode.CONFLICT);
+              assertThat(e.getMessage()).startsWith("다른 수집이 돌고 있어요");
+            });
+  }
 }

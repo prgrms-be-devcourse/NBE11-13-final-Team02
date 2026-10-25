@@ -60,6 +60,11 @@ public class CollectorAdminClient {
                 .body(JsonNode.class));
   }
 
+  /** 지금 한 번 수집 (수집기가 뒤에서 돌려요). 다른 수집 중·멈춤·이미 수집 중이면 {@link ErrorCode#CONFLICT}. */
+  public JsonNode runNow(String code) {
+    return call(() -> http.post().uri("/sources/{code}/run", code).retrieve().body(JsonNode.class));
+  }
+
   private JsonNode call(Supplier<JsonNode> request) {
     try {
       return request.get();
@@ -67,11 +72,25 @@ public class CollectorAdminClient {
       if (e.getStatusCode().value() == 404) {
         throw new CustomException(ErrorCode.NOT_FOUND, "없는 수집 출처예요");
       }
+      if (e.getStatusCode().value() == 409) {
+        throw new CustomException(ErrorCode.CONFLICT, upstreamError(e));
+      }
       log.warn("수집기 관리자 API가 오류로 답했어요 (status {})", e.getStatusCode().value());
       throw new CustomException(ErrorCode.NOTICE_COLLECTOR_UNAVAILABLE);
     } catch (RestClientException e) {
       log.warn("수집기 관리자 API에 연결하지 못했어요 ({})", e.getClass().getSimpleName());
       throw new CustomException(ErrorCode.NOTICE_COLLECTOR_UNAVAILABLE);
+    }
+  }
+
+  /** 수집기 오류 본문의 error(한국어 설명). */
+  private static String upstreamError(RestClientResponseException e) {
+    try {
+      JsonNode body = e.getResponseBodyAs(JsonNode.class);
+      JsonNode error = body == null ? null : body.get("error");
+      return error != null && error.isString() ? error.asString() : null;
+    } catch (RuntimeException ignored) {
+      return null;
     }
   }
 

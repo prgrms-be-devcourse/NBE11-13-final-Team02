@@ -120,3 +120,67 @@ def test_status_counts_runs_from_the_tables():
         conn.execute("delete from crawl_runs where source_code in (%s, %s)", (a, b))
         conn.execute("delete from sources where code in (%s, %s)", (a, b))
         store.close()
+
+
+class Rows:
+    def __init__(self, row):
+        self.row = row
+
+    def fetchone(self):
+        return self.row
+
+
+class RunConn:
+    """sources·crawl_runs 조회만 흉내 내요."""
+
+    def __init__(self, enabled=True, running=False):
+        self.enabled, self.running = enabled, running
+
+    def execute(self, sql, params):
+        if "from sources" in sql:
+            return Rows(None if params[0] == "nope" else (self.enabled,))
+        return Rows((1,) if self.running else None)
+
+
+def make_runner(calls):
+    done = threading.Event()
+
+    def collect(code, settings):
+        calls.append(("board", code))
+        done.set()
+
+    def collect_policy(code, settings):
+        calls.append(("policy", code))
+        done.set()
+
+    return admin_api.Runner(threading.Lock(), collect, collect_policy, ["gov24"], settings=None), done
+
+
+def test_run_now_uses_the_shared_lock_and_the_right_collector():
+    calls = []
+    runner, done = make_runner(calls)
+    assert runner.start(RunConn(), "sh") == (202, {"code": "sh", "started": True})
+    assert done.wait(5)
+    runner.lock.acquire()  # 끝나면 잠금을 돌려줘요
+    runner.lock.release()
+    done.clear()
+    assert runner.start(RunConn(), "gov24")[0] == 202 and done.wait(5)
+    assert calls == [("board", "sh"), ("policy", "gov24")]
+
+
+def test_run_now_is_refused_when_busy_paused_running_or_unknown():
+    runner, _ = make_runner([])
+    assert runner.start(RunConn(), "nope")[0] == 404
+    assert runner.start(RunConn(enabled=False), "sh")[0] == 409
+    assert runner.start(RunConn(running=True), "sh")[0] == 409
+    runner.lock.acquire()  # 스케줄러 수집이 도는 중
+    try:
+        status, body = runner.start(RunConn(), "sh")
+        assert status == 409 and "다른 수집" in body["error"]
+    finally:
+        runner.lock.release()
+
+
+def test_run_route_without_runner_says_not_available(server):
+    url, _ = server()
+    assert call(url + "/sources/sh/run", "POST")[0] == 501

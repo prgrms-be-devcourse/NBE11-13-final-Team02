@@ -1026,6 +1026,65 @@
         }
       }
     },
+    "/api/admin/sources/{code}/run": {
+      "post": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "runAdminSource",
+        "summary": "지금 한 번 수집 (수집기가 뒤에서 돌림)",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "description": "수집 출처 코드",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "수집 시작",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "started"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "started": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/SourceNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/SourceBusy"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
+    },
     "/api/admin/sources/{code}/resume": {
       "post": {
         "tags": [
@@ -1258,6 +1317,16 @@
       },
       "SourceNotFound": {
         "description": "없는 수집 출처 (code: NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "SourceBusy": {
+        "description": "다른 수집이 돌고 있거나, 그 출처가 수집 중·멈춤 (code: CONFLICT). detail에 수집기 설명",
         "content": {
           "application/problem+json": {
             "schema": {
