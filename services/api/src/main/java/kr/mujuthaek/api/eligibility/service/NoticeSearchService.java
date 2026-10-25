@@ -41,24 +41,7 @@ public class NoticeSearchService {
     CursorQuery page = CursorQuery.of(request.cursor(), request.size(), sort);
     Applicant applicant =
         request.applicant() == null ? Applicant.empty() : request.applicant().toApplicant();
-    List<NoticeQueryService.Candidate> candidates =
-        notices.searchCandidates(
-            f.field(),
-            f.regionCodes(),
-            f.tenure(),
-            f.noticeTypes(),
-            f.providers(),
-            f.statuses(),
-            MAX_CANDIDATES);
-    // 판정 틀은 한 번에 읽고(기억해 둔 건 다시 안 읽어요), 기준 소득·대출 상품도 요청마다 한 번만 읽어요
-    var sources =
-        notices.judgingSources(candidates.stream().map(NoticeQueryService.Candidate::id).toList());
-    var evaluate = evaluations.evaluator(applicant);
-    List<NoticeSearchResponse.Item> judged =
-        candidates.stream()
-            .filter(c -> sources.containsKey(c.id())) // 그 사이 숨겨진 공고는 빼요
-            .map(c -> item(c, evaluate.apply(sources.get(c.id()))))
-            .toList();
+    List<NoticeSearchResponse.Item> judged = judgeAll(f, applicant);
     var counts =
         new NoticeSearchResponse.Counts(
             count(judged, Overall.ELIGIBLE),
@@ -80,6 +63,28 @@ public class NoticeSearchService {
         CursorPageResponse.from(
             positions, page.size(), shown::get, i -> CursorKey.of(sort, i, shown.get(i).id()));
     return new NoticeSearchResponse(counts, pageOf.items(), pageOf.nextCursor(), pageOf.hasNext());
+  }
+
+  /** 필터에 맞는 후보(최대 {@link #MAX_CANDIDATES}개, 마감 임박순)를 모두 판정해요. 지원 불가도 들어 있어요. 맞춤 목록과 홈 요약이 같이 써요. */
+  public List<NoticeSearchResponse.Item> judgeAll(
+      NoticeSearchRequest.Filters f, Applicant applicant) {
+    List<NoticeQueryService.Candidate> candidates =
+        notices.searchCandidates(
+            f.field(),
+            f.regionCodes(),
+            f.tenure(),
+            f.noticeTypes(),
+            f.providers(),
+            f.statuses(),
+            MAX_CANDIDATES);
+    // 판정 틀은 한 번에 읽고(기억해 둔 건 다시 안 읽어요), 기준 소득·대출 상품도 요청마다 한 번만 읽어요
+    var sources =
+        notices.judgingSources(candidates.stream().map(NoticeQueryService.Candidate::id).toList());
+    var evaluate = evaluations.evaluator(applicant);
+    return candidates.stream()
+        .filter(c -> sources.containsKey(c.id())) // 그 사이 숨겨진 공고는 빼요
+        .map(c -> item(c, evaluate.apply(sources.get(c.id()))))
+        .toList();
   }
 
   private static NoticeSearchResponse.Item item(
@@ -110,6 +115,7 @@ public class NoticeSearchService {
         c.applyStart(),
         c.applyEnd(),
         c.dday(),
+        c.postedOn(),
         e.overall(),
         prepare,
         note,
