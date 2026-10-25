@@ -28,11 +28,13 @@ from psycopg.types.json import Jsonb
 
 from mujuthaek_extraction.cost_alert import monthly_costs
 from mujuthaek_extraction.pipeline import Outcome
+from mujuthaek_extraction.verify.verifier import DROPPED_VALUE_CODES
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
 
 log = logging.getLogger(__name__)
 REVIEW_STATUSES = {"IN_REVIEW", "INTAKE_REVIEW"}
+COMPLETED = "COMPLETED"  # 모두 통과해 발행. 버린 값 표시가 있으면 검수 대기열에도 넣습니다(공개 유지)
 PARTIAL = "PARTIAL"  # 부분 게시: 이미 발행했고, 보류 항목은 사람이 확인해 승인할 수 있게 검수 목록에도 넣습니다(게시를 막지 않음)
 SUPERSEDED = "SUPERSEDED"
 JUDGMENT_NAMESPACE = uuid.UUID("5b0c8f9e-2f0a-4f41-9d7e-3f1c2a6b9d10")  # 창업지원 판정 틀 처리 기록 ID를 만드는 이름공간(고정값)
@@ -208,6 +210,13 @@ def _held_reasons(candidate: dict[str, Any] | None) -> list[str]:
     return sorted({code for item in held for code in item.get("codes", [])})
 
 
+def _dropped_reasons(candidate: dict[str, Any] | None) -> list[str]:
+    """AI·원본 값을 비우거나 빼거나 바꾼 표시(verifier.DROPPED_VALUE_CODES)를 「코드 위치」로. 메모(notes)·검수 이슈 어디에 있든 셉니다."""
+    quality = (candidate or {}).get("quality") or {}
+    found = [i for i in [*(quality.get("notes") or []), *(quality.get("reviewIssues") or [])] if i.get("code") in DROPPED_VALUE_CODES]
+    return sorted({f"{i['code']} {i.get('target', '')}".strip() for i in found})
+
+
 def _payload(raw_event: dict[str, Any]) -> dict[str, Any]:
     payload = raw_event.get("payload")
     return payload if isinstance(payload, dict) else {}
@@ -281,7 +290,8 @@ class JobStore:
                 cur.execute("update extraction_spend set job_id = %s where run_id = %s", (job_id, run_id))
             if status in REVIEW_STATUSES:
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(outcome.review_reasons)))
-            elif status == PARTIAL and (held := _held_reasons(outcome.candidate)):
+            elif status in (PARTIAL, COMPLETED) and (held := _held_reasons(outcome.candidate) + _dropped_reasons(outcome.candidate)):
+                # 보류 항목, 또는 버리거나 바꾼 값이 있으면 공개는 유지하고 사람이 확인하게 검수 대기열에 넣습니다(2026-10-26 공통 검사)
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(held)))
             if event:  # 이 버전을 발행함: 옛 버전·정정 전 공고의 대기 검수는 대체됨
                 _supersede_pending(cur, job_id, raw_post_id, raw_version, corrected_post)

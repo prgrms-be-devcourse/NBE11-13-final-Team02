@@ -615,3 +615,47 @@ def recheck_problems(
     if adopted:
         return RecheckResult(current, report, rechecked, True, run, tuple(adopted), tuple(rejected))
     return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))
+
+
+def _leaves(value: Any, path: str = ""):
+    """값이 있는 끝 칸(글자·숫자·참거짓)의 위치와 값. 근거 참조(quoteRefs·evidenceIds 등)는 바뀌어도 값이 사라진 게 아니라 뺍니다."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in ("quoteRefs", "evidenceIds", "quotes", "id"):
+                continue
+            yield from _leaves(child, f"{path}/{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _leaves(child, f"{path}/{index}")
+    elif value is not None and value != "":
+        yield path, value
+
+
+def lost_by_recheck(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """재확인 답을 채택하며 처음 AI 답의 값 있는 칸이 비거나 없어진 곳(같은 섹션·같은 id 항목, 공고 기본 정보는 칸 단위).
+    채택 검사(_lost_values)는 개수만 보므로, 면적·신청 방법·장소처럼 검사가 없는 칸이 조용히 사라질 수 있었습니다(2026-10-26 감사)."""
+
+    def index(parts: list[dict[str, Any]]) -> dict[tuple[str, str], Any]:
+        found: dict[tuple[str, str], Any] = {}
+        for part in parts:
+            for section in SECTIONS:
+                value = part.get(section)
+                if section == "notice" and isinstance(value, dict):
+                    found[("notice", "")] = value
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict) and "id" in item:
+                            found[(section, str(item["id"]))] = item
+        return found
+
+    old, new = index(before), index(after)
+    lost: list[tuple[str, str]] = []
+    for (section, item_id), item in old.items():
+        if (section, item_id) not in new:
+            continue  # 항목째 빠진 것은 다른 검사(DROPPED_PROBLEM·ITEM_DROPPED_NO_EVIDENCE)가 봅니다
+        kept = dict(_leaves(new[(section, item_id)]))
+        gone = [path for path, _ in _leaves(item) if path not in kept]
+        if gone:
+            where = f"/{section}" + (f" {item_id}" if item_id else "")
+            lost.append((f"/{section}", f"{where}: 재확인 답으로 바꾸며 처음 값이 사라졌어요({', '.join(gone[:5])}{' …' if len(gone) > 5 else ''})"))
+    return lost

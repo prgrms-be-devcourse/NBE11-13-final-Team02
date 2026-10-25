@@ -220,8 +220,8 @@ public class AdminReviewService {
     }
     long held = fields.stream().filter(f -> "HELD".equals(f.status())).count();
     if ("APPROVED".equals(jobStatus) || "COMPLETED".equals(jobStatus)) {
-      // 제보로 다시 연 건: 이미 공개된 공고예요(2026-10-25 검토: 예전엔 「아직 발행 전」으로 안내했음)
-      return "이미 사용자에게 보이는 공고를 다시 연 검수예요. 승인하면 고친 값으로 다시 발행되고 판정이 다시 계산돼요.";
+      // 이미 공개된 공고: 제보로 다시 연 건이거나, 값을 버리거나 바꾼 표시가 있어 공개한 채 올라온 건(2026-10-26 공통 검사)
+      return "이미 사용자에게 보이는 공고예요. 승인하면 고친 값으로 다시 발행되고 판정이 다시 계산돼요.";
     }
     if ("PARTIAL".equals(jobStatus)) {
       return held > 0

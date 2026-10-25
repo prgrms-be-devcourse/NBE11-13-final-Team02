@@ -591,7 +591,7 @@ class _Checker:
             if place.get("name") is not None or place.get("address") is not None:
                 kept.append(place)
             elif place.get("detail") is not None:
-                self.notes.append(f"/schedules {label}: 이름·주소 없이 층·호만 남은 접수 장소를 뺐어요({place['detail']})")
+                self.clear("/schedules", label, f"이름·주소 없이 층·호({place['detail']})만 남은 접수 장소를")
         schedule["places"] = kept
 
     def email(self, schedule: dict[str, Any], text: str, label: str) -> None:
@@ -742,6 +742,9 @@ class _Checker:
                 first.setdefault(key, index)
                 index += 1
                 continue
+            for key, what in (("copies", "부수를"), ("issuer", "발급 기관을")):
+                if documents[kept].get(key) is not None and document.get(key) is not None and merged[key] is None:
+                    self.clear(f"/requiredDocuments/{kept}", str(merged.get("name")), f"같은 서류를 합치며 값이 달라 {what}")
             documents[kept] = merged
             _remove_merged(self.candidate, "requiredDocuments", index, kept)
             self.notes.append(f"/requiredDocuments/{kept}: 같은 이름·묶음·제출 시점의 서류를 합쳤어요({merged['name']})")

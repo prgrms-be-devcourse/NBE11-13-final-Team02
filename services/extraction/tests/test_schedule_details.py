@@ -128,7 +128,9 @@ def test_unverified_values_are_cleared_not_guessed():
     assert kept["dailyHours"] == [] and kept["breaks"] == [{"start": "12:00", "end": "13:00"}]
     assert kept["excludedDays"] == [] and kept["timeNote"] is None
     assert kept["endsAt"] == {"precision": "DAY", "value": "2026-10-06"}  # 근거에 없는 시각은 날짜만 남깁니다
-    assert len(cleared(result)) == 6
+    # 층·호만 남은 장소를 뺀 것도 검수 표시를 남겨요(2026-10-26 공통 검사: 예전엔 메모 없이 빠졌음)
+    assert len(cleared(result)) == 7
+    assert any("층·호(101호)만 남은 접수 장소" in c for c in cleared(result))
     # 일정 항목이 아니라 섹션을 가리켜 이 일정이 접수 기간에서 빠지지 않습니다
     assert {i["target"] for i in result.issues if i["code"] == "DETAIL_UNVERIFIED_CLEARED"} == {"/schedules"}
 

@@ -71,6 +71,16 @@ NOTE_CODES = {
     # 공급표 전환안의 부호와 숫자가 어긋나 숫자(기본 요금 대비 보증금·월세 증감)로 방향을 고침(supply_tables, 2026-10-24). 고친 값이라 표시만
     "CONVERSION_DIRECTION_CORRECTED",
 }
+# 공통 검사(2026-10-26 사용자 결정 「모두 검수, 공개 유지」): AI·원본이 준 값을 비우거나 빼거나 바꾼 표시. 판정 섹션 밖이라 메모로 내려가도,
+# 이 코드가 하나라도 있으면 공고는 공개한 채 검수 대기열에 올립니다(store.save). 값을 버리는 새 처리를 만들면 여기 코드 중 하나를 남기세요
+DROPPED_VALUE_CODES = {
+    "ITEM_DROPPED_NO_EVIDENCE",
+    "AI_OUTPUT_ITEM_DROPPED",
+    "ITEM_QUARANTINED",
+    "DETAIL_UNVERIFIED_CLEARED",
+    "AI_OUTPUT_FIELD_CLEARED",
+    "AI_OUTPUT_VALUE_CHANGED",
+}
 # 비교를 못 했을 뿐 불일치가 아닌 API 대조 결과: 섹션과 상관없이 표시만 (불일치 API_MISMATCH는 사람 확인)
 # API_VALUE_NOT_EXTRACTED: API에는 값이 있는데 추출값이 비어 있음(누락). 틀린 값이 아니라 빠진 값이라 공고를 막지 않습니다(2026-10-20)
 ALWAYS_NOTE_CODES = {
@@ -83,6 +93,9 @@ ALWAYS_NOTE_CODES = {
     "VALUE_CONFIRMED_BY_API",
     "INCOME_CRITERION_UNUSED",
     "AI_OUTPUT_ID_RENAMED",
+    # AI가 준 값을 프로그램이 더 안전한 쪽으로 바꾸거나 비움(수량 묶음 풀기·참조 정리·재확인 교체로 사라진 값 등, 2026-10-26).
+    # 바꾼 값을 숨기지(보류) 않고 메모로 두되, DROPPED_VALUE_CODES라 공고는 검수 대기열에 오릅니다
+    "AI_OUTPUT_VALUE_CHANGED",
 }
 # INCOME_CRITERION_UNUSED: 소득 기준 일부 누락 의심. 실측 정밀도가 낮아(재계약·완화 표 등) 검수자 화면 메모로만 둡니다(2026-10-16)
 
