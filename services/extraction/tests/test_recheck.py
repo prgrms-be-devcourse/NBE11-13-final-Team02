@@ -282,3 +282,12 @@ def test_rechecked_note_is_sent_and_counted_by_omitted_rows():
     fewer["quality"]["notes"][0]["description"] = "원문 서류 표 행 2개를 …"
     # 빠진 행이 줄면 나아진 것으로 봅니다(일부만 채운 재확인도 채택될 수 있음)
     assert _improved(report, VerificationReport(candidate=fewer, findings=[], contract_errors=[]), ["requiredDocuments"])
+
+
+def test_part_with_empty_sections_does_not_stop_the_recheck():
+    # 2026-10-25 로컬 실제 흐름: AI 답의 한 묶음이 eligibility·quotes를 null로 주자 재확인이 TypeError로 멈춰 공고 처리가 FAILED가 됨
+    data, source, parts, evaluate = setup()
+    empty = {"quotes": None, "eligibility": None}
+    model = RecordedModel({"recheck": []})
+    result = recheck_problems(RULES, source.material, model, [empty, *parts], evaluate)
+    assert result is not None
