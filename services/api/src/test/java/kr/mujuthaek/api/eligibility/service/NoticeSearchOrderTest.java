@@ -25,6 +25,7 @@ class NoticeSearchOrderTest {
         null,
         applyEnd == null ? null : LocalDate.parse(applyEnd),
         null,
+        null,
         overall,
         null,
         null,
