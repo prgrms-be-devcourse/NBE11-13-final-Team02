@@ -243,6 +243,45 @@ public class NoticeQueries {
                 rs.getString(8)));
   }
 
+  /** 판정용 공고 한 줄 (맞춤 목록). payload는 현재 버전의 판정 틀·원문(notice) 부분만. */
+  public record JudgingRow(UUID id, int version, String field, String noticeType, String payload) {}
+
+  /** 공개된 공고의 현재 버전 번호 (판정 틀 기억을 맞춰 보려고). 숨김·공개 전·합쳐진 공고는 빠져요. */
+  public java.util.Map<UUID, Integer> currentVersions(java.util.Collection<UUID> ids) {
+    java.util.Map<UUID, Integer> out = new java.util.HashMap<>();
+    jdbc.query(
+        """
+        select id, current_version from notice.notices
+        where id in (:ids) and current_version > 0 and not hidden
+        """,
+        new MapSqlParameterSource("ids", ids),
+        rs -> {
+          out.put(rs.getObject(1, UUID.class), rs.getInt(2));
+        });
+    return out;
+  }
+
+  /** 공고 여러 개의 판정용 내용을 한 번에. 숨김·공개 전 공고는 빠져요. */
+  public List<JudgingRow> judgingRows(java.util.Collection<UUID> ids) {
+    return jdbc.query(
+        """
+        select n.id, n.current_version, n.field, n.notice_type,
+               jsonb_build_object('judgment', v.payload -> 'judgment',
+                                  'notice', v.payload -> 'notice')::text
+        from notice.notices n
+        join notice.notice_versions v on v.notice_id = n.id and v.version = n.current_version
+        where n.id in (:ids) and n.current_version > 0 and not n.hidden
+        """,
+        new MapSqlParameterSource("ids", ids),
+        (rs, i) ->
+            new JudgingRow(
+                rs.getObject(1, UUID.class),
+                rs.getInt(2),
+                rs.getString(3),
+                rs.getString(4),
+                rs.getString(5)));
+  }
+
   /** 이 분야의 열린 공개 공고 전부: 접수예정·접수중·상시 (합쳐진·숨긴 공고 제외, 마감일 순). 상태를 단정할 수 없는 UNKNOWN은 빼요. */
   public List<JudgmentRow> openForJudgment(String field) {
     return jdbc.query(

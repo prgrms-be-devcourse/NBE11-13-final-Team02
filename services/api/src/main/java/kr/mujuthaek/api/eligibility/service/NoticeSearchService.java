@@ -41,18 +41,23 @@ public class NoticeSearchService {
     CursorQuery page = CursorQuery.of(request.cursor(), request.size(), sort);
     Applicant applicant =
         request.applicant() == null ? Applicant.empty() : request.applicant().toApplicant();
+    List<NoticeQueryService.Candidate> candidates =
+        notices.searchCandidates(
+            f.field(),
+            f.regionCodes(),
+            f.tenure(),
+            f.noticeTypes(),
+            f.providers(),
+            f.statuses(),
+            MAX_CANDIDATES);
+    // 판정 틀은 한 번에 읽고(기억해 둔 건 다시 안 읽어요), 기준 소득·대출 상품도 요청마다 한 번만 읽어요
+    var sources =
+        notices.judgingSources(candidates.stream().map(NoticeQueryService.Candidate::id).toList());
+    var evaluate = evaluations.evaluator(applicant);
     List<NoticeSearchResponse.Item> judged =
-        notices
-            .searchCandidates(
-                f.field(),
-                f.regionCodes(),
-                f.tenure(),
-                f.noticeTypes(),
-                f.providers(),
-                f.statuses(),
-                MAX_CANDIDATES)
-            .stream()
-            .map(c -> item(c, evaluations.evaluate(c.id(), applicant)))
+        candidates.stream()
+            .filter(c -> sources.containsKey(c.id())) // 그 사이 숨겨진 공고는 빼요
+            .map(c -> item(c, evaluate.apply(sources.get(c.id()))))
             .toList();
     var counts =
         new NoticeSearchResponse.Counts(
