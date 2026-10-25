@@ -674,3 +674,20 @@ def test_separate_age_ranges_stay_as_or_and_need_review():
     ]
     assert _merge_ages(joined) is False
     assert [r["value"] for r in joined] == [{"min": 19, "max": 39}]
+
+
+def test_a_looser_row_without_amount_does_not_wipe_the_amount():
+    """금액 없는 넓은 줄(「전월세 임차보증금」)이 금액 있는 같은 type 줄과 다른 묶음에 있어도 금액을 잃지 않습니다(2026-10-26)."""
+    from mujuthaek_extraction.benefit.build import _drop_looser_rows
+
+    strict = {"type": "LEASE", "group": 5, "known": True, "value": {"kind": ["JEONSE", "MONTHLY"], "unit": "MANWON", "depositMax": 25000}}
+    loose = {"type": "LEASE", "group": 6, "known": True, "value": {"kind": ["JEONSE", "MONTHLY"], "unit": "MANWON"}}
+    rows = [strict, loose]
+    _drop_looser_rows(rows)
+    assert strict["known"] is True and strict["value"]["depositMax"] == 25000
+    assert loose["known"] is False and loose["value"] is None
+    # 넓기만 한 게 아니라 다른 조건(월세만)이면 그대로 둡니다(전형별 조건 규칙이 판단)
+    monthly = {"type": "LEASE", "group": 7, "known": True, "value": {"kind": ["MONTHLY"], "unit": "MANWON"}}
+    rows = [dict(strict), monthly]
+    _drop_looser_rows(rows)
+    assert monthly["known"] is True

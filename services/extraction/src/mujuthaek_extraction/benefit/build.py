@@ -441,6 +441,36 @@ def _settle_age(rule_rows: list[dict[str, Any]], items: list[dict[str, Any]], so
     return "RULE_AI_CONFLICT"
 
 
+def _covers(loose: dict[str, Any], strict: dict[str, Any]) -> bool:
+    """금액·수치가 없는 loose 조건이 strict 조건보다 넓기만 한지(strict를 만족하면 loose도 만족). 목록 칸은 strict 쪽이 부분집합이어야 합니다."""
+    for key, value in loose.items():
+        if key in AMOUNT_KEYS or key not in strict:
+            return False
+        if isinstance(value, list):
+            if not isinstance(strict[key], list) or not set(strict[key]) <= set(value):
+                return False
+        elif strict[key] != value:
+            return False
+    return True
+
+
+def _drop_looser_rows(conditions: list[dict[str, Any]]) -> None:
+    """같은 type에 금액이 있는 줄(「전세보증금 2.5억원 이하」)과 금액 없이 더 넓기만 한 줄(「전월세 임차보증금」)이 다른 묶음에 있으면,
+    넓은 줄은 아무것도 더 거르지 않으므로 글로만 남깁니다. 그대로 두면 아래 「전형별 조건」 규칙이 둘 다 비워 맞는 금액까지 잃어요
+    (2026-10-26 혜택 8건 재처리: 대구 청년 전월세의 보증금 2.5억이 비워졌음)."""
+    known = [r for r in conditions if r["known"] and isinstance(r["value"], dict) and r["type"] != "AGE"]
+    for row in known:
+        if any(k in AMOUNT_KEYS for k in row["value"]):
+            continue
+        stricter = [
+            other
+            for other in known
+            if other is not row and other["type"] == row["type"] and other["group"] != row["group"] and any(k in AMOUNT_KEYS for k in other["value"])
+        ]
+        if any(_covers(row["value"], other["value"]) for other in stricter):
+            row.update(known=False, value=None)
+
+
 def _merge_ages(conditions: list[dict[str, Any]]) -> bool:
     """AI가 나이를 여러 묶음(「그리고」)에 나눠 담으면(「19~34세는 복지로, 35~39세는 인천청년포털」) 이어지는 범위를 한 줄로 합칩니다.
     나이는 비우지 않습니다. 범위가 이어지지 않으면(19~24, 30~34) 모두 첫 줄의 묶음(「또는」)에 남기고 True(확인 필요)를 돌려줍니다.
@@ -529,6 +559,7 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
                 reasons.append("LOW_CONFIDENCE")  # 근거 문장에 다른 금액(조건부 금액일 수 있음)이 있음: 채우고 확인 필요
             else:
                 value = None  # 근거 문장의 다른 금액(조건부 금액일 수 있음)을 쓰지 않음
+                reasons.append("LOW_CONFIDENCE")  # 비운 조건은 검수로(2026-10-26)
         if not evidence_ok:
             failed_evidence += 1
         if item["type"] in rule_types:
@@ -577,6 +608,7 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     # 확인 필요로 표시합니다(2026-10-25 사용자 결정). 핵심 값이 아니면 비웁니다
     if _merge_ages(conditions):
         reasons.append("LOW_CONFIDENCE")
+    _drop_looser_rows(conditions)
     groups_by_type: dict[str, list[int]] = {}
     for row in conditions:
         if row["known"] and row["group"] not in groups_by_type.get(row["type"], []):
@@ -588,7 +620,9 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
                 row["group"] = groups[0]
                 reasons.append("LOW_CONFIDENCE")
             else:
+                # 비우되 사람이 보게 합니다(2026-10-26: 대구 청년 전월세 「전세 2.5억 이하」·「월세」가 조용히 비워져 검수 없이 나갔음)
                 row.update(known=False, value=None)
+                reasons.append("LOW_CONFIDENCE")
     # 같은 묶음(「또는」)에 type·기준이 같고 금액만 다른 줄이 있으면 조건부 금액입니다(「부부합산 1.3억, 맞벌이는 2억」).
     # 핵심 값은 「또는」 그대로 두고(어느 쪽이든 맞으면 됨) 확인 필요, 핵심 값이 아니면 큰 금액이 모두에게 적용되어 너그럽게 틀리므로 비웁니다
     same_kind: dict[tuple, list[dict[str, Any]]] = {}
@@ -603,6 +637,7 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
                 continue
             for row in rows:
                 row.update(known=False, value=None)
+            reasons.append("LOW_CONFIDENCE")  # 비운 조건은 검수로
     numbers = {}
     for row in conditions:  # 묶음 번호를 나온 차례대로 다시 매김
         row["group"] = numbers.setdefault(row["group"], len(numbers) + 1)
