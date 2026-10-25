@@ -691,3 +691,41 @@ def test_a_looser_row_without_amount_does_not_wipe_the_amount():
     rows = [dict(strict), monthly]
     _drop_looser_rows(rows)
     assert monthly["known"] is True
+
+
+@pytest.mark.parametrize(
+    "conditions, supports",
+    [
+        # 같은 종류(핵심 아님)가 서로 다른 묶음에 다른 조건으로 나뉨 → 비워짐
+        (
+            [
+                condition("LEASE", "전세보증금 2.5억원 이하 주거용 주택", group=5, leaseKinds=["JEONSE"], depositMaxWon=250_000_000),
+                condition("LEASE", "전월세 임차보증금 대출이자 지원", group=6, leaseKinds=["MONTHLY"]),
+            ],
+            None,
+        ),
+        # 지원 금액이 원문 어디에도 없음 → 비워짐
+        (
+            [],
+            [
+                {
+                    "kind": "DEPOSIT_LOAN",
+                    "amountMaxWon": 70_000_000,
+                    "amountPer": "ONCE",
+                    "months": None,
+                    "ratePct": None,
+                    "rawText": "대출금 최대 7천만원",
+                    "evidence": "대출금 최대 1억원(임차보증금의 90% 이내)의 최대 연 3.5% 이자지원",
+                }
+            ],
+        ),
+    ],
+)
+def test_any_value_emptied_by_any_rule_goes_to_review(conditions, supports):
+    """공통 검사(2026-10-26): AI·출처가 준 값이 어떤 규칙으로든 비워지면 이유와 상관없이 확인 필요."""
+    data = build_payload(payload(), BenefitReading(answer(conditions, supports), False, "recorded"), rules_for("youth", RECORD, TEXT), REGIONS)
+    emptied = [c for c in data["conditions"] if c["origin"] == "AI" and not c["known"] and c["type"] == "LEASE"] or [
+        s for s in data["supports"] if s["amountMax"] is None
+    ]
+    assert emptied, "시험 전제: 값이 비워져야 함"
+    assert data["quality"]["needsReview"] is True and "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]

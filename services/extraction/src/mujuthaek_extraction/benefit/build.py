@@ -454,11 +454,12 @@ def _covers(loose: dict[str, Any], strict: dict[str, Any]) -> bool:
     return True
 
 
-def _drop_looser_rows(conditions: list[dict[str, Any]]) -> None:
+def _drop_looser_rows(conditions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """같은 type에 금액이 있는 줄(「전세보증금 2.5억원 이하」)과 금액 없이 더 넓기만 한 줄(「전월세 임차보증금」)이 다른 묶음에 있으면,
     넓은 줄은 아무것도 더 거르지 않으므로 글로만 남깁니다. 그대로 두면 아래 「전형별 조건」 규칙이 둘 다 비워 맞는 금액까지 잃어요
     (2026-10-26 혜택 8건 재처리: 대구 청년 전월세의 보증금 2.5억이 비워졌음)."""
     known = [r for r in conditions if r["known"] and isinstance(r["value"], dict) and r["type"] != "AGE"]
+    dropped: list[dict[str, Any]] = []
     for row in known:
         if any(k in AMOUNT_KEYS for k in row["value"]):
             continue
@@ -469,6 +470,8 @@ def _drop_looser_rows(conditions: list[dict[str, Any]]) -> None:
         ]
         if any(_covers(row["value"], other["value"]) for other in stricter):
             row.update(known=False, value=None)
+            dropped.append(row)
+    return dropped
 
 
 def _merge_ages(conditions: list[dict[str, Any]]) -> bool:
@@ -539,6 +542,10 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
         reasons.append(conflict)
     if conflict := _settle_age(rule_rows, answer.get("conditions") or [], sources, regions):
         reasons.append(conflict)
+    # 공통 검사(2026-10-26 사용자: 사례별로 고치지 말 것): 출처 칸·AI가 준 값이 아래 어떤 규칙으로든 비워지면, 어느 규칙이었든
+    # 마지막에 확인 필요를 붙입니다. 규칙마다 따로 챙기다 빠지는 일을 막아요(누락은 검수로).
+    given = {id(row) for row in rule_rows if row["known"]}
+    lost = 0
     rule_types: dict[str, dict[str, Any]] = {}
     for row in rule_rows:
         rule_types.setdefault(row["type"], row)
@@ -554,6 +561,7 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
             if ai_value(item, regions) is not None:
                 reasons.append("LOW_CONFIDENCE")
         value = ai_value(item, regions) if evidence_ok else None
+        had_value = value is not None and item["type"] not in TEXT_ONLY
         if value is not None and _norm(item["evidence"]) in leftover and any(item.get(k) for k in WON_FIELDS):
             if item["type"] in CORE:
                 reasons.append("LOW_CONFIDENCE")  # 근거 문장에 다른 금액(조건부 금액일 수 있음)이 있음: 채우고 확인 필요
@@ -581,11 +589,12 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
         if item["type"] in TEXT_ONLY and _norm(item["evidence"]) in rule_evidence:
             continue
         known = value is not None and item["type"] not in TEXT_ONLY
+        lost += had_value and not known
         key = ("solo", index) if item["type"] in TEXT_ONLY else ("ai", item["group"])
         ai_rows.append(
             (
                 key,
-                {
+                row := {
                     "type": item["type"],
                     "value": value if known else None,
                     "group": 0,
@@ -597,6 +606,8 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
                 },
             )
         )
+        if known:
+            given.add(id(row))
     ai_rows, moved = _split_or_groups(ai_rows, covered, rule_types)
     keyed = [(moved.get(row["group"], ("rule", row["group"])), row) for row in rule_rows] + ai_rows
     numbers: dict[tuple, int] = {}
@@ -608,7 +619,7 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     # 확인 필요로 표시합니다(2026-10-25 사용자 결정). 핵심 값이 아니면 비웁니다
     if _merge_ages(conditions):
         reasons.append("LOW_CONFIDENCE")
-    _drop_looser_rows(conditions)
+    given -= {id(row) for row in _drop_looser_rows(conditions)}  # 더 넓기만 해서 뺀 줄은 잃은 값이 아님
     groups_by_type: dict[str, list[int]] = {}
     for row in conditions:
         if row["known"] and row["group"] not in groups_by_type.get(row["type"], []):
@@ -641,6 +652,8 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     numbers = {}
     for row in conditions:  # 묶음 번호를 나온 차례대로 다시 매김
         row["group"] = numbers.setdefault(row["group"], len(numbers) + 1)
+    if lost or any(id(row) in given and not row["known"] for row in conditions):
+        reasons.append("LOW_CONFIDENCE")  # 공통 검사: 받은 값을 비운 조건이 있으면 검수로
 
     supports = []
     for item in answer.get("supports") or []:
@@ -648,6 +661,9 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
         if not evidence_ok:
             failed_evidence += 1
         if elsewhere:
+            reasons.append("LOW_CONFIDENCE")
+        # 공통 검사: AI가 준 금액·개월·비율을 원문에서 확인하지 못해 비웠으면 검수로
+        if any(item.get(src) is not None and made[dst] is None for src, dst in (("amountMaxWon", "amountMax"), ("months", "months"), ("ratePct", "ratePct"))):
             reasons.append("LOW_CONFIDENCE")
         if made["evidence"]:
             supports.append(made)
