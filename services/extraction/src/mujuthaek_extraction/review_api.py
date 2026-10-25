@@ -324,22 +324,49 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
             self.wfile.write(data)
 
         def _body(self) -> dict[str, Any] | None:
-            """요청 본문을 JSON 객체로 읽습니다. 본문이 없으면 빈 객체, 길이·형식이 맞지 않거나 note가 글자가 아니면 None입니다."""
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-            except ValueError:
-                return None
-            if length == 0:
+            """요청 본문을 JSON 객체로 읽습니다. 본문이 없으면 빈 객체, 길이·형식이 맞지 않거나 note가 글자가 아니면 None입니다.
+            조각 전송(Transfer-Encoding: chunked)도 읽습니다(2026-10-25: api 서버가 길이 없이 보내 본문이 빈 것으로 읽혀 승인·반려가 400이 됨)."""
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                raw = self._chunked()
+                if raw is None:
+                    return None
+            else:
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    return None
+                if length == 0:
+                    return {}
+                if not 0 < length <= MAX_BODY:  # 음수 길이는 끝까지 읽어 버리므로 거절합니다
+                    return None
+                raw = self.rfile.read(length)
+            if not raw.strip():
                 return {}
-            if not 0 < length <= MAX_BODY:  # 음수 길이는 끝까지 읽어 버리므로 거절합니다
-                return None
             try:
-                value = json.loads(self.rfile.read(length))
+                value = json.loads(raw)
             except ValueError:
                 return None
             if not isinstance(value, dict) or not isinstance(value.get("note"), str | None) or not isinstance(value.get("reviewer"), str | None):
                 return None
             return value
+
+        def _chunked(self) -> bytes | None:
+            """조각 전송 본문을 이어 붙입니다. MAX_BODY를 넘거나 형식이 틀리면 None."""
+            data = b""
+            while True:
+                line = self.rfile.readline(64).strip()
+                try:
+                    size = int(line.split(b";")[0], 16)
+                except ValueError:
+                    return None
+                if size == 0:
+                    while self.rfile.readline(1024).strip():  # 끝 머리말(trailer)은 버림
+                        pass
+                    return data
+                if len(data) + size > MAX_BODY:
+                    return None
+                data += self.rfile.read(size)
+                self.rfile.readline(4)  # 조각 끝 CRLF
 
         def _job_id(self, match: re.Match[str]) -> str | None:
             try:

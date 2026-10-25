@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.client.BufferingClientHttpRequestFactory;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -224,6 +225,8 @@ public class ExtractionReviewClient {
     var factory = new SimpleClientHttpRequestFactory();
     factory.setConnectTimeout(properties.timeout());
     factory.setReadTimeout(properties.timeout());
-    return RestClient.builder().requestFactory(factory);
+    // 본문을 모아 Content-Length를 붙여 보내요. 조각 전송(chunked)이면 파이썬 http.server가 본문을 빈 것으로 읽어 승인·반려·다시 열기가
+    // 400이 됐어요(2026-10-25 로컬 실제 흐름에서 발견, 가짜 서버 시험으로는 안 보임)
+    return RestClient.builder().requestFactory(new BufferingClientHttpRequestFactory(factory));
   }
 }

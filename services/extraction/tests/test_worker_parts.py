@@ -879,3 +879,23 @@ def test_reopen_checks_the_raw_post_id_and_reports_missing_results():
     assert status == 200 and body["reopened"] is True
     assert store.reopened == ("01929a3e-0000-7000-8000-000000000001", "admin:7", "공고 제보")
     assert service.reopen({"rawPostId": "01929a3e-0000-7000-8000-000000000000"})[0] == 404
+
+
+def test_review_api_reads_a_chunked_body():
+    # 2026-10-25 로컬 실제 흐름: api 서버(Java RestClient)가 길이 없이 조각 전송으로 보내 메모·수정이 빈 본문으로 읽혀 400이 됐습니다
+    import socket
+
+    server, store = http_server()
+    try:
+        body = '{"note": "조각 전송 메모"}'.encode()
+        chunks = b"%x\r\n%s\r\n0\r\n\r\n" % (len(body), body)
+        request = (
+            f"POST {JOB}/reject HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+        ).encode() + chunks
+        with socket.create_connection(("127.0.0.1", server.server_port), timeout=5) as conn:
+            conn.sendall(request)
+            reply = conn.recv(4096).decode("utf-8", "replace")
+        assert reply.startswith("HTTP/1.0 200") or reply.startswith("HTTP/1.1 200"), reply[:80]
+        assert store.rejected == "조각 전송 메모"
+    finally:
+        server.shutdown()
