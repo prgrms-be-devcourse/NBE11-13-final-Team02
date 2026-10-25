@@ -3,6 +3,10 @@
 지금은 온통청년(youth)만 옮깁니다. 정부24 지원조건(JA 코드)은 실제 수집 자료로 칸 이름을 확인한 뒤 넣습니다(2026-10-25 로컬 수집 DB에
 정부24·복지로 자료가 없어 짐작으로 만들지 않음). 그 출처는 AI가 글에서 읽습니다.
 
+zipCd(정책 지역)는 거주 조건으로 옮기지 않습니다(2026-10-25 사용자 결정, 초안 5장과 다름). 온통청년 zipCd는 정책을 시행하는
+지역이라 「그 지역 거주」가 아닌 정책(산단 임대주택, 보호자 거주 기숙사, 「거주 또는 재학·재직」)에도 붙어 있습니다. 지역은
+source.regionCodes로 보내고, 거주 조건은 AI가 글에 적힌 대로 읽습니다.
+
 규칙으로 만든 조건은 origin RULE, confidence 1, evidence는 그 값이 들어 있는 원문 줄(글에 없으면 「칸 이름: 값」)입니다.
 """
 
@@ -178,10 +182,6 @@ def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
             value = {"kind": values} if kind == "WORKPLACE" else {"in": list(dict.fromkeys(values))}
             rows.append((kind, value, f"특화 분야 {', '.join(values)}"))
         add(rows, f"sbizCd: {record.get('sbizCd')}")
-
-    zips = [c for c in _codes(record.get("zipCd")) if re.fullmatch(r"\d{5}", c)]
-    if zips:
-        add([("RESIDENCE", {"regions": list(dict.fromkeys(zips))}, "거주 지역 제한")], f"zipCd: {record.get('zipCd')}")
 
     # 일정: 신청 기간 「YYYYMMDD ~ YYYYMMDD」, 구분 상시, 사업 기간
     period = str(record.get("aplyYmd") or "")

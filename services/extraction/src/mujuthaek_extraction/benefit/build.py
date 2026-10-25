@@ -340,7 +340,7 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     reasons: list[str] = []
     failed_evidence = 0
 
-    # 조건: 규칙 줄 먼저, AI 줄은 그 뒤. 규칙에 있는 type의 AI 줄은 버리되 값이 다르면 충돌로 표시.
+    # 조건: 규칙 줄 먼저, AI 줄은 그 뒤. 규칙에 있는 type의 AI 줄은 버리되 값이 다르면 충돌로 표시하고 규칙 값도 비움.
     # 묶음(group)은 같은 번호끼리 「또는」이라 아래 세 가지를 지킵니다(2026-10-25 첫 유료 시험에서 판정이 틀어진 경우):
     # - AI가 「또는」 묶음에 넣은 줄을 규칙 줄로 대신하면, 그 규칙 줄(규칙 묶음째)을 AI 묶음으로 옮깁니다.
     #   안 옮기면 「대전 거주 또는 대전 소재 대학·직장」이 「거주 그리고 (대학 또는 직장)」으로 더 엄격해집니다
@@ -362,7 +362,8 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
         if item["type"] in rule_types:
             rule = rule_types[item["type"]]
             if value is not None and rule["known"] and not same_value(item["type"], rule["value"], value):
-                reasons.append("RULE_AI_CONFLICT")
+                reasons.append("RULE_AI_CONFLICT")  # 확실하지 않으므로 규칙 값도 내보내지 않음(2026-10-25 사용자 결정)
+                rule.update(known=False, value=None)
             covered.setdefault(item["group"], []).append((item["type"], item["evidence"]))
             continue
         if item["type"] in TEXT_ONLY and _norm(item["evidence"]) in rule_evidence:
@@ -390,6 +391,15 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     for key, row in keyed:
         row["group"] = numbers.setdefault(key, len(numbers) + 1)
     conditions = [row for _, row in keyed]
+    # 같은 type이 서로 다른 묶음(「그리고」)에 나오면 전형별 조건을 섞은 것으로 보고 값을 비웁니다(2026-10-25 사용자 결정).
+    # 「미혼 그리고 기혼」 「순자산 5.11억(구입) 그리고 3.45억(전세)」처럼 이 형식으로 나타낼 수 없는 「(A 그리고 B) 또는 (C 그리고 D)」입니다
+    groups_by_type: dict[str, set[int]] = {}
+    for row in conditions:
+        if row["known"]:
+            groups_by_type.setdefault(row["type"], set()).add(row["group"])
+    for row in conditions:
+        if row["known"] and len(groups_by_type[row["type"]]) > 1:
+            row.update(known=False, value=None)
 
     supports = []
     for item in answer.get("supports") or []:

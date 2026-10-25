@@ -149,12 +149,12 @@ def built(conditions=None, **kw):
 # ---- 규칙 (온통청년 코드 칸) ----
 
 
-def test_youth_rules_move_age_region_and_schedule_and_skip_no_limit_codes():
+def test_youth_rules_move_age_and_schedule_and_skip_no_limit_codes_and_policy_region():
     rules = youth_rules(RECORD, TEXT)
     by_type = {c["type"]: c for c in rules.conditions}
-    assert set(by_type) == {"AGE", "RESIDENCE"}  # 취업·학력·특화·결혼은 「제한없음」 코드라 줄 없음
+    # 취업·학력·특화·결혼은 「제한없음」 코드라 줄 없음. zipCd는 정책 지역이라 거주 조건으로 옮기지 않음
+    assert set(by_type) == {"AGE"}
     assert by_type["AGE"]["value"] == {"min": 19, "max": 39} and by_type["AGE"]["evidence"] == "지원 대상 최대 연령: 39"
-    assert by_type["RESIDENCE"]["value"] == {"regions": ["27110", "27140"]}
     assert all(c["origin"] == "RULE" and c["confidence"] == 1 for c in rules.conditions)
     assert rules.schedule == {"applyAlways": True, "rawText": "상시", "businessStart": "2026-01-07", "businessEnd": "2026-12-31"}
 
@@ -262,19 +262,15 @@ def test_wrong_number_or_missing_quote_leaves_the_value_empty():
     assert "EVIDENCE_NOT_FOUND" in data["quality"]["reviewReasons"] and data["quality"]["needsReview"] is True
 
 
-def test_rule_wins_over_ai_and_only_real_differences_are_conflicts():
-    same = built(
-        [
-            condition("AGE", "19 ~ 39세 대구시 거주 무주택 청년", min=19, max=39),
-            condition("RESIDENCE", "19 ~ 39세 대구시 거주 무주택 청년", regionNames=["대구광역시"], group=2),
-        ]
-    )
-    assert [c["origin"] for c in same["conditions"]] == ["RULE", "RULE"]  # AI의 나이·거주는 규칙 줄로 대신
+def test_rule_replaces_the_same_ai_row_and_a_real_difference_empties_the_rule_value():
+    same = built([condition("AGE", "19 ~ 39세 대구시 거주 무주택 청년", min=19, max=39)])
+    assert [(c["origin"], c["known"]) for c in same["conditions"]] == [("RULE", True)]  # AI의 나이는 규칙 줄로 대신
     assert "RULE_AI_CONFLICT" not in same["quality"]["reviewReasons"]
     differ = built([condition("AGE", "19 ~ 39세 대구시 거주 무주택 청년", min=19, max=34)])
     assert "RULE_AI_CONFLICT" not in differ["quality"]["reviewReasons"]  # 34가 근거에 없어 값이 비므로 비교하지 않음
-    other = built([condition("AGE", "만 19세 이상 34세 이하", min=19, max=34)], summary="가상")
-    assert other["conditions"][0]["value"] == {"min": 19, "max": 39}
+    other = built_text(TEXT + "\n신청 자격: 만 19세 이상 34세 이하", [condition("AGE", "만 19세 이상 34세 이하", min=19, max=34)])
+    assert [(c["origin"], c["known"], c["value"]) for c in other["conditions"]] == [("RULE", False, None)]  # 확실하지 않으면 비움
+    assert "RULE_AI_CONFLICT" in other["quality"]["reviewReasons"] and other["quality"]["needsReview"] is True
 
 
 def test_same_value_treats_region_containment_as_same():
@@ -380,10 +376,13 @@ def test_benefit_is_skipped_unless_enabled(monkeypatch):
 OR_TEXT = TEXT + "\n신청 자격: 대구광역시에 주소를 두거나 대구시 소재 대학 또는 직장에 재학, 재직하는 청년\n - 쉐어하우스 입주자는 신청 불가"
 
 
-def built_text(text, conditions):
-    data = payload(text=text)
+def built_text(text, conditions, record=RECORD):
+    data = payload(text=text, record=record)
     reading = BenefitReading(answer(conditions), truncated=False, model="recorded")
     return build_payload(data, reading, rules_for("youth", data["record"], text), REGIONS)
+
+
+EMPLOYED = RECORD | {"jobCd": "0013001"}
 
 
 def test_rule_row_joins_the_ai_or_group_it_replaces():
@@ -393,17 +392,18 @@ def test_rule_row_joins_the_ai_or_group_it_replaces():
         [
             condition("RESIDENCE", quote, group=1, regionNames=["대구광역시"]),
             condition("EDUCATION", quote, group=1, values=["UNIV_ENROLLED"]),
-            condition("WORKPLACE", quote, group=1, regionNames=["대구광역시"]),
+            condition("EMPLOYMENT", quote, group=1, values=["EMPLOYED"]),
         ],
+        EMPLOYED,
     )
     groups = {c["type"]: c["group"] for c in data["conditions"]}
-    assert groups["RESIDENCE"] == groups["EDUCATION"] == groups["WORKPLACE"]  # 「거주 또는 대학 또는 직장」
+    assert groups["RESIDENCE"] == groups["EDUCATION"] == groups["EMPLOYMENT"]  # 「거주 또는 재학 또는 재직」
     assert groups["AGE"] != groups["RESIDENCE"]
-    assert [c["origin"] for c in data["conditions"] if c["type"] == "RESIDENCE"] == ["RULE"]
+    assert [c["origin"] for c in data["conditions"] if c["type"] == "EMPLOYMENT"] == ["RULE"]
 
 
 def test_rule_row_stays_alone_when_the_ai_group_has_nothing_else():
-    data = built_text(OR_TEXT, [condition("RESIDENCE", "대구광역시에 주소를 두거나", group=1, regionNames=["대구광역시"])])
+    data = built_text(OR_TEXT, [condition("EMPLOYMENT", "직장에 재학, 재직하는 청년", group=1, values=["EMPLOYED"])], EMPLOYED)
     assert sorted(c["group"] for c in data["conditions"]) == [1, 2]
 
 
@@ -433,3 +433,19 @@ def test_unrelated_rows_in_one_ai_group_are_split_and_rules_stay_put():
         ],
     )
     assert len({c["group"] for c in data["conditions"]}) == len(data["conditions"])
+
+
+def test_same_type_in_two_and_groups_is_a_track_condition_and_left_unknown():
+    # 「청년 전형은 미혼, 부부 전형은 기혼」을 「미혼 그리고 기혼」으로 담으면 아무도 못 맞추므로 값을 비움
+    text = TEXT + "\n신청 자격: 청년 전형은 미혼 청년\n청년부부 전형은 혼인한 부부"
+    data = built_text(
+        text,
+        [
+            condition("MARITAL", "청년 전형은 미혼 청년", group=1, values=["SINGLE"]),
+            condition("MARITAL", "청년부부 전형은 혼인한 부부", group=2, values=["MARRIED"]),
+            condition("HOMELESS", "대구시 거주 무주택 청년", group=3, basis="PERSON"),
+        ],
+    )
+    marital = [c for c in data["conditions"] if c["type"] == "MARITAL"]
+    assert [(c["known"], c["value"]) for c in marital] == [(False, None), (False, None)]
+    assert next(c for c in data["conditions"] if c["type"] == "HOMELESS")["known"] is True
