@@ -627,3 +627,50 @@ def test_a_loan_limit_on_another_line_is_filled_and_needs_review():
     nowhere = {**support, "amountMaxWon": 55_000_000}  # 원문 어디에도 없는 금액은 비움
     data = build_payload(payload(text=text), BenefitReading(answer(supports=[nowhere]), False, "recorded"), rules_for("youth", RECORD, text), REGIONS)
     assert data["supports"][0]["amountMax"] is None
+
+
+def test_counts_with_small_units_are_not_amounts():
+    """「청년 5천명」「3백 가구」는 금액이 아닙니다. 천·백·십만 붙은 숫자는 「원」이 있어야 금액(2026-10-25 검토)."""
+    assert won_amounts("청년 5천명 지원, 최대 2억원") == {200_000_000}
+    assert won_amounts("3백 가구 모집") == set()
+    assert won_amounts("월 5천원 지원") == {5_000}
+
+
+def test_parts_of_one_sentence_share_used_amounts():
+    """같은 문장 전체와 그 일부를 근거로 두 조건이 금액을 나눠 쓰면 남는 금액이 없습니다."""
+    from mujuthaek_extraction.benefit.build import _leftover_amounts
+
+    whole = {"type": "INCOME_AMOUNT", "evidence": "연소득 6천만원(부부합산 8천만원)이하", "amountMaxWon": 60_000_000}
+    part = {"type": "INCOME_AMOUNT", "evidence": "부부합산 8천만원", "amountMaxWon": 80_000_000}
+    assert _leftover_amounts([whole, part]) == set()
+    # 정말 남는 금액(조건부 금액일 수 있음)은 그대로 잡습니다
+    alone = {"type": "LEASE", "evidence": "전세 보증금 5억원(지방 4억원 이하)", "depositMaxWon": 500_000_000}
+    assert _leftover_amounts([alone]) == {"전세보증금5억원(지방4억원이하)"}
+
+
+def test_ai_dates_must_be_written_as_dates():
+    """연·월·일 숫자가 원문에 따로따로 있는 것만으로는 날짜로 인정하지 않습니다(2026-10-25 검토)."""
+    from mujuthaek_extraction.benefit.build import _date
+
+    assert _date("2026-12-31", "2026년 사업 · 만 31세 이하 · 12개월 거주") is None
+    assert _date("2026-12-31", "신청 기간: 2026. 11. 1. ~ 2026. 12. 31.", end=True) == "2026-12-31"
+    assert _date("2026-01-07", "사업 시작일: 20260107") == "2026-01-07"
+    assert _date("2025-11-01", "신청 기간: 2026. 11. 1.") is None  # 연도가 다름
+
+
+def test_separate_age_ranges_stay_as_or_and_need_review():
+    """이어지지 않는 나이 범위(19~24, 30~34)는 지우지 않고 「또는」으로 남기고 확인 필요(2026-10-25 검토)."""
+    from mujuthaek_extraction.benefit.build import _merge_ages
+
+    rows = [
+        {"type": "AGE", "value": {"min": 19, "max": 24}, "group": 1, "known": True, "rawText": "19~24세"},
+        {"type": "AGE", "value": {"min": 30, "max": 34}, "group": 2, "known": True, "rawText": "30~34세"},
+    ]
+    assert _merge_ages(rows) is True
+    assert [(r["value"], r["group"]) for r in rows] == [({"min": 19, "max": 24}, 1), ({"min": 30, "max": 34}, 1)]
+    joined = [
+        {"type": "AGE", "value": {"min": 19, "max": 34}, "group": 1, "known": True, "rawText": "19~34세"},
+        {"type": "AGE", "value": {"min": 35, "max": 39}, "group": 2, "known": True, "rawText": "35~39세"},
+    ]
+    assert _merge_ages(joined) is False
+    assert [r["value"] for r in joined] == [{"min": 19, "max": 39}]
