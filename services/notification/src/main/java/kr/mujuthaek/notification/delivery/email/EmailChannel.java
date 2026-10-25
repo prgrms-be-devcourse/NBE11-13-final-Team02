@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.Optional;
 import kr.mujuthaek.notification.delivery.Channel;
 import kr.mujuthaek.notification.delivery.DeliveryException;
+import kr.mujuthaek.notification.delivery.DigestCadence;
 import kr.mujuthaek.notification.delivery.NotificationChannel;
 import kr.mujuthaek.notification.delivery.OutgoingNotification;
 import kr.mujuthaek.notification.notification.NotificationRequest;
@@ -32,8 +33,8 @@ class EmailChannel implements NotificationChannel {
   }
 
   @Override
-  public boolean supportsDigest() {
-    return true;
+  public Optional<DigestCadence> digestCadence() {
+    return Optional.of(DigestCadence.TWICE_A_DAY);
   }
 
   @Override

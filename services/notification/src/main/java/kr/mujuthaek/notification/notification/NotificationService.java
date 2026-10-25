@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Optional;
 import kr.mujuthaek.notification.delivery.DeliveryRepository;
 import kr.mujuthaek.notification.delivery.DeliverySchedule;
+import kr.mujuthaek.notification.delivery.DigestCadence;
 import kr.mujuthaek.notification.delivery.NotificationChannel;
 import kr.mujuthaek.notification.support.UuidV7;
 import org.springframework.stereotype.Service;
@@ -46,7 +47,9 @@ public class NotificationService {
         if (address.isEmpty()) {
           continue; // 이 채널로는 받지 않아요 (api가 주소를 넣지 않음)
         }
-        boolean digest = request.type().digest() && channel.supportsDigest();
+        Optional<DigestCadence> cadence =
+            request.type().digest() ? channel.digestCadence() : Optional.empty();
+        boolean quiet = recipient.quietEnabled();
         boolean inserted =
             deliveries.insert(
                 new DeliveryRepository.NewDelivery(
@@ -59,9 +62,11 @@ public class NotificationService {
                     request.title(),
                     request.body(),
                     request.linkPath(),
-                    digest,
-                    recipient.quietEnabled(),
-                    schedule.firstAttempt(digest, recipient.quietEnabled())));
+                    cadence.isPresent(),
+                    quiet,
+                    cadence
+                        .map(c -> schedule.firstDigest(c, quiet))
+                        .orElseGet(() -> schedule.firstAttempt(quiet))));
         if (inserted) {
           created++;
         }

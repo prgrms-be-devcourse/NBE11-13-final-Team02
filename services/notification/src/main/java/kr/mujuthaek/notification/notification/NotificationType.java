@@ -3,7 +3,7 @@ package kr.mujuthaek.notification.notification;
 /**
  * 알림 종류 (notifications.type). api가 notification.requested의 payload.type으로 정해 보내요.
  *
- * <p>{@code digest}는 "묶음을 지원하는 채널(이메일)에서는 하루 두 번 묶어서 보내는 종류"예요. 웹 푸시처럼 묶지 않는 채널은 이 값을 무시해요.
+ * <p>{@code digest}는 "채널이 모아서 보내는 종류"예요. 이메일은 하루 두 번(08:00·18:00), 웹 푸시는 30분마다 묶어요 (DigestCadence).
  */
 public enum NotificationType {
   NEW_NOTICE(true),

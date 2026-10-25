@@ -34,13 +34,29 @@ public class DeliverySchedule {
     return clock.instant();
   }
 
-  /** 처음 보낼 시각. 묶음이면 다음 08:00·18:00, 아니면 지금(조용한 시간이면 다음 08:00) */
-  public Instant firstAttempt(boolean digest, boolean quietEnabled) {
+  /** 바로 보내는 줄의 처음 보낼 시각. 지금, 조용한 시간이면 다음 08:00 */
+  public Instant firstAttempt(boolean quietEnabled) {
     ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(TimeConfig.SEOUL);
-    if (digest) {
-      return nextDigest(now).toInstant();
-    }
     return quietEnabled && isQuiet(now) ? nextQuietEnd(now).toInstant() : now.toInstant();
+  }
+
+  /**
+   * 묶음 줄의 처음 보낼 시각. 같은 묶음의 줄이 모두 같은 시각을 가져야 한 번에 나가서, 정해진 칸(08:00·18:00, 정각·30분)에 맞춰요.
+   *
+   * <ul>
+   *   <li>{@link DigestCadence#TWICE_A_DAY}: 다음 08:00 또는 18:00 (조용한 시간 밖이라 따로 미루지 않아요)
+   *   <li>{@link DigestCadence#EVERY_30_MINUTES}: 다음 정각 또는 30분. 그 칸이 조용한 시간이고 회원이 켰으면 다음 08:00
+   * </ul>
+   */
+  public Instant firstDigest(DigestCadence cadence, boolean quietEnabled) {
+    ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(TimeConfig.SEOUL);
+    return switch (cadence) {
+      case TWICE_A_DAY -> nextDigest(now).toInstant();
+      case EVERY_30_MINUTES -> {
+        ZonedDateTime slot = nextHalfHour(now);
+        yield (quietEnabled && isQuiet(slot) ? nextQuietEnd(slot) : slot).toInstant();
+      }
+    };
   }
 
   /** 지금이 조용한 시간이면 다음 08:00, 아니면 비어 있어요. 보내기 직전에 다시 확인해요 (그사이 설정을 켰을 수 있어요) */
@@ -67,6 +83,12 @@ public class DeliverySchedule {
       }
     }
     return now.plusDays(1).with(DIGEST_TIMES.getFirst()).withSecond(0).withNano(0);
+  }
+
+  /** 지금이 딱 정각·30분이면 지금, 아니면 다음 정각·30분 */
+  private static ZonedDateTime nextHalfHour(ZonedDateTime now) {
+    ZonedDateTime slot = now.withMinute(now.getMinute() < 30 ? 0 : 30).withSecond(0).withNano(0);
+    return slot.isBefore(now) ? slot.plusMinutes(30) : slot;
   }
 
   private static boolean isQuiet(ZonedDateTime now) {

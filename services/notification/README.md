@@ -8,7 +8,8 @@ src/main/java/kr/mujuthaek/notification/
 ├─ event/          큐 설정, 이벤트 받기 (processed_events로 한 번만)
 ├─ notification/   notification.requested 계약, 발송 줄 만들기, 탈퇴 회원 지우기
 ├─ delivery/       채널과 상관없는 발송: 보낼 시각(묶음·조용한 시간·재시도), 워커, 채널 인터페이스
-│  └─ email/       이메일 채널, SES·로그 발송, 인증 코드 메일
+│  ├─ email/       이메일 채널, SES·로그 발송, 인증 코드 메일
+│  └─ push/        웹 푸시 채널, 내용 암호화(RFC 8291)·VAPID 서명(RFC 8292), 푸시 서비스·로그 발송
 └─ support/        UUID v7, 시계(Asia/Seoul)
 ```
 
@@ -18,7 +19,7 @@ src/main/java/kr/mujuthaek/notification/
 | exchange | `mujuthaek.events` (topic, 다른 서비스와 같이 씀) |
 | 큐 | `mujuthaek.notification` |
 | 받는 이벤트 | `notification.requested` (받을 회원·주소·문구), `email.verification.requested` (인증 코드 메일), `user.withdrawn` — `contracts/schemas/notification-events.draft.md` |
-| 역할 | 대상자 찾기·회원 설정 확인·문구·알림함은 api. 알림 서버는 조용한 시간·묶음·중복 방지·SES 발송·재시도만 해요 |
+| 역할 | 대상자 찾기·회원 설정 확인·문구·알림함·푸시 구독 저장은 api. 알림 서버는 조용한 시간·묶음·중복 방지·발송(SES·웹 푸시)·재시도만 해요 |
 | 테이블 | `deliveries`, `processed_events` — `contracts/schemas/notification-tables.draft.md` |
 | 실패 | 봉투가 깨진 메시지는 재시도 없이 `mujuthaek.dlx` → `mujuthaek.notification.dlq` (라우팅 키 `notification.dead`) |
 
@@ -38,11 +39,20 @@ make db-notification          # 알림 DB 만들기 (이미 있는 볼륨에 한
 ```
 notification.requested → NotificationService  회원마다·채널마다 받을 곳이 있으면 발송 줄(deliveries)
                          DeliveryWorker        보낼 시각이 된 줄을 채널에 넘기고 SENT·재시도·FAILED 기록
-                         NotificationChannel   채널마다 다른 일만: 요청에서 받을 곳 꺼내기 / 묶음 지원 / 보내기
-                           └ EmailChannel → EmailSender (log: 로그만, ses: AWS SES)
+                         NotificationChannel   채널마다 다른 일만: 요청에서 받을 곳 꺼내기 / 묶음 간격 / 보내기
+                           ├ EmailChannel → EmailSender (log: 로그만, ses: AWS SES)
+                           └ PushChannel  → PushSender  (log: 로그만, webpush: 푸시 서비스)
 ```
 
-웹 푸시 붙이기: api가 구독 기기를 저장하고 `recipients[].push`로 보내면, 알림 서버는 `NotificationChannel`을 구현한 `PushChannel` 빈 하나만 추가해요. 발송 줄·중복 거르기·조용한 시간·재시도는 그대로 써요.
+새 공고·새 정책(묶음 종류)은 채널마다 모아 보내요: 이메일은 08:00·18:00, 웹 푸시는 30분마다(정각·30분, 조용한 시간이면 08:00). 마감·정정·후속 안내는 바로 보내요.
+
+웹 푸시 (`contracts/schemas/web-push.draft.md` 4장)
+- 받을 곳: api가 넣은 `recipients[].push`(구독 기기 최대 5대). 발송 줄은 회원 1명·채널 1개에 1줄이고, 그 안에서 기기마다 보내요
+- 묶음: 같은 회원·같은 30분 칸의 새 소식은 한 번에. 2건 이상이면 "새 소식 N건"(누르면 알림함 `/notifications`), 기기 목록은 가장 최근 요청의 것
+- 결과: 2xx 받음 · 404·410 죽은 구독(빼요) · 429·5xx·연결 실패 그 기기만 다시(429는 Retry-After만큼, 최대 하루) · 400·413 등 실패 · 401·403 VAPID 키 문제(경고 로그, 실패). 모든 기기가 죽었으면 FAILED `ALL_EXPIRED`
+- TTL(기기가 꺼져 있을 때 푸시 서비스가 들고 있는 시간): D-1 12시간, D-3 48시간, 새 소식·묶음 24시간, 정정·후속 안내 72시간. D-1은 Urgency `high`
+- 받을 곳은 https 푸시 서비스 도메인(`notification.push.allowed-hosts`)만. 리다이렉트는 따라가지 않아요. 기기 주소·키·내용은 로그에 남기지 않아요 (도메인·응답 코드만)
+- 설정: `NOTIFICATION_PUSH_PROVIDER=webpush` + `PUSH_VAPID_PUBLIC_KEY`·`PUSH_VAPID_PRIVATE_KEY`(`npx web-push generate-vapid-keys`, 공개키는 api와 같은 값) + `PUSH_VAPID_SUBJECT`(`mailto:` 주소). 키가 없거나 짝이 맞지 않으면 서버가 뜨지 않아요. 개인키는 커밋하지 않아요
 
 메일 설정
 - 로컬: `NOTIFICATION_MAIL_PROVIDER=ses`, `NOTIFICATION_MAIL_FROM`(SES에서 인증한 주소), `AWS_PROFILE`(키는 `~/.aws/credentials`에만)
