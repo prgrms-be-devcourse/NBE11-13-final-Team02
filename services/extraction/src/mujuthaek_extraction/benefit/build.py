@@ -9,6 +9,7 @@ quality.confidence는 AI 자기 보고가 아니라 코드가 확인한 결과�
 
 from __future__ import annotations
 
+import json
 import re
 import unicodedata
 from datetime import UTC, datetime
@@ -42,6 +43,7 @@ ENUMS = {
 }
 TEXT_ONLY = {"EXCLUSIVE", "PRIORITY", "OTHER"}  # 판정하지 않고 글만 보여 주는 조건(known=false)
 LOW_CONFIDENCE = 0.6
+AMOUNT_KEYS = {"min", "max", "depositMax", "monthlyMax"}  # 조건 값에서 금액·수치 칸
 
 
 def _norm(text: str | None) -> str:
@@ -331,6 +333,25 @@ def _split_or_groups(
     return rows, moved
 
 
+def _settle_income(rule_rows: list[dict[str, Any]], income: dict[str, int], items: list[dict[str, Any]], sources: list[str], regions: Any) -> str | None:
+    """출처 칸 연소득(기준 모름)과 AI가 글에서 읽은 소득 조건을 맞춥니다. 같은 금액을 읽었으면 규칙 줄을 빼고 AI 줄(기준 포함)을 쓰며 None,
+    다른 금액만 읽었으면 "RULE_AI_CONFLICT"(규칙 줄은 값 없는 채로 남고 AI 소득 줄은 버려짐), 글에 소득 조건이 없으면 None(규칙 줄은 값 없이 남음).
+    출처 칸 줄(「소득 최대 금액: 5000」)을 근거로 든 AI 줄은 기준을 지어낸 것이라 세지 않습니다."""
+    if not income or not any(row["type"] == "INCOME_AMOUNT" and not row["known"] for row in rule_rows):
+        return None
+    rule_lines = {_norm(row["evidence"]) for row in rule_rows}
+    values = [
+        ai_value(item, regions)
+        for item in items
+        if item["type"] == "INCOME_AMOUNT" and quoted(item["evidence"], sources) and _norm(item["evidence"]) not in rule_lines
+    ]
+    values = [v for v in values if v is not None and v.get("unit") == "MANWON_PER_YEAR"]
+    if any(all(v.get(k) == amount for k, amount in income.items()) for v in values):
+        rule_rows[:] = [row for row in rule_rows if row["type"] != "INCOME_AMOUNT"]
+        return None
+    return "RULE_AI_CONFLICT" if values else None
+
+
 def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleResult, regions: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """policy.extracted payload. reading은 AI 답, rules는 출처 코드 칸에서 옮긴 조건·일정."""
     answer = reading.answer
@@ -348,6 +369,8 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     # - AI 묶음 안에서도 같은 type이거나 근거 문장이 겹치는 줄만 「또는」으로 둡니다(_split_or_groups)
     # - 규칙 줄의 근거 줄을 그대로 다시 낸 글 줄은 같은 조건이 두 번 보이므로 버립니다
     rule_rows = [dict(c) for c in rules.conditions]
+    if conflict := _settle_income(rule_rows, rules.income, answer.get("conditions") or [], sources, regions):
+        reasons.append(conflict)
     rule_types: dict[str, dict[str, Any]] = {}
     for row in rule_rows:
         rule_types.setdefault(row["type"], row)
@@ -400,6 +423,17 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     for row in conditions:
         if row["known"] and len(groups_by_type[row["type"]]) > 1:
             row.update(known=False, value=None)
+    # 같은 묶음(「또는」)에 type·기준이 같고 금액만 다른 줄이 있으면 조건부 금액입니다(「부부합산 1.3억, 맞벌이는 2억」).
+    # 「또는」으로 두면 큰 금액이 모두에게 적용되어 너그럽게 틀리므로 값을 비웁니다
+    same_kind: dict[tuple, list[dict[str, Any]]] = {}
+    for row in conditions:
+        if row["known"] and isinstance(row["value"], dict):
+            kind = json.dumps({k: v for k, v in row["value"].items() if k not in AMOUNT_KEYS}, sort_keys=True, ensure_ascii=False)
+            same_kind.setdefault((row["group"], row["type"], kind), []).append(row)
+    for rows in same_kind.values():
+        if len(rows) > 1 and len({json.dumps(r["value"], sort_keys=True) for r in rows}) > 1:
+            for row in rows:
+                row.update(known=False, value=None)
 
     supports = []
     for item in answer.get("supports") or []:

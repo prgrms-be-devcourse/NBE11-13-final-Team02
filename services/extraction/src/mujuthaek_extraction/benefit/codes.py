@@ -76,6 +76,7 @@ LABELS = {
 class RuleResult:
     conditions: list[dict[str, Any]] = field(default_factory=list)
     schedule: dict[str, Any] = field(default_factory=dict)  # 규칙으로 정한 일정 칸만
+    income: dict[str, int] = field(default_factory=dict)  # 출처 칸의 연소득 금액(만 원, min·max). 기준(본인·부부)은 모름
 
 
 def _codes(value: Any) -> list[str]:
@@ -146,9 +147,11 @@ def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
     if str(record.get("earnCndSeCd") or "") == INCOME_YEARLY:
         low, high = _int(record.get("earnMinAmt")), _int(record.get("earnMaxAmt"))
         if (low or 0) > 0 or (high or 0) > 0:
-            value = {"unit": "MANWON_PER_YEAR", "basis": "PERSONAL", **{k: v for k, v in (("min", low), ("max", high)) if v}}
+            # 본인 소득인지 부부 합산인지 칸에 없어(2026-10-25 시험: 신생아 특례대출은 부부합산인데 본인으로 나감) 값은 비우고
+            # 금액만 남깁니다. AI가 글에서 같은 금액을 기준과 함께 읽으면 조립(build)에서 그 줄로 대신합니다
+            out.income = {k: v for k, v in (("min", low), ("max", high)) if v}
             raw = f"연소득 {low}~{high}만 원" if low and high else (f"연소득 {low}만 원 이상" if low else f"연소득 {high}만 원 이하")
-            add([("INCOME_AMOUNT", value, raw)], _evidence(text, "earnMaxAmt" if high else "earnMinAmt", high or low))
+            add([("INCOME_AMOUNT", None, raw)], _evidence(text, "earnMaxAmt" if high else "earnMinAmt", high or low))
 
     jobs = _codes(record.get("jobCd"))
     if jobs and JOB_ANY not in jobs:

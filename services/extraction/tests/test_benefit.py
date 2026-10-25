@@ -174,7 +174,9 @@ def test_youth_codes_with_several_values_become_one_or_group():
     assert len({c["group"] for c in jobs}) == 1  # 「재직자 또는 영농종사자」
     assert {"type": "MARITAL", "value": {"in": ["MARRIED"]}}.items() <= next(c for c in rules.conditions if c["type"] == "MARITAL").items()
     income = next(c for c in rules.conditions if c["type"] == "INCOME_AMOUNT")
-    assert income["value"] == {"unit": "MANWON_PER_YEAR", "basis": "PERSONAL", "max": 5000} and income["rawText"] == "연소득 5000만 원 이하"
+    # 본인·부부 기준을 몰라 값은 비우고 금액만 조립에 넘김
+    assert (income["known"], income["value"], income["rawText"]) == (False, None, "연소득 5000만 원 이하")
+    assert rules.income == {"max": 5000}
     assert rules.schedule["applyStart"] == "2026-01-23" and rules.schedule["applyEnd"] == "2026-02-02" and rules.schedule["applyAlways"] is False
 
 
@@ -449,3 +451,56 @@ def test_same_type_in_two_and_groups_is_a_track_condition_and_left_unknown():
     marital = [c for c in data["conditions"] if c["type"] == "MARITAL"]
     assert [(c["known"], c["value"]) for c in marital] == [(False, None), (False, None)]
     assert next(c for c in data["conditions"] if c["type"] == "HOMELESS")["known"] is True
+
+
+INCOME_RECORD = RECORD | {"earnCndSeCd": "0043002", "earnMaxAmt": "6000"}
+INCOME_QUOTE = "연소득 6천만원(부부합산 8천만원)이하"
+
+
+def test_source_income_is_replaced_by_the_ai_rows_that_read_the_same_amount_with_its_basis():
+    data = built_text(
+        TEXT,
+        [
+            condition("INCOME_AMOUNT", INCOME_QUOTE, amountMaxWon=60_000_000, amountPer="YEAR", basis="PERSONAL"),
+            condition("INCOME_AMOUNT", INCOME_QUOTE, amountMaxWon=80_000_000, amountPer="YEAR", basis="HOUSEHOLD"),
+        ],
+        INCOME_RECORD,
+    )
+    income = [(c["origin"], c["value"]) for c in data["conditions"] if c["type"] == "INCOME_AMOUNT"]
+    assert income == [
+        ("AI", {"unit": "MANWON_PER_YEAR", "basis": "PERSONAL", "max": 6000}),
+        ("AI", {"unit": "MANWON_PER_YEAR", "basis": "HOUSEHOLD", "max": 8000}),
+    ]
+    assert "RULE_AI_CONFLICT" not in data["quality"]["reviewReasons"]
+
+
+def test_source_income_stays_unknown_without_a_text_reading_or_with_a_different_amount():
+    alone = built_text(TEXT, [], INCOME_RECORD)
+    assert [(c["origin"], c["known"]) for c in alone["conditions"] if c["type"] == "INCOME_AMOUNT"] == [("RULE", False)]
+    assert alone["quality"]["needsReview"] is False
+    guessed = built_text(  # 출처 칸 줄을 근거로 기준을 지어낸 줄은 세지 않음
+        TEXT + "\n소득 최대 금액: 6000",
+        [condition("INCOME_AMOUNT", "소득 최대 금액: 6000", amountMaxWon=60_000_000, amountPer="YEAR", basis="PERSONAL")],
+        INCOME_RECORD,
+    )
+    assert [(c["origin"], c["known"]) for c in guessed["conditions"] if c["type"] == "INCOME_AMOUNT"] == [("RULE", False)]
+    other = built_text(
+        TEXT,
+        [condition("INCOME_AMOUNT", INCOME_QUOTE, amountMaxWon=80_000_000, amountPer="YEAR", basis="HOUSEHOLD")],
+        RECORD | {"earnCndSeCd": "0043002", "earnMaxAmt": "5000"},
+    )
+    assert [(c["origin"], c["known"]) for c in other["conditions"] if c["type"] == "INCOME_AMOUNT"] == [("RULE", False)]
+    assert "RULE_AI_CONFLICT" in other["quality"]["reviewReasons"]
+
+
+def test_amounts_that_differ_only_by_a_condition_in_one_or_group_are_left_unknown():
+    text = TEXT + "\n(소득) 부부합산 연소득 1.3억원 이하 (단, 맞벌이 가구는 2억원 이하)"
+    quote = "부부합산 연소득 1.3억원 이하 (단, 맞벌이 가구는 2억원 이하)"
+    data = built_text(
+        text,
+        [
+            condition("INCOME_AMOUNT", quote, amountMaxWon=130_000_000, amountPer="YEAR", basis="HOUSEHOLD"),
+            condition("INCOME_AMOUNT", quote, amountMaxWon=200_000_000, amountPer="YEAR", basis="HOUSEHOLD"),
+        ],
+    )
+    assert [(c["known"], c["value"]) for c in data["conditions"] if c["type"] == "INCOME_AMOUNT"] == [(False, None), (False, None)]
