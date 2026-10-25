@@ -107,6 +107,7 @@
         "PERMANENT_RENTAL",
         "HAPPY_HOUSING",
         "INTEGRATED_PUBLIC_RENTAL",
+        "PUBLIC_RENTAL",
         "PURCHASE_RENTAL",
         "JEONSE_RENTAL",
         "LONG_TERM_JEONSE",

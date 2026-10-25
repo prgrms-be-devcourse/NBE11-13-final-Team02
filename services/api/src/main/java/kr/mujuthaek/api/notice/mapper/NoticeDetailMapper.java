@@ -18,10 +18,12 @@ import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Condition;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Evidence;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FileLink;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.FollowUp;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Guidance;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.HeldItem;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Place;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.RequiredDocument;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Schedule;
+import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.SelectionRule;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Site;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.Summary;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse.TimeRange;
@@ -66,6 +68,8 @@ public final class NoticeDetailMapper {
         unitTypes,
         conditions(payload, detail),
         requiredDocuments(detail),
+        selectionRules(detail),
+        guidance(detail),
         files(detail),
         heldItems(detail),
         areaSummaries,
@@ -212,6 +216,55 @@ public final class NoticeDetailMapper {
               int order = d.group() == null ? -1 : DOCUMENT_GROUPS.indexOf(d.group());
               return order < 0 ? DOCUMENT_GROUPS.size() : order;
             }));
+    return out;
+  }
+
+  /** 선정 방식. 보류한 항목(/selectionRules/{i})은 빼고 원문 순서로 놓아요. */
+  static List<SelectionRule> selectionRules(JsonNode detail) {
+    Map<String, Evidence> evidence = evidence(detail);
+    List<SelectionRule> out = new ArrayList<>();
+    JsonNode all = detail.path("selectionRules");
+    for (int i = 0; i < all.size(); i++) {
+      if (held(detail, "/selectionRules/" + i)) {
+        continue;
+      }
+      JsonNode r = all.get(i);
+      out.add(
+          new SelectionRule(
+              text(r.path("id")),
+              text(r.path("kind")),
+              text(r.path("description")),
+              text(r.path("originalText")),
+              r.path("priorityRank").isInt() ? r.path("priorityRank").asInt() : null,
+              decimal(r.path("points")),
+              decimal(r.path("maxPoints")),
+              r.path("order").isInt() ? r.path("order").asInt() : null,
+              strings(r.path("scope").path("targetGroups")),
+              cite(evidence, r.path("evidenceIds"))));
+    }
+    return out;
+  }
+
+  /** 안내. 보류한 항목(/guidance/{i})은 빼고 원문 순서로 놓아요. */
+  static List<Guidance> guidance(JsonNode detail) {
+    Map<String, Evidence> evidence = evidence(detail);
+    List<Guidance> out = new ArrayList<>();
+    JsonNode all = detail.path("guidance");
+    for (int i = 0; i < all.size(); i++) {
+      if (held(detail, "/guidance/" + i)) {
+        continue;
+      }
+      JsonNode g = all.get(i);
+      out.add(
+          new Guidance(
+              text(g.path("id")),
+              text(g.path("kind")),
+              text(g.path("title")),
+              text(g.path("description")),
+              text(g.path("phone")),
+              text(g.path("url")),
+              cite(evidence, g.path("evidenceIds"))));
+    }
     return out;
   }
 

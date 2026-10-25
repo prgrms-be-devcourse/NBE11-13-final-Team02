@@ -10,6 +10,8 @@ import java.util.UUID;
  * 공고 상세 (API 설계 "상세 응답의 묶음"). 현재 공개 버전의 추출 결과에서 만들어요. 첨부는 기관 링크만 주고 파일은 주지 않아요.
  *
  * @param requiredDocuments 제출 서류 (서류 묶음 순서: 공통·해당자·본인 방문·배우자 대리·그 밖의 대리·묶음 없음). 보류한 서류는 빠져요
+ * @param selectionRules 선정 방식 (순위·배점·추첨·선착순 등, 원문 순서). 보류한 항목은 빠져요
+ * @param guidance 안내 (신청 방법·주의 사항·입주·거주·문의처, 원문 순서). 보류한 항목은 빠져요
  * @param heldItems 원문 확인 전까지 보여 주지 않는 항목 (일정·주택형·위치 등에서 뺐어요). 화면은 「확인 필요」로 알려요
  * @param areaSummaries 위치별 생활·상업 점수 (area가 계산한 공통 점수, 지금 위치로 계산한 것만)
  * @param followUps 원래 공고에 붙은 후속 안내 (서류 제출·당첨자 발표 등). 공고 버전과 따로 붙어요
@@ -24,6 +26,8 @@ public record NoticeDetailResponse(
     List<UnitType> unitTypes,
     List<Condition> conditions,
     List<RequiredDocument> requiredDocuments,
+    List<SelectionRule> selectionRules,
+    List<Guidance> guidance,
     List<FileLink> files,
     List<HeldItem> heldItems,
     List<AreaSummary> areaSummaries,
@@ -126,6 +130,48 @@ public record NoticeDetailResponse(
       List<Evidence> evidence) {}
 
   /**
+   * 선정 방식 한 줄.
+   *
+   * @param kind PRIORITY(순위), SCORING(배점), TIE_BREAK(동점 처리), LOTTERY(추첨), FIRST_COME(선착순),
+   *     BIDDING(입찰), OTHER
+   * @param priorityRank 순위 (순위 항목일 때)
+   * @param points 배점표 한 행의 점수 (감점은 음수)
+   * @param maxPoints 그 항목의 최고점
+   * @param order 동점 처리 등의 적용 순서
+   * @param targetGroups 대상 계층 (비면 모든 계층)
+   * @param evidence 이 항목의 근거 원문
+   */
+  public record SelectionRule(
+      String id,
+      String kind,
+      String description,
+      String originalText,
+      Integer priorityRank,
+      BigDecimal points,
+      BigDecimal maxPoints,
+      Integer order,
+      List<String> targetGroups,
+      List<Evidence> evidence) {}
+
+  /**
+   * 안내 한 줄.
+   *
+   * @param kind APPLICATION_METHOD(신청 방법), CAUTION(주의 사항), MOVE_IN(입주), LIVING_NOTICE(거주),
+   *     CONTACT(문의처), OTHER
+   * @param phone 전화번호 (원문에 있을 때만)
+   * @param url 안내 주소 (원문에 있을 때만)
+   * @param evidence 이 안내의 근거 원문
+   */
+  public record Guidance(
+      String id,
+      String kind,
+      String title,
+      String description,
+      String phone,
+      String url,
+      List<Evidence> evidence) {}
+
+  /**
    * @param siteId area 위치 ID (GET /areas/sites/{siteId}). area가 아직 모르는 위치면 null
    * @param lat 좌표 (area가 못 찾았으면 null)
    * @param tags 세권 태그 (STATION, SCHOOL, ELEMENTARY_NEAR, PARK, CONVENIENCE, CLINIC)
@@ -156,6 +202,8 @@ public record NoticeDetailResponse(
         unitTypes,
         conditions,
         requiredDocuments,
+        selectionRules,
+        guidance,
         files,
         heldItems,
         areaSummaries,
