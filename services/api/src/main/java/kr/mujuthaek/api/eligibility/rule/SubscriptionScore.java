@@ -19,6 +19,44 @@ import java.util.List;
  */
 public final class SubscriptionScore {
 
+  /**
+   * 가점 입력. 가점은 연월 단위로 정확해야 계산되는 값이라, 판정 입력(구간 값)과 따로 받아요. 저장하지 않아요.
+   *
+   * @param homelessSince 무주택 시작 연월 (집이 있으면 null이고 homeOwner = true)
+   */
+  public record Input(
+      LocalDate birthDate,
+      String marital,
+      YearMonth marriedOn,
+      YearMonth homelessSince,
+      Boolean homeOwner,
+      Integer dependents,
+      Subscription subscription) {
+
+    /** 청약통장 가입 연월. */
+    public record Subscription(YearMonth joinedOn) {}
+
+    @Override
+    public String toString() {
+      return kr.mujuthaek.api.common.logging.SensitiveFields.mask(
+          "Input[birthDate="
+              + birthDate
+              + ", marital="
+              + marital
+              + ", marriedOn="
+              + marriedOn
+              + ", homelessSince="
+              + homelessSince
+              + ", homeOwner="
+              + homeOwner
+              + ", dependents="
+              + dependents
+              + ", subscription="
+              + subscription
+              + "]");
+    }
+  }
+
   public static final int MAX_HOMELESS = 32;
   public static final int MAX_DEPENDENTS = 35;
   public static final int MAX_SUBSCRIPTION = 17;
@@ -32,7 +70,7 @@ public final class SubscriptionScore {
 
   public record Score(int total, int max, List<ScoreItem> items, List<String> missingInputs) {}
 
-  public static Score calculate(Applicant a, LocalDate ref) {
+  public static Score calculate(Input a, LocalDate ref) {
     List<String> missing = new ArrayList<>();
     List<ScoreItem> items =
         List.of(homeless(a, ref, missing), dependents(a, missing), subscription(a, ref, missing));
@@ -41,7 +79,7 @@ public final class SubscriptionScore {
         total, MAX_HOMELESS + MAX_DEPENDENTS + MAX_SUBSCRIPTION, items, List.copyOf(missing));
   }
 
-  static ScoreItem homeless(Applicant a, LocalDate ref, List<String> missing) {
+  static ScoreItem homeless(Input a, LocalDate ref, List<String> missing) {
     String key = "HOMELESS_PERIOD";
     if (Boolean.TRUE.equals(a.homeOwner())) {
       return new ScoreItem(key, 0, MAX_HOMELESS, "집이 있으면 무주택 기간은 0점이에요");
@@ -82,7 +120,7 @@ public final class SubscriptionScore {
     return new ScoreItem(key, points, MAX_HOMELESS, years == 0 ? "1년 미만" : years + "년 이상");
   }
 
-  static ScoreItem dependents(Applicant a, List<String> missing) {
+  static ScoreItem dependents(Input a, List<String> missing) {
     if (a.dependents() == null) {
       missing.add("applicant.dependents");
       return new ScoreItem("DEPENDENTS", null, MAX_DEPENDENTS, "부양가족 수를 넣으면 계산돼요");
@@ -91,7 +129,7 @@ public final class SubscriptionScore {
     return new ScoreItem("DEPENDENTS", points, MAX_DEPENDENTS, a.dependents() + "명");
   }
 
-  static ScoreItem subscription(Applicant a, LocalDate ref, List<String> missing) {
+  static ScoreItem subscription(Input a, LocalDate ref, List<String> missing) {
     String key = "SUBSCRIPTION_PERIOD";
     YearMonth joined = a.subscription() == null ? null : a.subscription().joinedOn();
     if (joined == null) {

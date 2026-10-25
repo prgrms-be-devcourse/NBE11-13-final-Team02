@@ -42,6 +42,27 @@ class SensitiveFieldsTest {
   }
 
   @Test
+  void masksBandObjectsAndMapsToo() {
+    String json =
+        """
+        {"applicant":{"birthMonth":"1997-03","income":{"MEDIAN_INCOME":{"gtPct":50,"lePct":60}},
+         "assets": {"gtWon":215000000,"leWon":251000000},"children":0}}""";
+    assertThat(SensitiveFields.mask(json))
+        .doesNotContain("1997-03", "gtPct", "215000000")
+        .contains(
+            "\"birthMonth\":\"***\"",
+            "\"income\":\"***\"",
+            "\"assets\": \"***\"",
+            "\"children\":0");
+
+    String text =
+        "Applicant[birthMonth=1997-03, personalIncome={MEDIAN_INCOME=Range[gt=50, le=60],"
+            + " URBAN_WORKER_INCOME=Range[gt=90, le=100]}, assets=Range[gt=1, le=2], children=0]";
+    assertThat(SensitiveFields.mask(text))
+        .isEqualTo("Applicant[birthMonth=***, personalIncome=***, assets=***, children=0]");
+  }
+
+  @Test
   void leavesOtherTextAlone() {
     assertThat(SensitiveFields.mask("공고 01J를 찾지 못했어요")).isEqualTo("공고 01J를 찾지 못했어요");
     assertThat(SensitiveFields.mask(null)).isNull();

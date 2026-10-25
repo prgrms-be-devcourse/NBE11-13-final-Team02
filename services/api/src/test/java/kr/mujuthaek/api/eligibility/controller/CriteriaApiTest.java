@@ -27,6 +27,7 @@ class CriteriaApiTest {
   private final CriteriaService service =
       new CriteriaService(
           new CriteriaStore(jdbc),
+          new kr.mujuthaek.api.eligibility.repository.LoanProductStore(jdbc),
           NoticeFixtures.JSON,
           Clock.fixed(LocalDate.of(2026, 10, 22).atStartOfDay(seoul).toInstant(), seoul));
   private final MockMvc mvc =
@@ -98,5 +99,53 @@ class CriteriaApiTest {
         .containsEntry("2", 1600002L);
     org.assertj.core.api.Assertions.assertThat(service.monthlyIncome("URBAN_WORKER_INCOME", 2026))
         .isEmpty();
+  }
+
+  @Test
+  void incomeFallsBackToThePublishedBaseValues() {
+    // criteria_sets에 없는 해(2025)는 고시 값 표(base_values)에서 읽어요
+    org.assertj.core.api.Assertions.assertThat(service.monthlyIncome("MEDIAN_INCOME", 2025))
+        .containsEntry("1", 2392013L);
+    org.assertj.core.api.Assertions.assertThat(
+            service.benchmarks().monthlyWon("MEDIAN_INCOME", 2025, 1))
+        .isEqualTo(2392013L);
+  }
+
+  @Test
+  void averageUrbanIncomeIsItsOwnTable() {
+    var b = service.benchmarks();
+    org.assertj.core.api.Assertions.assertThat(b.monthlyWon("URBAN_WORKER_INCOME", 2025, 1))
+        .isEqualTo(3813363L);
+    org.assertj.core.api.Assertions.assertThat(b.monthlyWon("URBAN_WORKER_AVERAGE_INCOME", 2025, 1))
+        .isEqualTo(7533763L);
+  }
+
+  @Test
+  void criteriaGiveTheCutsForAssetAndCarBands() throws Exception {
+    mvc.perform(get("/api/v1/eligibility/criteria").param("year", "2026"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.assetCutsWon[0]").value(104000000)) // 2025 행복주택(대학생)
+        .andExpect(jsonPath("$.assetCutsWon").value(org.hamcrest.Matchers.hasItem(251000000)))
+        .andExpect(jsonPath("$.carCutsWon").value(org.hamcrest.Matchers.hasItem(45420000)));
+  }
+
+  @Test
+  void urbanWorkerIncomeFallsBackToTheLatestEarlierYear() throws Exception {
+    // 고시 값 표의 도시근로자 소득은 2025년까지 → 2026년 기준값에는 2025년 값과 연도를 줘요
+    mvc.perform(get("/api/v1/eligibility/criteria").param("year", "2026"))
+        .andExpect(jsonPath("$.urbanWorkerIncomeYear").value(2025))
+        // 가구원수별 표 (가구당 평균 표 7,533,763원과 섞이지 않아요)
+        .andExpect(jsonPath("$.urbanWorkerIncomeMonthlyWon.1").value(3813363));
+  }
+
+  @Test
+  void withoutAdminCriteriaTheLatestPublishedYearIsUsed() throws Exception {
+    jdbc.update("delete from eligibility.criteria_sets");
+    mvc.perform(get("/api/v1/eligibility/criteria"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.year").value(2026))
+        .andExpect(jsonPath("$.validFrom").value("2026-01-01"))
+        .andExpect(jsonPath("$.medianIncomeMonthlyWon.1").exists())
+        .andExpect(jsonPath("$.rankCriteria").doesNotExist());
   }
 }

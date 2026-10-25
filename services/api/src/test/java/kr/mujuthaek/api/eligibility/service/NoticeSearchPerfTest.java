@@ -10,6 +10,7 @@ import java.time.YearMonth;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import kr.mujuthaek.api.CountingDataSource;
 import kr.mujuthaek.api.TestDatabase;
 import kr.mujuthaek.api.area.repository.PostgresLocationScores;
@@ -100,15 +101,17 @@ class NoticeSearchPerfTest {
                 new PostgresLocationScores(counting.dataSource())),
             clock,
             NoticeFixtures.JSON);
-    var criteria = new CriteriaService(new CriteriaStore(jdbc), NoticeFixtures.JSON, clock);
+    var criteria =
+        new CriteriaService(
+            new CriteriaStore(jdbc), new LoanProductStore(jdbc), NoticeFixtures.JSON, clock);
     var evaluations =
         new NoticeEvaluationService(
-            queries, criteria, new PrepareCostService(new LoanProductStore(jdbc), clock));
+            queries, criteria, new PrepareCostService(new LoanProductStore(jdbc), criteria, clock));
     var search = new NoticeSearchService(queries, evaluations);
 
     var applicant =
         new ApplicantRequest(
-            LocalDate.of(1997, 3, 15),
+            YearMonth.of(1997, 3),
             "11440",
             true,
             1,
@@ -117,15 +120,17 @@ class NoticeSearchPerfTest {
             "SINGLE",
             null,
             0,
-            YearMonth.of(2022, 1),
             false,
-            new ApplicantRequest.SubscriptionRequest(YearMonth.of(2024, 3), 26),
+            "3_5",
+            new ApplicantRequest.SubscriptionRequest("24_PLUS", 26),
             List.of(),
-            32_000_000L,
+            Map.of(
+                "MEDIAN_INCOME", new ApplicantRequest.PercentRange(100, 110, null),
+                "URBAN_WORKER_INCOME", new ApplicantRequest.PercentRange(80, 90, 2025)),
             null,
-            45_000_000L,
+            2026,
+            new ApplicantRequest.WonRange(25_000_000L, 50_000_000L),
             null,
-            15_000_000L,
             List.of());
     var all = request(null, applicant, null);
     String next = search.search(all).nextCursor();

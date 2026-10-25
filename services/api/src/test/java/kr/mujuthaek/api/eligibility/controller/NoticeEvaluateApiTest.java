@@ -27,9 +27,13 @@ class NoticeEvaluateApiTest {
 
   private final NoticeApiFixture f = new NoticeApiFixture();
   private final CriteriaService criteria =
-      new CriteriaService(new CriteriaStore(f.jdbc), NoticeFixtures.JSON, Clock.systemUTC());
+      new CriteriaService(
+          new CriteriaStore(f.jdbc),
+          new LoanProductStore(f.jdbc),
+          NoticeFixtures.JSON,
+          Clock.systemUTC());
   private final PrepareCostService prepareCost =
-      new PrepareCostService(new LoanProductStore(f.jdbc), Clock.systemUTC());
+      new PrepareCostService(new LoanProductStore(f.jdbc), criteria, Clock.systemUTC());
   private final MockMvc mvc =
       f.mvc(
           new EligibilityController(
@@ -54,14 +58,15 @@ class NoticeEvaluateApiTest {
     mvc.perform(
             post("/api/v1/eligibility/notices/{id}/evaluate", id)
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"applicant\":{\"availableCashWon\":100000}}"))
+                .content("{\"applicant\":{}}"))
         .andExpect(jsonPath("$.unitTypes[0].houseType").value("20A"))
         .andExpect(jsonPath("$.unitTypes[0].eligible").value(false))
         .andExpect(jsonPath("$.unitTypes[0].prepareCost.depositWon").value(1000000))
         .andExpect(jsonPath("$.unitTypes[0].prepareCost.loan.productCode").value("GENERAL"))
         .andExpect(jsonPath("$.unitTypes[0].prepareCost.loan.amountWon").value(700000))
         .andExpect(jsonPath("$.unitTypes[0].prepareCost.prepareWon").value(300000))
-        .andExpect(jsonPath("$.unitTypes[0].prepareCost.shortageWon").value(200000));
+        // 쓸 수 있는 돈과 비교는 화면이 해요 (서버는 받지 않아요)
+        .andExpect(jsonPath("$.unitTypes[0].prepareCost.shortageWon").doesNotExist());
   }
 
   @Test
@@ -98,8 +103,8 @@ class NoticeEvaluateApiTest {
     UUID id = noticeWithJudgment();
     String body =
         """
-        {"applicant":{"birthDate":"1997-03-15","regionCode":"11650","homelessSince":"2022-01",
-                      "householdSize":1,"personalIncomeAnnualWon":31234567}}""";
+        {"applicant":{"birthMonth":"1997-03","regionCode":"11650","homeOwner":false,"homelessYears":"3_5",
+                      "householdSize":1,"income":{"URBAN_WORKER_INCOME":{"gtPct":31,"lePct":40}}}}""";
 
     var result =
         mvc.perform(
@@ -118,7 +123,8 @@ class NoticeEvaluateApiTest {
             .andExpect(jsonPath("$.targets[0].items[1].evidence.text").exists())
             .andReturn();
 
-    assertThat(result.getResponse().getContentAsString()).doesNotContain("31234567", "1997-03-15");
+    assertThat(result.getResponse().getContentAsString())
+        .doesNotContain("1997-03", "gtPct", "lePct", "\"31\"");
   }
 
   @Test
@@ -146,8 +152,8 @@ class NoticeEvaluateApiTest {
     mvc.perform(
             post("/api/v1/eligibility/notices/{id}/evaluate", noticeWithJudgment())
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"applicant\":{\"totalAssetsWon\":-1}}"))
+                .content("{\"applicant\":{\"assets\":{\"gtWon\":-1}}}"))
         .andExpect(status().isBadRequest())
-        .andExpect(jsonPath("$.errors[0].field").value("applicant.totalAssetsWon"));
+        .andExpect(jsonPath("$.errors[0].field").value("applicant.assets.gtWon"));
   }
 }

@@ -37,7 +37,7 @@ class JudgeTest {
   @Test
   void oneEligibleTargetMakesTheNoticeEligible() {
     var a =
-        new ApplicantBuilder().birth(1997, 3, 15).homelessSince(2022, 1).marital("SINGLE").build();
+        new ApplicantBuilder().birthMonth(1997, 3).homelessYears("3_5").marital("SINGLE").build();
 
     var result = Judge.evaluate(twoGroups(), a);
 
@@ -53,7 +53,7 @@ class JudgeTest {
 
   @Test
   void missingInputsMakeItNeedsInputAndListWhatToFill() {
-    var a = new ApplicantBuilder().birth(1997, 3, 15).build();
+    var a = new ApplicantBuilder().birthMonth(1997, 3).build();
 
     var result = Judge.evaluate(twoGroups(), a);
 
@@ -61,12 +61,12 @@ class JudgeTest {
     assertThat(result.targets().get(0).overall()).isEqualTo(Overall.NEEDS_INPUT);
     assertThat(result.targets().get(0).summary()).isEqualTo(new Judge.Summary(2, 1, 0, 1));
     assertThat(result.missingInputs())
-        .containsExactly("applicant.homelessSince", "applicant.marital");
+        .containsExactly("applicant.homelessYears", "applicant.marital");
   }
 
   @Test
   void ineligibleWhenEveryTargetFails() {
-    var a = new ApplicantBuilder().birth(1970, 1, 1).homeOwner(true).marital("SINGLE").build();
+    var a = new ApplicantBuilder().birthMonth(1970, 1).homeOwner(true).marital("SINGLE").build();
 
     var result = Judge.evaluate(twoGroups(), a);
 
@@ -80,14 +80,18 @@ class JudgeTest {
     Judgment j = JudgmentReader.read(JudgmentReaderTest.example());
     var a =
         new ApplicantBuilder()
-            .birth(1997, 3, 15)
+            .birthMonth(1997, 3)
             .region("11650")
-            .homelessSince(2022, 1)
+            .homelessYears("3_5")
             .household(1)
-            .personalIncome(30_000_000L)
+            .income("URBAN_WORKER_INCOME", 30, 40)
             .build();
+    // 2025년 도시근로자 1인 월평균소득 (공고 표 50%+가산 = 2,669,354원과 맞는 값)
+    IncomeBenchmarks urban2025 =
+        (standard, year, size) ->
+            "URBAN_WORKER_INCOME".equals(standard) && year == 2025 && size == 1 ? 3_813_363L : null;
 
-    var result = Judge.evaluate(j, a);
+    var result = Judge.evaluate(j, a, urban2025);
 
     var artist = result.targets().get(0);
     assertThat(artist.overall()).isEqualTo(Overall.NEEDS_INPUT);

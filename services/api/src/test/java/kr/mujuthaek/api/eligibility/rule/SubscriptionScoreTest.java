@@ -15,7 +15,7 @@ class SubscriptionScoreTest {
   void fullExample() {
     // 1980년생(만 30세는 2010-03-15), 2015-01부터 무주택 → 11년 → 24점 / 부양가족 2명 → 15점 / 통장 2016-03 → 10년 → 12점
     var a =
-        new ApplicantBuilder()
+        new ScoreInputBuilder()
             .birth(1980, 3, 15)
             .marital("SINGLE")
             .homelessSince(2015, 1)
@@ -43,7 +43,8 @@ class SubscriptionScoreTest {
   void homelessPeriod(
       LocalDate birth, String marital, String marriedOn, String since, int expected) {
     var b =
-        new ApplicantBuilder().birth(birth.getYear(), birth.getMonthValue(), birth.getDayOfMonth());
+        new ScoreInputBuilder()
+            .birth(birth.getYear(), birth.getMonthValue(), birth.getDayOfMonth());
     b.marital(marital);
     if (marriedOn != null) {
       b.married(
@@ -57,28 +58,28 @@ class SubscriptionScoreTest {
   @Test
   void reasons() {
     var young =
-        new ApplicantBuilder().birth(1997, 3, 15).marital("SINGLE").homelessSince(2020, 1).build();
+        new ScoreInputBuilder().birth(1997, 3, 15).marital("SINGLE").homelessSince(2020, 1).build();
     assertThat(SubscriptionScore.calculate(young, REF).items().get(0).reason())
         .isEqualTo("만 30세 전 미혼이라 0점이에요");
 
-    var owner = new ApplicantBuilder().homeOwner(true).build();
+    var owner = new ScoreInputBuilder().homeOwner(true).build();
     assertThat(SubscriptionScore.calculate(owner, REF).items().get(0).points()).isZero();
   }
 
   @Test
   void dependentsAndSubscriptionSteps() {
-    assertThat(points(new ApplicantBuilder().dependents(0), 1)).isEqualTo(5);
-    assertThat(points(new ApplicantBuilder().dependents(6), 1)).isEqualTo(35);
-    assertThat(points(new ApplicantBuilder().dependents(9), 1)).isEqualTo(35);
-    assertThat(points(new ApplicantBuilder().subscription(2026, 6, 1), 2)).isEqualTo(1); // 4개월
-    assertThat(points(new ApplicantBuilder().subscription(2026, 1, 1), 2)).isEqualTo(2); // 9개월
-    assertThat(points(new ApplicantBuilder().subscription(2025, 10, 1), 2)).isEqualTo(3); // 1년
-    assertThat(points(new ApplicantBuilder().subscription(2000, 1, 1), 2)).isEqualTo(17);
+    assertThat(points(new ScoreInputBuilder().dependents(0), 1)).isEqualTo(5);
+    assertThat(points(new ScoreInputBuilder().dependents(6), 1)).isEqualTo(35);
+    assertThat(points(new ScoreInputBuilder().dependents(9), 1)).isEqualTo(35);
+    assertThat(points(new ScoreInputBuilder().subscription(2026, 6, 1), 2)).isEqualTo(1); // 4개월
+    assertThat(points(new ScoreInputBuilder().subscription(2026, 1, 1), 2)).isEqualTo(2); // 9개월
+    assertThat(points(new ScoreInputBuilder().subscription(2025, 10, 1), 2)).isEqualTo(3); // 1년
+    assertThat(points(new ScoreInputBuilder().subscription(2000, 1, 1), 2)).isEqualTo(17);
   }
 
   @Test
   void emptyInputsListWhatToFill() {
-    var score = SubscriptionScore.calculate(Applicant.empty(), REF);
+    var score = SubscriptionScore.calculate(new ScoreInputBuilder().build(), REF);
 
     assertThat(score.total()).isZero();
     assertThat(score.items()).allSatisfy(i -> assertThat(i.points()).isNull());
@@ -87,7 +88,7 @@ class SubscriptionScoreTest {
             "applicant.birthDate", "applicant.dependents", "applicant.subscription.joinedOn");
   }
 
-  private static Integer points(ApplicantBuilder b, int index) {
+  private static Integer points(ScoreInputBuilder b, int index) {
     return SubscriptionScore.calculate(b.build(), REF).items().get(index).points();
   }
 }

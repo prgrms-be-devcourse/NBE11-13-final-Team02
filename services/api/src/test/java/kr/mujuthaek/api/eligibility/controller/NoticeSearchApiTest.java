@@ -28,12 +28,16 @@ class NoticeSearchApiTest {
 
   private final NoticeApiFixture f = new NoticeApiFixture();
   private final CriteriaService criteria =
-      new CriteriaService(new CriteriaStore(f.jdbc), NoticeFixtures.JSON, Clock.systemUTC());
+      new CriteriaService(
+          new CriteriaStore(f.jdbc),
+          new LoanProductStore(f.jdbc),
+          NoticeFixtures.JSON,
+          Clock.systemUTC());
   private final NoticeEvaluationService evaluations =
       new NoticeEvaluationService(
           f.queries,
           criteria,
-          new PrepareCostService(new LoanProductStore(f.jdbc), Clock.systemUTC()));
+          new PrepareCostService(new LoanProductStore(f.jdbc), criteria, Clock.systemUTC()));
   private final MockMvc mvc =
       f.mvc(new NoticeSearchController(new NoticeSearchService(f.queries, evaluations)));
 
@@ -61,7 +65,7 @@ class NoticeSearchApiTest {
 
   private String body(String extra) {
     return """
-        {"filters":{"providers":["%s"]},"applicant":{"birthDate":"1997-03-15"}%s}"""
+        {"filters":{"providers":["%s"]},"applicant":{"birthMonth":"1997-03"}%s}"""
         .formatted(f.provider, extra);
   }
 
