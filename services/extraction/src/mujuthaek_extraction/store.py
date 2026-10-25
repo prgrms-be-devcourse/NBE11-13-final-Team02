@@ -580,7 +580,8 @@ class JobStore:
     def review_stats(self, days: int = 7) -> dict[str, Any]:
         """관리자 개요의 처리 통계: 최근 days일과 오늘(한국 시간)의 그대로 승인·고쳐서 승인·반려 수와, 들어와서 처리되기까지 걸린 시간의 중앙값(분).
         대체(SUPERSEDED)는 사람이 처리한 것이 아니라 세지 않습니다. 제보로 다시 열어 review_history로 옮긴 앞선 처리도 셉니다
-        (2026-10-25 검토: 예전엔 다시 열면 그 전 승인·반려가 통계에서 사라졌음)."""
+        (2026-10-25 검토: 예전엔 다시 열면 그 전 승인·반려가 통계에서 사라졌음). 혜택 정책 검수(benefit_reviews)의 처리도 같이 셉니다
+        (2026-10-26: 관리자 개요가 공고 검수만 세어 혜택 승인이 빠졌음). 혜택은 칸별 수정(edits)이 있으면 고쳐서 승인입니다."""
 
         def counts(since_sql: str, params: tuple[Any, ...]) -> dict[str, Any]:
             row = self.conn.execute(
@@ -588,7 +589,9 @@ class JobStore:
                 " count(*) filter (where status = 'REJECTED'),"
                 " percentile_cont(0.5) within group (order by extract(epoch from decided_at - created_at))"
                 " from (select status, edited, created_at, decided_at from review_queue"
-                " union all select status, edited, created_at, decided_at from review_history) d"
+                " union all select status, edited, created_at, decided_at from review_history"
+                " union all select status, coalesce(jsonb_typeof(edits) = 'array' and jsonb_array_length(edits) > 0, false),"
+                " created_at, decided_at from benefit_reviews) d"
                 f" where status in ('APPROVED', 'REJECTED') and decided_at >= {since_sql}",
                 params,
             ).fetchone()
