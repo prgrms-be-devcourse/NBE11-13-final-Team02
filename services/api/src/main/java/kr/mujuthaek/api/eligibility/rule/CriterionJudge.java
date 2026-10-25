@@ -257,7 +257,7 @@ public final class CriterionJudge {
     Bands.Range monthly = null;
     for (String k : key == null ? bands.keySet() : List.of(key)) {
       Bands.Range pct = bands.get(k);
-      Integer userYear = a.incomeYear() != null ? a.incomeYear() : year;
+      Integer userYear = a.incomeYearOf(k) != null ? a.incomeYearOf(k) : year;
       Long base = pct == null || userYear == null ? null : benchmarks.monthlyWon(k, userYear, size);
       if (base != null) {
         monthly = pct.times(base / 100.0);

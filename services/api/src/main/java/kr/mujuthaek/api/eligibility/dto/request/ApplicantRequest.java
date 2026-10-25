@@ -59,8 +59,15 @@ public record ApplicantRequest(
       @Pattern(regexp = "NONE|LT_6|6_12|12_24|24_PLUS") String months,
       @Min(0) @Max(1000) Integer payments) {}
 
-  /** 기준 대비 % 구간 (gtPct 초과 ~ lePct 이하). 한쪽은 비워도 돼요. */
-  public record PercentRange(@Min(0) @Max(1000) Integer gtPct, @Min(0) @Max(1000) Integer lePct) {
+  /**
+   * 기준 대비 % 구간 (gtPct 초과 ~ lePct 이하). 한쪽은 비워도 돼요.
+   *
+   * @param year 이 구간을 계산한 기준 연도 (criteria의 그 기준 연도). 비우면 incomeYear
+   */
+  public record PercentRange(
+      @Min(0) @Max(1000) Integer gtPct,
+      @Min(0) @Max(1000) Integer lePct,
+      @Min(2000) @Max(2200) Integer year) {
 
     @AssertTrue(message = "gtPct는 lePct보다 작아야 해요")
     boolean isOrdered() {
@@ -110,9 +117,27 @@ public record ApplicantRequest(
         ranges(income),
         ranges(householdIncome),
         incomeYear,
+        years(income, householdIncome),
         assets == null ? null : assets.toRange(),
         car == null ? null : car.toRange(),
         rankChecks);
+  }
+
+  /** 구간마다 적은 기준 연도 (가구 소득 값이 있으면 그쪽이 우선). 없으면 null. */
+  private static Map<String, Integer> years(
+      Map<String, PercentRange> personal, Map<String, PercentRange> household) {
+    Map<String, Integer> out = new LinkedHashMap<>();
+    for (var m : java.util.Arrays.asList(personal, household)) {
+      if (m != null) {
+        m.forEach(
+            (k, v) -> {
+              if (v != null && v.year() != null) {
+                out.put(k, v.year());
+              }
+            });
+      }
+    }
+    return out.isEmpty() ? null : out;
   }
 
   private static Map<String, Bands.Range> ranges(Map<String, PercentRange> byStandard) {

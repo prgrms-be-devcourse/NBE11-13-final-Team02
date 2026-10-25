@@ -121,6 +121,14 @@ class CriteriaApiTest {
   }
 
   @Test
+  void urbanWorkerIncomeFallsBackToTheLatestEarlierYear() throws Exception {
+    // 고시 값 표의 도시근로자 소득은 2025년까지 → 2026년 기준값에는 2025년 값과 연도를 줘요
+    mvc.perform(get("/api/v1/eligibility/criteria").param("year", "2026"))
+        .andExpect(jsonPath("$.urbanWorkerIncomeYear").value(2025))
+        .andExpect(jsonPath("$.urbanWorkerIncomeMonthlyWon.1").exists());
+  }
+
+  @Test
   void withoutAdminCriteriaTheLatestPublishedYearIsUsed() throws Exception {
     jdbc.update("delete from eligibility.criteria_sets");
     mvc.perform(get("/api/v1/eligibility/criteria"))

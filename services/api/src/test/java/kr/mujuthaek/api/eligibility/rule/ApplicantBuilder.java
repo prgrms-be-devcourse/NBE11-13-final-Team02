@@ -25,6 +25,7 @@ public final class ApplicantBuilder {
   private Map<String, Range> personalIncome;
   private Map<String, Range> householdIncome;
   private Integer incomeYear;
+  private Map<String, Integer> incomeYears;
   private Range assets;
   private Range car;
   private List<String> rankChecks;
@@ -114,6 +115,13 @@ public final class ApplicantBuilder {
     return this;
   }
 
+  /** 이 기준 종류만 다른 연도로 계산했을 때 (도시근로자 소득은 보통 전해 값). */
+  public ApplicantBuilder incomeYear(String standard, int year) {
+    incomeYears = incomeYears == null ? new LinkedHashMap<>() : new LinkedHashMap<>(incomeYears);
+    incomeYears.put(standard, year);
+    return this;
+  }
+
   /** 정확히 이 금액 (구간 won-1 초과 ~ won 이하). */
   public ApplicantBuilder assets(long won) {
     assets = new Range(won - 1, won);
@@ -163,6 +171,7 @@ public final class ApplicantBuilder {
         personalIncome,
         householdIncome,
         incomeYear,
+        incomeYears,
         assets,
         car,
         rankChecks);

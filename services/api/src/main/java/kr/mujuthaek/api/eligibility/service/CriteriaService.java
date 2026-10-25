@@ -52,7 +52,13 @@ public class CriteriaService {
                 .orElseThrow(() -> new CustomException(ErrorCode.CRITERIA_NOT_FOUND));
     Optional<CriteriaRow> ranks = store.find("RANK_CRITERIA", y);
     Map<String, Long> median = monthlyIncome("MEDIAN_INCOME", y);
+    // 도시근로자 소득은 보통 전해 값이 마지막이라, 그해 값이 없으면 가장 가까운 앞 해 값을 줘요 (urbanWorkerIncomeYear)
+    int urbanYear = y;
     Map<String, Long> urban = monthlyIncome("URBAN_WORKER_INCOME", y);
+    for (int back = 1; urban.isEmpty() && back <= 2; back++) {
+      urbanYear = y - back;
+      urban = monthlyIncome("URBAN_WORKER_INCOME", urbanYear);
+    }
     if (median.isEmpty() && urban.isEmpty() && ranks.isEmpty()) {
       throw new CustomException(ErrorCode.CRITERIA_NOT_FOUND);
     }
@@ -67,6 +73,7 @@ public class CriteriaService {
         validFrom,
         nullIfEmpty(median),
         nullIfEmpty(urban),
+        urban.isEmpty() ? null : urbanYear,
         ranks.map(r -> rankCriteria(json.readTree(r.data()), noticeType)).orElse(null),
         cuts(
             store.assetCuts("TOTAL_ASSET", y),
