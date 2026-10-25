@@ -135,7 +135,6 @@ account.users (있음)
 | --- | --- | --- | --- |
 | `user_id` | uuid PK | | `users.id` (cascade) |
 | `email_enabled` | boolean | false | 이메일로 받기. 인증된 주소가 있어야 켤 수 있어요 (아니면 409) |
-| `push_enabled` | boolean | false | 웹 푸시 (다음 단계) |
 | `new_notice` | boolean | true | `NEW_NOTICE` |
 | `new_support` | boolean | true | `NEW_SUPPORT` |
 | `deadline` | boolean | true | `DEADLINE_D3`·`D1` |
@@ -145,6 +144,8 @@ account.users (있음)
 | `updated_at` | timestamptz | now() | |
 
 줄이 없는 회원은 기본값으로 봐요 (이메일 끔 → 알림함에만).
+
+웹 푸시 켬·끔은 이 테이블에 없어요. 기기마다 구독이 있으면 켜짐이고, 구독은 api `notification` 모듈의 `notification.push_subscriptions`에 있어요 ([web-push.draft.md](web-push.draft.md) 1-2). 종류별 켬·끔과 `quiet_enabled`는 이메일·푸시가 같이 써요.
 
 ### 2-8. API (user 모듈, PWA가 불러요)
 
@@ -227,7 +228,6 @@ create table account.notification_emails (
 create table account.notification_settings (
     user_id       uuid        primary key references account.users (id) on delete cascade,
     email_enabled boolean     not null default false,
-    push_enabled  boolean     not null default false,
     new_notice    boolean     not null default true,
     new_support   boolean     not null default true,
     deadline      boolean     not null default true,

@@ -42,7 +42,7 @@
   - 한 번 권한을 허용한 브라우저는 다시 켤 때 권한 창 없이 바로 다시 구독돼요
 - 기기 하나 끄기 = 그 기기 구독 지우기. 모든 기기 끄기 = 내 구독 모두 지우기 (2장)
 - 계정 설정에는 **어떤 알림을 받을지**만 둬요: 종류별 켬·끔, `quiet_enabled` ([user-preferences.draft.md](user-preferences.draft.md), 이메일과 같이 써요)
-- [user-preferences.draft.md](user-preferences.draft.md)의 `push_enabled` 칸은 빼요 (user 담당과 확인, 8장)
+- [user-preferences.draft.md](user-preferences.draft.md)의 `notification_settings`에는 푸시 켬·끔 칸이 없어요
 - 사용자가 브라우저 설정에서 권한을 끄면: 다음 발송 때 404·410을 받아 구독이 지워지고(5장), PWA는 앱을 열 때 `Notification.permission`을 보고 토글을 맞춰요
 
 ### 1-3. 서버 설정: VAPID 키 한 쌍 (서비스 전체에 1개)
@@ -243,7 +243,7 @@
 | --- | --- | --- |
 | 구독 테이블 위치 | api `notification` 모듈 (`notification.push_subscriptions`) | 1-1 |
 | 구독 정보 | 요청에 실어 보내요 (B안 유지). 알림 서버는 구독을 저장하지 않아요 | 1-4, 3장 |
-| 켬·끔 | `push_enabled` 없음. 구독이 있으면 켜짐, 모두 끄기 = 내 구독 모두 지우기 | 1-2, 2장 |
+| 켬·끔 | `push_enabled` 없음 (user-preferences에서도 뺌). 구독이 있으면 켜짐, 모두 끄기 = 내 구독 모두 지우기 | 1-2, 2장 |
 | 새 소식이 많은 날 | `NEW_*`만 30분 묶음, 2건 이상이면 "새 소식 N건" 한 번. 내 관심 공고 알림은 바로 | 4장 |
 | 회원당 기기 수 | 5대. 넘으면 `updated_at`이 가장 오래된 기기를 지워요 | 1-1 |
 | TTL 값 | `DEADLINE_D1` 12시간 · `DEADLINE_D3` 48시간 · `NEW_*`·묶음 24시간 · `CORRECTED`·`FOLLOW_UP` 72시간 | 4장 |
@@ -252,5 +252,4 @@
 
 | 항목 | 제안 |
 | --- | --- |
-| user-preferences의 `push_enabled` 칸 | 빼요. user 모듈 담당과 확인 (아직 마이그레이션 전이면 초안만 고치면 돼요) |
 | 이메일 | 코드는 두고, 운영에서는 이메일 칸을 null로 (나중에 정리) |
