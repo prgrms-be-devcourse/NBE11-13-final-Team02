@@ -569,14 +569,17 @@ class JobStore:
 
     def review_stats(self, days: int = 7) -> dict[str, Any]:
         """관리자 개요의 처리 통계: 최근 days일과 오늘(한국 시간)의 그대로 승인·고쳐서 승인·반려 수와, 들어와서 처리되기까지 걸린 시간의 중앙값(분).
-        대체(SUPERSEDED)는 사람이 처리한 것이 아니라 세지 않습니다."""
+        대체(SUPERSEDED)는 사람이 처리한 것이 아니라 세지 않습니다. 제보로 다시 열어 review_history로 옮긴 앞선 처리도 셉니다
+        (2026-10-25 검토: 예전엔 다시 열면 그 전 승인·반려가 통계에서 사라졌음)."""
 
         def counts(since_sql: str, params: tuple[Any, ...]) -> dict[str, Any]:
             row = self.conn.execute(
                 "select count(*) filter (where status = 'APPROVED' and not edited), count(*) filter (where status = 'APPROVED' and edited),"
                 " count(*) filter (where status = 'REJECTED'),"
                 " percentile_cont(0.5) within group (order by extract(epoch from decided_at - created_at))"
-                f" from review_queue where status in ('APPROVED', 'REJECTED') and decided_at >= {since_sql}",
+                " from (select status, edited, created_at, decided_at from review_queue"
+                " union all select status, edited, created_at, decided_at from review_history) d"
+                f" where status in ('APPROVED', 'REJECTED') and decided_at >= {since_sql}",
                 params,
             ).fetchone()
             median = None if row[3] is None else round(float(row[3]) / 60)

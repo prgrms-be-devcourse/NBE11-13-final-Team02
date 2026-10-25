@@ -219,6 +219,10 @@ public class AdminReviewService {
       return "추출 결과가 없어 승인할 수 없어요. 원본 자료를 고친 뒤 다시 처리해야 해요.";
     }
     long held = fields.stream().filter(f -> "HELD".equals(f.status())).count();
+    if ("APPROVED".equals(jobStatus) || "COMPLETED".equals(jobStatus)) {
+      // 제보로 다시 연 건: 이미 공개된 공고예요(2026-10-25 검토: 예전엔 「아직 발행 전」으로 안내했음)
+      return "이미 사용자에게 보이는 공고를 다시 연 검수예요. 승인하면 고친 값으로 다시 발행되고 판정이 다시 계산돼요.";
+    }
     if ("PARTIAL".equals(jobStatus)) {
       return held > 0
           ? "이미 사용자에게 보이는 공고예요. 승인하면 보류한 " + held + "칸이 화면·판정에 나와요."

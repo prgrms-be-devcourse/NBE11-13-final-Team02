@@ -62,8 +62,10 @@ public class NoticeReportService {
   /**
    * 「고치기」: 공고의 가장 새로 발행한 추출 결과를 검수 대기로 다시 열고 이 제보(와 같은 칸의 처리 전 제보)에 이어요. 관리자는 검수 화면에서 칸을 고쳐 승인(다시
    * 발행)한 뒤 {@link #resolve}로 제보를 끝내요.
+   *
+   * <p>추출 검수 API를 부르는 동안 DB 연결을 잡지 않도록 트랜잭션 없이 처리해요. 연결 갱신(linkReview)은 한 문장이라 그 자체로 원자적이에요
+   * (2026-10-25 검토).
    */
-  @Transactional
   public AdminReportReviewResponse openReview(UUID id, String admin) {
     Report report = find(id);
     if ("DONE".equals(report.status())) {
@@ -109,8 +111,8 @@ public class NoticeReportService {
    * 회원의 주거·복지 정책(혜택) 제보. 추출 서비스에 정제 결과가 있는 정책에만 받고, 제목은 그때 받아 둬요(api에 혜택 표가 아직 없어요).
    *
    * @param policyId 정책 원본 ID (policy.extracted의 rawPolicyId)
+   *     <p>추출 서비스에서 제목을 받는 동안 DB 연결을 잡지 않도록 트랜잭션 없이 처리해요(넣기는 한 문장).
    */
-  @Transactional
   public NoticeReportCreatedResponse reportBenefit(
       UUID policyId, NoticeReportRequest request, String reporter) {
     UUID reporterId = reporterId(reporter);
@@ -123,6 +125,11 @@ public class NoticeReportService {
     } catch (CustomException e) {
       if (e.errorCode() == ErrorCode.NOTICE_REVIEW_NOT_FOUND) {
         throw new CustomException(ErrorCode.NOT_FOUND, "정책을 찾을 수 없어요");
+      }
+      if (e.errorCode() == ErrorCode.NOTICE_REVIEW_UNAVAILABLE) {
+        // 회원에게 「검수 서버」라는 내부 사정 대신 제보를 지금 받을 수 없다고 알려요
+        throw new CustomException(
+            ErrorCode.NOTICE_REVIEW_UNAVAILABLE, "지금은 정책 제보를 받을 수 없어요. 잠시 뒤에 다시 보내 주세요");
       }
       throw e;
     }

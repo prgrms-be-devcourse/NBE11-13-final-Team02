@@ -96,7 +96,11 @@ def declare(channel) -> None:
     channel.queue_declare(queue=POLICY_QUEUE, durable=True)
     channel.queue_bind(queue=POLICY_QUEUE, exchange=EXCHANGE, routing_key=POLICY_ROUTING_KEY)
     channel.queue_declare(queue=POLICY_DLQ, durable=True)
-    channel.queue_declare(queue=BENEFIT_QUEUE, durable=True)
+    # api가 받을 큐라 api의 RabbitTopology.queue와 같은 모양(실패 큐 x-dead-letter-exchange + 이름.dlq)으로 선언해요.
+    # 인자가 다르면 나중에 api가 같은 큐를 선언할 때 PRECONDITION_FAILED가 나요(2026-10-25 검토)
+    channel.queue_declare(queue=BENEFIT_QUEUE + ".dlq", durable=True)
+    channel.queue_bind(queue=BENEFIT_QUEUE + ".dlq", exchange=DLX, routing_key=BENEFIT_EVENT_TYPE)
+    channel.queue_declare(queue=BENEFIT_QUEUE, durable=True, arguments={"x-dead-letter-exchange": DLX})
     channel.queue_bind(queue=BENEFIT_QUEUE, exchange=EXCHANGE, routing_key=BENEFIT_EVENT_TYPE)
 
 

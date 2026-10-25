@@ -613,10 +613,13 @@ def test_published_result_can_be_reopened_for_review_and_fixed_again(store):
     service = ReviewService(lambda: Session(), fresh_event)
     assert store.reopen(post) is None  # 아직 발행 전이면 다시 열 결과가 없음
     assert service.approve(job_id, {"reviewer": "admin:1", "note": "처음 승인"})[0] == 200
+    approved_before = store.review_stats(7)["recent"]["approved"]
 
     status, opened = service.reopen({"rawPostId": post, "reviewer": "admin:2", "note": "공고 제보: 보증금"})
     assert status == 200 and opened == {"jobId": job_id, "reviewStatus": "PENDING", "reopened": True}
     assert service.reopen({"rawPostId": post})[1]["reopened"] is False  # 이미 대기 중
+    # 다시 열어도 앞선 승인은 통계에 남아요(기록으로 옮겨져도 셈)
+    assert store.review_stats(7)["recent"]["approved"] == approved_before
     detail = store.review(job_id)
     assert detail["reviewStatus"] == "PENDING" and "USER_REPORT" in detail["reasons"]
     assert [(h["reviewStatus"], h["decidedBy"], h["reopenedBy"], h["reopenNote"]) for h in detail["history"]] == [

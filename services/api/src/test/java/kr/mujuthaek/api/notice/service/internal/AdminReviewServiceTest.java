@@ -322,5 +322,8 @@ class AdminReviewServiceTest {
         .startsWith("추출 결과가 없어");
     assertThat(AdminReviewService.impact("APPROVED", "IN_REVIEW", candidate, java.util.List.of()))
         .isNull();
+    // 제보로 다시 연 건(이미 발행된 결과)은 「발행 전」이 아니에요
+    assertThat(AdminReviewService.impact("PENDING", "APPROVED", candidate, java.util.List.of()))
+        .startsWith("이미 사용자에게 보이는 공고를 다시 연");
   }
 }
