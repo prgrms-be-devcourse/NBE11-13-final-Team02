@@ -196,6 +196,7 @@ public class AdminReviewService {
         text(raw.path("sourceCode")),
         integer(raw.path("version")),
         text(item.path("rawPostId")),
+        text(raw.path("detailUrl")),
         received,
         issues(item.path("reasons")),
         fields,

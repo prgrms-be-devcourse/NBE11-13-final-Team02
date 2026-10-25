@@ -114,7 +114,7 @@ class AdminReviewServiceTest {
                  "reasons":["CRITERION_NOT_STRUCTURED /eligibility/10"],"decidedAt":"2026-10-25 03:00:00+00:00",
                  "rawPostId":"44444444-4444-4444-4444-444444444444",
                  "candidate":{"notice":{"title":"가상 행복주택 모집"}},
-                 "rawEvent":{"occurredAt":"2026-10-24T20:00:00Z","payload":{"field":"HOUSING","provider":"LH","sourceCode":"lh_myhome","version":2,"title":"가상 글"}}}
+                 "rawEvent":{"occurredAt":"2026-10-24T20:00:00Z","payload":{"field":"HOUSING","provider":"LH","sourceCode":"lh_myhome","version":2,"title":"가상 글","detailUrl":"https://example.test/notice/1"}}}
                 """
                     .formatted(A),
                 MediaType.APPLICATION_JSON));
@@ -123,6 +123,7 @@ class AdminReviewServiceTest {
     assertThat(detail.reason()).isEqualTo("MUST");
     assertThat(detail.provider()).isEqualTo("LH");
     assertThat(detail.rawVersion()).isEqualTo(2);
+    assertThat(detail.detailUrl()).isEqualTo("https://example.test/notice/1");
     assertThat(detail.issues())
         .containsExactly(new Issue("CRITERION_NOT_STRUCTURED", "/eligibility/10"));
     assertThat(detail.log())

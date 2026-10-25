@@ -3384,6 +3384,7 @@
           "sourceCode",
           "rawVersion",
           "rawPostId",
+          "detailUrl",
           "receivedAt",
           "issues",
           "fields",
@@ -3446,6 +3447,13 @@
               "string",
               "null"
             ]
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "기관 공고 원문 페이지 주소 (수집기가 준 값, 없으면 null)"
           },
           "receivedAt": {
             "type": [
