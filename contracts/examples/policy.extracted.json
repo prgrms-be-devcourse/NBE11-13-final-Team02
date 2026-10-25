@@ -1,0 +1,183 @@
+{
+  "eventId": "00000000-0000-7000-8000-000000000301",
+  "eventType": "policy.extracted",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-19T16:00:00+09:00",
+  "producer": "extraction",
+  "traceId": null,
+  "payload": {
+    "rawPolicyId": "00000000-0000-7000-8000-000000000302",
+    "version": 1,
+    "sourceCode": "youth",
+    "provider": "YOUTHCENTER",
+    "policyId": "20261012005400213939",
+    "field": "BENEFIT",
+    "reprocess": false,
+    "source": {
+      "title": "청년 취업자 주거비 지원사업",
+      "agency": "전북특별자치도 무주군",
+      "regionScope": "SIGUNGU",
+      "regionNames": [
+        "전북특별자치도 무주군"
+      ],
+      "regionCodes": [
+        "52730"
+      ],
+      "categories": [
+        "주거",
+        "전월세 및 주거급여 지원"
+      ],
+      "detailUrl": "https://www.youthcenter.go.kr/youthPolicy/ythPlcyTotalSearch/ythPlcyDetail/20261012005400213939",
+      "applyUrl": null
+    },
+    "relevant": true,
+    "relevanceReason": "무주군 거주 청년의 월세·전세 이자를 지원하는 주거 혜택",
+    "summary": "무주군 취업 청년 월세·전세이자 50%, 월 최대 20만 원 12개월",
+    "supports": [
+      {
+        "kind": "RENT",
+        "amountMax": 20,
+        "amountPer": "MONTH",
+        "months": 12,
+        "ratePct": 50,
+        "rawText": "월 임대료 또는 전세 대출 이자 50%를 월 최대 20만원까지 12개월간 지원",
+        "evidence": "월 임대료 또는 전세 대출 이자 50%를 월 최대 20만원까지 12개월간 지원"
+      }
+    ],
+    "schedule": {
+      "applyStart": "2026-01-23",
+      "applyEnd": "2026-02-02",
+      "applyAlways": false,
+      "businessStart": "2026-01-01",
+      "businessEnd": "2026-12-31",
+      "rawText": "20260123 ~ 20260202"
+    },
+    "howToApply": "제출서류를 지참해 무주군청 인구활력과 방문 신청",
+    "documents": [],
+    "contact": null,
+    "conditions": [
+      {
+        "type": "AGE",
+        "value": {
+          "min": 18,
+          "max": 49
+        },
+        "group": 1,
+        "known": true,
+        "origin": "RULE",
+        "rawText": "지원 대상 연령 18~49세",
+        "evidence": "지원 대상 최소 연령: 18",
+        "confidence": 1
+      },
+      {
+        "type": "EMPLOYMENT",
+        "value": {
+          "in": [
+            "EMPLOYED",
+            "SELF_EMPLOYED",
+            "FREELANCER",
+            "DAILY_WORKER",
+            "OTHER"
+          ]
+        },
+        "group": 2,
+        "known": true,
+        "origin": "RULE",
+        "rawText": "재직자, 자영업자, 프리랜서, 일용근로자, 기타",
+        "evidence": "취업 상태: 0013001,0013002,0013004,0013005,0013009",
+        "confidence": 1
+      },
+      {
+        "type": "RESIDENCE",
+        "value": {
+          "regions": [
+            "52730"
+          ]
+        },
+        "group": 3,
+        "known": true,
+        "origin": "RULE",
+        "rawText": "무주군 거주",
+        "evidence": "무주군에 거주하며 취업중인 청년에게 주거비 지원",
+        "confidence": 1
+      },
+      {
+        "type": "INCOME_MEDIAN_PCT",
+        "value": {
+          "max": 180,
+          "basis": "HOUSEHOLD"
+        },
+        "group": 4,
+        "known": true,
+        "origin": "AI",
+        "rawText": "가구 기준중위소득 180% 이하",
+        "evidence": "소득 기타 조건: 가구 기준중위소득 180% 이하",
+        "confidence": 0.95
+      },
+      {
+        "type": "HOMELESS",
+        "value": {
+          "basis": "PERSON"
+        },
+        "group": 5,
+        "known": true,
+        "origin": "AI",
+        "rawText": "주택을 소유한 자 제외",
+        "evidence": "주택을 소유한 자",
+        "confidence": 0.85
+      },
+      {
+        "type": "EXCLUSIVE",
+        "value": null,
+        "group": 6,
+        "known": false,
+        "origin": "AI",
+        "rawText": "주거급여 등 유사 주거지원사업 수혜 중이면 제외",
+        "evidence": "주거급여 등 유사 주거지원사업 수혜중인 자",
+        "confidence": 0.9
+      },
+      {
+        "type": "OTHER",
+        "value": null,
+        "group": 7,
+        "known": false,
+        "origin": "AI",
+        "rawText": "공공임대주택 거주자 제외",
+        "evidence": "공급주체인 공공임대주택에 거주중인 자",
+        "confidence": 0.9
+      },
+      {
+        "type": "OTHER",
+        "value": null,
+        "group": 8,
+        "known": false,
+        "origin": "AI",
+        "rawText": "부모와 같이 거주하면 제외",
+        "evidence": "부모와 같이 거주하는 자",
+        "confidence": 0.9
+      },
+      {
+        "type": "OTHER",
+        "value": null,
+        "group": 9,
+        "known": false,
+        "origin": "AI",
+        "rawText": "근로기간 3개월 미만 제외",
+        "evidence": "근로기간이 3개월 미만인 자",
+        "confidence": 0.9
+      }
+    ],
+    "quality": {
+      "confidence": 0.7,
+      "needsReview": false,
+      "reviewReasons": [
+        "NO_DOCUMENT"
+      ],
+      "hasDocument": false,
+      "documentStatus": "NONE",
+      "model": "recorded",
+      "promptVersion": "policy-v1",
+      "extractedAt": "2026-10-19T07:00:00Z"
+    }
+  }
+}

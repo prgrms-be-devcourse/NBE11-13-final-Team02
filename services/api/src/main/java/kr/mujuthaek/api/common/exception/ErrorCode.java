@@ -25,6 +25,9 @@ public enum ErrorCode {
   // notice
   NOTICE_NOT_FOUND(HttpStatus.NOT_FOUND, "공고를 찾을 수 없어요"),
 
+  // benefit
+  BENEFIT_NOT_FOUND(HttpStatus.NOT_FOUND, "혜택을 찾을 수 없어요"),
+
   // area
   AREA_SITE_NOT_FOUND(HttpStatus.NOT_FOUND, "위치를 찾을 수 없어요 (좌표를 아직 못 찾은 위치 포함)"),
 
