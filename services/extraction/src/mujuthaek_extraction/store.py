@@ -88,6 +88,27 @@ def _insert_benefit_result(cur, event: dict[str, Any], origin: str, source_paylo
     return result_id
 
 
+def _refresh_reported_review(cur, result_id: str, payload: dict[str, Any]) -> bool:
+    """같은 정책에 회원 제보로 연(opened_by가 있는) 대기 검수가 있으면, 대체하지 않고 그 검수를 새 결과로 갱신합니다.
+    api의 제보는 이 검수 ID를 가리키므로 ID가 바뀌면 처리 중이던 제보가 끊겨요(2026-10-25 검토). 사유는 앞선 것과 새 것을 합칩니다."""
+    row = cur.execute(
+        "select id, reasons from benefit_reviews where raw_policy_id = %s and status = 'PENDING' and opened_by is not null order by created_at desc limit 1",
+        (payload["rawPolicyId"],),
+    ).fetchone()
+    if row is None:
+        return False
+    reasons = list(dict.fromkeys([*(row[1] or []), *payload["quality"]["reviewReasons"]]))
+    cur.execute(
+        "update benefit_reviews set result_id = %s, raw_version = %s, reasons = %s where id = %s",
+        (result_id, payload["version"], Jsonb(reasons), row[0]),
+    )
+    cur.execute(  # 제보 검수 말고 남은 대기 건은 쓸모가 없음
+        "update benefit_reviews set status = 'SUPERSEDED', decided_at = now() where raw_policy_id = %s and status = 'PENDING' and id <> %s",
+        (payload["rawPolicyId"], row[0]),
+    )
+    return True
+
+
 def _open_benefit_review(cur, result_id: str, payload: dict[str, Any], reasons: list[str], opened_by: str | None, note: str | None) -> str:
     """같은 정책의 앞선 대기 건을 대체(SUPERSEDED)하고 새 대기 건을 엽니다."""
     cur.execute(
@@ -291,7 +312,9 @@ class JobStore:
             _lock_notice(cur, payload["rawPolicyId"])
             outbox.add(cur, event)
             result_id = _insert_benefit_result(cur, event, "EXTRACTED", raw_event.get("payload"))
-            if payload["quality"]["needsReview"]:
+            if _refresh_reported_review(cur, result_id, payload):
+                pass  # 제보로 연 검수는 대체하지 않고 새 결과로 갱신해 제보와의 연결을 지켜요
+            elif payload["quality"]["needsReview"]:
                 _open_benefit_review(cur, result_id, payload, list(payload["quality"]["reviewReasons"]), None, None)
             else:  # 새 결과가 검수 없이 나갔으면 같은 정책의 앞선 대기 건은 쓸모가 없음
                 cur.execute(

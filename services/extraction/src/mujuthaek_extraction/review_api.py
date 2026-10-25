@@ -127,6 +127,7 @@ def _same_notice(candidate: dict[str, Any], raw_payload: dict[str, Any]) -> bool
 
 
 MAX_LIST_LIMIT = 1000
+REJECTED_RELEVANCE_REASON = "관리자가 확인해 서비스 대상에서 뺐어요"
 
 
 def _list_limit(raw: str | None) -> int | None:
@@ -302,9 +303,10 @@ class ReviewService:
                 if problem:
                     return 422, {"error": problem}
             if decision == "REJECTED":
-                note = (body.get("note") or "").strip()
+                # 반려 메모는 내부 기록(benefit_reviews.note)에만 남기고, 발행 값에는 고정 문구만 넣어요.
+                # 메모가 회원 화면까지 나갈 수 있었음(2026-10-25 검토)
                 payload["relevant"] = False
-                payload["relevanceReason"] = f"관리자 반려: {note}" if note else "관리자 반려"
+                payload["relevanceReason"] = REJECTED_RELEVANCE_REASON
             payload["reprocess"] = True
             quality = payload["quality"]
             quality["needsReview"] = False

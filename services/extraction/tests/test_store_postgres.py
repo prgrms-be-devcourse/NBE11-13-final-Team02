@@ -3,6 +3,7 @@
 EXTRACTION_TEST_DB_URL=postgresql://extraction_app:extraction-pass@127.0.0.1:5432/extraction uv run pytest tests/test_store_postgres.py
 """
 
+import json
 import os
 import uuid
 from pathlib import Path
@@ -698,8 +699,26 @@ def test_reported_benefit_is_reopened_and_rejection_hides_it(store):
     assert status == 200
     assert store.benefit(policy)["relevant"] is False
     published = store.conn.execute("select payload->'payload' from outbox order by created_at desc limit 1").fetchone()[0]
-    assert published["relevanceReason"] == "관리자 반려: 주거 지원 아님"
+    # 반려 메모는 발행 값에 나가지 않아요(내부 기록에만)
+    assert published["relevanceReason"] == "관리자가 확인해 서비스 대상에서 뺐어요"
+    assert "주거 지원 아님" not in json.dumps(published, ensure_ascii=False)
     assert service.benefit_reopen({"rawPolicyId": str(uuid.uuid4())})[0] == 404
+
+
+def test_reprocessing_keeps_the_review_opened_by_a_report(store):
+    """제보로 연 혜택 검수는 같은 정책이 다시 처리돼도 대체되지 않고 새 결과로 갱신돼요(제보가 가리키는 검수 ID 유지, 2026-10-25 검토)."""
+    policy = str(uuid.uuid4())
+    raw, event = benefit_event(policy, 1, needs_review=False)
+    store.save_benefit(raw, event)
+    service = benefit_service(store)
+    _, opened = service.benefit_reopen({"rawPolicyId": policy, "reviewer": "admin-1", "note": "정책 제보"})
+    raw2, event2 = benefit_event(policy, 1, needs_review=True, title="가상 청년 월세 (재처리)")
+    store.save_benefit(raw2, event2)
+    [item] = store.benefit_reviews()
+    assert item["reviewId"] == opened["reviewId"] and item["reported"] is True
+    assert "REPORTED" in item["reasons"] and "EVIDENCE_NOT_FOUND" in item["reasons"]
+    assert store.benefit_review(item["reviewId"])["payload"]["source"]["title"] == "가상 청년 월세 (재처리)"
+    assert store.benefit_reviews("SUPERSEDED") == []
 
 
 def test_newer_benefit_version_supersedes_the_pending_review_and_blocks_old_approval(store):
