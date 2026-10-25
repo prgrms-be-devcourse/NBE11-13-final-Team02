@@ -50,6 +50,11 @@ CORE = {"AGE", "RESIDENCE", "HOMELESS", "MARITAL", "INCOME_AMOUNT", "INCOME_MEDI
 DEFAULT_BASIS = {"INCOME_AMOUNT": "HOUSEHOLD", "INCOME_MEDIAN_PCT": "HOUSEHOLD", "HOMELESS": "PERSON"}
 LOW_CONFIDENCE = 0.6
 AMOUNT_KEYS = {"min", "max", "depositMax", "monthlyMax"}  # 조건 값에서 금액·수치 칸
+# 출생연도로 정한 나이(「1987년~2006년 출생자」, 「1990년생」, 「출생연도 기준」)와 나이 제한 없음(「연령 기준 미적용」, 「나이 제한 없음」)
+BIRTH_YEAR_AGE = re.compile(
+    r"출생\s*연도|(?:19|20)\d{2}\s*년생|(?:19|20)\d{2}[^\n]{0,40}?(?:이후|이전|부터|까지|~)\s*출생|(?:19|20)\d{2}[^\n]{0,40}?출생(?:자|한\s*(?:청년|사람|자|분|주민))"
+)
+NO_AGE_LIMIT = re.compile(r"(?:연령|나이)\s*(?:기준|제한)?\s*(?:미적용|없음|무관|제한\s*없)")
 
 
 def _norm(text: str | None) -> str:
@@ -649,6 +654,21 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
             for row in rows:
                 row.update(known=False, value=None)
             reasons.append("LOW_CONFIDENCE")  # 비운 조건은 검수로
+    # 같은 「또는」 묶음에 type이 같은데 기준·대상(금액 밖의 칸)도 금액도 다른 줄(「외벌이 7천만·맞벌이 8.5천만」, 「구입 5.11억·전세 3.45억」)은
+    # 대상별 금액이라 이 형식으로는 누구에게 어느 금액인지 나타내지 못해 큰 상한이 작은 상한을 덮습니다(2026-10-26 원문 대조). 값은 두고 확인 필요
+    by_type: dict[tuple, list[dict[str, Any]]] = {}
+    for row in conditions:
+        if row["known"] and isinstance(row["value"], dict) and row["type"] != "AGE" and any(row["value"].get(k) is not None for k in AMOUNT_KEYS):
+            by_type.setdefault((row["group"], row["type"]), []).append(row)
+    for rows in by_type.values():
+        amounts = {json.dumps({k: v for k, v in r["value"].items() if k in AMOUNT_KEYS}, sort_keys=True) for r in rows}
+        kinds = {json.dumps({k: v for k, v in r["value"].items() if k not in AMOUNT_KEYS}, sort_keys=True, ensure_ascii=False) for r in rows}
+        if len(amounts) > 1 and len(kinds) > 1:
+            reasons.append("LOW_CONFIDENCE")
+    # 나이 조건이 있는데 원문이 출생연도로 나이를 정하거나(「1987~2006년 출생자」: 만 나이와 다름) 나이 제한이 없다고 적었으면(「연령 기준 미적용」)
+    # 둘 중 하나는 틀린 값입니다(2026-10-26 원문 대조). 값은 두고 확인 필요
+    if any(row["type"] == "AGE" and row["known"] for row in conditions) and any(BIRTH_YEAR_AGE.search(s) or NO_AGE_LIMIT.search(s) for s in sources):
+        reasons.append("LOW_CONFIDENCE")
     numbers = {}
     for row in conditions:  # 묶음 번호를 나온 차례대로 다시 매김
         row["group"] = numbers.setdefault(row["group"], len(numbers) + 1)
@@ -681,6 +701,9 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     schedule.update({k: v for k, v in rules.schedule.items() if v is not None})  # 규칙 값이 AI 값보다 우선
     # 신청·사업 기간은 핵심 값이라, AI가 읽은 날짜가 원문에서 확인되지 않아 비웠으면 확인 필요로 보냅니다
     if any(ai_schedule.get(k) and schedule.get(k) is None for k in ("applyStart", "applyEnd", "businessStart", "businessEnd")):
+        reasons.append("LOW_CONFIDENCE")
+    # 상시 접수인데 신청 기간도 있음(출처 칸 「상시」, 본문 기간 등): 둘 중 하나는 틀린 값이라 값은 두고 확인 필요(2026-10-26 원문 대조)
+    if schedule["applyAlways"] and (schedule["applyStart"] or schedule["applyEnd"]):
         reasons.append("LOW_CONFIDENCE")
 
     if failed_evidence:

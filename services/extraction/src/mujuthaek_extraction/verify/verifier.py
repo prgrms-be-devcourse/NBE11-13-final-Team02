@@ -137,6 +137,36 @@ def check_reported_partial(result: dict[str, Any]) -> list[Finding]:
     ]
 
 
+# 일본어 가나·한자. 원문에 없는 이 글자가 AI가 쓴 문장에 섞이면(2026-10-26 원문 대조: 「入주개시일」, 「증빙する」, 「수령내역など」)
+# 회원 화면에 그대로 보이므로, 그 칸이 든 항목을 보류하고 검수로 보냅니다. 원문에 있는 글자(한자 병기 등)는 잡지 않습니다
+FOREIGN_SCRIPT = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]")
+FOREIGN_SCRIPT_SKIP = {"quality", "sourceDocuments", "evidence"}  # 검증 기록·원문 인용(원문 글자 그대로)은 보지 않습니다
+
+
+def check_foreign_script(result: dict[str, Any], sources: SourceBundle) -> list[Finding]:
+    """AI가 쓴 글에 원문에 없는 가나·한자가 섞인 칸. 칸마다 하나씩, 그 칸의 위치를 가리킵니다(항목 단위로 보류)."""
+    source = "".join(sources.texts.values())
+    findings: list[Finding] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key not in FOREIGN_SCRIPT_SKIP:
+                    walk(value, f"{path}/{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                walk(value, f"{path}/{i}")
+        elif isinstance(node, str):
+            foreign = sorted({c for c in FOREIGN_SCRIPT.findall(node) if c not in source})
+            if foreign:
+                findings.append(
+                    Finding("V2", "AI_TEXT_FOREIGN_SCRIPT", path, f"원문에 없는 외국 문자({''.join(foreign)})가 섞인 글입니다. 한국어로 고쳐 주세요")
+                )
+
+    walk({k: v for k, v in result.items() if k not in FOREIGN_SCRIPT_SKIP}, "")
+    return findings
+
+
 def _dicts(node: Any):
     if isinstance(node, dict):
         yield node
@@ -206,7 +236,7 @@ def verify_extraction(
         api_matched = frozenset(f["target"] for f in comparison["fields"] if f["status"] == "MATCH")
         source_findings = check_evidence(result, sources, pdf_text) + check_numbers(result, sources) + check_missing_exceptions(result, sources)
         source_findings += check_consistency(result, sources) + check_claims(result, sources, api_matched=api_matched)
-        source_findings += check_directions(result) + check_reported_partial(result)
+        source_findings += check_directions(result) + check_reported_partial(result) + check_foreign_script(result, sources)
         findings += source_findings + api_findings + _gate_findings(result, contract, contract_errors, clock().isoformat())
         quality["verification"]["apiComparison"] = comparison
         blocking = [f for f in source_findings if not is_note(f.issue())]

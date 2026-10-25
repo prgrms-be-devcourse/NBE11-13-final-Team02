@@ -237,7 +237,8 @@ def test_ai_conditions_are_checked_and_converted_to_manwon():
     assert min(c["group"] for c in ai) > max(rule_groups)  # AI 묶음 번호는 규칙 뒤로
     assert ai[1]["group"] == ai[2]["group"]  # 본인 또는 부부 기준
     assert data["supports"][0]["ratePct"] == 3.5 and data["supports"][0]["amountMax"] is None
-    assert data["quality"]["needsReview"] is False and data["quality"]["reviewReasons"] == ["NO_DOCUMENT"]
+    # 「본인 6천 또는 부부 8천」은 기혼자의 본인 소득만 6천 이하여도 맞아 너그럽게 틀릴 수 있어 확인 필요(2026-10-26 공통 규칙)
+    assert data["quality"]["needsReview"] is True and data["quality"]["reviewReasons"] == ["LOW_CONFIDENCE", "NO_DOCUMENT"]
     assert (
         tools().validate(
             {
@@ -729,3 +730,57 @@ def test_any_value_emptied_by_any_rule_goes_to_review(conditions, supports):
     ]
     assert emptied, "시험 전제: 값이 비워져야 함"
     assert data["quality"]["needsReview"] is True and "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+
+
+# ---- 원문과 어긋나는 값은 값을 두고 확인 필요 (2026-10-26 원문 대조, 공통 규칙) ----
+
+
+def test_always_open_with_application_dates_needs_review():
+    text = TEXT + "\n신청 기간: 2026. 11. 1. ~ 2026. 11. 30."
+    data = build_payload(
+        payload(text=text),
+        BenefitReading(
+            answer(
+                schedule={
+                    "applyStart": "2026-11-01",
+                    "applyEnd": "2026-11-30",
+                    "applyAlways": True,
+                    "businessStart": None,
+                    "businessEnd": None,
+                    "rawText": None,
+                }
+            ),
+            False,
+            "recorded",
+        ),
+        rules_for("youth", RECORD, text),
+        REGIONS,
+    )
+    assert data["schedule"]["applyAlways"] is True and data["schedule"]["applyStart"] == "2026-11-01"
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+    assert "LOW_CONFIDENCE" not in built()["quality"]["reviewReasons"]  # 상시이고 기간이 없으면 그대로
+
+
+@pytest.mark.parametrize("line", ["지원 대상: 1987년~2006년 출생자", "만 65세 이하(1959. 1. 1 이후 출생)인 자", "나이 제한 없음"])
+def test_an_age_that_the_text_sets_by_birth_year_or_does_not_limit_needs_review(line):
+    data = built_text(TEXT + "\n" + line, [])
+    assert [c["value"] for c in data["conditions"] if c["type"] == "AGE"] == [{"min": 19, "max": 39}]  # 값은 그대로
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+
+
+def test_amounts_for_different_tracks_in_one_or_group_need_review():
+    text = TEXT + "\n(소득) 외벌이 가구 연소득 7천만원 이하, 맞벌이 가구 본인 연소득 5천만원 이하"
+    data = built_text(
+        text,
+        [
+            condition("INCOME_AMOUNT", "외벌이 가구 연소득 7천만원 이하", amountMaxWon=70_000_000, amountPer="YEAR", basis="HOUSEHOLD"),
+            condition("INCOME_AMOUNT", "맞벌이 가구 본인 연소득 5천만원 이하", amountMaxWon=50_000_000, amountPer="YEAR", basis="PERSONAL"),
+        ],
+    )
+    assert sorted(c["value"]["max"] for c in data["conditions"] if c["type"] == "INCOME_AMOUNT") == [5000, 7000]
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+
+
+def test_the_source_age_field_does_not_claim_international_age():
+    age = next(c for c in youth_rules(RECORD, TEXT).conditions if c["type"] == "AGE")
+    assert age["rawText"] == "19~39세"
