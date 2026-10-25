@@ -12,7 +12,7 @@ from typing import Any
 
 from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest, StopReason
 
-PROMPT_VERSION = "benefit/v1"
+PROMPT_VERSION = "benefit/v2"
 CALL_NAME = "benefit_reading"
 MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다. 잘렸으면 TEXT_TRUNCATED
 MAX_OUTPUT_TOKENS = 8000
@@ -166,6 +166,7 @@ rawText는 기간 원문. howToApply는 신청 방법 요약 한 문장, documen
 
 conditions: 신청 자격 조건 하나씩. 조건이 없으면 빈 목록(「제한 없음」 줄을 만들지 않음).
 - group: 같은 번호끼리는 「또는」, 다른 번호끼리는 「그리고」. 「신혼부부 또는 한부모가족」은 두 조건을 같은 번호로.
+  글에 「또는」 관계가 없는 조건은 모두 서로 다른 번호입니다(모든 조건을 같은 번호로 두지 않음).
 - confidence: 이 조건을 맞게 읽었다고 보는 정도(0~1).
 - type별로 채울 칸(나머지는 null·빈 목록):
   AGE: min·max (만 나이. 「만 19~39세」→ 19, 39. 「만 40세 미만」→ max 39)
@@ -183,6 +184,7 @@ conditions: 신청 자격 조건 하나씩. 조건이 없으면 빈 목록(「�
   MOVE_IN: regionNames(전입할 지역), months(전입 후 N개월 안 신청). 지금 다른 곳에 살아도 전입하면 대상인 경우
   HOMELESS: basis (PERSON 본인 무주택, HOUSEHOLD 세대원 모두 무주택). HOMELESS_YEARS: min (무주택 N년 이상). FIRST_HOME: 생애 최초 주택 구입
   LEASE: leaseKinds (MONTHLY 월세, JEONSE 전세), depositMaxWon(임차 보증금 상한), monthlyMaxWon(월세 상한)
+    보증부 월세(보증금이 있는 월세)는 MONTHLY만. 글에 전세와 월세가 모두 대상이라고 적혀 있을 때만 둘 다 넣습니다
   EMPLOYMENT: values (EMPLOYED 재직, SELF_EMPLOYED 자영업, UNEMPLOYED 미취업, FREELANCER, DAILY_WORKER 일용, SHORT_TERM 단기, STARTUP 창업, OTHER)
   EDUCATION: values (BELOW_HIGH, HIGH_ENROLLED, HIGH_GRAD_EXPECTED, HIGH_GRAD, UNIV_ENROLLED, UNIV_GRAD_EXPECTED, UNIV_GRAD, GRADUATE, OTHER)
   OCCUPATION: values (FARMER, FISHER, LIVESTOCK, FORESTRY). WORKPLACE: values (SME 중소기업 재직), regionNames (직장 소재지)

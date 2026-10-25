@@ -373,3 +373,63 @@ def test_benefit_is_skipped_unless_enabled(monkeypatch):
     assert worker.judge_message(Settings(), Processor(), raw_event(), retries) == "ack" and called == []
     Settings.benefit_enabled = True
     assert worker.judge_message(Settings(), Processor(), raw_event(), retries) == "ack" and called == ["benefit"]
+
+
+# ---- 묶음(group): 같은 번호 = 「또는」 (2026-10-25 첫 유료 시험에서 판정이 틀어진 경우) ----
+
+OR_TEXT = TEXT + "\n신청 자격: 대구광역시에 주소를 두거나 대구시 소재 대학 또는 직장에 재학, 재직하는 청년\n - 쉐어하우스 입주자는 신청 불가"
+
+
+def built_text(text, conditions):
+    data = payload(text=text)
+    reading = BenefitReading(answer(conditions), truncated=False, model="recorded")
+    return build_payload(data, reading, rules_for("youth", data["record"], text), REGIONS)
+
+
+def test_rule_row_joins_the_ai_or_group_it_replaces():
+    quote = "대구광역시에 주소를 두거나 대구시 소재 대학 또는 직장에 재학, 재직하는 청년"
+    data = built_text(
+        OR_TEXT,
+        [
+            condition("RESIDENCE", quote, group=1, regionNames=["대구광역시"]),
+            condition("EDUCATION", quote, group=1, values=["UNIV_ENROLLED"]),
+            condition("WORKPLACE", quote, group=1, regionNames=["대구광역시"]),
+        ],
+    )
+    groups = {c["type"]: c["group"] for c in data["conditions"]}
+    assert groups["RESIDENCE"] == groups["EDUCATION"] == groups["WORKPLACE"]  # 「거주 또는 대학 또는 직장」
+    assert groups["AGE"] != groups["RESIDENCE"]
+    assert [c["origin"] for c in data["conditions"] if c["type"] == "RESIDENCE"] == ["RULE"]
+
+
+def test_rule_row_stays_alone_when_the_ai_group_has_nothing_else():
+    data = built_text(OR_TEXT, [condition("RESIDENCE", "대구광역시에 주소를 두거나", group=1, regionNames=["대구광역시"])])
+    assert sorted(c["group"] for c in data["conditions"]) == [1, 2]
+
+
+def test_text_only_rows_get_their_own_group_and_rule_lines_are_not_repeated():
+    data = built_text(
+        OR_TEXT,
+        [
+            condition("LEASE", "전세보증금 2.5억원 이하 주거용 주택", group=1, leaseKinds=["JEONSE"], depositMaxWon=250_000_000),
+            condition("OTHER", "쉐어하우스 입주자는 신청 불가", group=1),
+            condition("OTHER", "지원 대상 최대 연령: 39", group=1),  # 규칙 줄(AGE)의 근거를 다시 낸 줄
+        ],
+    )
+    ai = [c for c in data["conditions"] if c["origin"] == "AI"]
+    assert [c["type"] for c in ai] == ["LEASE", "OTHER"]
+    assert ai[0]["group"] != ai[1]["group"]
+    assert len({c["group"] for c in data["conditions"]}) == len(data["conditions"])
+
+
+def test_unrelated_rows_in_one_ai_group_are_split_and_rules_stay_put():
+    # AI가 관계없는 조건을 모두 1번으로 줌: 나이(규칙으로 대신)·임대·무주택은 근거 문장이 달라 「또는」이 아님
+    data = built_text(
+        OR_TEXT,
+        [
+            condition("AGE", "지원 대상 최대 연령: 39", group=1, min=19, max=39),
+            condition("LEASE", "전세보증금 2.5억원 이하 주거용 주택", group=1, leaseKinds=["JEONSE"], depositMaxWon=250_000_000),
+            condition("HOMELESS", "대구시 거주 무주택 청년", group=1, basis="PERSON"),
+        ],
+    )
+    assert len({c["group"] for c in data["conditions"]}) == len(data["conditions"])

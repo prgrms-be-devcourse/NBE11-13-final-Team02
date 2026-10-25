@@ -286,6 +286,51 @@ def _source(payload: dict[str, Any], regions: Any) -> dict[str, Any]:
     }
 
 
+def _same_sentence(left: str, right: str) -> bool:
+    a, b = _norm(left), _norm(right)
+    return bool(a) and bool(b) and (a in b or b in a)
+
+
+def _root(parent: list[int], i: int) -> int:
+    while parent[i] != i:
+        parent[i] = parent[parent[i]]
+        i = parent[i]
+    return i
+
+
+def _split_or_groups(
+    ai_rows: list[tuple[tuple, dict[str, Any]]],
+    covered: dict[int, list[tuple[str, str]]],
+    rule_types: dict[str, dict[str, Any]],
+) -> tuple[list[tuple[tuple, dict[str, Any]]], dict[int, tuple]]:
+    """AI 묶음 안에서 실제로 「또는」인 줄만 같이 둡니다. AI가 관계없는 조건을 모두 같은 번호로 주는 일이 있어(2026-10-25 시험),
+    같은 type이거나 근거 문장이 겹치는(한쪽이 다른 쪽을 포함) 줄끼리만 이어 붙이고, 이어지지 않는 줄은 다른 묶음으로 나눕니다.
+    규칙 줄로 대신한 AI 줄(covered)도 같은 방식으로 이어지면 그 규칙 묶음을 이 묶음으로 옮깁니다(돌려주는 moved: 규칙 묶음 번호 → 새 키)."""
+    members: dict[int, list[tuple[str, str, int | None]]] = {}  # AI 묶음 → (type, 근거, ai_rows 위치 또는 규칙이면 None)
+    for position, (key, row) in enumerate(ai_rows):
+        if key[0] == "ai":
+            members.setdefault(key[1], []).append((row["type"], row["evidence"], position))
+    for group, items in covered.items():
+        if group in members:  # 그 AI 묶음에 남은 줄이 있을 때만 「또는」 관계일 수 있음
+            members[group].extend((kind, evidence, None) for kind, evidence in items)
+    new_keys: dict[int, tuple] = {}
+    moved: dict[int, tuple] = {}
+    for group, items in members.items():
+        parent = list(range(len(items)))
+        for i in range(len(items)):
+            for j in range(i + 1, len(items)):
+                if items[i][0] == items[j][0] or _same_sentence(items[i][1], items[j][1]):
+                    parent[_root(parent, i)] = _root(parent, j)
+        for i, (kind, _, position) in enumerate(items):
+            key = ("ai", group, _root(parent, i))
+            if position is not None:
+                new_keys[position] = key
+            elif any(_root(parent, k) == _root(parent, i) and items[k][2] is not None for k in range(len(items))):
+                moved.setdefault(rule_types[kind]["group"], key)
+    rows = [(new_keys.get(position, key), row) for position, (key, row) in enumerate(ai_rows)]
+    return rows, moved
+
+
 def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleResult, regions: Any, *, now: datetime | None = None) -> dict[str, Any]:
     """policy.extracted payload. reading은 AI 답, rules는 출처 코드 칸에서 옮긴 조건·일정."""
     answer = reading.answer
@@ -295,12 +340,21 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     reasons: list[str] = []
     failed_evidence = 0
 
-    # 조건: 규칙 줄 먼저(번호 그대로), AI 줄은 그 뒤 번호로. 규칙에 있는 type의 AI 줄은 버리되 값이 다르면 충돌로 표시
-    conditions = [dict(c) for c in rules.conditions]
-    rule_types = {c["type"]: c for c in conditions}
-    offset = max((c["group"] for c in conditions), default=0)
-    group_map: dict[int, int] = {}
-    for item in answer.get("conditions") or []:
+    # 조건: 규칙 줄 먼저, AI 줄은 그 뒤. 규칙에 있는 type의 AI 줄은 버리되 값이 다르면 충돌로 표시.
+    # 묶음(group)은 같은 번호끼리 「또는」이라 아래 세 가지를 지킵니다(2026-10-25 첫 유료 시험에서 판정이 틀어진 경우):
+    # - AI가 「또는」 묶음에 넣은 줄을 규칙 줄로 대신하면, 그 규칙 줄(규칙 묶음째)을 AI 묶음으로 옮깁니다.
+    #   안 옮기면 「대전 거주 또는 대전 소재 대학·직장」이 「거주 그리고 (대학 또는 직장)」으로 더 엄격해집니다
+    # - 글로만 보여 주는 줄(TEXT_ONLY)은 판정할 수 없어 「또는」에 끼면 묶음 전체가 흐려지므로 하나씩 따로 묶습니다
+    # - AI 묶음 안에서도 같은 type이거나 근거 문장이 겹치는 줄만 「또는」으로 둡니다(_split_or_groups)
+    # - 규칙 줄의 근거 줄을 그대로 다시 낸 글 줄은 같은 조건이 두 번 보이므로 버립니다
+    rule_rows = [dict(c) for c in rules.conditions]
+    rule_types: dict[str, dict[str, Any]] = {}
+    for row in rule_rows:
+        rule_types.setdefault(row["type"], row)
+    rule_evidence = {_norm(row["evidence"]) for row in rule_rows}
+    ai_rows: list[tuple[tuple[str, int], dict[str, Any]]] = []
+    covered: dict[int, list[tuple[str, str]]] = {}  # AI 묶음 번호 → 그 묶음에서 규칙 줄로 대신한 (type, 근거)
+    for index, item in enumerate(answer.get("conditions") or []):
         evidence_ok = quoted(item["evidence"], sources)
         value = ai_value(item, regions) if evidence_ok else None
         if not evidence_ok:
@@ -309,22 +363,33 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
             rule = rule_types[item["type"]]
             if value is not None and rule["known"] and not same_value(item["type"], rule["value"], value):
                 reasons.append("RULE_AI_CONFLICT")
+            covered.setdefault(item["group"], []).append((item["type"], item["evidence"]))
             continue
-        if item["group"] not in group_map:
-            group_map[item["group"]] = offset + len(group_map) + 1
+        if item["type"] in TEXT_ONLY and _norm(item["evidence"]) in rule_evidence:
+            continue
         known = value is not None and item["type"] not in TEXT_ONLY
-        conditions.append(
-            {
-                "type": item["type"],
-                "value": value if known else None,
-                "group": group_map[item["group"]],
-                "known": known,
-                "origin": "AI",
-                "rawText": (item["rawText"] or item["evidence"]).strip() or item["type"],
-                "evidence": item["evidence"].strip() or item["rawText"].strip() or item["type"],
-                "confidence": round(min(float(item["confidence"]), 1.0) if evidence_ok else min(float(item["confidence"]), 0.3), 2),
-            }
+        key = ("solo", index) if item["type"] in TEXT_ONLY else ("ai", item["group"])
+        ai_rows.append(
+            (
+                key,
+                {
+                    "type": item["type"],
+                    "value": value if known else None,
+                    "group": 0,
+                    "known": known,
+                    "origin": "AI",
+                    "rawText": (item["rawText"] or item["evidence"]).strip() or item["type"],
+                    "evidence": item["evidence"].strip() or item["rawText"].strip() or item["type"],
+                    "confidence": round(min(float(item["confidence"]), 1.0) if evidence_ok else min(float(item["confidence"]), 0.3), 2),
+                },
+            )
         )
+    ai_rows, moved = _split_or_groups(ai_rows, covered, rule_types)
+    keyed = [(moved.get(row["group"], ("rule", row["group"])), row) for row in rule_rows] + ai_rows
+    numbers: dict[tuple, int] = {}
+    for key, row in keyed:
+        row["group"] = numbers.setdefault(key, len(numbers) + 1)
+    conditions = [row for _, row in keyed]
 
     supports = []
     for item in answer.get("supports") or []:
