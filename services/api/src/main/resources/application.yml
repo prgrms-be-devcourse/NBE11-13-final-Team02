@@ -81,6 +81,8 @@ app:
     access-token-ttl: 30m               # 요청마다 Authorization: Bearer 로 보내는 토큰
     refresh-token-ttl: 14d              # 로그인 유지 기간. HttpOnly 쿠키, DB에는 해시만
     cookie-secure: false                # 로컬은 http라 false. 운영은 true (application-prod.yml)
+  push:                                 # 웹 푸시 (contracts/schemas/web-push.draft.md). 개인키는 알림 서버에만 있어요
+    vapid-public-key: ${PUSH_VAPID_PUBLIC_KEY:}  # 비어 있으면 구독을 받지 않아요 (공개키 API 503). 만들기: npx web-push generate-vapid-keys
 
 mujuthaek:
   s3:                                   # collector와 같은 환경 변수. S3_ENDPOINT를 빈 값으로 주면 AWS S3 (EC2 역할)

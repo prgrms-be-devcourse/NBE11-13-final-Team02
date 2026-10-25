@@ -57,3 +57,22 @@ src/main/java/kr/mujuthaek/api/
 - 같은 사람이어도 제공자가 다르면 다른 회원이에요 (이메일을 받지 않아 같은 사람인지 알 수 없어요). 계정 합치기는 로그인한 상태에서 다른 소셜 계정을 연결하는 기능으로 따로 만들어야 해요 (`social_accounts`는 한 회원에 여러 개를 붙일 수 있어요).
 - 실패하면 `FRONTEND_URL/login?error=social&reason=<OAuth2 오류 코드>`로 돌아가고 서버 로그에 원인이 남아요 (`LoginFailureHandler`).
 - 환경 변수: `KAKAO_CLIENT_ID`·`KAKAO_CLIENT_SECRET`, `NAVER_CLIENT_ID`·`NAVER_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`, `FRONTEND_URL`, `JWT_SECRET`(32바이트 이상, 운영 필수) (`infra/.env.example`). 키가 없으면 그 제공자 로그인만 실패하고 서버는 떠요.
+
+## 웹 푸시 구독 (notification 모듈)
+
+설계: `contracts/schemas/web-push.draft.md`. 기기(브라우저)마다 구독 한 줄이고, **구독이 있으면 그 기기 푸시가 켜진 거예요** (따로 켬·끔 설정 없음).
+
+| 하는 일 | 요청 | 비고 |
+| --- | --- | --- |
+| VAPID 공개키 | `GET /api/v1/push/public-key` | 로그인 없이. `{publicKey}`. 설정이 없으면 503 `PUSH_NOT_CONFIGURED` |
+| 이 기기 등록·갱신 | `PUT /api/users/me/push-subscriptions` | 본문은 `subscription.toJSON()` + `userAgent`. 204. 앱을 열 때마다 보내요 |
+| 이 기기 해제 | `DELETE /api/users/me/push-subscriptions` | 본문 `{endpoint}`. 로그아웃 **전에**. 없어도 204 |
+| 모든 기기 해제 | `DELETE /api/users/me/push-subscriptions?scope=all` | 본문 없이. 204 |
+| 내 기기 목록 | `GET /api/users/me/push-subscriptions` | `[{id, userAgent, createdAt, updatedAt}]`, 최근에 쓴 기기부터. 주소·키는 주지 않아요 |
+| 고른 기기 해제 | `DELETE /api/users/me/push-subscriptions/{id}` | 내 기기가 아니면 404 `PUSH_SUBSCRIPTION_NOT_FOUND` |
+
+- 주소(`endpoint`)는 https이고 푸시 서비스 도메인(`fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`)이어야 해요. 알림 서버가 이 주소로 요청을 보내서, 아무 주소나 받으면 우리 서버가 남의 서버를 부르게 돼요
+- 키는 base64url이고 길이를 확인해요 (`p256dh` 65바이트, `auth` 16바이트). 틀리면 400 `VALIDATION_FAILED` (오류 문구에 값은 넣지 않아요)
+- 회원당 5대. 넘으면 마지막 등록(`updated_at`)이 가장 오래된 기기를 지워요. 다른 회원이 쓰던 주소를 등록하면 이 회원으로 옮겨요 (같은 브라우저에서 다른 계정으로 로그인)
+- 주소·키는 로그에 남기지 않아요 (회원 ID와 푸시 서비스 도메인만). 탈퇴하면 `UserWithdrawn`으로 그 회원 기기를 모두 지워요
+- 환경 변수: `PUSH_VAPID_PUBLIC_KEY` (`npx web-push generate-vapid-keys`로 만든 공개키). 개인키는 알림 서버에만 둬요
