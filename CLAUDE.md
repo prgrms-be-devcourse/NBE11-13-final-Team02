@@ -13,7 +13,7 @@ cd services/collector && uv run ruff check && uv run pytest        # 수집기 �
 
 ## Rules
 - 다른 모듈 데이터는 **service 계층에서 그 모듈의 service 조회 메서드**로만 가져온다. 다른 모듈의 repository·엔티티·테이블은 쓰지 않는다
-- 호출 방향은 notice → area·benefit / eligibility·user → notice·benefit / notification → user·notice·benefit 만 허용. area·benefit은 다른 모듈을 부르지 않는다
+- 호출 방향은 notice → area·benefit / eligibility·user → notice·benefit / notification → user·notice·benefit / chat → notice·user 만 허용. area·benefit은 다른 모듈을 부르지 않는다
 - 다른 모듈에 영향을 주는 변경은 직접 호출하지 말고 `common/event` 이벤트로 (`@TransactionalEventListener`)
 - `eligibility/rule`은 스프링·JPA 없는 순수 자바로 유지한다
 - 마이그레이션은 기존 파일을 고치지 말고 `V<yyyyMMddHHmm>__<module>_<desc>.sql`로 새로 만든다
