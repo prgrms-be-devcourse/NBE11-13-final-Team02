@@ -116,12 +116,19 @@ public class NoticeSearchService {
         c.siteCount());
   }
 
-  /** RECOMMENDED: 지원 가능 → 확인 필요 → 지원 불가, 같으면 마감 임박. PREPARE_COST: 준비할 돈 적은 순 (모르면 뒤). */
+  /**
+   * RECOMMENDED: 지원 가능 → 확인 필요 → 지원 불가, 같으면 마감 임박, 그다음 생활권 총점 높은 순. PREPARE_COST: 준비할 돈 적은 순 (모르면
+   * 뒤). AREA_SCORE: 생활권 총점 높은 순 (없으면 뒤). 관심 지역 순서는 관심 지역을 서버에 저장하게 되면 붙여요.
+   */
   static Comparator<NoticeSearchResponse.Item> order(String sort) {
     Comparator<NoticeSearchResponse.Item> deadline =
         Comparator.comparing(
             NoticeSearchResponse.Item::applyEnd,
             Comparator.nullsLast(Comparator.<LocalDate>naturalOrder()));
+    Comparator<NoticeSearchResponse.Item> areaScore =
+        Comparator.comparing(
+            NoticeSearchResponse.Item::areaScore,
+            Comparator.nullsLast(Comparator.<Integer>reverseOrder()));
     Comparator<NoticeSearchResponse.Item> byId =
         Comparator.comparing(NoticeSearchResponse.Item::id);
     return switch (sort) {
@@ -132,9 +139,11 @@ public class NoticeSearchService {
                   Comparator.nullsLast(Comparator.<Long>naturalOrder()))
               .thenComparing(deadline)
               .thenComparing(byId);
+      case "AREA_SCORE" -> areaScore.thenComparing(byId);
       default ->
           Comparator.comparing((NoticeSearchResponse.Item i) -> i.overall().ordinal())
               .thenComparing(deadline)
+              .thenComparing(areaScore)
               .thenComparing(byId);
     };
   }

@@ -8,7 +8,7 @@ import kr.mujuthaek.api.eligibility.rule.Overall;
 /**
  * 맞춤 목록 (POST /notices/search). counts는 지원 불가를 빼기 전 전체 개수예요 (화면의 "지원 가능 7곳").
  *
- * <p>areaScore·tags·좌표·favorite는 생활권 점수와 로그인이 생기면 채워요 (지금은 null).
+ * <p>favorite는 로그인이 생기면 채워요 (지금은 null).
  */
 public record NoticeSearchResponse(
     Counts counts, List<Item> items, String nextCursor, boolean hasNext) {

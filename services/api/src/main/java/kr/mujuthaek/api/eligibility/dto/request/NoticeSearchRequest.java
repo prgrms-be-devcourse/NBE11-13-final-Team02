@@ -9,13 +9,14 @@ import java.util.List;
 /**
  * 맞춤 목록 요청 (POST /notices/search). 판정 입력이 섞여서 GET이 아니라 POST예요.
  *
- * @param sort RECOMMENDED(기본: 지원 가능 → 확인 필요 → 마감 임박) · DEADLINE · PREPARE_COST(준비할 돈 적은 순)
+ * @param sort RECOMMENDED(기본: 지원 가능 → 확인 필요 → 마감 임박 → 생활권 총점) · DEADLINE · PREPARE_COST(준비할 돈 적은 순)
+ *     · AREA_SCORE(생활권 총점 높은 순)
  * @param includeIneligible 지원 불가 공고도 보여줄지 (기본 false)
  */
 public record NoticeSearchRequest(
     @Valid Filters filters,
     @Valid ApplicantRequest applicant,
-    @Pattern(regexp = "RECOMMENDED|DEADLINE|PREPARE_COST") String sort,
+    @Pattern(regexp = "RECOMMENDED|DEADLINE|PREPARE_COST|AREA_SCORE") String sort,
     Boolean includeIneligible,
     String cursor,
     @Min(1) @Max(100) Integer size) {
