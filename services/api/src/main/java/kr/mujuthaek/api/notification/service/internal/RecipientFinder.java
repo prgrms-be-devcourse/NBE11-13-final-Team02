@@ -13,6 +13,13 @@ public interface RecipientFinder {
   /** 새 지원 정책·창업지원·사업공간 모집에 관심 있는 회원 */
   List<Recipient> forNewBenefit(String field, String regionScope, List<String> regionCodes);
 
-  /** 이 지원 정책·사업공간 모집을 관심 공고로 둔 회원 */
+  /**
+   * 새 주거·사업공간 공고에 관심 있는 회원 (주거면 housing_interests, 사업공간이면 business_interests)
+   *
+   * @param regionCodes 공고가 걸친 지역 5자리 (NoticePublished.regionCodes)
+   */
+  List<Recipient> forNewNotice(String field, List<String> regionCodes, boolean nationwide);
+
+  /** 이 공고·지원 정책·사업공간 모집을 관심 공고로 둔 회원 (targetType NOTICE·BENEFIT·SPACE_RECRUITMENT) */
   List<Recipient> forFavorite(String targetType, java.util.UUID targetId);
 }

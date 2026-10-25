@@ -72,7 +72,12 @@ final class NotificationRequests {
   }
 
   static String linkPath(String targetType, UUID id) {
-    return ("SPACE_RECRUITMENT".equals(targetType) ? "/space-recruitments/" : "/benefits/") + id;
+    return switch (targetType) {
+          case "NOTICE" -> "/notices/";
+          case "SPACE_RECRUITMENT" -> "/space-recruitments/";
+          default -> "/benefits/";
+        }
+        + id;
   }
 
   /** 알림 문구의 {종류} */

@@ -27,6 +27,11 @@ class ConfiguredRecipients implements RecipientFinder {
   }
 
   @Override
+  public List<Recipient> forNewNotice(String field, List<String> regionCodes, boolean nationwide) {
+    return properties.testRecipients();
+  }
+
+  @Override
   public List<Recipient> forFavorite(String targetType, UUID targetId) {
     return properties.testRecipients();
   }
