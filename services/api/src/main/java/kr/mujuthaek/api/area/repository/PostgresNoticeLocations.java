@@ -220,4 +220,35 @@ public final class PostgresNoticeLocations {
         locationIds.toArray(UUID[]::new));
     return out;
   }
+
+  /** 여러 공고의 위치들 (공고·notice 위치 ID 순). */
+  public List<StoredLocation> ofNotices(Collection<UUID> noticeIds) {
+    if (noticeIds.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.query(
+        "select "
+            + STORED_COLUMNS
+            + " from area.notice_locations where notice_id = any(?::uuid[])"
+            + " order by notice_id, notice_location_id",
+        STORED,
+        (Object) noticeIds.toArray(UUID[]::new));
+  }
+
+  /** 지도 범위 안 공고의 대표 좌표 (공고마다 notice 위치 ID가 가장 앞인 위치 하나). 공간 인덱스를 써요. */
+  public List<StoredLocation> representativesWithin(
+      double swLat, double swLng, double neLat, double neLng, int limit) {
+    return jdbc.query(
+        "select * from (select distinct on (notice_id) "
+            + STORED_COLUMNS
+            + " from area.notice_locations"
+            + " where geom && st_makeenvelope(?, ?, ?, ?, 4326)::geography"
+            + " order by notice_id, notice_location_id) x limit ?",
+        STORED,
+        swLng,
+        swLat,
+        neLng,
+        neLat,
+        limit);
+  }
 }

@@ -6,6 +6,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
+import kr.mujuthaek.api.notice.dto.response.NoticeMapResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeSummaryResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeUnitResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeVersionResponse;
@@ -59,6 +60,24 @@ class NoticeController {
             applyEndFrom,
             applyEndTo);
     return notices.list(filter, cursor, size);
+  }
+
+  /**
+   * 지도. 지도 범위 안 공고가 300개 이하면 핀, 넘으면 지역별 묶음(확대 10 미만은 시도, 아니면 시군구). 필터는 공개 목록과 같아요. 예: GET
+   * /api/v1/notices/map?swLat=37.4&swLng=126.8&neLat=37.7&neLng=127.2&zoom=12
+   */
+  @GetMapping("/map")
+  NoticeMapResponse map(
+      @RequestParam double swLat,
+      @RequestParam double swLng,
+      @RequestParam double neLat,
+      @RequestParam double neLng,
+      @RequestParam(required = false) Integer zoom,
+      @RequestParam(required = false) String tenure,
+      @RequestParam(required = false) List<String> noticeTypes,
+      @RequestParam(required = false) List<String> providers,
+      @RequestParam(required = false) List<String> statuses) {
+    return notices.map(swLat, swLng, neLat, neLng, zoom, tenure, noticeTypes, providers, statuses);
   }
 
   /** 상세 (요약, 일정, 주택형별 조건, 단지, 자격 조건과 근거, 첨부 링크). */
