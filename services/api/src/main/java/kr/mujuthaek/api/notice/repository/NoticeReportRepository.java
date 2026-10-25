@@ -11,15 +11,17 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/** 공고 제보 (notice.notice_reports). */
+/** 공고·창업지원 사업 제보 (notice.notice_reports). 대상은 공고(notice_id)나 사업(raw_policy_id) 중 하나예요. */
 @Repository
 public class NoticeReportRepository {
 
   private static final String COLUMNS =
-      "r.id, r.notice_id, n.title, r.reporter_id, r.field, r.current_value, r.reported_value,"
+      "r.id, r.notice_id, r.raw_policy_id, coalesce(n.title, p.title) as title, r.reporter_id,"
+          + " r.field, r.current_value, r.reported_value,"
           + " r.note, r.screen, r.status, r.result, r.reply, r.handled_by, r.created_at,"
           + " r.started_at, r.handled_at, r.review_job_id, (select count(*) from notice.notice_reports g where"
-          + " g.notice_id = r.notice_id and g.field = r.field and g.status <> 'DONE') as open_in_group";
+          + " g.notice_id is not distinct from r.notice_id and g.raw_policy_id is not distinct from"
+          + " r.raw_policy_id and g.field = r.field and g.status <> 'DONE') as open_in_group";
 
   private final JdbcClient jdbc;
 
@@ -33,6 +35,16 @@ public class NoticeReportRepository {
             "select title from notice.notices where id = :id and current_version > 0 and not"
                 + " hidden")
         .param("id", noticeId)
+        .query(String.class)
+        .optional();
+  }
+
+  /** 판정 틀이 있는 창업지원 사업의 이름 (없으면 비어 있음). */
+  public Optional<String> programTitle(UUID rawPolicyId) {
+    return jdbc.sql(
+            "select title from notice.policy_judgments where raw_policy_id = :id and field ="
+                + " 'STARTUP_SUPPORT'")
+        .param("id", rawPolicyId)
         .query(String.class)
         .optional();
   }
@@ -51,12 +63,13 @@ public class NoticeReportRepository {
   /** 넣어요. 같은 회원·공고·칸의 처리 전 제보가 있으면 넣지 않고 false. */
   public boolean insert(Row row) {
     return jdbc.sql(
-                "insert into notice.notice_reports (id, notice_id, reporter_id, field,"
-                    + " current_value, reported_value, note, screen, created_at) values (:id,"
-                    + " :notice, :reporter, :field, :current, :reported, :note, :screen, :now) on"
-                    + " conflict do nothing")
+                "insert into notice.notice_reports (id, notice_id, raw_policy_id, reporter_id,"
+                    + " field, current_value, reported_value, note, screen, created_at) values (:id,"
+                    + " :notice, :program, :reporter, :field, :current, :reported, :note, :screen,"
+                    + " :now) on conflict do nothing")
             .param("id", row.id())
             .param("notice", row.noticeId())
+            .param("program", row.rawPolicyId())
             .param("reporter", row.reporterId())
             .param("field", row.field())
             .param("current", row.currentValue())
@@ -72,7 +85,7 @@ public class NoticeReportRepository {
     return jdbc.sql(
             "select "
                 + COLUMNS
-                + " from notice.notice_reports r join notice.notices n on n.id = r.notice_id"
+                + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
                 + " where (cast(:status as text) is null or r.status = :status)"
                 + " order by r.created_at desc limit :limit")
         .param("status", status)
@@ -85,22 +98,28 @@ public class NoticeReportRepository {
     return jdbc.sql(
             "select "
                 + COLUMNS
-                + " from notice.notice_reports r join notice.notices n on n.id = r.notice_id"
+                + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
                 + " where r.id = :id")
         .param("id", id)
         .query(NoticeReportRepository::report)
         .optional();
   }
 
-  /** 같은 공고·칸의 다른 제보 (설명만, 오래된 것부터). */
-  public List<Report> sameGroup(UUID noticeId, String field, UUID except) {
+  /** 같은 대상(공고·사업)·칸의 다른 제보 (오래된 것부터). */
+  public List<Report> sameGroup(Report target, UUID except) {
+    return sameGroup(target.noticeId(), target.rawPolicyId(), target.field(), except);
+  }
+
+  private List<Report> sameGroup(UUID noticeId, UUID rawPolicyId, String field, UUID except) {
     return jdbc.sql(
             "select "
                 + COLUMNS
-                + " from notice.notice_reports r join notice.notices n on n.id = r.notice_id"
-                + " where r.notice_id = :notice and r.field = :field and r.id <> :except"
-                + " order by r.created_at limit 50")
+                + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
+                + " where r.notice_id is not distinct from cast(:notice as uuid) and"
+                + " r.raw_policy_id is not distinct from cast(:program as uuid) and r.field ="
+                + " :field and r.id <> :except order by r.created_at limit 50")
         .param("notice", noticeId)
+        .param("program", rawPolicyId)
         .param("field", field)
         .param("except", except)
         .query(NoticeReportRepository::report)
@@ -197,6 +216,7 @@ public class NoticeReportRepository {
     return new Report(
         rs.getObject("id", UUID.class),
         rs.getObject("notice_id", UUID.class),
+        rs.getObject("raw_policy_id", UUID.class),
         rs.getString("title"),
         rs.getObject("reporter_id", UUID.class),
         rs.getString("field"),
@@ -219,6 +239,7 @@ public class NoticeReportRepository {
   public record Row(
       UUID id,
       UUID noticeId,
+      UUID rawPolicyId,
       UUID reporterId,
       String field,
       String currentValue,
@@ -235,6 +256,7 @@ public class NoticeReportRepository {
   public record Report(
       UUID id,
       UUID noticeId,
+      UUID rawPolicyId,
       String noticeTitle,
       UUID reporterId,
       String field,

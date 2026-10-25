@@ -187,4 +187,36 @@ class NoticeReportServiceTest {
     assertThat(service.detail(second).reviewId()).isEqualTo(job);
     reviewServer.verify();
   }
+
+  @Test
+  void startupProgramsCanBeReportedAndAnsweredButNotReopened() {
+    UUID program = UUID.randomUUID();
+    fixture.jdbc.update(
+        "insert into notice.policy_judgments (raw_policy_id, field, raw_version, source_event_id,"
+            + " title, region_codes, frame, created_at, updated_at) values (?, 'STARTUP_SUPPORT',"
+            + " 1, ?, '가상 예비창업 지원', '{}', '{}'::jsonb, now(), now())",
+        program,
+        UUID.randomUUID());
+    UUID reporter = UUID.randomUUID();
+    UUID id = service.reportProgram(program, deposit("공고문 2쪽"), reporter.toString()).id();
+
+    var detail = service.detail(id);
+    assertThat(detail.report().targetType()).isEqualTo("PROGRAM");
+    assertThat(detail.report().programId()).isEqualTo(program);
+    assertThat(detail.report().noticeTitle()).isEqualTo("가상 예비창업 지원");
+    assertThatThrownBy(() -> service.openReview(id, "admin-1"))
+        .isInstanceOfSatisfying(
+            CustomException.class, e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+    assertThatThrownBy(
+            () -> service.reportProgram(UUID.randomUUID(), deposit("x"), reporter.toString()))
+        .isInstanceOfSatisfying(
+            CustomException.class, e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.NOT_FOUND));
+
+    service.resolve(id, new AdminReportResolveRequest(Result.KEPT, "공고문대로예요", null), "admin-1");
+    assertThat(events)
+        .singleElement()
+        .isInstanceOfSatisfying(
+            kr.mujuthaek.api.common.event.ProgramReportAnswered.class,
+            e -> assertThat(e.programId()).isEqualTo(program));
+  }
 }

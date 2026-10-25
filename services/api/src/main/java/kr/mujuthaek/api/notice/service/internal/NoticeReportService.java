@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.common.event.NoticeReportAnswered;
+import kr.mujuthaek.api.common.event.ProgramReportAnswered;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.id.UuidV7;
@@ -67,6 +68,10 @@ public class NoticeReportService {
     if ("DONE".equals(report.status())) {
       throw new CustomException(ErrorCode.CONFLICT, "이미 처리한 제보예요");
     }
+    if (report.noticeId() == null) {
+      throw new CustomException(
+          ErrorCode.CONFLICT, "창업지원 사업은 아직 「고치기」를 지원하지 않아요. 확인 뒤 처리 끝으로 답해 주세요");
+    }
     UUID rawPost =
         reports
             .currentRawPost(report.noticeId())
@@ -74,7 +79,7 @@ public class NoticeReportService {
     JsonNode opened = extraction.reopen(rawPost.toString(), admin, "공고 제보: " + report.field());
     UUID reviewId = UUID.fromString(opened.path("jobId").asString());
     List<UUID> ids = new ArrayList<>(List.of(id));
-    reports.sameGroup(report.noticeId(), report.field(), id).stream()
+    reports.sameGroup(report, id).stream()
         .filter(r -> !"DONE".equals(r.status()))
         .forEach(r -> ids.add(r.id()));
     reports.linkReview(ids, reviewId, admin, clock.instant());
@@ -103,6 +108,43 @@ public class NoticeReportService {
             new NoticeReportRepository.Row(
                 id,
                 noticeId,
+                null,
+                reporterId,
+                request.field().trim(),
+                trim(request.currentValue()),
+                trim(request.reportedValue()),
+                trim(request.note()),
+                trim(request.screen()),
+                now));
+    if (!added) {
+      throw new CustomException(ErrorCode.CONFLICT, "같은 칸에 보낸 제보를 아직 확인하고 있어요");
+    }
+    return new NoticeReportCreatedResponse(id, "NEW");
+  }
+
+  /** 회원의 창업지원 사업 제보. 판정 틀이 있는 사업(notice.policy_judgments)에만. */
+  @Transactional
+  public NoticeReportCreatedResponse reportProgram(
+      UUID programId, NoticeReportRequest request, String reporter) {
+    UUID reporterId = reporterId(reporter);
+    if (blank(request.reportedValue()) && blank(request.note())) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "맞는 값이나 설명 중 하나는 적어 주세요");
+    }
+    if (reports.programTitle(programId).isEmpty()) {
+      throw new CustomException(ErrorCode.NOT_FOUND, "창업지원 사업을 찾을 수 없어요");
+    }
+    Instant now = clock.instant();
+    Instant todayStart = LocalDate.ofInstant(now, SEOUL).atStartOfDay(SEOUL).toInstant();
+    if (reports.countSince(reporterId, todayStart) >= DAILY_LIMIT) {
+      throw new CustomException(ErrorCode.RATE_LIMITED, "제보는 하루에 " + DAILY_LIMIT + "건까지 보낼 수 있어요");
+    }
+    UUID id = UuidV7.next();
+    boolean added =
+        reports.insert(
+            new NoticeReportRepository.Row(
+                id,
+                null,
+                programId,
                 reporterId,
                 request.field().trim(),
                 trim(request.currentValue()),
@@ -137,7 +179,7 @@ public class NoticeReportService {
   public AdminReportDetailResponse detail(UUID id) {
     Report report = find(id);
     List<AdminReportDetailResponse.Note> notes = new ArrayList<>();
-    for (Report other : reports.sameGroup(report.noticeId(), report.field(), report.id())) {
+    for (Report other : reports.sameGroup(report, report.id())) {
       if (!blank(other.note()) || !blank(other.reportedValue())) {
         notes.add(
             new AdminReportDetailResponse.Note(
@@ -176,7 +218,7 @@ public class NoticeReportService {
     }
     List<UUID> ids = new ArrayList<>(List.of(id));
     if (request.group() == null || request.group()) {
-      reports.sameGroup(report.noticeId(), report.field(), id).stream()
+      reports.sameGroup(report, id).stream()
           .filter(r -> !"DONE".equals(r.status()))
           .forEach(r -> ids.add(r.id()));
     }
@@ -186,8 +228,21 @@ public class NoticeReportService {
     if (reply != null) {
       for (Report done : finished) {
         events.publishEvent(
-            new NoticeReportAnswered(
-                done.id(), done.noticeId(), done.reporterId(), done.field(), done.result(), reply));
+            done.noticeId() != null
+                ? new NoticeReportAnswered(
+                    done.id(),
+                    done.noticeId(),
+                    done.reporterId(),
+                    done.field(),
+                    done.result(),
+                    reply)
+                : new ProgramReportAnswered(
+                    done.id(),
+                    done.rawPolicyId(),
+                    done.reporterId(),
+                    done.field(),
+                    done.result(),
+                    reply));
       }
     }
     return detail(id);
@@ -210,7 +265,9 @@ public class NoticeReportService {
         r.id(),
         r.status(),
         r.screen(),
+        r.noticeId() != null ? "NOTICE" : "PROGRAM",
         r.noticeId(),
+        r.rawPolicyId(),
         r.noticeTitle(),
         r.field(),
         r.currentValue(),

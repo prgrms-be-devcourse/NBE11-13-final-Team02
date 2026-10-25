@@ -26,6 +26,13 @@ class NoticeReportController {
     this.reports = reports;
   }
 
+  /** 창업지원 사업 제보 (로그인한 회원만). id는 판정 API의 programId(rawPolicyId)와 같아요. */
+  @PostMapping("/api/v1/programs/{id}/reports")
+  NoticeReportCreatedResponse reportProgram(
+      @PathVariable UUID id, @Valid @RequestBody NoticeReportRequest request, Principal principal) {
+    return reports.reportProgram(id, request, principal == null ? null : principal.getName());
+  }
+
   @PostMapping("/api/v1/notices/{id}/reports")
   NoticeReportCreatedResponse report(
       @PathVariable UUID id, @Valid @RequestBody NoticeReportRequest request, Principal principal) {

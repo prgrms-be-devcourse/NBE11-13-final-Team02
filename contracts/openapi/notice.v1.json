@@ -1128,6 +1128,65 @@
           }
         }
       }
+    },
+    "/api/v1/programs/{id}/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportProgram",
+        "summary": "창업지원 사업 제보 (로그인 회원)",
+        "description": "id는 판정 API의 programId(rawPolicyId)와 같아요. 판정 틀이 있는 사업에만 받아요.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "창업지원 사업 ID (rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticeReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3298,7 +3357,9 @@
           "id",
           "status",
           "screen",
+          "targetType",
           "noticeId",
+          "programId",
           "noticeTitle",
           "field",
           "currentValue",
@@ -3328,12 +3389,33 @@
               "null"
             ]
           },
-          "noticeId": {
+          "targetType": {
             "type": "string",
-            "format": "uuid"
+            "enum": [
+              "NOTICE",
+              "PROGRAM"
+            ],
+            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보"
+          },
+          "noticeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "공고 제보면 공고 ID (사업이면 null)"
+          },
+          "programId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "사업 제보면 창업지원 사업 ID(rawPolicyId) (공고면 null)"
           },
           "noticeTitle": {
-            "type": "string"
+            "type": "string",
+            "description": "공고 제목이나 사업 이름"
           },
           "field": {
             "type": "string"
