@@ -6,6 +6,7 @@ import java.time.ZoneId;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.id.UuidV7;
@@ -15,10 +16,15 @@ import kr.mujuthaek.api.eligibility.dto.response.AdminCriteriaResponse;
 import kr.mujuthaek.api.eligibility.dto.response.AdminCriteriaResponse.Change;
 import kr.mujuthaek.api.eligibility.dto.response.AdminCriteriaResponse.Changes;
 import kr.mujuthaek.api.eligibility.dto.response.AdminCriteriaResponse.Year;
+import kr.mujuthaek.api.eligibility.dto.response.CriteriaUsageResponse;
 import kr.mujuthaek.api.eligibility.dto.response.RegulatedAreaResponse;
 import kr.mujuthaek.api.eligibility.repository.CriteriaAdminStore;
 import kr.mujuthaek.api.eligibility.repository.CriteriaAdminStore.CriteriaSet;
 import kr.mujuthaek.api.eligibility.repository.CriteriaAdminStore.RegulatedArea;
+import kr.mujuthaek.api.notice.service.NoticeField;
+import kr.mujuthaek.api.notice.service.NoticeForJudgment;
+import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import kr.mujuthaek.api.notice.service.ProgramForJudgment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
@@ -39,13 +45,73 @@ public class AdminCriteriaService {
   private static final int HISTORY_LIMIT = 100;
 
   private final CriteriaAdminStore store;
+  private final NoticeQueryService notices;
   private final JsonMapper json;
   private final Clock clock;
 
-  public AdminCriteriaService(CriteriaAdminStore store, JsonMapper json, Clock clock) {
+  public AdminCriteriaService(
+      CriteriaAdminStore store, NoticeQueryService notices, JsonMapper json, Clock clock) {
     this.store = store;
+    this.notices = notices;
     this.json = json;
     this.clock = clock;
+  }
+
+  /**
+   * 「이 값을 쓰는 규칙 N개」: 열린 공고·창업지원 사업(notice의 판정용 조회)의 판정 틀에서 이 기준을 쓰는 것을 세요. 소득 기준은 조건의 standard, 순위
+   * 요건은 신청 순위(rank)가 있는 대상군으로 봐요.
+   */
+  public CriteriaUsageResponse usage(String kind) {
+    checkKind(kind);
+    int housing =
+        count(
+            kind,
+            notices.findOpenForJudgment(NoticeField.HOUSING).stream()
+                .map(NoticeForJudgment::frame));
+    int space =
+        count(
+            kind,
+            notices.findOpenForJudgment(NoticeField.BUSINESS_SPACE).stream()
+                .map(NoticeForJudgment::frame));
+    int startup =
+        count(kind, notices.findOpenProgramsForJudgment().stream().map(ProgramForJudgment::frame));
+    return new CriteriaUsageResponse(kind, housing, space, startup, housing + space + startup);
+  }
+
+  static int count(String kind, Stream<JsonNode> frames) {
+    return (int) frames.filter(f -> f != null && uses(kind, f)).count();
+  }
+
+  /** 판정 틀(아무 깊이)에서 이 기준을 쓰는지. */
+  static boolean uses(String kind, JsonNode node) {
+    if (node.isObject()) {
+      if ("RANK_CRITERIA".equals(kind)) {
+        if (node.path("rank").isIntegralNumber()) {
+          return true;
+        }
+      } else {
+        String standard = node.path("standard").asString("");
+        if (kind.equals(standard)
+            || ("URBAN_WORKER_INCOME".equals(kind)
+                && "URBAN_WORKER_AVERAGE_INCOME".equals(standard))) {
+          return true;
+        }
+      }
+      for (var entry : node.properties()) {
+        if (uses(kind, entry.getValue())) {
+          return true;
+        }
+      }
+      return false;
+    }
+    if (node.isArray()) {
+      for (JsonNode item : node) {
+        if (uses(kind, item)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   @Transactional(readOnly = true)

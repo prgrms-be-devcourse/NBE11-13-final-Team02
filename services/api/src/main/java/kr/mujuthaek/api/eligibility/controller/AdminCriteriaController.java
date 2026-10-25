@@ -8,6 +8,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.eligibility.dto.request.AdminCriteriaRequest;
 import kr.mujuthaek.api.eligibility.dto.request.RegulatedAreaRequest;
 import kr.mujuthaek.api.eligibility.dto.response.AdminCriteriaResponse;
+import kr.mujuthaek.api.eligibility.dto.response.CriteriaUsageResponse;
 import kr.mujuthaek.api.eligibility.dto.response.RegulatedAreaResponse;
 import kr.mujuthaek.api.eligibility.service.AdminCriteriaService;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -27,6 +28,7 @@ import org.springframework.web.bind.annotation.RestController;
  * GET  /api/admin/criteria/{kind}                     연도별 값 (오늘 쓰는 값·예약·지난 해)
  * PUT  /api/admin/criteria/{kind}/{year}              한 해 값 넣기·바꾸기 { "validFrom": "2027-01-01", "data": {…}, "source": "…" }
  * GET  /api/admin/criteria/{kind}/history             바꾼 기록
+ * GET  /api/admin/criteria/{kind}/usage               이 값을 쓰는 열린 공고·창업지원 사업 수
  * GET  /api/admin/regulated-areas?active=true         규제지역
  * POST /api/admin/regulated-areas                     지정 { "regionCode": "11680", "kind": "SPECULATION_OVERHEATED", "validFrom": … }
  * POST /api/admin/regulated-areas/{id}/end?until=…    해제
@@ -61,6 +63,11 @@ class AdminCriteriaController {
   @GetMapping("/criteria/{kind}/history")
   AdminCriteriaResponse.Changes history(@PathVariable String kind) {
     return criteria.history(kind);
+  }
+
+  @GetMapping("/criteria/{kind}/usage")
+  CriteriaUsageResponse usage(@PathVariable String kind) {
+    return criteria.usage(kind);
   }
 
   @GetMapping("/regulated-areas")

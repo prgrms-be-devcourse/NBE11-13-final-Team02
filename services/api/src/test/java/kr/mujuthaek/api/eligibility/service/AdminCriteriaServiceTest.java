@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.eligibility.service;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -51,5 +52,27 @@ class AdminCriteriaServiceTest {
     assertThatThrownBy(
             () -> AdminCriteriaService.checkData("RANK_CRITERIA", json.readTree("{\"x\":1}")))
         .isInstanceOf(CustomException.class);
+  }
+
+  @Test
+  void usageFindsTheStandardOrRankAnywhereInTheFrame() {
+    var median =
+        json.readTree(
+            "{\"groups\":[{\"id\":\"g\",\"rank\":null,\"criteria\":[{\"type\":\"INCOME\","
+                + "\"standard\":\"MEDIAN_INCOME\",\"percent\":150}]}]}");
+    var urbanAverage =
+        json.readTree(
+            "{\"groups\":[{\"id\":\"g\",\"rank\":1,\"criteria\":"
+                + "[{\"standard\":\"URBAN_WORKER_AVERAGE_INCOME\"}]}]}");
+    var none = json.readTree("{\"groups\":[{\"id\":\"g\",\"criteria\":[]}]}");
+    assertThat(AdminCriteriaService.uses("MEDIAN_INCOME", median)).isTrue();
+    assertThat(AdminCriteriaService.uses("MEDIAN_INCOME", urbanAverage)).isFalse();
+    assertThat(AdminCriteriaService.uses("URBAN_WORKER_INCOME", urbanAverage)).isTrue();
+    assertThat(AdminCriteriaService.uses("RANK_CRITERIA", urbanAverage)).isTrue();
+    assertThat(AdminCriteriaService.uses("RANK_CRITERIA", median)).isFalse();
+    assertThat(
+            AdminCriteriaService.count(
+                "MEDIAN_INCOME", java.util.stream.Stream.of(median, urbanAverage, none, null)))
+        .isEqualTo(1);
   }
 }
