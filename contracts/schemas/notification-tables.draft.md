@@ -38,14 +38,16 @@ processed_events   받은 이벤트 장부 (같은 이벤트 두 번 처리 방�
 | `created_at` | timestamptz | 90일 지나면 지워요 |
 
 **보낼 시각 (`scheduled_at`)**
-- `NEW_NOTICE`·`NEW_SUPPORT` + 묶는 채널(이메일): `digest = true`, 다음 묶음 시각(08:00 또는 18:00, Asia/Seoul). 두 시각 모두 조용한 시간 밖이에요
+- `NEW_NOTICE`·`NEW_SUPPORT`: `digest = true`, 채널의 다음 묶음 시각 (Asia/Seoul)
+  - 이메일: 08:00 또는 18:00. 두 시각 모두 조용한 시간 밖이에요
+  - 웹 푸시: 다음 정각 또는 30분. `quiet`이고 22:00~08:00이면 다음 08:00 ([web-push.draft.md](web-push.draft.md) 4장)
 - 나머지: 지금. `quiet`이고 22:00~08:00이면 다음 08:00
 - 재시도: 실패하면 `attempts`를 올리고 뒤로 미뤄요 (1분 → 5분 → 30분, 그다음은 FAILED). 재시도가 밤으로 밀리면 보내기 직전에 다시 08:00으로 미뤄요
 
 **발송 워커**
 - `select … where status = 'PENDING' and scheduled_at <= now() order by scheduled_at limit 20 for update skip locked`로 가져가요 (서버 여러 대여도 같은 건을 두 번 안 보내요)
 - `digest = true`는 같은 회원·같은 주소·같은 `scheduled_at` 건을 메일 1통("관심 조건에 맞는 새 소식 3건")으로 보내고 모두 `SENT` + 같은 `provider_message_id`
-- 묶는 이유: 메일 여러 통에 지친 사용자의 스팸 신고가 쌓이면 SES 발송이 정지돼 모든 회원의 메일이 멈춰요. 웹 푸시는 묶지 않아요
+- 묶는 이유: 메일 여러 통에 지친 사용자의 스팸 신고가 쌓이면 SES 발송이 정지돼 모든 회원의 메일이 멈춰요. 웹 푸시는 폰이 연달아 울려 사용자가 권한을 꺼 버리지 않게 30분씩 묶어요 (같은 회원·`PUSH`·같은 `scheduled_at`, 기기 목록은 가장 늦은 줄 것)
 - SES 초당 발송 한도(샌드박스 1통)를 넘지 않게 간격을 둬요
 - 보낼지 말지(회원 설정)는 api가 이미 정했어요. 워커는 다시 따지지 않아요
 
