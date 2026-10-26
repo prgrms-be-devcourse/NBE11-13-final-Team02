@@ -10,8 +10,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.time.Clock;
 import java.time.ZoneId;
 import java.util.UUID;
+import kr.mujuthaek.api.benefit.repository.BenefitRepository;
+import kr.mujuthaek.api.benefit.service.BenefitQueryService;
 import kr.mujuthaek.api.eligibility.repository.CriteriaStore;
 import kr.mujuthaek.api.eligibility.repository.LoanProductStore;
+import kr.mujuthaek.api.eligibility.service.BenefitEvaluationService;
 import kr.mujuthaek.api.eligibility.service.CriteriaService;
 import kr.mujuthaek.api.eligibility.service.HomeSummaryService;
 import kr.mujuthaek.api.eligibility.service.NoticeEvaluationService;
@@ -43,7 +46,16 @@ class HomeSummaryApiTest {
   private final MockMvc mvc =
       f.mvc(
           new HomeSummaryController(
-              new HomeSummaryService(new NoticeSearchService(f.queries, evaluations), clock)));
+              new HomeSummaryService(
+                  new NoticeSearchService(f.queries, evaluations),
+                  new BenefitEvaluationService(
+                      new BenefitQueryService(
+                          new BenefitRepository(
+                              org.springframework.jdbc.core.simple.JdbcClient.create(f.jdbc))),
+                      criteria,
+                      NoticeFixtures.JSON,
+                      clock),
+                  clock)));
 
   /** 나이 조건 하나짜리 공고. postedOn은 공고일(announcedOn)이에요. */
   private UUID notice(int minAge, int maxAge, String postedOn, String applyEnd) {
@@ -107,6 +119,7 @@ class HomeSummaryApiTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.homes.eligible").value(0))
         .andExpect(jsonPath("$.bestArea").doesNotExist())
+        .andExpect(jsonPath("$.benefits.eligible").isNumber())
         .andExpect(jsonPath("$.news.length()").value(0));
   }
 
