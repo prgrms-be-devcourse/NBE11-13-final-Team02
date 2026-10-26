@@ -27,6 +27,7 @@ class DeliveryPurgeJobTest {
   @BeforeEach
   void setUp() {
     jdbc.sql("delete from deliveries").update();
+    jdbc.sql("delete from withdrawn_users").update();
     jdbc.sql("delete from processed_events").update();
     clock.set("2026-10-23T04:00");
   }
@@ -45,6 +46,26 @@ class DeliveryPurgeJobTest {
     assertThat(jdbc.sql("select title from deliveries order by title").query(String.class).list())
         .isEqualTo(List.of("PENDING-91", "SENT-89"));
     assertThat(jdbc.sql("select count(*) from processed_events").query(Long.class).single())
+        .isEqualTo(1L);
+  }
+
+  @Test
+  void withdrawnMembersAreForgottenAfterNinetyDays() {
+    for (int days : new int[] {91, 89}) {
+      jdbc.sql(
+              "insert into withdrawn_users (user_id, withdrawn_at) values (gen_random_uuid(), :at)")
+          .param(
+              "at",
+              clock
+                  .instant()
+                  .minus(java.time.Duration.ofDays(days))
+                  .atOffset(java.time.ZoneOffset.UTC))
+          .update();
+    }
+
+    job.run();
+
+    assertThat(jdbc.sql("select count(*) from withdrawn_users").query(Long.class).single())
         .isEqualTo(1L);
   }
 

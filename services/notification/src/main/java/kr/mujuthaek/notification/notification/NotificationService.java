@@ -3,11 +3,15 @@ package kr.mujuthaek.notification.notification;
 import java.time.Clock;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
 import kr.mujuthaek.notification.delivery.DeliveryRepository;
 import kr.mujuthaek.notification.delivery.DeliverySchedule;
 import kr.mujuthaek.notification.delivery.DigestCadence;
 import kr.mujuthaek.notification.delivery.NotificationChannel;
 import kr.mujuthaek.notification.support.UuidV7;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,19 +24,24 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 public class NotificationService {
 
+  private static final Logger log = LoggerFactory.getLogger(NotificationService.class);
+
   private final DeliveryRepository deliveries;
   private final DeliverySchedule schedule;
   private final List<NotificationChannel> channels;
+  private final UserDataCleaner users;
   private final Clock clock;
 
   public NotificationService(
       DeliveryRepository deliveries,
       DeliverySchedule schedule,
       List<NotificationChannel> channels,
+      UserDataCleaner users,
       Clock clock) {
     this.deliveries = deliveries;
     this.schedule = schedule;
     this.channels = channels;
+    this.users = users;
     this.clock = clock;
   }
 
@@ -40,8 +49,17 @@ public class NotificationService {
   @Transactional(propagation = Propagation.MANDATORY)
   public int handle(NotificationRequest request) {
     request.validate();
+    Set<UUID> withdrawn =
+        users.withdrawn(
+            request.recipients().stream().map(NotificationRequest.Recipient::userId).toList());
+    if (!withdrawn.isEmpty()) {
+      log.info("탈퇴한 회원은 건너뛰어요 (탈퇴 전에 만든 요청이 늦게 옴): 회원 수={}", withdrawn.size());
+    }
     int created = 0;
     for (NotificationRequest.Recipient recipient : request.recipients()) {
+      if (withdrawn.contains(recipient.userId())) {
+        continue;
+      }
       for (NotificationChannel channel : channels) {
         Optional<String> address = channel.address(recipient);
         if (address.isEmpty()) {

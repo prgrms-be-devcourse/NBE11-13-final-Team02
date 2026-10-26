@@ -41,6 +41,7 @@ class DeliveryFailureTest {
   @BeforeEach
   void setUp() {
     jdbc.sql("delete from deliveries").update();
+    jdbc.sql("delete from withdrawn_users").update();
     email.sent.clear();
     email.failure.set(null);
     clock.set("2026-10-23T10:00");

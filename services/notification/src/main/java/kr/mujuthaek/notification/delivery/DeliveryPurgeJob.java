@@ -11,7 +11,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 오래된 기록 정리. 매일 04:00(Asia/Seoul)에 90일 지난 발송 줄(deliveries)과 받은 이벤트 장부(processed_events)를 지워요.
+ * 오래된 기록 정리. 매일 04:00(Asia/Seoul)에 90일 지난 발송 줄(deliveries), 받은 이벤트 장부(processed_events), 탈퇴 회원 기록
+ * (withdrawn_users)을 지워요.
  *
  * <p>아직 보내지 않은 줄(PENDING)은 남겨요. 한 번에 많이 지우면 잠금이 길어져서 1,000줄씩 나눠 지워요 (한 묶음이 한 트랜잭션).
  */
@@ -50,7 +51,18 @@ public class DeliveryPurgeJob {
               select event_id from processed_events where processed_at < :cutoff limit :batch)
             """,
             cutoff);
-    log.info("오래된 기록 지움: deliveries={}, processed_events={}", deliveries, events);
+    int withdrawn =
+        purge(
+            """
+            delete from withdrawn_users where user_id in (
+              select user_id from withdrawn_users where withdrawn_at < :cutoff limit :batch)
+            """,
+            cutoff);
+    log.info(
+        "오래된 기록 지움: deliveries={}, processed_events={}, withdrawn_users={}",
+        deliveries,
+        events,
+        withdrawn);
   }
 
   private int purge(String sql, Instant cutoff) {

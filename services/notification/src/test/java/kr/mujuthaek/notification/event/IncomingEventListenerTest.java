@@ -30,6 +30,7 @@ class IncomingEventListenerTest {
   void clear() {
     jdbc.sql("delete from processed_events").update();
     jdbc.sql("delete from deliveries").update();
+    jdbc.sql("delete from withdrawn_users").update();
     while (rabbit.receive(EventQueueConfig.DLQ) != null) {} // 다른 테스트가 남긴 실패 메시지
   }
 
