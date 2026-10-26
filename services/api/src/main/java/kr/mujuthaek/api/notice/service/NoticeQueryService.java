@@ -458,6 +458,15 @@ public class NoticeQueryService {
     return ordered;
   }
 
+  /**
+   * 마감일이 dates 중 하나이고 오늘 접수 중인 공고 (알림 담당 요청: 관심 공고 마감 D-3·D-1). 숨김·공개 전·합쳐진 공고·아직 시작 전인 공고는 빼요. 마감일
+   * 순이에요.
+   */
+  public List<NoticeSummary> findOpenClosingOn(
+      java.util.Collection<LocalDate> dates, LocalDate today) {
+    return List.copyOf(findSummaries(queries.openClosingOn(dates, today)).values());
+  }
+
   /** 공고 요약 하나 (findSummaries와 같은 규칙). 숨김·공개 전·없는 공고면 빈 값. */
   public java.util.Optional<NoticeSummary> findSummary(UUID noticeId) {
     return java.util.Optional.ofNullable(findSummaries(List.of(noticeId)).get(noticeId));
