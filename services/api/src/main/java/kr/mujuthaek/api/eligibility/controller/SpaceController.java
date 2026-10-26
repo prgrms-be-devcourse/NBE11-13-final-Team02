@@ -37,6 +37,9 @@ class SpaceController {
       @PathVariable UUID id, @Valid @RequestBody(required = false) SpaceEvaluateRequest request) {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())
-        .body(spaces.evaluate(id, request == null ? null : request.applicant()));
+        .body(
+            request == null
+                ? spaces.evaluate(id, null, null)
+                : spaces.evaluate(id, request.applicant(), request.answers()));
   }
 }

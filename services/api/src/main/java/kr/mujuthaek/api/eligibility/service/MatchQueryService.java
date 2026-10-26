@@ -16,6 +16,7 @@ import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
+import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import kr.mujuthaek.api.eligibility.rule.frame.Applicant;
 import kr.mujuthaek.api.eligibility.rule.frame.Frame;
 import kr.mujuthaek.api.eligibility.rule.frame.FrameJudgment;
@@ -88,8 +89,9 @@ public class MatchQueryService {
    *
    * @return 열린 사업공간이 아니면 empty. 판정 틀이 아직 없으면 judgment가 null
    */
-  public Optional<OneJudgment> judgeBusinessSpace(UUID id, JudgmentApplicantRequest applicant) {
-    return judgeOne(FrameSpec.BUSINESS_SPACE, id, applicant);
+  public Optional<OneJudgment> judgeBusinessSpace(
+      UUID id, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
+    return judgeOne(FrameSpec.BUSINESS_SPACE, id, applicant, answers);
   }
 
   /**
@@ -97,8 +99,9 @@ public class MatchQueryService {
    *
    * @return 열린 지원사업이 아니면 empty
    */
-  public Optional<OneJudgment> judgeStartupSupport(UUID id, JudgmentApplicantRequest applicant) {
-    return judgeOne(FrameSpec.STARTUP_SUPPORT, id, applicant);
+  public Optional<OneJudgment> judgeStartupSupport(
+      UUID id, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
+    return judgeOne(FrameSpec.STARTUP_SUPPORT, id, applicant, answers);
   }
 
   /**
@@ -109,7 +112,8 @@ public class MatchQueryService {
   public record OneJudgment(NoticeCandidate notice, JudgmentResult judgment) {}
 
   private Optional<OneJudgment> judgeOne(
-      FrameSpec spec, UUID id, JudgmentApplicantRequest applicant) {
+      FrameSpec spec, UUID id, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
+    Map<String, Answer> given = answers == null ? Map.of() : answers;
     return candidates.openNotices(spec.field()).stream()
         .filter(n -> n.noticeId().equals(id))
         .findFirst()
@@ -120,8 +124,8 @@ public class MatchQueryService {
                     : new OneJudgment(
                         n,
                         spec == FrameSpec.STARTUP_SUPPORT
-                            ? judgments.judgeStartupSupport(n.frame(), applicant, Map.of())
-                            : judgments.judgeBusinessSpace(n.frame(), applicant, Map.of())));
+                            ? judgments.judgeStartupSupport(n.frame(), applicant, given)
+                            : judgments.judgeBusinessSpace(n.frame(), applicant, given)));
   }
 
   private MatchResult match(FrameSpec spec, JudgmentApplicantRequest request) {

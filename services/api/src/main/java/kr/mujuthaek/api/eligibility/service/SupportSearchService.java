@@ -20,6 +20,7 @@ import kr.mujuthaek.api.eligibility.dto.response.SupportEvaluationResponse;
 import kr.mujuthaek.api.eligibility.dto.response.SupportSearchResponse;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
+import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import org.springframework.stereotype.Service;
 
@@ -93,10 +94,11 @@ public class SupportSearchService {
   }
 
   /** 열린 창업지원 사업 하나의 판정. 열린 사업이 아니면 404 NOTICE_NOT_FOUND. */
-  public SupportEvaluationResponse evaluate(UUID id, JudgmentApplicantRequest applicant) {
+  public SupportEvaluationResponse evaluate(
+      UUID id, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
     var j =
         matches
-            .judgeStartupSupport(id, applicant)
+            .judgeStartupSupport(id, applicant, answers)
             .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_NOT_FOUND));
     var n = j.notice();
     LocalDate today = LocalDate.now(clock);

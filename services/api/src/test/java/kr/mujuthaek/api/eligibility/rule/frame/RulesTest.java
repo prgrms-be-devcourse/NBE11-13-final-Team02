@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
@@ -164,6 +165,38 @@ class RulesTest {
                     DAY)
                 .verdict())
         .isEqualTo(Verdict.NOT_MET);
+  }
+
+  private static Applicant bornIn(String month) {
+    return new Applicant(
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        Map.of(),
+        YearMonth.parse(month));
+  }
+
+  @Test
+  void ageFromBirthMonthIsDecidedUnlessTheBirthdayFallsInTheReferenceMonth() {
+    Criterion.Age youth = new Criterion.Age(meta("youth-age"), 19, 39);
+    // 기준일 2026-10-01: 1987-09생은 그 달 어느 날이든 만 39세 → 충족
+    assertThat(PersonRules.age(youth, bornIn("1987-09"), DAY).verdict()).isEqualTo(Verdict.MET);
+    // 1986-09생은 그 달 어느 날이든 만 40세 → 불충족
+    assertThat(PersonRules.age(youth, bornIn("1986-09"), DAY).verdict()).isEqualTo(Verdict.NOT_MET);
+    // 1986-10생은 10월 1일생이면 만 40세, 2일 이후면 만 39세 → 확인 필요 (생년월일을 물어요)
+    var edge = PersonRules.age(youth, bornIn("1986-10"), DAY);
+    assertThat(edge.verdict()).isEqualTo(Verdict.UNKNOWN);
+    assertThat(edge.missing()).containsExactly(Input.BIRTH_DATE);
   }
 
   @Test

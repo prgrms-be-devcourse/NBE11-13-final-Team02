@@ -1,6 +1,7 @@
 package kr.mujuthaek.api.eligibility.rule.frame;
 
 import java.time.LocalDate;
+import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -19,6 +20,7 @@ import java.util.Set;
  * @param statuses 고른 유형 (수급자, 소상공인, 중소기업 …). 고를 게 없으면 빈 집합, 아직 고르지 않았으면 null
  * @param restrictions 고른 신청 제한 사유 (체납, 피후견인 …). 해당 없음이면 빈 집합, 아직 고르지 않았으면 null
  * @param answers 질문(ASK) ID → 답
+ * @param birthMonth 출생 연월. 생년월일이 없을 때만 써요 (프론트는 정확한 날 대신 연월만 보내요). 그 달 안에서 결과가 갈리면 나이는 확인 필요
  */
 public record Applicant(
     LocalDate birthDate,
@@ -34,7 +36,8 @@ public record Applicant(
     Business business,
     Set<String> statuses,
     Set<String> restrictions,
-    Map<String, Answer> answers) {
+    Map<String, Answer> answers,
+    YearMonth birthMonth) {
 
   public Applicant {
     childBirthDates = childBirthDates == null ? null : List.copyOf(childBirthDates);
@@ -44,6 +47,40 @@ public record Applicant(
     statuses = statuses == null ? null : Set.copyOf(statuses);
     restrictions = restrictions == null ? null : Set.copyOf(restrictions);
     answers = answers == null ? Map.of() : Map.copyOf(answers);
+  }
+
+  /** 출생 연월 없이 (생년월일로만) 만드는 입력. */
+  public Applicant(
+      LocalDate birthDate,
+      Boolean korean,
+      String residenceRegionCode,
+      Integer residenceMonths,
+      MaritalStatus maritalStatus,
+      LocalDate marriedOn,
+      List<LocalDate> childBirthDates,
+      Boolean expectingChild,
+      Household household,
+      Subscription subscription,
+      Business business,
+      Set<String> statuses,
+      Set<String> restrictions,
+      Map<String, Answer> answers) {
+    this(
+        birthDate,
+        korean,
+        residenceRegionCode,
+        residenceMonths,
+        maritalStatus,
+        marriedOn,
+        childBirthDates,
+        expectingChild,
+        household,
+        subscription,
+        business,
+        statuses,
+        restrictions,
+        answers,
+        null);
   }
 
   /** 아무것도 넣지 않은 입력. 이 공고에 무엇이 필요한지 먼저 물어볼 때 써요. */

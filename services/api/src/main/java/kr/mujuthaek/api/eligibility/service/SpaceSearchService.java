@@ -21,6 +21,7 @@ import kr.mujuthaek.api.eligibility.dto.response.SpaceEvaluationResponse;
 import kr.mujuthaek.api.eligibility.dto.response.SpaceSearchResponse;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
+import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.stereotype.Service;
@@ -101,10 +102,11 @@ public class SpaceSearchService {
   }
 
   /** 열린 사업공간 하나의 판정. 열린 사업공간이 아니면 404 NOTICE_NOT_FOUND. */
-  public SpaceEvaluationResponse evaluate(UUID id, JudgmentApplicantRequest applicant) {
+  public SpaceEvaluationResponse evaluate(
+      UUID id, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
     var j =
         matches
-            .judgeBusinessSpace(id, applicant)
+            .judgeBusinessSpace(id, applicant, answers)
             .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_NOT_FOUND));
     var n = j.notice();
     LocalDate today = LocalDate.now(clock);
