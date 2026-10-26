@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.notification.outbox.Outbox;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 죽은 구독(404·410)을 api에 알려요: push.subscription.expired (contracts/schemas/web-push.draft.md 5장).
@@ -21,7 +22,8 @@ class ExpiredSubscriptions {
     this.outbox = outbox;
   }
 
-  void report(UUID userId, String endpoint, int status) {
+  @Transactional
+  public void report(UUID userId, String endpoint, int status) {
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("userId", userId);
     payload.put("endpoint", endpoint);
