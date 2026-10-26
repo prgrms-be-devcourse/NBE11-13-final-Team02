@@ -160,7 +160,11 @@ public class BenefitEvaluationService {
     if (amount != null && LOANS.contains(s.kind())) amount += " 대출";
     String months = s.months() == null ? null : s.months() + "개월";
     String rate =
-        s.ratePct() == null ? null : (LOANS.contains(s.kind()) ? "이자 " : "") + s.ratePct() + "% 지원";
+        s.ratePct() == null
+            ? null
+            : (LOANS.contains(s.kind()) ? "이자 " : "")
+                + s.ratePct().stripTrailingZeros().toPlainString()
+                + "% 지원";
     String text =
         java.util.stream.Stream.of(amount, months, amount == null ? rate : null)
             .filter(java.util.Objects::nonNull)

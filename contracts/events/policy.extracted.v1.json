@@ -71,7 +71,7 @@
         "amountMax": { "type": ["integer", "null"], "minimum": 0, "description": "최대 금액 (만 원). 없거나 못 읽으면 null" },
         "amountPer": { "enum": ["ONCE", "MONTH", "YEAR", null] },
         "months": { "type": ["integer", "null"], "minimum": 1, "description": "지원 기간 (개월)" },
-        "ratePct": { "type": ["integer", "null"], "minimum": 0, "maximum": 100, "description": "지원 비율 (%)" },
+        "ratePct": { "type": ["number", "null"], "minimum": 0, "maximum": 100, "description": "지원 비율 (%). 소수 가능 (「연 3.5% 이자 지원」 → 3.5)" },
         "rawText": { "type": "string", "minLength": 1 },
         "evidence": { "type": "string", "minLength": 1, "description": "원문이 들어 있는 문장 (원문 text에 그대로)" }
       }

@@ -72,7 +72,7 @@ collector ──raw.policy.collected──▶ extraction ──policy.extracted�
 | `amountMax` | int \| null | 최대 금액 (만 원). 금액이 없거나 못 읽으면 null |
 | `amountPer` | `ONCE` · `MONTH` · `YEAR` \| null | 금액 단위 기간 |
 | `months` | int \| null | 지원 기간 (개월) |
-| `ratePct` | int \| null | 지원 비율 (이자·임대료의 50%면 50) |
+| `ratePct` | number | null | 지원 비율 (이자·임대료의 50%면 50, 「연 3.5%」면 3.5) |\| null | 지원 비율 (이자·임대료의 50%면 50) |
 | `rawText` | string | 원문 |
 | `evidence` | string | 원문이 들어 있는 문장 (`text`에 그대로 있어야 해요) |
 
@@ -186,7 +186,7 @@ benefits (정책 1줄)
 | `amount_max` | int | | 최대 금액 (만 원) | `amountMax` |
 | `amount_per` | text | | `ONCE` · `MONTH` · `YEAR` | `amountPer` |
 | `months` | int | | 지원 기간 (개월) | `months` |
-| `rate_pct` | int | | 지원 비율 (%) | `ratePct` |
+| `rate_pct` | numeric(5,2) | | 지원 비율 (%) | `ratePct` |
 | `raw_text` | text | ✅ | 원문 | `rawText` |
 | `evidence` | text | ✅ | 원문이 들어 있는 문장 | `evidence` |
 
@@ -268,7 +268,7 @@ create table benefit.benefit_supports (
     amount_max  int,                                    -- 만 원
     amount_per  text,                                   -- ONCE, MONTH, YEAR
     months      int,
-    rate_pct    int,
+    rate_pct    numeric(5, 2),
     raw_text    text not null,
     evidence    text not null
 );

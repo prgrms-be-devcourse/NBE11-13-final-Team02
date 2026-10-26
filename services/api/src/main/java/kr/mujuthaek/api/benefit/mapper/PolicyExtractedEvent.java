@@ -7,6 +7,7 @@ import com.networknt.schema.SchemaRegistryConfig;
 import com.networknt.schema.SpecificationVersion;
 import java.io.IOException;
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -64,7 +65,7 @@ public record PolicyExtractedEvent(
       Integer amountMax,
       String amountPer,
       Integer months,
-      Integer ratePct,
+      BigDecimal ratePct,
       String rawText,
       String evidence) {}
 
@@ -132,7 +133,7 @@ public record PolicyExtractedEvent(
               integer(s.path("amountMax")),
               text(s.path("amountPer")),
               integer(s.path("months")),
-              integer(s.path("ratePct")),
+              decimal(s.path("ratePct")),
               s.path("rawText").asString(),
               s.path("evidence").asString()));
     }
@@ -193,6 +194,11 @@ public record PolicyExtractedEvent(
 
   private static Integer integer(JsonNode node) {
     return node.isInt() ? node.asInt() : null;
+  }
+
+  /** 지원 비율처럼 소수가 올 수 있는 숫자 (「연 3.5%」). */
+  private static BigDecimal decimal(JsonNode node) {
+    return node.isNumber() ? node.decimalValue() : null;
   }
 
   private static LocalDate date(JsonNode node) {

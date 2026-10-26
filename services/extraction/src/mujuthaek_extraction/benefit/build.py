@@ -298,6 +298,8 @@ def _support(item: dict[str, Any], sources: list[str]) -> tuple[dict[str, Any], 
     months = item.get("months") if item.get("months") is not None and has_number(quote, item["months"]) else None
     if evidence_ok and item.get("months") is not None and months is None and elsewhere:
         months = item["months"] if any(has_number(line, item["months"]) and "개월" in line for source in sources for line in source.splitlines()) else None
+    if months is not None and months < 1:  # 받는 쪽 계약은 1개월 이상만 받아요(0개월은 뜻 없는 값)
+        months = None
     rate = item.get("ratePct") if item.get("ratePct") is not None and has_number(quote, item["ratePct"]) else None
     return (
         {

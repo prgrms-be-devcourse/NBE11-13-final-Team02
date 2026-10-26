@@ -259,7 +259,7 @@ public class BenefitRepository {
                           (Integer) rs.getObject("amount_max"),
                           rs.getString("amount_per"),
                           (Integer) rs.getObject("months"),
-                          (Integer) rs.getObject("rate_pct"),
+                          rs.getBigDecimal("rate_pct"),
                           rs.getString("raw_text"),
                           rs.getString("evidence")));
             });

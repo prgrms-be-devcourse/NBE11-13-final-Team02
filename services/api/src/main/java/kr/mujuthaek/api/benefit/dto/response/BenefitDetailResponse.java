@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.benefit.dto.response;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -55,7 +56,7 @@ public record BenefitDetailResponse(
       Long amountMaxWon,
       String amountPer,
       Integer months,
-      Integer ratePct,
+      BigDecimal ratePct,
       String rawText,
       String evidence) {}
 
