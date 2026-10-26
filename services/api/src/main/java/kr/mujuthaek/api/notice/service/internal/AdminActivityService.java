@@ -3,7 +3,6 @@ package kr.mujuthaek.api.notice.service.internal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -57,7 +56,7 @@ public class AdminActivityService {
       for (JsonNode x : extraction.activity(d).path("items")) {
         items.add(
             new Item(
-                OffsetDateTime.parse(x.path("at").asString()),
+                AdminReviewService.time(x.path("at")),
                 "BENEFIT".equals(x.path("kind").asString()) ? "BENEFIT_REVIEW" : "NOTICE_REVIEW",
                 x.path("action").asString(),
                 text(x, "title"),

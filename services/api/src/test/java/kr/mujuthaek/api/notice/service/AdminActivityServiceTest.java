@@ -77,7 +77,7 @@ class AdminActivityServiceTest {
                         + "\"action\":\"EDITED_APPROVED\",\"at\":\"2026-10-26T10:00:00Z\","
                         + "\"by\":\"admin-2\",\"note\":null},"
                         + "{\"kind\":\"BENEFIT\",\"id\":\"rv-1\",\"title\":\"청년 월세\","
-                        + "\"action\":\"REJECTED\",\"at\":\"2026-10-25T10:00:00Z\","
+                        + "\"action\":\"REJECTED\",\"at\":\"2026-10-25 10:00:00.473631+00:00\","
                         + "\"by\":\"admin-1\",\"note\":\"서비스 대상 아님\"}]}"));
     UUID r1 = UUID.randomUUID();
     UUID r2 = UUID.randomUUID();
