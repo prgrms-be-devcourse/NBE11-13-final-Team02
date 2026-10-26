@@ -15,7 +15,7 @@ public final class TestDatabase {
   private static final DockerImageName POSTGIS =
       DockerImageName.parse("postgis/postgis:17-3.5").asCompatibleSubstituteFor("postgres");
   private static final String[] SCHEMAS = {
-    "common", "notice", "benefit", "eligibility", "area", "account", "notification"
+    "common", "notice", "benefit", "eligibility", "area", "account", "notification", "traffic"
   };
 
   private static PGSimpleDataSource dataSource;
