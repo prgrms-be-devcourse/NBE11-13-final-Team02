@@ -24,6 +24,11 @@ class NoticeUnitsApiTest {
 
   /** 예시의 201호를 202호·203호로 늘린 공고 (203호는 다른 건물). ID·참조는 계약에 맞게 새로 써요. */
   private UUID threeUnits() {
+    return threeUnits("203");
+  }
+
+  /** otherBuilding 호만 B동이에요. */
+  private UUID threeUnits(String otherBuilding) {
     return f.notice(
         p -> {
           ObjectNode detail = (ObjectNode) p.get("notice");
@@ -36,7 +41,7 @@ class NoticeUnitsApiTest {
           ObjectNode first = (ObjectNode) groups.get(0);
           for (String unit : List.of("202", "203")) {
             String id = "unit-" + unit;
-            String location = unit.equals("203") ? "building-b" : "building-a";
+            String location = unit.equals(otherBuilding) ? "building-b" : "building-a";
             ObjectNode copy = first.deepCopy();
             copy.put("id", id);
             copy.put("unitLabel", unit + "호");
@@ -69,7 +74,29 @@ class NoticeUnitsApiTest {
         .andExpect(jsonPath("$.items[0].floor").value("2층"))
         .andExpect(jsonPath("$.items[0].houseType").value("20A"))
         .andExpect(jsonPath("$.items[0].depositWon").value(1000000))
-        .andExpect(jsonPath("$.items[0].rentWon").value(100000));
+        .andExpect(jsonPath("$.items[0].rentWon").value(100000))
+        .andExpect(jsonPath("$.items[0].prices.length()").value(1))
+        .andExpect(jsonPath("$.items[0].prices[0].depositWon").value(1000000))
+        .andExpect(jsonPath("$.items[0].prices[0].rentWon").value(100000));
+  }
+
+  @Test
+  void groupsUnitsBySiteAndNamesTheSite() throws Exception {
+    UUID id = threeUnits("202"); // 원문 순서는 A동 201 · B동 202 · A동 203
+
+    var body =
+        mvc.perform(get("/api/v1/notices/{id}/units", id))
+            .andExpect(status().isOk())
+            .andReturn()
+            .getResponse()
+            .getContentAsString();
+
+    List<String> sites = JsonPath.read(body, "$.items[*].siteId");
+    assertThat(sites).containsExactly("building-a", "building-a", "building-b");
+    assertThat(JsonPath.<List<String>>read(body, "$.items[*].unitLabel"))
+        .containsExactly("201호", "203호", "202호");
+    List<String> names = JsonPath.read(body, "$.items[*].siteName");
+    assertThat(names.get(2)).isEqualTo("가상건물 B동");
   }
 
   @Test

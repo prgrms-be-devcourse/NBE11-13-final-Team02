@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -212,7 +213,7 @@ public final class NoticeDetailMapper {
               cite(evidence, d.path("evidenceIds"))));
     }
     out.sort(
-        java.util.Comparator.comparingInt(
+        Comparator.comparingInt(
             d -> {
               int order = d.group() == null ? -1 : DOCUMENT_GROUPS.indexOf(d.group());
               return order < 0 ? DOCUMENT_GROUPS.size() : order;
@@ -568,6 +569,7 @@ public final class NoticeDetailMapper {
    */
   public static List<NoticeUnitResponse> units(JsonNode detail, String siteId) {
     Map<String, Evidence> evidence = evidence(detail);
+    Map<String, String> siteNames = siteNames(detail);
     Map<String, String> addresses = new LinkedHashMap<>();
     JsonNode locations = detail.path("locations");
     for (int i = 0; i < locations.size(); i++) {
@@ -592,7 +594,15 @@ public final class NoticeDetailMapper {
       }
       Map<String, PriceTier> tiers = new LinkedHashMap<>();
       collectPrices(detail, at, g, tiers);
-      // 호 하나는 가격 대상이 하나라고 보고 첫 가격 대상을 써요
+      List<NoticeUnitResponse.Price> prices = new ArrayList<>();
+      for (PriceTier t : tiers.values()) {
+        prices.add(
+            new NoticeUnitResponse.Price(
+                t.targets,
+                t.depositHeld ? null : amount(t.deposit),
+                t.rentHeld ? null : amount(t.rent)));
+      }
+      // depositWon·rentWon은 첫 가격 대상 (예전 응답과 같아요)
       PriceTier t = tiers.isEmpty() ? new PriceTier(List.of()) : tiers.values().iterator().next();
       JsonNode deposit = t.depositHeld ? null : t.deposit;
       JsonNode rent = t.rentHeld ? null : t.rent;
@@ -600,6 +610,7 @@ public final class NoticeDetailMapper {
           new NoticeUnitResponse(
               text(g.path("id")),
               location,
+              siteNames.get(location),
               addresses.get(location),
               text(g.path("unitLabel")),
               text(g.path("floor")),
@@ -607,8 +618,17 @@ public final class NoticeDetailMapper {
               decimal(g.path("exclusiveAreaSqm")),
               amount(deposit),
               amount(rent),
+              prices,
               priceEvidence(evidence, deposit, rent)));
     }
+    // 단지별로 이어서 보이게 위치 순서로 (같은 단지 안은 원문 순서)
+    List<String> order = new ArrayList<>(addresses.keySet());
+    out.sort(
+        Comparator.comparingInt(
+            u ->
+                u.siteId() == null || !order.contains(u.siteId())
+                    ? order.size()
+                    : order.indexOf(u.siteId())));
     return out;
   }
 
