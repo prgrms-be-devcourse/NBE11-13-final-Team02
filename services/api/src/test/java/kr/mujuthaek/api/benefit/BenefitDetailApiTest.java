@@ -9,6 +9,7 @@ import kr.mujuthaek.api.common.exception.GlobalExceptionHandlerAccess;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import tools.jackson.databind.node.ObjectNode;
 
 class BenefitDetailApiTest {
 
@@ -36,6 +37,16 @@ class BenefitDetailApiTest {
         .andExpect(jsonPath("$.conditions[0].rawText").value("지원 대상 연령 18~49세"))
         .andExpect(jsonPath("$.howToApply").value("제출서류를 지참해 무주군청 인구활력과 방문 신청"))
         .andExpect(jsonPath("$.sources[0].sourceCode").value("youth"));
+  }
+
+  @Test
+  void 지원_비율은_소수도_그대로_준다() throws Exception {
+    // 「연 3.5% 이자 지원」: 정수로 바꾸면 3·4로 틀린 값이 돼요
+    UUID id = f.benefit(p -> ((ObjectNode) p.path("supports").get(0)).put("ratePct", 3.5));
+
+    mvc.perform(get("/api/v1/benefits/{id}", id))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.supports[0].ratePct").value(3.5));
   }
 
   @Test

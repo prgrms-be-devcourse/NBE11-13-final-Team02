@@ -95,6 +95,9 @@ class Settings:
     call_cache_days: int = 90  # 저장 응답 보관 일수 (EXTRACTION_CALL_CACHE_DAYS)
     parallel_calls: int = 4  # 구조 호출 뒤 동시에 보낼 섹션 호출 수 (EXTRACTION_PARALLEL_CALLS, 1이면 하나씩)
     parallel_stagger_seconds: float = 1.5  # 병렬 섹션 호출을 내보내는 간격 (EXTRACTION_PARALLEL_STAGGER_SECONDS, 0이면 한꺼번에)
+    # 주거·이주 혜택(BENEFIT) 정제를 켤지 (EXTRACTION_BENEFIT_ENABLED). 2026-10-25 추가. 켜면 쌓인 정책(로컬 온통청년만 3천여 건)이
+    # 유료 AI를 타므로 배포 때 사람이 켭니다. 꺼져 있으면 이전처럼 BENEFIT 이벤트를 받고 넘깁니다
+    benefit_enabled: bool = False
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -146,6 +149,7 @@ class Settings:
             call_cache_days=int(os.getenv("EXTRACTION_CALL_CACHE_DAYS", "90")),
             parallel_calls=max(1, int(os.getenv("EXTRACTION_PARALLEL_CALLS", "4"))),
             parallel_stagger_seconds=max(0.0, float(os.getenv("EXTRACTION_PARALLEL_STAGGER_SECONDS", "1.5"))),
+            benefit_enabled=os.getenv("EXTRACTION_BENEFIT_ENABLED", "false").lower() == "true",
         )
 
     def openai_api_key(self) -> str | None:

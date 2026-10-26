@@ -51,6 +51,57 @@ def _judgment_keys(raw_event: dict[str, Any], *, with_version: bool) -> list[str
     return keys
 
 
+def _claim_judgment(cur, raw_event: dict[str, Any]) -> bool:
+    """정책 수집 이벤트의 처리 기록을 남깁니다. 같은 수집 이벤트를 이미 처리했으면 False(판정 틀·혜택 정제 공통)."""
+    keys = _judgment_keys(raw_event, with_version=False)
+    if keys:
+        claimed = cur.execute(
+            "insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing returning event_id",
+            (keys[0], "startup-judgment"),
+        ).fetchone()
+        if claimed is None:
+            return False
+    for key in _judgment_keys(raw_event, with_version=True)[len(keys) :]:  # 정책·버전 기록(재처리로 다시 와도 오류 없이)
+        cur.execute("insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing", (key, "startup-judgment"))
+    return True
+
+
+def _insert_benefit_result(cur, event: dict[str, Any], origin: str, source_payload: Any) -> str:
+    payload = event["payload"]
+    result_id = str(uuid7())
+    cur.execute(
+        "insert into benefit_results (id, raw_policy_id, raw_version, source_code, policy_id, title, event_id, payload, source_payload, origin)"
+        " values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (
+            result_id,
+            payload["rawPolicyId"],
+            payload["version"],
+            payload["sourceCode"],
+            payload["policyId"],
+            payload["source"]["title"],
+            event["eventId"],
+            Jsonb(payload),
+            Jsonb(source_payload) if isinstance(source_payload, dict) else None,
+            origin,
+        ),
+    )
+    return result_id
+
+
+def _open_benefit_review(cur, result_id: str, payload: dict[str, Any], reasons: list[str], opened_by: str | None, note: str | None) -> str:
+    """같은 정책의 앞선 대기 건을 대체(SUPERSEDED)하고 새 대기 건을 엽니다."""
+    cur.execute(
+        "update benefit_reviews set status = 'SUPERSEDED', decided_at = now() where raw_policy_id = %s and status = 'PENDING'",
+        (payload["rawPolicyId"],),
+    )
+    review_id = str(uuid7())
+    cur.execute(
+        "insert into benefit_reviews (id, result_id, raw_policy_id, raw_version, reasons, opened_by, note) values (%s, %s, %s, %s, %s, %s, %s)",
+        (review_id, result_id, payload["rawPolicyId"], payload["version"], Jsonb(reasons), opened_by, note),
+    )
+    return review_id
+
+
 class DuplicateEvent(Exception):
     """같은 이벤트를 다른 처리가 이미 끝냈습니다. 아무것도 저장하지 않았습니다."""
 
@@ -224,18 +275,116 @@ class JobStore:
         """정책 판정 틀 이벤트를 아웃박스에 넣습니다(AI 작업이 아니라 작업 기록은 없음). 같은 수집 이벤트로 이미 넣었으면 False.
         처리 기록은 수집 eventId에서 만든 별도 ID로 남겨, 같은 수집 이벤트를 정책 추출이 따로 처리하는 것과 겹치지 않게 합니다."""
         with self.conn.transaction(), self.conn.cursor() as cur:
-            keys = _judgment_keys(raw_event, with_version=False)
-            if keys:
-                claimed = cur.execute(
-                    "insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing returning event_id",
-                    (keys[0], "startup-judgment"),
-                ).fetchone()
-                if claimed is None:
-                    return False
-            for key in _judgment_keys(raw_event, with_version=True)[len(keys) :]:  # 정책·버전 기록(재처리로 다시 와도 오류 없이)
-                cur.execute("insert into processed_events (event_id, event_type) values (%s, %s) on conflict do nothing", (key, "startup-judgment"))
+            if not _claim_judgment(cur, raw_event):
+                return False
             outbox.add(cur, event)
         return True
+
+    # ---- 혜택 정제 결과·검수 (2026-10-25, migrations/V202610251700__extraction_benefit_results_reviews.sql) ----
+    def save_benefit(self, raw_event: dict[str, Any], event: dict[str, Any]) -> bool:
+        """policy.extracted를 아웃박스에 넣고 결과를 쌓습니다. 확인 필요(needsReview)면 검수 대기로 올리고, 같은 정책의 앞선 대기 건은 대체합니다.
+        같은 수집 이벤트로 이미 넣었으면 False(판정 틀과 같은 처리 기록 규칙)."""
+        payload = event["payload"]
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            if not _claim_judgment(cur, raw_event):
+                return False
+            _lock_notice(cur, payload["rawPolicyId"])
+            outbox.add(cur, event)
+            result_id = _insert_benefit_result(cur, event, "EXTRACTED", raw_event.get("payload"))
+            if payload["quality"]["needsReview"]:
+                _open_benefit_review(cur, result_id, payload, list(payload["quality"]["reviewReasons"]), None, None)
+            else:  # 새 결과가 검수 없이 나갔으면 같은 정책의 앞선 대기 건은 쓸모가 없음
+                cur.execute(
+                    "update benefit_reviews set status = 'SUPERSEDED', decided_at = now() where raw_policy_id = %s and status = 'PENDING'",
+                    (payload["rawPolicyId"],),
+                )
+        return True
+
+    def benefit_reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
+        """혜택 검수 목록(오래된 것부터). applyEndsOn은 결과의 신청 마감일, reported는 정책 제보로 다시 연 건인지."""
+        rows = self.conn.execute(
+            "select v.id, v.raw_policy_id, v.raw_version, r.source_code, r.policy_id, r.title, v.status, v.reasons, v.created_at, v.decided_at,"
+            " r.payload->'schedule'->>'applyEnd', (r.payload->>'relevant')::boolean, v.opened_by is not null"
+            " from benefit_reviews v join benefit_results r on r.id = v.result_id where v.status = %s order by v.created_at limit %s",
+            (status, limit),
+        ).fetchall()
+        keys = ("reviewId", "rawPolicyId", "rawVersion", "sourceCode", "policyId", "title", "reviewStatus", "reasons", "queuedAt", "decidedAt")
+        keys += ("applyEndsOn", "relevant", "reported")
+        return [{k: (str(v) if k in ("reviewId", "rawPolicyId") else v) for k, v in zip(keys, row, strict=True)} for row in rows]
+
+    def benefit_review(self, review_id: str) -> dict[str, Any] | None:
+        """혜택 검수 상세: 결과 payload(조건·지원·일정·근거)와 받은 원본 payload(원문, 다시 발행한 결과면 그 정책의 가장 새 원본)."""
+        row = self.conn.execute(
+            "select v.id, v.raw_policy_id, v.raw_version, v.status, v.reasons, v.note, v.opened_by, v.created_at, v.decided_at, v.decided_by, v.edits,"
+            " r.payload, coalesce(r.source_payload, (select o.source_payload from benefit_results o where o.raw_policy_id = r.raw_policy_id"
+            " and o.source_payload is not null order by o.created_at desc limit 1)), r.event_id"
+            " from benefit_reviews v join benefit_results r on r.id = v.result_id where v.id = %s",
+            (review_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        keys = ("reviewId", "rawPolicyId", "rawVersion", "reviewStatus", "reasons", "note", "openedBy", "queuedAt", "decidedAt", "decidedBy", "edits")
+        keys += ("payload", "source", "eventId")
+        item = dict(zip(keys, row, strict=True))
+        for key in ("reviewId", "rawPolicyId", "eventId"):
+            item[key] = str(item[key])
+        return item
+
+    def decide_benefit(
+        self,
+        review_id: str,
+        decision: str,
+        event: dict[str, Any],
+        note: str | None,
+        reviewer: str | None,
+        edits: list[dict[str, Any]] | None = None,
+    ) -> None:
+        """대기 중인 혜택 검수를 승인(APPROVED)·반려(REJECTED)하고 고친 결과 이벤트를 발행합니다. 대기 건이 아니거나
+        더 새 버전 결과가 이미 나갔으면 LookupError(트랜잭션째 되돌림)."""
+        payload = event["payload"]
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            _lock_notice(cur, payload["rawPolicyId"])
+            row = cur.execute("select raw_policy_id, raw_version, status from benefit_reviews where id = %s for update", (review_id,)).fetchone()
+            if row is None or row[2] != "PENDING":
+                raise LookupError(f"대기 중인 검수가 아닙니다({row[2] if row else '없음'}).")
+            newer = cur.execute("select 1 from benefit_results where raw_policy_id = %s and raw_version > %s limit 1", (str(row[0]), row[1])).fetchone()
+            if newer:
+                raise LookupError(f"더 새 버전 결과가 이미 나가 v{row[1]} 검수는 처리할 수 없습니다.")
+            outbox.add(cur, event)
+            result_id = _insert_benefit_result(cur, event, decision, None)
+            cur.execute(
+                "update benefit_reviews set status = %s, note = %s, decided_at = now(), decided_by = %s, edits = %s, published_result_id = %s where id = %s",
+                (decision, note, reviewer, Jsonb(edits) if edits is not None else None, result_id, review_id),
+            )
+
+    def reopen_benefit(self, raw_policy_id: str, reviewer: str | None, note: str | None) -> dict[str, Any] | None:
+        """그 정책의 가장 새 결과를 검수 대기로 다시 엽니다(정책 제보로 값을 고칠 때). 이미 대기 건이 있으면 그것을 돌려줍니다.
+        결과가 없으면 None."""
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            _lock_notice(cur, raw_policy_id)
+            pending = cur.execute("select id from benefit_reviews where raw_policy_id = %s and status = 'PENDING'", (raw_policy_id,)).fetchone()
+            if pending:
+                return {"reviewId": str(pending[0]), "reopened": False}
+            latest = cur.execute(
+                "select id, payload from benefit_results where raw_policy_id = %s order by created_at desc limit 1", (raw_policy_id,)
+            ).fetchone()
+            if latest is None:
+                return None
+            reasons = list(dict.fromkeys([*latest[1]["quality"].get("reviewReasons", []), "REPORTED"]))
+            review_id = _open_benefit_review(cur, str(latest[0]), latest[1], reasons, reviewer, note)
+        return {"reviewId": review_id, "reopened": True}
+
+    def benefit(self, raw_policy_id: str) -> dict[str, Any] | None:
+        """그 정책의 가장 새 결과 요약(정책 제보가 들어온 정책이 있는지 볼 때). 없으면 None."""
+        row = self.conn.execute(
+            "select raw_policy_id, raw_version, source_code, policy_id, title, (payload->>'relevant')::boolean, payload->>'field'"
+            " from benefit_results where raw_policy_id = %s order by created_at desc limit 1",
+            (raw_policy_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        keys = ("rawPolicyId", "rawVersion", "sourceCode", "policyId", "title", "relevant", "field")
+        return {k: (str(v) if k == "rawPolicyId" else v) for k, v in zip(keys, row, strict=True)}
 
     # ---- 원본 버전 처리권 (migrations/V202610201200__extraction_claims.sql) ----
     def claim(self, raw_post_id: str, raw_version: int, owner: str, lease_seconds: float) -> bool:

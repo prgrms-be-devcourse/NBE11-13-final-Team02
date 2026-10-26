@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.benefit.service;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -38,7 +39,7 @@ public record BenefitForJudgment(
       Long amountMaxWon,
       String amountPer,
       Integer months,
-      Integer ratePct,
+      BigDecimal ratePct,
       String rawText) {}
 
   /**

@@ -14,6 +14,16 @@
   GET  /reviews/stats?days=7         처리 통계(최근 days일·오늘): 그대로 승인·고쳐서 승인·반려 수, 처리까지 걸린 시간 중앙값(분)
   GET  /costs?month=2026-10          분야별 유료 AI 호출 수·비용과 월 상한 대비 비율(한국 시간 달, month 없으면 이번 달, cost_alert.py)
 
+혜택(주거·이주 정책) 검수 (2026-10-25): 확인 필요(needsReview) 정제 결과와 정책 제보로 다시 연 결과. 결과는 이미 발행돼 있고
+(policy.extracted, quality.needsReview=true), 처리하면 고친 결과를 reprocess=true(알림 없음)로 다시 발행합니다.
+  GET  /benefit-reviews?status=PENDING          목록 (PENDING·APPROVED·REJECTED·SUPERSEDED)
+  GET  /benefit-reviews/{reviewId}              상세 (payload: 정제 결과, source: 받은 원본 payload)
+  POST /benefit-reviews/{reviewId}/approve      승인 → 확인 필요를 풀어 다시 발행. 본문(선택): {"edits": [{"path": "/conditions/0/value", "value": …}],
+                                                "note": "메모", "reviewer": "검수자"}. 원본·버전·출처·품질 칸은 못 바꿉니다
+  POST /benefit-reviews/{reviewId}/reject       반려 → relevant=false(서비스에 안 보임)로 다시 발행. 본문(선택): {"note", "reviewer"}
+  POST /benefit-reviews/reopen                  정책 제보로 그 정책의 가장 새 결과를 검수 대기로 다시 열기 {"rawPolicyId", "reviewer", "note"}
+  GET  /benefits/{rawPolicyId}                  그 정책의 가장 새 결과 요약(제보 받을 정책이 있는지 볼 때)
+
 인증(검토 2026-10-16): EXTRACTION_REVIEW_TOKEN이 있으면 /health 밖의 모든 요청에 'Authorization: Bearer <토큰>'이 필요합니다.
 토큰이 없으면 같은 컴퓨터(127.0.0.1·::1)에서 온 요청만 받습니다 — Docker처럼 0.0.0.0에 열어도 밖에서는 못 씁니다.
 승인할 후보는 그 작업의 원본·버전·분야와 같아야 합니다(다른 공고의 결과를 발행하지 못하게).
@@ -43,6 +53,11 @@ log = logging.getLogger(__name__)
 CANDIDATE_SCHEMA = "schemas/extracted-notice.v1.json"
 EVENT_SCHEMA = "events/extraction.completed.v1.json"
 REVIEW_PATH = re.compile(r"^/reviews/([0-9a-fA-F-]{36})(?:/(approve|reject))?$")
+BENEFIT_REVIEW_PATH = re.compile(r"^/benefit-reviews/([0-9a-fA-F-]{36})(?:/(approve|reject))?$")
+BENEFIT_PATH = re.compile(r"^/benefits/([0-9a-fA-F-]{36})$")
+BENEFIT_EVENT_SCHEMA = "events/policy.extracted.v1.json"
+# 혜택 칸별 수정으로 바꾸지 못하는 칸: 어느 정책·버전인지와 출처 기본 칸, 품질 기록(검수 결과는 코드가 정함)
+BENEFIT_LOCKED_ROOTS = frozenset({"rawPolicyId", "version", "sourceCode", "provider", "policyId", "field", "reprocess", "source", "quality"})
 MAX_BODY = 5 * 1024 * 1024
 LOOPBACK = {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
 MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
@@ -59,9 +74,9 @@ def _pointer_tokens(path: str) -> list[str] | None:
     return [token.replace("~1", "/").replace("~0", "~") for token in path[1:].split("/")]
 
 
-def apply_edits(candidate: dict[str, Any], edits: Any) -> tuple[list[dict[str, Any]] | None, str | None]:
+def apply_edits(candidate: dict[str, Any], edits: Any, locked: frozenset[str] = LOCKED_ROOTS) -> tuple[list[dict[str, Any]] | None, str | None]:
     """칸별 수정을 후보에 적용합니다(candidate를 바꿈). 있는 칸의 값만 바꾸고, 바꾼 기록 [{path, before, after}]을 돌려줍니다.
-    잘못된 수정이면 (None, 이유)."""
+    locked는 고칠 수 없는 맨 위 칸(공고 후보 기본, 혜택은 BENEFIT_LOCKED_ROOTS). 잘못된 수정이면 (None, 이유)."""
     if not isinstance(edits, list) or not edits:
         return None, "edits는 한 개 이상의 수정 목록이어야 합니다."
     if len(edits) > MAX_EDITS:
@@ -73,7 +88,7 @@ def apply_edits(candidate: dict[str, Any], edits: Any) -> tuple[list[dict[str, A
         tokens = _pointer_tokens(edit["path"])
         if tokens is None:
             return None, f"{edit['path']!r}는 JSON Pointer가 아닙니다."
-        if tokens[0] in LOCKED_ROOTS:
+        if tokens[0] in locked:
             return None, f"{edit['path']}는 고칠 수 없는 칸입니다(원본·버전·검증 기록)."
         parent: Any = candidate
         for token in tokens[:-1]:
@@ -224,6 +239,69 @@ class ReviewService:
         log.info("검수 반려", extra={"jobId": job_id})
         return 200, {"jobId": job_id, "reviewStatus": "REJECTED"}
 
+    # ---- 혜택 검수 (2026-10-25) ----
+    def benefit_list(self, status: str) -> tuple[int, Any]:
+        if status not in REVIEW_LIST_STATUSES:
+            return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
+        with self.store_session() as store:
+            return 200, {"items": store.benefit_reviews(status)}
+
+    def benefit_detail(self, review_id: str) -> tuple[int, Any]:
+        with self.store_session() as store:
+            item = store.benefit_review(review_id)
+        return (200, item) if item else (404, {"error": "혜택 검수 항목이 없습니다."})
+
+    def benefit_summary(self, raw_policy_id: str) -> tuple[int, Any]:
+        with self.store_session() as store:
+            item = store.benefit(raw_policy_id)
+        return (200, item) if item else (404, {"error": "그 정책의 정제 결과가 없습니다."})
+
+    def benefit_reopen(self, body: dict[str, Any]) -> tuple[int, Any]:
+        try:
+            raw_policy_id = str(uuid.UUID(str(body.get("rawPolicyId"))))
+        except ValueError:
+            return 400, {"error": "rawPolicyId는 UUID여야 합니다."}
+        with self.store_session() as store:
+            opened = store.reopen_benefit(raw_policy_id, body.get("reviewer"), body.get("note"))
+        if opened is None:
+            return 404, {"error": "그 정책의 정제 결과가 없습니다."}
+        log.info("혜택 검수 다시 열기", extra={"reviewId": opened["reviewId"], "reopened": opened["reopened"]})
+        return 200, opened
+
+    def benefit_decide(self, review_id: str, decision: str, body: dict[str, Any]) -> tuple[int, Any]:
+        """승인(APPROVED): 칸별 수정을 적용하고 확인 필요를 풀어 다시 발행. 반려(REJECTED): relevant=false로 다시 발행(서비스에 안 보임).
+        둘 다 reprocess=true라 사용자 알림을 보내지 않습니다."""
+        with self.store_session() as store:
+            item = store.benefit_review(review_id)
+            if item is None:
+                return 404, {"error": "혜택 검수 항목이 없습니다."}
+            if item["reviewStatus"] != "PENDING":
+                return 409, {"error": f"이미 {item['reviewStatus']} 처리된 항목입니다."}
+            payload = copy.deepcopy(item["payload"])
+            edits = None
+            if decision == "APPROVED" and body.get("edits") is not None:
+                edits, problem = apply_edits(payload, body["edits"], BENEFIT_LOCKED_ROOTS)
+                if problem:
+                    return 422, {"error": problem}
+            if decision == "REJECTED":
+                note = (body.get("note") or "").strip()
+                payload["relevant"] = False
+                payload["relevanceReason"] = f"관리자 반려: {note}" if note else "관리자 반려"
+            payload["reprocess"] = True
+            quality = payload["quality"]
+            quality["needsReview"] = False
+            quality["reviewReasons"] = [r for r in quality.get("reviewReasons", []) if r == "NO_DOCUMENT"]  # 사람이 확인함
+            event = self.new_event("policy.extracted", "extraction", payload)
+            errors = tools().validate(event, BENEFIT_EVENT_SCHEMA)
+            if errors:
+                return 422, {"error": "발행할 이벤트가 계약과 맞지 않습니다.", "details": errors[:20]}
+            try:
+                store.decide_benefit(review_id, decision, event, body.get("note"), body.get("reviewer"), edits)
+            except LookupError as error:
+                return 409, {"error": str(error)}
+        log.info("혜택 검수 처리", extra={"reviewId": review_id, "decision": decision, "eventId": event["eventId"]})
+        return 200, {"reviewId": review_id, "eventId": event["eventId"], "reviewStatus": decision}
+
 
 def handler_for(service: ReviewService, token: str | None = None, health: Any = None) -> type[BaseHTTPRequestHandler]:
     """검수 서비스·토큰·생존 신호를 묶은 HTTP 요청 처리 클래스를 만들어 돌려줍니다."""
@@ -285,20 +363,40 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
                 return self._send(*service.stats(parse_qs(url.query).get("days", [None])[0]))
             if url.path == "/costs":
                 return self._send(*service.costs(parse_qs(url.query).get("month", [None])[0]))
+            if url.path == "/benefit-reviews":
+                return self._send(*service.benefit_list(parse_qs(url.query).get("status", ["PENDING"])[0]))
             match = REVIEW_PATH.match(url.path)
             if match and not match[2]:
                 job_id = self._job_id(match)
                 return self._send(*service.detail(job_id)) if job_id else self._send(400, {"error": "작업 ID 형식이 아닙니다."})
+            match = BENEFIT_REVIEW_PATH.match(url.path)
+            if match and not match[2]:
+                review_id = self._job_id(match)
+                return self._send(*service.benefit_detail(review_id)) if review_id else self._send(400, {"error": "검수 ID 형식이 아닙니다."})
+            match = BENEFIT_PATH.match(url.path)
+            if match:
+                policy_id = self._job_id(match)
+                return self._send(*service.benefit_summary(policy_id)) if policy_id else self._send(400, {"error": "정책 ID 형식이 아닙니다."})
             self._send(404, {"error": "없는 주소입니다."})
 
         def do_POST(self) -> None:  # noqa: N802
             if not self._allowed():
                 return self._send(401, {"error": "인증이 필요합니다."})
-            if urlparse(self.path).path == "/reviews/reopen":
+            if urlparse(self.path).path in ("/reviews/reopen", "/benefit-reviews/reopen"):
                 body = self._body()
                 if body is None:
                     return self._send(400, {"error": "본문은 5MB 이하의 JSON 객체여야 하고, note·reviewer는 글자여야 합니다."})
-                return self._send(*service.reopen(body))
+                reopen = service.reopen if urlparse(self.path).path == "/reviews/reopen" else service.benefit_reopen
+                return self._send(*reopen(body))
+            benefit = BENEFIT_REVIEW_PATH.match(urlparse(self.path).path)
+            if benefit and benefit[2]:
+                review_id = self._job_id(benefit)
+                if review_id is None:
+                    return self._send(400, {"error": "검수 ID 형식이 아닙니다."})
+                body = self._body()
+                if body is None:
+                    return self._send(400, {"error": "본문은 5MB 이하의 JSON 객체여야 하고, note·reviewer는 글자여야 합니다."})
+                return self._send(*service.benefit_decide(review_id, "APPROVED" if benefit[2] == "approve" else "REJECTED", body))
             match = REVIEW_PATH.match(urlparse(self.path).path)
             if not match or not match[2]:
                 return self._send(404, {"error": "없는 주소입니다."})

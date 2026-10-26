@@ -622,3 +622,88 @@ def test_published_result_can_be_reopened_for_review_and_fixed_again(store):
     assert status == 200, body
     assert count(store, "select count(*) from outbox where payload->'payload'->>'reviewStatus' = 'APPROVED'") == 2
     assert store.review(job_id)["candidate"]["eligibility"][0]["description"] == "제보로 고친 설명"
+
+
+def benefit_event(policy, version, *, needs_review, title="가상 청년 월세"):
+    """혜택 정제 결과 이벤트(policy.extracted). needs_review면 근거가 원문에 없는 조건을 넣어 확인 필요로 만듭니다."""
+    from test_benefit import REGIONS, answer, condition, payload
+
+    from mujuthaek_extraction.benefit.build import build_payload
+    from mujuthaek_extraction.benefit.codes import rules_for
+    from mujuthaek_extraction.benefit.reading import BenefitReading
+
+    conditions = [condition("HOMELESS", "원문에 없는 문장입니다", basis="PERSON")] if needs_review else []
+    data = payload(rawPolicyId=policy, version=version, title=title)
+    built = build_payload(data, BenefitReading(answer(conditions), False, "recorded"), rules_for("youth", data["record"], data["text"]), REGIONS)
+    raw = {"eventId": str(uuid.uuid4()), "payload": data}
+    return raw, {**new_event("policy.extracted", "extraction", built), "eventId": str(uuid.uuid4())}
+
+
+def benefit_service(store):
+    from contextlib import contextmanager
+
+    @contextmanager
+    def session():
+        yield store
+
+    return ReviewService(session, lambda kind, producer, body: {**new_event(kind, producer, body), "eventId": str(uuid.uuid4())})
+
+
+def test_benefit_needing_review_is_saved_listed_and_approved_with_edits(store):
+    policy = str(uuid.uuid4())
+    raw, event = benefit_event(policy, 1, needs_review=True)
+    assert event["payload"]["quality"]["needsReview"] is True
+    assert store.save_benefit(raw, event) and not store.save_benefit(raw, event)
+    assert count(store, "select count(*) from outbox") == 1 and count(store, "select count(*) from benefit_results") == 1
+    [item] = store.benefit_reviews()
+    assert (item["rawPolicyId"], item["title"], item["reasons"]) == (policy, "가상 청년 월세", ["EVIDENCE_NOT_FOUND", "NO_DOCUMENT"])
+    detail = store.benefit_review(item["reviewId"])
+    assert detail["source"]["text"].startswith("제목: 가상 청년") and detail["payload"]["rawPolicyId"] == policy
+
+    service = benefit_service(store)
+    status, body = service.benefit_decide(item["reviewId"], "APPROVED", {"edits": [{"path": "/summary", "value": "고친 요약"}], "reviewer": "admin-1"})
+    assert status == 200, body
+    published = store.conn.execute("select payload->'payload' from outbox order by created_at desc limit 1").fetchone()[0]
+    assert published["summary"] == "고친 요약" and published["reprocess"] is True
+    assert published["quality"]["needsReview"] is False and published["quality"]["reviewReasons"] == ["NO_DOCUMENT"]
+    assert store.benefit_review(item["reviewId"])["edits"] == [{"path": "/summary", "before": event["payload"]["summary"], "after": "고친 요약"}]
+    assert service.benefit_decide(item["reviewId"], "APPROVED", {})[0] == 409
+    assert service.benefit_decide(str(uuid.uuid4()), "APPROVED", {})[0] == 404
+
+
+def test_benefit_edit_cannot_touch_the_source_or_quality(store):
+    raw, event = benefit_event(str(uuid.uuid4()), 1, needs_review=True)
+    store.save_benefit(raw, event)
+    [item] = store.benefit_reviews()
+    status, body = benefit_service(store).benefit_decide(item["reviewId"], "APPROVED", {"edits": [{"path": "/rawPolicyId", "value": "x"}]})
+    assert status == 422 and "고칠 수 없는" in body["error"]
+
+
+def test_reported_benefit_is_reopened_and_rejection_hides_it(store):
+    policy = str(uuid.uuid4())
+    raw, event = benefit_event(policy, 1, needs_review=False)
+    store.save_benefit(raw, event)
+    assert store.benefit_reviews() == [] and store.benefit(policy)["title"] == "가상 청년 월세"
+    service = benefit_service(store)
+    status, opened = service.benefit_reopen({"rawPolicyId": policy, "reviewer": "admin-1", "note": "정책 제보"})
+    assert status == 200 and opened["reopened"] is True
+    assert service.benefit_reopen({"rawPolicyId": policy})[1] == {"reviewId": opened["reviewId"], "reopened": False}
+    [item] = store.benefit_reviews()
+    assert item["reported"] is True and "REPORTED" in item["reasons"]
+    status, _ = service.benefit_decide(opened["reviewId"], "REJECTED", {"note": "주거 지원 아님", "reviewer": "admin-1"})
+    assert status == 200
+    assert store.benefit(policy)["relevant"] is False
+    published = store.conn.execute("select payload->'payload' from outbox order by created_at desc limit 1").fetchone()[0]
+    assert published["relevanceReason"] == "관리자 반려: 주거 지원 아님"
+    assert service.benefit_reopen({"rawPolicyId": str(uuid.uuid4())})[0] == 404
+
+
+def test_newer_benefit_version_supersedes_the_pending_review_and_blocks_old_approval(store):
+    policy = str(uuid.uuid4())
+    raw, event = benefit_event(policy, 1, needs_review=True)
+    store.save_benefit(raw, event)
+    [old] = store.benefit_reviews()
+    raw2, event2 = benefit_event(policy, 2, needs_review=False)
+    store.save_benefit(raw2, event2)
+    assert store.benefit_reviews() == [] and [r["reviewId"] for r in store.benefit_reviews("SUPERSEDED")] == [old["reviewId"]]
+    assert benefit_service(store).benefit_decide(old["reviewId"], "APPROVED", {})[0] == 409
