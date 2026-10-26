@@ -70,24 +70,10 @@ public final class CriterionJudge {
           case Income x -> income(x, a, referenceDate, benchmarks);
           case Asset x ->
               limit(
-                  x,
-                  "ASSET",
-                  "총자산",
-                  a.totalAssetsWon(),
-                  x.maxWon(),
-                  x.overrides(),
-                  a,
-                  "applicant.totalAssetsWon");
+                  x, "ASSET", "총자산", a.assets(), x.maxWon(), x.overrides(), a, "applicant.assets");
           case Car x ->
               limit(
-                  x,
-                  "CAR_VALUE",
-                  "자동차가액",
-                  a.carValueWon(),
-                  x.maxWon(),
-                  x.overrides(),
-                  a,
-                  "applicant.carValueWon");
+                  x, "CAR_VALUE", "자동차가액", a.car(), x.maxWon(), x.overrides(), a, "applicant.car");
           case Marriage x -> marriage(x, a, referenceDate);
           case Children x -> children(x, a);
           case Savings x -> savings(x, a, referenceDate);
@@ -105,15 +91,18 @@ public final class CriterionJudge {
 
   static Item age(Age c, Applicant a, LocalDate ref) {
     String label = "나이 · " + range("만 ", c.minAge(), c.maxAge(), "세");
-    if (a.birthDate() == null) {
+    if (a.birthMonth() == null) {
       return item(
-          c, "AGE", label, UNKNOWN, "생년월일을 넣으면 판정돼요", List.of("applicant.birthDate"), null, null);
+          c, "AGE", label, UNKNOWN, "출생 연월을 넣으면 판정돼요", List.of("applicant.birthMonth"), null, null);
     }
-    int age = Periods.age(a.birthDate(), ref);
-    boolean ok =
-        (c.minAge() == null || age >= c.minAge()) && (c.maxAge() == null || age <= c.maxAge());
-    return item(
-        c, "AGE", label, ok ? MET : NOT_MET, ok ? null : "나이 기준에 맞지 않아요", List.of(), null, null);
+    Status status = Bands.ageWithin(Bands.ages(a.birthMonth(), ref), c.minAge(), c.maxAge());
+    String reason =
+        switch (status) {
+          case MET -> null;
+          case NOT_MET -> "나이 기준에 맞지 않아요";
+          case UNKNOWN -> "생일이 지났는지에 따라 달라져요. 직접 확인해 주세요";
+        };
+    return item(c, "AGE", label, status, reason, List.of(), null, null);
   }
 
   static Item residence(Residence c, Applicant a) {
@@ -159,7 +148,7 @@ public final class CriterionJudge {
     if (Boolean.TRUE.equals(a.homeOwner())) {
       return item(c, "HOMELESS", label, NOT_MET, "집이 있으면 신청할 수 없어요", List.of(), null, null);
     }
-    if (a.homelessSince() == null) {
+    if (a.homelessYears() == null) {
       if (Boolean.FALSE.equals(a.homeOwner()) && c.minYears() == null) {
         return item(c, "HOMELESS", label, MET, null, List.of(), null, null);
       }
@@ -168,36 +157,48 @@ public final class CriterionJudge {
           "HOMELESS",
           label,
           UNKNOWN,
-          "무주택 시작 시점을 넣으면 판정돼요",
-          List.of("applicant.homelessSince"),
+          "무주택 기간을 넣으면 판정돼요",
+          List.of("applicant.homelessYears"),
           null,
           null);
     }
-    if (c.minYears() != null && Periods.fullYears(a.homelessSince(), ref) < c.minYears()) {
-      return item(c, "HOMELESS", label, NOT_MET, "무주택 기간이 모자라요", List.of(), null, null);
+    if (c.minYears() == null) {
+      return item(c, "HOMELESS", label, MET, null, List.of(), null, null);
     }
-    return item(c, "HOMELESS", label, MET, null, List.of(), null, null);
+    Status status = a.homelessYears().atLeast(c.minYears());
+    String reason =
+        switch (status) {
+          case MET -> null;
+          case NOT_MET -> "무주택 기간이 모자라요";
+          case UNKNOWN -> Bands.BOUNDARY;
+        };
+    return item(c, "HOMELESS", label, status, reason, List.of(), null, null);
   }
 
   static Item income(Income c, Applicant a) {
     return income(c, a, null, IncomeBenchmarks.NONE);
   }
 
-  /** 소득: 공고에 인쇄된 가구원 수별 상한표가 있으면 그걸, 없으면 기준 소득 월액 × 비율(가산 포함, 원 단위 버림)을 상한으로 써요. */
+  /**
+   * 소득: 상한 월액은 공고에 인쇄된 가구원 수별 표가 있으면 그걸, 없으면 기준 소득 월액 × 비율(가산 포함, 원 단위 버림)이에요. 사용자 소득은 기준 대비 % 구간으로
+   * 받아서, 그 기준 연도의 기준 월액을 곱해 월 금액 구간으로 바꾼 뒤 상한과 비교해요.
+   */
   static Item income(Income c, Applicant a, LocalDate ref, IncomeBenchmarks benchmarks) {
-    String standard = INCOME_STANDARDS.getOrDefault(c.standard(), "기준 소득");
+    // 공고 표만 있는 소득 조건은 기준 종류가 없어요 (계약: standard null). Map.of는 null 키를 못 찾아요
+    String standard =
+        c.standard() == null ? "기준 소득" : INCOME_STANDARDS.getOrDefault(c.standard(), "기준 소득");
     String label =
         "소득 · " + standard + (c.percent() == null ? "" : " " + number(c.percent()) + "%") + " 이하";
-    Long annual;
+    Map<String, Bands.Range> bands;
     String need;
     switch (c.basis()) {
       case "APPLICANT" -> {
-        annual = a.personalIncomeAnnualWon();
-        need = "applicant.personalIncomeAnnualWon";
+        bands = a.personalIncome();
+        need = "applicant.income";
       }
       case "HOUSEHOLD" -> {
-        annual = a.householdIncome();
-        need = "applicant.householdIncomeAnnualWon";
+        bands = a.householdIncomeOrSelf();
+        need = "applicant.householdIncome";
       }
       case "HOUSEHOLD_IF_HEAD" -> {
         if (!Boolean.TRUE.equals(a.householdHead())) {
@@ -211,8 +212,8 @@ public final class CriterionJudge {
               null,
               null);
         }
-        annual = a.householdIncome();
-        need = "applicant.householdIncomeAnnualWon";
+        bands = a.householdIncomeOrSelf();
+        need = "applicant.householdIncome";
       }
       default -> {
         return item(
@@ -230,45 +231,74 @@ public final class CriterionJudge {
           null,
           null);
     }
+    int size = a.householdSize();
     Double percent = effectivePercent(c, a);
     Integer year = c.year() != null ? c.year() : (ref == null ? null : ref.getYear());
-    Long monthlyLimit = printedLimit(c.printedTable(), a.householdSize());
+    Long monthlyLimit = printedLimit(c.printedTable(), size);
     if (monthlyLimit == null
         && c.printedTable().isEmpty()
         && c.standard() != null
         && percent != null
         && year != null) {
-      Long base = benchmarks.monthlyWon(c.standard(), year, a.householdSize());
+      Long base = benchmarks.monthlyWon(c.standard(), year, size);
       monthlyLimit = base == null ? null : (long) Math.floor(base * percent / 100);
     }
-    Item.Threshold threshold =
-        new Item.Threshold(c.standard(), year, percent, a.householdSize(), monthlyLimit);
+    Item.Threshold threshold = new Item.Threshold(c.standard(), year, percent, size, monthlyLimit);
     if (monthlyLimit == null) {
       String why =
           c.printedTable().isEmpty() ? "그해 기준 금액을 아직 준비하지 못했어요" : "공고 표에 이 세대원 수의 기준 금액이 없어요";
       return item(c, "INCOME", label, UNKNOWN, why, List.of(), threshold, null);
     }
-    if (annual == null) {
+    if (bands == null || bands.isEmpty()) {
       return item(c, "INCOME", label, UNKNOWN, "소득을 넣으면 판정돼요", List.of(need), threshold, null);
     }
-    boolean ok = annual <= monthlyLimit * 12; // 월평균 = 연소득 ÷ 12 (나누기 반올림 없이 비교)
-    return item(
-        c,
-        "INCOME",
-        label,
-        ok ? MET : NOT_MET,
-        ok ? null : "소득이 기준을 넘어요",
-        List.of(),
-        threshold,
-        null);
+    // 공고의 기준 종류로 받은 구간을 먼저, 없으면(공고 표만 있는 조건 등) 받은 다른 기준으로
+    String key = benchmarkKey(c.standard());
+    Bands.Range monthly = null;
+    for (String k : key == null ? bands.keySet() : List.of(key)) {
+      Bands.Range pct = bands.get(k);
+      Integer userYear = a.incomeYearOf(k) != null ? a.incomeYearOf(k) : year;
+      Long base = pct == null || userYear == null ? null : benchmarks.monthlyWon(k, userYear, size);
+      if (base != null) {
+        monthly = pct.times(base / 100.0);
+        break;
+      }
+    }
+    if (monthly == null) {
+      return item(
+          c,
+          "INCOME",
+          label,
+          UNKNOWN,
+          key != null && !bands.containsKey(key) ? "소득을 넣으면 판정돼요" : "그해 기준 금액을 아직 준비하지 못했어요",
+          key != null && !bands.containsKey(key) ? List.of(need) : List.of(),
+          threshold,
+          null);
+    }
+    Status status = monthly.atMost(monthlyLimit);
+    String reason =
+        switch (status) {
+          case MET -> null;
+          case NOT_MET -> "소득이 기준을 넘어요";
+          case UNKNOWN -> Bands.BOUNDARY;
+        };
+    return item(c, "INCOME", label, status, reason, List.of(), threshold, null);
   }
 
-  /** 자산·자동차가액: 상한 이하. 조건(가구원 수·자녀 수)에 따라 상한이 바뀌면 큰 쪽을 써요. */
+  /** 판정 입력의 소득 구간 키 (도시근로자 소득 두 이름은 하나로). 기준 종류가 없으면 null. */
+  static String benchmarkKey(String standard) {
+    if (standard == null) {
+      return null;
+    }
+    return "MEDIAN_INCOME".equals(standard) ? "MEDIAN_INCOME" : "URBAN_WORKER_INCOME";
+  }
+
+  /** 자산·자동차가액: 상한 이하. 조건(가구원 수·자녀 수)에 따라 상한이 바뀌면 큰 쪽을 써요. 값은 금액 구간이에요. */
   static Item limit(
       Criterion c,
       String key,
       String name,
-      Long value,
+      Bands.Range value,
       long maxWon,
       List<Override> overrides,
       Applicant a,
@@ -287,11 +317,15 @@ public final class CriterionJudge {
         unknownLimit = unknownLimit == null ? o.maxWon() : Math.max(unknownLimit, o.maxWon());
       }
     }
-    if (value <= limit) {
+    Status status = value.atMost(limit);
+    if (status == MET) {
       return item(c, key, label, MET, null, List.of(), null, null);
     }
-    if (unknownLimit != null && value <= unknownLimit) {
+    if (unknownLimit != null && unknownLimit > limit && value.atMost(unknownLimit) != NOT_MET) {
       return item(c, key, label, UNKNOWN, "기준이 달라지는 조건인지 확인이 필요해요", List.of(), null, null);
+    }
+    if (status == UNKNOWN) {
+      return item(c, key, label, UNKNOWN, Bands.BOUNDARY, List.of(), null, null);
     }
     return item(c, key, label, NOT_MET, name + "이 기준을 넘어요", List.of(), null, null);
   }
@@ -399,19 +433,28 @@ public final class CriterionJudge {
     }
     String label = "청약통장 · " + (parts.isEmpty() ? "보유" : String.join(" · ", parts) + " 이상");
     var s = a.subscription();
-    if (s == null || s.joinedOn() == null) {
+    if (s == null || s.months() == null) {
       return item(
           c,
           "SAVINGS",
           label,
           UNKNOWN,
-          "청약통장 가입 연월을 넣으면 판정돼요",
-          List.of("applicant.subscription.joinedOn"),
+          "청약통장 가입 기간을 넣으면 판정돼요",
+          List.of("applicant.subscription.months"),
           null,
           null);
     }
-    if (c.minMonths() != null && Periods.fullMonths(s.joinedOn(), ref) < c.minMonths()) {
-      return item(c, "SAVINGS", label, NOT_MET, "가입 기간이 모자라요", List.of(), null, null);
+    Status months = s.months().atLeast(c.minMonths() == null ? 0 : c.minMonths());
+    if (months == NOT_MET) {
+      return item(
+          c,
+          "SAVINGS",
+          label,
+          NOT_MET,
+          s.months().none() ? "청약통장이 있어야 해요" : "가입 기간이 모자라요",
+          List.of(),
+          null,
+          null);
     }
     if (c.minPayments() != null) {
       if (s.payments() == null) {
@@ -428,6 +471,9 @@ public final class CriterionJudge {
       if (s.payments() < c.minPayments()) {
         return item(c, "SAVINGS", label, NOT_MET, "납입 횟수가 모자라요", List.of(), null, null);
       }
+    }
+    if (months == UNKNOWN) {
+      return item(c, "SAVINGS", label, UNKNOWN, Bands.BOUNDARY, List.of(), null, null);
     }
     if (c.minBalanceWon() != null || c.depositAreaM2() != null) {
       return item(c, "SAVINGS", label, UNKNOWN, "예치 금액은 청약통장에서 직접 확인해 주세요", List.of(), null, null);

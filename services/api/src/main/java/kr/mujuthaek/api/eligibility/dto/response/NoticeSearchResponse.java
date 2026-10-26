@@ -16,6 +16,7 @@ public record NoticeSearchResponse(
   public record Counts(int eligible, int needsInput, int ineligible) {}
 
   /**
+   * @param postedOn 공고일 (모르면 null)
    * @param prepareCostWon 주택형 중 가장 적은 준비할 돈 (모르면 null)
    * @param areaScore 대표 위치의 생활권 총점 (공고 목록과 같음, 없으면 null)
    * @param tags·lat·lng·siteCount 대표 위치의 세권 태그·좌표, 위치 수 (공고 목록과 같음)
@@ -33,6 +34,7 @@ public record NoticeSearchResponse(
       LocalDate applyStart,
       LocalDate applyEnd,
       Integer dday,
+      LocalDate postedOn,
       Overall overall,
       Long prepareCostWon,
       String prepareCostNote,

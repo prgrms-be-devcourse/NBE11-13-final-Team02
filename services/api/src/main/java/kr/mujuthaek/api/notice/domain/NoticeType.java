@@ -14,6 +14,8 @@ public enum NoticeType {
   YOUTH_SAFE_HOUSING("청년안심주택", "역세권청년주택", "역세권 청년주택"),
   PUBLIC_SUPPORT_PRIVATE_RENTAL("공공지원민간임대", "공공지원 민간임대"),
   INTEGRATED_PUBLIC_RENTAL("통합공공임대", "통합 공공임대"),
+  // 5년·10년·50년 공공임대, 분납임대 (통합공공임대·공공지원민간임대 다음에 봐요)
+  PUBLIC_RENTAL("공공임대", "분양전환", "분납임대"),
   HAPPY_HOUSING("행복주택"),
   NATIONAL_RENTAL("국민임대"),
   PERMANENT_RENTAL("영구임대"),

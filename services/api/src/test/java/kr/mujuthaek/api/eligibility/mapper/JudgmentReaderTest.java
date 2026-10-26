@@ -7,6 +7,7 @@ import java.nio.file.Path;
 import java.time.LocalDate;
 import kr.mujuthaek.api.eligibility.rule.ApplicantBuilder;
 import kr.mujuthaek.api.eligibility.rule.CriterionJudge;
+import kr.mujuthaek.api.eligibility.rule.IncomeBenchmarks;
 import kr.mujuthaek.api.eligibility.rule.Judgment;
 import kr.mujuthaek.api.eligibility.rule.Status;
 import kr.mujuthaek.api.notice.NoticeFixtures;
@@ -50,10 +51,13 @@ public class JudgmentReaderTest {
   void incomeOrAssetsOptionIsJudgedFromThePrintedTable() throws Exception {
     Judgment j = JudgmentReader.read(example());
     var anyOf = j.groups().get(0).criteria().get(4);
-    // 1인 가구, 월 300만 원: 50% 표(266만)는 넘지만 70% 표(343만) 안 → 두 번째 선택지로 충족
-    var a = new ApplicantBuilder().household(1).personalIncome(36_000_000L).build();
+    // 1인 가구, 2025년 도시근로자 70~80%(월 266만~305만 원): 50% 표(266만)는 넘지만 70% 표(343만) 안 → 두 번째 선택지로 충족
+    var a = new ApplicantBuilder().household(1).income("URBAN_WORKER_INCOME", 70, 80).build();
+    IncomeBenchmarks urban2025 =
+        (standard, year, size) ->
+            "URBAN_WORKER_INCOME".equals(standard) && year == 2025 && size == 1 ? 3_813_363L : null;
 
-    var item = CriterionJudge.judge(anyOf, a, j.referenceDate());
+    var item = CriterionJudge.judge(anyOf, a, j.referenceDate(), urban2025);
 
     assertThat(item.status()).isEqualTo(Status.MET);
     assertThat(item.options())

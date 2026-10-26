@@ -94,6 +94,7 @@
                   "YOUTH_SAFE_HOUSING",
                   "PUBLIC_SUPPORT_PRIVATE_RENTAL",
                   "INTEGRATED_PUBLIC_RENTAL",
+                  "PUBLIC_RENTAL",
                   "HAPPY_HOUSING",
                   "NATIONAL_RENTAL",
                   "PERMANENT_RENTAL",
@@ -1277,6 +1278,7 @@
                   "YOUTH_SAFE_HOUSING",
                   "PUBLIC_SUPPORT_PRIVATE_RENTAL",
                   "INTEGRATED_PUBLIC_RENTAL",
+                  "PUBLIC_RENTAL",
                   "HAPPY_HOUSING",
                   "NATIONAL_RENTAL",
                   "PERMANENT_RENTAL",
@@ -1719,6 +1721,7 @@
               "YOUTH_SAFE_HOUSING",
               "PUBLIC_SUPPORT_PRIVATE_RENTAL",
               "INTEGRATED_PUBLIC_RENTAL",
+              "PUBLIC_RENTAL",
               "HAPPY_HOUSING",
               "NATIONAL_RENTAL",
               "PERMANENT_RENTAL",
@@ -1843,6 +1846,8 @@
           "unitTypes",
           "conditions",
           "requiredDocuments",
+          "selectionRules",
+          "guidance",
           "files",
           "heldItems",
           "areaSummaries",
@@ -1893,6 +1898,20 @@
               "$ref": "#/components/schemas/RequiredDocument"
             },
             "description": "제출 서류 (서류 묶음 순서: 공통·해당자·본인 방문·배우자 대리·그 밖의 대리·묶음 없음, 같은 묶음 안은 원문 순서). 보류한 서류는 빠짐"
+          },
+          "selectionRules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SelectionRule"
+            },
+            "description": "선정 방식 (순위·배점·추첨·선착순 등, 원문 순서). 보류한 항목은 빠짐"
+          },
+          "guidance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Guidance"
+            },
+            "description": "안내 (신청 방법·주의 사항·입주·거주·문의처, 원문 순서). 보류한 항목은 빠짐"
           },
           "files": {
             "type": "array",
@@ -1992,6 +2011,7 @@
               "YOUTH_SAFE_HOUSING",
               "PUBLIC_SUPPORT_PRIVATE_RENTAL",
               "INTEGRATED_PUBLIC_RENTAL",
+              "PUBLIC_RENTAL",
               "HAPPY_HOUSING",
               "NATIONAL_RENTAL",
               "PERMANENT_RENTAL",
@@ -4159,6 +4179,175 @@
           },
           "lng": {
             "type": "number"
+          }
+        }
+      },
+      "SelectionRule": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "description",
+          "originalText",
+          "priorityRank",
+          "points",
+          "maxPoints",
+          "order",
+          "targetGroups",
+          "evidence"
+        ],
+        "description": "선정 방식 한 줄",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "PRIORITY",
+              "SCORING",
+              "TIE_BREAK",
+              "LOTTERY",
+              "FIRST_COME",
+              "BIDDING",
+              "OTHER",
+              null
+            ],
+            "description": "PRIORITY(순위), SCORING(배점), TIE_BREAK(동점 처리), LOTTERY(추첨), FIRST_COME(선착순), BIDDING(입찰), OTHER"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originalText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문 표현"
+          },
+          "priorityRank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "순위 (순위 항목일 때)"
+          },
+          "points": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "배점표 한 행의 점수 (감점은 음수)"
+          },
+          "maxPoints": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "그 항목의 최고점"
+          },
+          "order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "동점 처리 등의 적용 순서"
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "대상 계층 (비면 모든 계층)"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 항목의 근거 원문"
+          }
+        }
+      },
+      "Guidance": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "description",
+          "phone",
+          "url",
+          "evidence"
+        ],
+        "description": "안내 한 줄",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "APPLICATION_METHOD",
+              "CAUTION",
+              "MOVE_IN",
+              "LIVING_NOTICE",
+              "CONTACT",
+              "OTHER",
+              null
+            ],
+            "description": "APPLICATION_METHOD(신청 방법), CAUTION(주의 사항), MOVE_IN(입주), LIVING_NOTICE(거주), CONTACT(문의처), OTHER"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "전화번호 (원문에 있을 때만)"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "안내 주소 (원문에 있을 때만)"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 안내의 근거 원문"
           }
         }
       }

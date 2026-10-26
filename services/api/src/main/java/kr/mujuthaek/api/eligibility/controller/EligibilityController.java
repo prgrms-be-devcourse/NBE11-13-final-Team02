@@ -71,7 +71,7 @@ class EligibilityController {
       @Valid @RequestBody SubscriptionScoreRequest request) {
     return ResponseEntity.ok()
         .cacheControl(NO_STORE)
-        .body(scores.score(request.applicant().toApplicant(), request.referenceDate()));
+        .body(scores.score(request.applicant().toInput(), request.referenceDate()));
   }
 
   /** 판정 기준 금액 (연도별 기준 중위소득, 순위 요건). 하루 캐시. */
