@@ -21,7 +21,6 @@ import kr.mujuthaek.api.eligibility.dto.response.SupportSearchResponse;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
 import kr.mujuthaek.api.eligibility.rule.frame.Answer;
-import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import org.springframework.stereotype.Service;
 
 /**
@@ -110,7 +109,7 @@ public class SupportSearchService {
         n.detailUrl(),
         n.applyStart(),
         n.applyEnd(),
-        NoticeStatus.dday(n.applyEnd(), today),
+        SpaceSearchService.dday(n.applyEnd(), today),
         SpaceSearchService.status(n.applyStart(), n.applyEnd(), today),
         n.regionCodes(),
         j.judgment());
@@ -135,7 +134,7 @@ public class SupportSearchService {
         SpaceSearchService.status(m.applyStart(), m.applyEnd(), today),
         m.applyStart(),
         m.applyEnd(),
-        NoticeStatus.dday(m.applyEnd(), today),
+        SpaceSearchService.dday(m.applyEnd(), today),
         m.status(),
         m.reason(),
         m.groups(),
