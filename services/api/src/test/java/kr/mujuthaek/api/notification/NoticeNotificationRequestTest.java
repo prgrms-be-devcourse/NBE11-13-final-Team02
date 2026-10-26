@@ -59,6 +59,7 @@ class NoticeNotificationRequestTest {
                 + " common.processed_events")
         .update();
     jdbc.sql("delete from common.outbox").update();
+    jdbc.sql("delete from notification.push_subscriptions").update();
   }
 
   @Test
@@ -77,6 +78,28 @@ class NoticeNotificationRequestTest {
         .endsWith("10월 30일 마감");
     assertThat(p.path("recipients")).as("관심 조건·관심 공고 둘 다 걸려도 한 번").hasSize(1);
     assertThat(p.path("recipients").get(0).path("email").asString()).isEqualTo("me@example.com");
+    assertThat(p.path("recipients").get(0).path("push").isNull()).as("구독 기기 없음").isTrue();
+  }
+
+  @Test
+  void recipientCarriesTheirFiveMostRecentPushDevices() {
+    for (int i = 1; i <= 6; i++) { // 6대: 1번이 가장 오래됨 (5대 제한을 넘은 상태도 요청에는 5대만)
+      subscribe(ME, "https://fcm.googleapis.com/fcm/send/me-" + i, "2026-10-2" + i + "T00:00:00Z");
+    }
+    subscribe(
+        UUID.randomUUID(), "https://fcm.googleapis.com/fcm/send/other", "2026-10-25T00:00:00Z");
+
+    apply(fixture());
+
+    JsonNode push = onlyRequest().path("recipients").get(0).path("push");
+    assertThat(push).hasSize(5);
+    assertThat(push.get(0).path("endpoint").asString())
+        .as("최근에 쓴 기기부터")
+        .isEqualTo("https://fcm.googleapis.com/fcm/send/me-6");
+    assertThat(push.get(0).path("p256dh").asString()).isEqualTo("p256dh-me-6");
+    assertThat(push.get(0).path("auth").asString()).isEqualTo("auth-me-6");
+    assertThat(push.get(0).propertyNames()).containsExactlyInAnyOrder("endpoint", "p256dh", "auth");
+    assertThat(push.toString()).doesNotContain("me-1").doesNotContain("other");
   }
 
   @Test
@@ -155,6 +178,25 @@ class NoticeNotificationRequestTest {
     assertThat(jdbc.sql("select count(*) from notice.notices").query(Long.class).single())
         .as("공고 저장도 되돌려져 다시 받을 때 알림 요청이 만들어져요")
         .isZero();
+  }
+
+  static final UUID ME = UUID.fromString("0192b6f0-0000-7000-8000-0000000000a1");
+
+  private void subscribe(UUID userId, String endpoint, String at) {
+    String name = endpoint.substring(endpoint.lastIndexOf('/') + 1);
+    jdbc.sql(
+            """
+            insert into notification.push_subscriptions
+                (id, user_id, endpoint, p256dh, auth, created_at, updated_at)
+            values (:id, :userId, :endpoint, :p256dh, :auth, :at::timestamptz, :at::timestamptz)
+            """)
+        .param("id", UUID.randomUUID())
+        .param("userId", userId)
+        .param("endpoint", endpoint)
+        .param("p256dh", "p256dh-" + name)
+        .param("auth", "auth-" + name)
+        .param("at", at)
+        .update();
   }
 
   private IngestionOutcome apply(ObjectNode event) {

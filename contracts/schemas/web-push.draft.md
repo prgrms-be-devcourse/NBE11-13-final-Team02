@@ -99,7 +99,7 @@
 
 | 칸 | 모양 | 필수 | 뜻 |
 | --- | --- | --- | --- |
-| `recipients[].push` | object[] \| null | 아니요 (없으면 null) | 보낼 기기 목록. api가 **이 종류 켬 + 기기가 1대 이상**일 때만 넣어요. 최대 5개 |
+| `recipients[].push` | object[] \| null | 아니요 (없으면 null) | 보낼 기기 목록, 최근에 쓴 기기부터 최대 5대. 이 종류를 켠 회원만 받는 사람으로 고르고(이메일과 같은 종류별 켬·끔), 그 회원에게 기기가 있으면 넣어요. 없으면 null |
 | `recipients[].push[].endpoint` | string | ✅ | |
 | `recipients[].push[].p256dh` | string | ✅ | |
 | `recipients[].push[].auth` | string | ✅ | |
@@ -120,6 +120,8 @@
 
 - `email`과 `push`가 둘 다 null인 회원은 알림함에만 남아요 (알림 서버는 아무것도 안 보내요)
 - 칸을 더하는 것이라 `schemaVersion`은 `1` 그대로예요. 지금 알림 서버는 모르는 칸을 조용히 무시해서(`NotificationRequest.Recipient`에 `push`가 없음) 먼저 넣어도 깨지지는 않지만 푸시가 나가지 않아요. 그래서 **알림 서버(`PushChannel`)를 먼저 배포**한 뒤 api가 `push`를 넣기 시작해요
+- api는 아웃박스에 적을 때 500명 묶음마다 한 번 조회해서 기기를 붙여요 (`NotificationRequests`). 받는 사람을 고르는 쪽(`RecipientFinder`)은 기기를 몰라도 돼요
+- 크기: 500명 × 5대면 요청 하나가 1MB 안팎이에요. 아웃박스 줄은 보낸 지 하루 뒤 지워져서 키가 오래 남지 않아요 (`OutboxCleanup`). 실패 큐(.dlq)로 간 메시지에는 남아 있어서, 실패 큐를 볼 때도 키를 밖에 옮기지 않아요
 - 문구 길이: 푸시 내용은 암호화 뒤 4KB가 한계라, api가 `title` 100자·`body` 200자를 넘으면 잘라서 끝에 `…`을 붙여요 (이메일·알림함도 같은 문구)
 
 ## 4. 알림 서버가 보내는 방법 (`PushChannel`)

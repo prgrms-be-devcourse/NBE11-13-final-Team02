@@ -15,6 +15,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.IntStream;
@@ -36,7 +37,7 @@ class BenefitNotificationServiceTest {
   final Outbox outbox = mock(Outbox.class);
   final Clock clock = Clock.fixed(Instant.parse("2026-10-25T00:00:00Z"), ZoneId.of("Asia/Seoul"));
   final BenefitNotificationService service =
-      new BenefitNotificationService(benefits, finder, outbox, clock);
+      new BenefitNotificationService(benefits, finder, outbox, ids -> Map.of(), clock);
   final UUID id = UUID.randomUUID();
 
   @Test

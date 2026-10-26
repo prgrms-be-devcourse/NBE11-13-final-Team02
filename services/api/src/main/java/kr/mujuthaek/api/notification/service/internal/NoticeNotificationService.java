@@ -56,10 +56,14 @@ public class NoticeNotificationService {
   private final Clock clock;
 
   public NoticeNotificationService(
-      NoticeQueryService notices, RecipientFinder recipients, Outbox outbox, Clock clock) {
+      NoticeQueryService notices,
+      RecipientFinder recipients,
+      Outbox outbox,
+      PushDeviceFinder push,
+      Clock clock) {
     this.notices = notices;
     this.recipients = recipients;
-    this.requests = new NotificationRequests(outbox);
+    this.requests = new NotificationRequests(outbox, push);
     this.clock = clock;
   }
 

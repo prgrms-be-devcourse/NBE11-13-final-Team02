@@ -39,10 +39,14 @@ public class BenefitNotificationService {
   private final Clock clock;
 
   public BenefitNotificationService(
-      BenefitQueryService benefits, RecipientFinder recipients, Outbox outbox, Clock clock) {
+      BenefitQueryService benefits,
+      RecipientFinder recipients,
+      Outbox outbox,
+      PushDeviceFinder push,
+      Clock clock) {
     this.benefits = benefits;
     this.recipients = recipients;
-    this.requests = new NotificationRequests(outbox);
+    this.requests = new NotificationRequests(outbox, push);
     this.clock = clock;
   }
 
