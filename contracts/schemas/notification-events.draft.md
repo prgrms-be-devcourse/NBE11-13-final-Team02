@@ -164,7 +164,7 @@ PWA ──HTTP──▶ api
 | `BenefitPublished` (reprocess = false) | field `BENEFIT`면 `support_interests`, `STARTUP_SUPPORT`·`SPACE_RECRUITMENT`면 `business_interests`가 맞는 회원 | NEW_SUPPORT |
 | `NoticeUpdated`·`BenefitUpdated` (reprocess = false), 알릴 항목이 바뀜 | 관심 공고로 둔 회원 | CORRECTED |
 | `NoticeUpdated`에 `followUps` | 관심 공고로 둔 회원 | FOLLOW_UP |
-| 매일 09:00 스케줄러 | 마감일이 3일 뒤·1일 뒤인 열린 공고·정책을 관심 공고로 둔 회원 | DEADLINE_D3·D1 |
+| 매일 09:00 스케줄러 | 마감일이 3일 뒤·1일 뒤인 열린 공고(notice `findOpenClosingOn`)·정책(benefit `findOpenClosingOn`)을 관심 공고로 둔 회원. 하루 한 번(`reminder_runs`), 09:00에 꺼져 있었으면 그날 따라잡기 | DEADLINE_D3·D1 |
 
 ### 요청 만들기 순서
 

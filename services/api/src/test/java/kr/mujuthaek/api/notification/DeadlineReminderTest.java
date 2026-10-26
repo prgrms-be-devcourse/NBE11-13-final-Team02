@@ -45,6 +45,7 @@ class DeadlineReminderTest {
 
   @Autowired DeadlineReminderService reminders;
   @Autowired BenefitIngestionService ingestion;
+  @Autowired kr.mujuthaek.api.notice.service.internal.NoticeIngestionService noticeIngestion;
   @Autowired JdbcClient jdbc;
   @Autowired JsonMapper json;
   @Autowired NotificationTestClock.MovableClock clock;
@@ -55,6 +56,45 @@ class DeadlineReminderTest {
     clock.set("2026-10-25T12:00");
     jdbc.sql("delete from benefit.benefits").update();
     jdbc.sql("delete from notification.reminder_runs").update();
+    jdbc.sql(
+            "truncate notice.notice_reports, notice.notice_versions, notice.notice_posts,"
+                + " notice.notice_follow_ups,"
+                + " notice.notice_regions, notice.notice_source_heads,"
+                + " notice.notice_duplicate_candidates, notice.notice_area_scores, notice.notices,"
+                + " notice.extraction_results, notice.policy_judgments")
+        .update();
+  }
+
+  @Test
+  void closingNoticesAreRemindedToo() throws Exception {
+    // 서리풀 공고: 접수 10/26~10/30
+    try (var in = getClass().getResourceAsStream("/notice/extraction-completed-seoripul.json")) {
+      noticeIngestion.apply(new String(in.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+    }
+    UUID notice = onlyId("notice.notices");
+    jdbc.sql("delete from common.outbox").update();
+
+    clock.set("2026-10-27T09:00"); // D-3 = 10/30
+
+    assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
+    JsonNode d3 = byType(requests(), "DEADLINE_D3");
+    assertThat(d3.path("dedupKey").asString()).isEqualTo("NOTICE:" + notice + ":D3:2026-10-30");
+    assertThat(d3.path("title").asString()).isEqualTo("마감 3일 전: 서초구 서리풀 청년아트타운 잔여세대 입주자 모집공고");
+    assertThat(d3.path("body").asString()).isEqualTo("관심 공고 접수가 10월 30일에 마감돼요.");
+    assertThat(d3.path("linkPath").asString()).isEqualTo("/notices/" + notice);
+    assertThat(d3.path("target").path("type").asString()).isEqualTo("NOTICE");
+    assertThat(
+            jdbc.sql("select count(*) from notification.notifications where dedup_key = :k")
+                .param("k", "NOTICE:" + notice + ":D3:2026-10-30")
+                .query(Long.class)
+                .single())
+        .as("알림함에도")
+        .isEqualTo(1L);
+
+    clock.set("2026-10-26T09:00");
+    jdbc.sql("delete from notification.reminder_runs").update();
+    jdbc.sql("delete from common.outbox").update();
+    assertThat(reminders.runIfDue()).as("D-4는 아님").isEqualTo(OptionalInt.of(0));
   }
 
   @Test
