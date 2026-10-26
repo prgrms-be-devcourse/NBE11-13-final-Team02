@@ -22,6 +22,7 @@ import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
 import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import kr.mujuthaek.api.notice.domain.NoticeStatus;
+import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.stereotype.Service;
 
 /**
@@ -40,10 +41,12 @@ public class SupportSearchService {
   private static final Pattern TAX = Pattern.compile("세액|세금|감면|면세|비과세");
 
   private final MatchQueryService matches;
+  private final NoticeQueryService notices;
   private final Clock clock;
 
-  SupportSearchService(MatchQueryService matches, Clock clock) {
+  SupportSearchService(MatchQueryService matches, NoticeQueryService notices, Clock clock) {
     this.matches = matches;
+    this.notices = notices;
     this.clock = clock;
   }
 
@@ -52,12 +55,15 @@ public class SupportSearchService {
     String sort = request.sortOrDefault();
     CursorQuery page = CursorQuery.of(request.cursor(), request.size(), sort);
     LocalDate today = LocalDate.now(clock);
+    List<MatchResult.Item> matched =
+        matches.judgeStartupSupportAll(request.applicant(), request.answers()).stream()
+            .filter(m -> SpaceSearchService.inRegions(m.regionCodes(), f.regionCodes()))
+            .toList();
+    Map<UUID, NoticeQueryService.PolicyInfo> infos =
+        notices.policyInfos(matched.stream().map(MatchResult.Item::noticeId).toList());
     List<SupportSearchResponse.Item> inRegion =
         withoutDuplicates(
-            matches.judgeStartupSupportAll(request.applicant(), request.answers()).stream()
-                .filter(m -> SpaceSearchService.inRegions(m.regionCodes(), f.regionCodes()))
-                .map(m -> item(m, today))
-                .toList());
+            matched.stream().map(m -> item(m, infos.get(m.noticeId()), today)).toList());
     Map<String, Integer> subFieldCounts = new LinkedHashMap<>();
     SUB_FIELDS.forEach(t -> subFieldCounts.put(t, 0));
     inRegion.forEach(i -> subFieldCounts.merge(i.subField(), 1, Integer::sum));
@@ -102,10 +108,11 @@ public class SupportSearchService {
             .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_NOT_FOUND));
     var n = j.notice();
     LocalDate today = LocalDate.now(clock);
+    NoticeQueryService.PolicyInfo info = notices.policyInfos(List.of(id)).get(id);
     return new SupportEvaluationResponse(
         id,
         SpaceSearchService.source(n.detailUrl()),
-        subField(n.title()),
+        subField(info == null ? null : info.supportArea(), n.title()),
         n.title(),
         n.detailUrl(),
         n.applyStart(),
@@ -113,23 +120,31 @@ public class SupportSearchService {
         NoticeStatus.dday(n.applyEnd(), today),
         SpaceSearchService.status(n.applyStart(), n.applyEnd(), today),
         n.regionCodes(),
+        info,
         j.judgment());
   }
 
-  /** 판정 틀에 지원 종류가 없어서 이름으로 정해요: 융자·대출·보증·정책자금이면 정책자금, 세액·감면이면 세금 감면, 나머지는 지원금. */
-  static String subField(String title) {
-    String name = title == null ? "" : title;
+  /**
+   * 지원 종류: 출처의 지원 분야(예: 융자 · 사업화)가 있으면 그걸로, 없으면 이름으로 정해요. 융자·대출·보증·정책자금이면 정책자금, 세액·감면이면 세금 감면, 나머지는
+   * 지원금.
+   */
+  static String subField(String supportArea, String title) {
+    String name = (supportArea == null ? "" : supportArea + " ") + (title == null ? "" : title);
     if (TAX.matcher(name).find()) {
       return "TAX";
     }
     return LOAN.matcher(name).find() ? "LOAN" : FUND;
   }
 
-  private static SupportSearchResponse.Item item(MatchResult.Item m, LocalDate today) {
+  private static SupportSearchResponse.Item item(
+      MatchResult.Item m, NoticeQueryService.PolicyInfo info, LocalDate today) {
     return new SupportSearchResponse.Item(
         m.noticeId(),
         SpaceSearchService.source(m.detailUrl()),
-        subField(m.title()),
+        subField(info == null ? null : info.supportArea(), m.title()),
+        info == null ? null : info.supportArea(),
+        info == null ? null : info.organization(),
+        info == null ? null : info.amountText(),
         m.title(),
         m.regionCodes(),
         SpaceSearchService.status(m.applyStart(), m.applyEnd(), today),

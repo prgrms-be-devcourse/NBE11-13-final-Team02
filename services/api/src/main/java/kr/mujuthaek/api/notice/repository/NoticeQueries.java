@@ -220,6 +220,22 @@ public class NoticeQueries {
    * 모집(apply_always)일 때만 넣고, 상시가 아닌데 마감일을 모르면 빼요 (공고가 UNKNOWN을 빼는 것과 같은 규칙, 리뷰 2026-10-23: 마감된 사업이
    * 열려 보였음). 검수 대기(IN_REVIEW) 틀은 공개하지 않아요 (이전 규칙으로 저장된 줄 포함).
    */
+  /** 정책 출처 안내 JSON (policy_judgments.info). 없으면 그 정책은 빠져요. */
+  public java.util.Map<UUID, String> policyInfos(java.util.Collection<UUID> rawPolicyIds) {
+    if (rawPolicyIds.isEmpty()) {
+      return java.util.Map.of();
+    }
+    java.util.Map<UUID, String> out = new java.util.HashMap<>();
+    jdbc.query(
+        "select raw_policy_id, info::text from notice.policy_judgments"
+            + " where raw_policy_id in (:ids) and info is not null",
+        new MapSqlParameterSource("ids", rawPolicyIds),
+        rs -> {
+          out.put(rs.getObject(1, UUID.class), rs.getString(2));
+        });
+    return out;
+  }
+
   public List<PolicyRow> openPolicies(String field, LocalDate today) {
     return jdbc.query(
         """

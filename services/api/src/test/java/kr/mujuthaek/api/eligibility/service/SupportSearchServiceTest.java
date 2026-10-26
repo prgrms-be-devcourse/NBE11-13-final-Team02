@@ -13,12 +13,15 @@ class SupportSearchServiceTest {
 
   @Test
   void subFieldComesFromTheName() {
-    assertThat(SupportSearchService.subField("2026년 용산구 청년기업 융자지원사업")).isEqualTo("LOAN");
-    assertThat(SupportSearchService.subField("청년 창업 정책자금")).isEqualTo("LOAN");
-    assertThat(SupportSearchService.subField("청년 창업 세액감면 안내")).isEqualTo("TAX");
-    assertThat(SupportSearchService.subField("2026년 예비창업패키지 사업화 자금 지원")).isEqualTo("FUND");
-    assertThat(SupportSearchService.subField("창업보육센터 입주기업 지원")).isEqualTo("FUND");
-    assertThat(SupportSearchService.subField(null)).isEqualTo("FUND");
+    assertThat(SupportSearchService.subField(null, "2026년 용산구 청년기업 융자지원사업")).isEqualTo("LOAN");
+    assertThat(SupportSearchService.subField(null, "청년 창업 정책자금")).isEqualTo("LOAN");
+    assertThat(SupportSearchService.subField(null, "청년 창업 세액감면 안내")).isEqualTo("TAX");
+    assertThat(SupportSearchService.subField(null, "2026년 예비창업패키지 사업화 자금 지원")).isEqualTo("FUND");
+    assertThat(SupportSearchService.subField(null, "창업보육센터 입주기업 지원")).isEqualTo("FUND");
+    assertThat(SupportSearchService.subField(null, null)).isEqualTo("FUND");
+    // 출처의 지원 분야가 있으면 그걸로 (이름에 없어도)
+    assertThat(SupportSearchService.subField("융자", "2026 청년 창업 지원")).isEqualTo("LOAN");
+    assertThat(SupportSearchService.subField("사업화", "2026 청년 창업 지원")).isEqualTo("FUND");
   }
 
   @Test
@@ -36,6 +39,9 @@ class SupportSearchServiceTest {
         UUID.fromString(id),
         source,
         "FUND",
+        null,
+        null,
+        null,
         title,
         List.of(),
         "APPLYING",

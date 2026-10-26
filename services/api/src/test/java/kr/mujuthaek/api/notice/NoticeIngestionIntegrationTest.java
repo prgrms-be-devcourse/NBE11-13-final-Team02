@@ -451,6 +451,33 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 정책_출처_안내는_같이_저장하고_새_버전에_없으면_비운다() {
+    ObjectNode startup = policyEvent("STARTUP_SUPPORT", 2, "2026-11-02");
+    ((ObjectNode) startup.path("payload"))
+        .putObject("policyInfo")
+        .put("supportArea", "융자")
+        .put("summary", "창업기업 운영자금을 빌려줍니다")
+        .put("contact", "창업팀 02-000-0000")
+        .putNull("organization")
+        .putNull("applyMethod")
+        .putNull("applyUrl")
+        .putNull("guideUrl")
+        .put("amountText", "최대 1억 원");
+    UUID id = UUID.fromString(startup.path("payload").path("rawPostId").asString());
+
+    assertThat(ingestion.apply(body(startup))).isEqualTo(IngestionOutcome.POLICY_JUDGMENT_SAVED);
+    var info = query.policyInfos(List.of(id)).get(id);
+    assertThat(info.supportArea()).isEqualTo("융자");
+    assertThat(info.amountText()).isEqualTo("최대 1억 원");
+    assertThat(info.organization()).isNull();
+
+    // 다음 버전에 안내가 없으면(예전 형식 이벤트) 안내도 비워요
+    ObjectNode newer = policyEvent("STARTUP_SUPPORT", 3, "2026-11-02");
+    assertThat(ingestion.apply(body(newer))).isEqualTo(IngestionOutcome.POLICY_JUDGMENT_SAVED);
+    assertThat(query.policyInfos(List.of(id))).isEmpty();
+  }
+
+  @Test
   void 사업공간_모집_판정_틀은_사업공간_판정_목록에_같이_준다() {
     ObjectNode space = policyEvent("SPACE_RECRUITMENT", 2, "2026-10-27", "11000");
 

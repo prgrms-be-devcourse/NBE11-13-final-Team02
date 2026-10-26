@@ -177,6 +177,72 @@
           "type": "boolean",
           "description": "정책(STARTUP_SUPPORT·SPACE_RECRUITMENT)만, 반드시 넣음(공고 분야에는 넣지 않음): 상시 모집이면 true. 출처가 칸으로 분명히 알려 준 경우만(온통청년 신청 기간 구분 상시, 신청 기간 칸 글자 전체가 상시·수시·연중 모집). 모르면 false. 받는 쪽은 마감일(schedule.applyEndOn)이 없고 applyAlways도 false인 정책을 마감일 모름으로 보고 열린 목록에 넣지 않습니다"
         },
+        "policyInfo": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": false,
+          "description": "정책(STARTUP_SUPPORT·SPACE_RECRUITMENT)만, 넣지 않거나 null이어도 됨: 출처 API 칸을 그대로 옮긴 안내(AI가 만든 값이 아님). 판정 틀에 없는 지원 분야·요약·문의처·접수 방법을 화면에 보여 주려고 씁니다. 모르는 칸은 null",
+          "properties": {
+            "supportArea": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "출처가 붙인 지원 분야 (K-Startup supt_biz_clsfc 예: 사업화 · 융자 · 시설ㆍ공간ㆍ보육, 기업마당 지원분야 중분류 예: 창업공간지원)"
+            },
+            "summary": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "공고 요약 (K-Startup pbanc_ctnt, 기업마당 bsnsSumryCn에서 태그를 뺀 글)"
+            },
+            "organization": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "공고·운영 기관 이름"
+            },
+            "contact": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "문의처 (전화·부서)"
+            },
+            "applyMethod": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "접수 방법 (온라인·이메일·방문 등, 출처 칸 글자)"
+            },
+            "applyUrl": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "신청 주소 (http(s)만)"
+            },
+            "guideUrl": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "사업 안내 주소 (http(s)만)"
+            },
+            "amountText": {
+              "type": [
+                "string",
+                "null"
+              ],
+              "description": "요약 글에 「최대 · 최고 · 한도 N원」이 있으면 그 구절. 없으면 null"
+            }
+          }
+        },
         "judgment": {
           "anyOf": [
             {

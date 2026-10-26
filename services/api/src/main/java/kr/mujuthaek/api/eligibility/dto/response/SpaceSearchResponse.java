@@ -26,6 +26,7 @@ public record SpaceSearchResponse(
    * @param source 모집 정책의 출처 KSTARTUP · BIZINFO (원문 주소로 정해요). 공고·모르면 null
    * @param spaceType STARTUP_SPACE · SHOP_RENTAL · MEETING_ROOM. 모집 정책은 입주기업 모집이라 STARTUP_SPACE
    * @param provider 공고 기관 코드 (모집 정책은 null)
+   * @param organization 모집 정책의 운영 기관 이름 (출처 칸, 공고·모르면 null)
    * @param regionCodes 공고 지역 법정동코드 10자리 (판정 목록과 같아요). 전국은 빈 목록, 모르면 null
    * @param status UPCOMING · APPLYING · ALWAYS
    * @param reason 판정 틀이 아직 없어 확인 필요면 CONDITIONS_NOT_READY
@@ -39,6 +40,7 @@ public record SpaceSearchResponse(
       String spaceType,
       String title,
       String provider,
+      String organization,
       String regionName,
       List<String> regionCodes,
       String status,

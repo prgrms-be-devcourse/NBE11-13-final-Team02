@@ -336,6 +336,70 @@ def policy_detail_url(policy: dict[str, Any]) -> str | None:
     return url
 
 
+# 요약 글의 지원 금액 구절: 「최대 1억 원」「최고 5,000만원」「한도 3천만 원」
+_AMOUNT = re.compile(r"(?:최대|최고|한도|기업당|팀당|과제당)\s*[0-9][0-9,.]*\s*(?:억|천만|백만|만|천)?\s*원")
+_TAGS = re.compile(r"<[^>]+>")
+POLICY_INFO_TEXT_MAX = 1000
+
+
+def _text(value: Any, limit: int = POLICY_INFO_TEXT_MAX) -> str | None:
+    """HTML 태그 · 이어진 빈칸을 정리한 글. 비었으면 None, 길면 limit 글자까지."""
+    if value is None:
+        return None
+    lines = re.sub(r"(?i)</p>|<br\s*/?>", "\n", str(value))
+    cleaned = re.sub(r"[ \t]+", " ", _TAGS.sub(" ", lines).replace("&nbsp;", " "))
+    cleaned = re.sub(r"\s*\n\s*", "\n", cleaned).strip()
+    return cleaned[:limit] or None
+
+
+def _url(value: Any) -> str | None:
+    """http(s) 주소만 (policy_detail_url과 같은 검사). 「dvic.dongguk.edu/…」처럼 scheme이 없으면 https를 붙여 봐요."""
+    url = str(value or "").strip()
+    if url and "://" not in url:
+        url = "https://" + url
+    return policy_detail_url({"detailUrl": url}) if url else None
+
+
+def policy_info(policy: dict[str, Any]) -> dict[str, Any] | None:
+    """출처 API 칸을 그대로 옮긴 안내(계약 policyInfo): 지원 분야 · 요약 · 기관 · 문의처 · 접수 방법 · 신청/안내 주소 · 지원 금액 구절.
+    판정 틀(AI)에 없는 값을 화면에 보여 주려고 씁니다. K-Startup · 기업마당만, 그 밖의 출처나 칸이 하나도 없으면 None."""
+    record = policy.get("record") if isinstance(policy.get("record"), dict) else {}
+    source = policy.get("sourceCode")
+    if source == "kstartup":
+        methods = [
+            ("온라인", record.get("aply_mthd_onli_rcpt_istc")),
+            ("이메일", record.get("aply_mthd_eml_rcpt_istc")),
+            ("방문", record.get("aply_mthd_vst_rcpt_istc")),
+            ("우편", record.get("aply_mthd_pssr_rcpt_istc")),
+            ("팩스", record.get("aply_mthd_fax_rcpt_istc")),
+            ("기타", record.get("aply_mthd_etc_istc")),
+        ]
+        info = {
+            "supportArea": _text(record.get("supt_biz_clsfc"), 100),
+            "summary": _text(record.get("pbanc_ctnt")),
+            "organization": _text(record.get("pbanc_ntrp_nm"), 100),
+            "contact": _text(" ".join(filter(None, [record.get("biz_prch_dprt_nm"), record.get("prch_cnpl_no")])), 200),
+            "applyMethod": _text(" · ".join(f"{name} {_text(value, 200)}" for name, value in methods if _text(value)), 500),
+            "applyUrl": _url(record.get("biz_aply_url")),
+            "guideUrl": _url(record.get("biz_gdnc_url")),
+        }
+    elif source == "bizinfo":
+        info = {
+            "supportArea": _text(record.get("pldirSportRealmMlsfcCodeNm") or record.get("pldirSportRealmLclasCodeNm"), 100),
+            "summary": _text(record.get("bsnsSumryCn")),
+            "organization": _text(record.get("excInsttNm") or record.get("jrsdInsttNm"), 100),
+            "contact": _text(record.get("refrncNm"), 200),
+            "applyMethod": _text(record.get("reqstMthPapersCn"), 500),
+            "applyUrl": None,
+            "guideUrl": None,
+        }
+    else:
+        return None
+    found = _AMOUNT.search(info["summary"] or "") or _AMOUNT.search(str(policy.get("text") or ""))
+    info["amountText"] = re.sub(r"\s+", " ", found.group(0)) if found else None
+    return info if any(info.values()) else None
+
+
 def policy_review_status(frame: dict[str, Any], *, by_rules: bool = False) -> str:
     """정책 판정 틀의 검수 상태(사용자 결정 2026-10-23).
     - IN_REVIEW: 틀 전체를 믿을 수 없음 — 구간 칸 규칙 틀(AI 틀이 틀 검사·기준일 확인에 걸렸거나 AI가 읽지 못함). 받는 쪽은 이전 공개본을 유지하고,
@@ -377,5 +441,6 @@ def policy_completed_payload(
         "reprocess": bool(policy.get("reprocess")),
         "detailUrl": policy_detail_url(policy),
         "applyAlways": policy_apply_always(policy),
+        "policyInfo": policy_info(policy),
         "judgment": frame,
     }

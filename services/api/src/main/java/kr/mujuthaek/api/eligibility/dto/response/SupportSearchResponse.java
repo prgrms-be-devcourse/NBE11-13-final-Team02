@@ -22,7 +22,10 @@ public record SupportSearchResponse(
 
   /**
    * @param source 출처 KSTARTUP · BIZINFO (원문 주소로 정해요). 모르면 null
-   * @param subField FUND(지원금) · LOAN(정책자금) · TAX(세금 감면). 판정 틀에 종류가 없어서 이름으로 정해요
+   * @param subField FUND(지원금) · LOAN(정책자금) · TAX(세금 감면). 출처의 지원 분야로, 없으면 이름으로 정해요
+   * @param supportArea 출처가 붙인 지원 분야 (예: 사업화 · 융자 · 시설ㆍ공간ㆍ보육). 모르면 null
+   * @param organization 공고·운영 기관 (출처 칸). 모르면 null
+   * @param amountText 요약 글의 「최대 · 한도 N원」 구절. 없으면 null
    * @param regionCodes 사업 지역 법정동코드 10자리. 전국은 빈 목록, 모르면 null
    * @param status UPCOMING · APPLYING · ALWAYS (기간으로 정해요)
    * @param reason 판정 틀이 아직 없어 확인 필요면 CONDITIONS_NOT_READY
@@ -32,6 +35,9 @@ public record SupportSearchResponse(
       UUID id,
       String source,
       String subField,
+      String supportArea,
+      String organization,
+      String amountText,
       String title,
       List<String> regionCodes,
       String status,
