@@ -1,0 +1,184 @@
+package kr.mujuthaek.api.eligibility.service;
+
+import java.time.Clock;
+import java.time.LocalDate;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
+import kr.mujuthaek.api.common.exception.CustomException;
+import kr.mujuthaek.api.common.exception.ErrorCode;
+import kr.mujuthaek.api.common.pagination.CursorKey;
+import kr.mujuthaek.api.common.pagination.CursorQuery;
+import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.SpaceSearchRequest;
+import kr.mujuthaek.api.eligibility.dto.response.SpaceEvaluationResponse;
+import kr.mujuthaek.api.eligibility.dto.response.SpaceSearchResponse;
+import kr.mujuthaek.api.eligibility.model.MatchResult;
+import kr.mujuthaek.api.eligibility.rule.Eligibility;
+import kr.mujuthaek.api.notice.domain.NoticeStatus;
+import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import org.springframework.stereotype.Service;
+
+/**
+ * 사업공간 맞춤 목록·판정. 열린 사업공간 공고와 사업공간 모집 정책(K-Startup·기업마당 입주기업 모집)을 사업공간 판정 틀로 판정하고, 공고면 목록 정보(기관·종류·
+ * 지역 이름·세권 태그)를 붙여요.
+ *
+ * <p>판정은 계산값이라 DB에서 정렬할 수 없어요. 열린 사업공간 전부를 판정하고 목록 안 위치를 커서로 써요. 판정 입력은 저장하지 않아요.
+ */
+@Service
+public class SpaceSearchService {
+
+  static final String STARTUP_SPACE = "STARTUP_SPACE";
+  private static final List<String> SPACE_TYPES =
+      List.of(STARTUP_SPACE, "SHOP_RENTAL", "MEETING_ROOM");
+  private static final int MAX_NOTICES = 300;
+
+  private final MatchQueryService matches;
+  private final NoticeQueryService notices;
+  private final Clock clock;
+
+  SpaceSearchService(MatchQueryService matches, NoticeQueryService notices, Clock clock) {
+    this.matches = matches;
+    this.notices = notices;
+    this.clock = clock;
+  }
+
+  public SpaceSearchResponse search(SpaceSearchRequest request) {
+    var f = request.filtersOrEmpty();
+    String sort = request.sortOrDefault();
+    CursorQuery page = CursorQuery.of(request.cursor(), request.size(), sort);
+    LocalDate today = LocalDate.now(clock);
+    Map<UUID, NoticeQueryService.Candidate> info =
+        notices
+            .searchCandidates("BUSINESS_SPACE", null, null, null, null, null, MAX_NOTICES)
+            .stream()
+            .collect(Collectors.toMap(NoticeQueryService.Candidate::id, Function.identity()));
+    List<SpaceSearchResponse.Item> inRegion =
+        matches.judgeBusinessSpaceAll(request.applicant()).stream()
+            .filter(m -> inRegions(m.regionCodes(), f.regionCodes()))
+            .map(m -> item(m, info.get(m.noticeId()), today))
+            .toList();
+    Map<String, Integer> typeCounts = new LinkedHashMap<>();
+    SPACE_TYPES.forEach(t -> typeCounts.put(t, 0));
+    inRegion.forEach(i -> typeCounts.merge(i.spaceType(), 1, Integer::sum));
+    List<SpaceSearchResponse.Item> judged =
+        inRegion.stream()
+            .filter(
+                i ->
+                    f.spaceTypes() == null
+                        || f.spaceTypes().isEmpty()
+                        || f.spaceTypes().contains(i.spaceType()))
+            .toList();
+    var counts =
+        new SpaceSearchResponse.Counts(
+            count(judged, Eligibility.ELIGIBLE),
+            count(judged, Eligibility.NEEDS_INPUT),
+            count(judged, Eligibility.INELIGIBLE));
+    boolean includeIneligible = Boolean.TRUE.equals(request.includeIneligible());
+    List<SpaceSearchResponse.Item> shown =
+        judged.stream()
+            .filter(i -> includeIneligible || i.overall() != Eligibility.INELIGIBLE)
+            .sorted(order(sort))
+            .toList();
+    int from = page.after() == null ? 0 : page.after().position() + 1;
+    List<Integer> positions =
+        IntStream.range(Math.min(from, shown.size()), shown.size())
+            .limit(page.fetchSize())
+            .boxed()
+            .toList();
+    var pageOf =
+        CursorPageResponse.from(
+            positions, page.size(), shown::get, i -> CursorKey.of(sort, i, shown.get(i).id()));
+    return new SpaceSearchResponse(
+        counts, typeCounts, pageOf.items(), pageOf.nextCursor(), pageOf.hasNext());
+  }
+
+  /** 열린 사업공간 하나의 판정. 열린 사업공간이 아니면 404 NOTICE_NOT_FOUND. */
+  public SpaceEvaluationResponse evaluate(UUID id, JudgmentApplicantRequest applicant) {
+    var j =
+        matches
+            .judgeBusinessSpace(id, applicant)
+            .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_NOT_FOUND));
+    return new SpaceEvaluationResponse(
+        id, j.notice().policy(), j.notice().title(), j.notice().detailUrl(), j.judgment());
+  }
+
+  private static SpaceSearchResponse.Item item(
+      MatchResult.Item m, NoticeQueryService.Candidate c, LocalDate today) {
+    return new SpaceSearchResponse.Item(
+        m.noticeId(),
+        m.policy(),
+        c != null && c.noticeType() != null ? c.noticeType() : STARTUP_SPACE,
+        m.title(),
+        c == null ? null : c.provider(),
+        c == null ? null : c.regionName(),
+        m.regionCodes(),
+        c != null ? c.status() : status(m.applyStart(), m.applyEnd(), today),
+        m.applyStart(),
+        m.applyEnd(),
+        NoticeStatus.dday(m.applyEnd(), today),
+        m.status(),
+        m.reason(),
+        m.groups(),
+        m.missingInputs(),
+        m.detailUrl(),
+        c == null ? List.of() : c.tags());
+  }
+
+  /** 모집 정책은 접수 상태가 저장돼 있지 않아서 기간으로 정해요 (열린 것만 와요). */
+  static String status(LocalDate applyStart, LocalDate applyEnd, LocalDate today) {
+    if (applyEnd == null) {
+      return NoticeStatus.ALWAYS.name();
+    }
+    return applyStart != null && today.isBefore(applyStart)
+        ? NoticeStatus.UPCOMING.name()
+        : NoticeStatus.APPLYING.name();
+  }
+
+  /**
+   * 고른 지역(시도 2자리·시군구 5자리)에 공간 지역(법정동코드 10자리)이 걸리는지. 고른 지역이 없거나, 전국 공간(빈 목록)이나 지역을 모르는 공간(null)은 늘
+   * 걸려요. 공간 지역이 시도 전체(시군구 자리 000)면 그 시도의 시군구를 골라도 걸려요.
+   */
+  static boolean inRegions(List<String> spaceCodes, List<String> chosen) {
+    if (chosen == null || chosen.isEmpty() || spaceCodes == null || spaceCodes.isEmpty()) {
+      return true;
+    }
+    for (String code : spaceCodes) {
+      if (code == null || code.length() < 5) {
+        continue;
+      }
+      boolean wholeSido = code.startsWith("000", 2);
+      for (String c : chosen) {
+        if (code.startsWith(c) || (wholeSido && c.startsWith(code.substring(0, 2)))) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /** RECOMMENDED: 지원 가능 → 확인 필요 → 지원 불가, 같으면 마감 임박(마감 없음은 뒤). DEADLINE: 마감 임박. */
+  static Comparator<SpaceSearchResponse.Item> order(String sort) {
+    Comparator<SpaceSearchResponse.Item> deadline =
+        Comparator.comparing(
+            SpaceSearchResponse.Item::applyEnd,
+            Comparator.nullsLast(Comparator.<LocalDate>naturalOrder()));
+    Comparator<SpaceSearchResponse.Item> byId = Comparator.comparing(SpaceSearchResponse.Item::id);
+    if ("DEADLINE".equals(sort)) {
+      return deadline.thenComparing(byId);
+    }
+    return Comparator.comparing((SpaceSearchResponse.Item i) -> i.overall().ordinal())
+        .thenComparing(deadline)
+        .thenComparing(byId);
+  }
+
+  private static int count(List<SpaceSearchResponse.Item> items, Eligibility overall) {
+    return (int) items.stream().filter(i -> i.overall() == overall).count();
+  }
+}
