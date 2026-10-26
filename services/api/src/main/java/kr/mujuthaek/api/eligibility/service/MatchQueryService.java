@@ -78,29 +78,51 @@ public class MatchQueryService {
     return judgeAll(FrameSpec.BUSINESS_SPACE, applicant, true);
   }
 
+  /** 사업 지원 맞춤 목록(POST /supports/search)용: 지원 불가까지 열린 창업지원 사업을 모두 판정해요. */
+  public List<MatchResult.Item> judgeStartupSupportAll(JudgmentApplicantRequest applicant) {
+    return judgeAll(FrameSpec.STARTUP_SUPPORT, applicant, true);
+  }
+
   /**
    * 사업공간 하나의 판정 (POST /spaces/{id}/evaluate). 열린 공고·모집 정책에서 찾아요.
    *
-   * @return 열린 사업공간이 아니면 empty. 판정 틀이 아직 없으면 결과가 null인 Ready(false)
+   * @return 열린 사업공간이 아니면 empty. 판정 틀이 아직 없으면 judgment가 null
    */
-  public Optional<SpaceJudgment> judgeBusinessSpace(UUID id, JudgmentApplicantRequest applicant) {
-    return candidates.openNotices(FrameSpec.BUSINESS_SPACE.field()).stream()
+  public Optional<OneJudgment> judgeBusinessSpace(UUID id, JudgmentApplicantRequest applicant) {
+    return judgeOne(FrameSpec.BUSINESS_SPACE, id, applicant);
+  }
+
+  /**
+   * 창업지원 사업 하나의 판정 (POST /supports/{id}/evaluate). 열린 지원사업에서 찾아요.
+   *
+   * @return 열린 지원사업이 아니면 empty
+   */
+  public Optional<OneJudgment> judgeStartupSupport(UUID id, JudgmentApplicantRequest applicant) {
+    return judgeOne(FrameSpec.STARTUP_SUPPORT, id, applicant);
+  }
+
+  /**
+   * 공간·지원사업 하나의 판정 결과.
+   *
+   * @param judgment 판정 틀이 아직 없으면 null (화면은 "자격 조건 정리 중")
+   */
+  public record OneJudgment(NoticeCandidate notice, JudgmentResult judgment) {}
+
+  private Optional<OneJudgment> judgeOne(
+      FrameSpec spec, UUID id, JudgmentApplicantRequest applicant) {
+    return candidates.openNotices(spec.field()).stream()
         .filter(n -> n.noticeId().equals(id))
         .findFirst()
         .map(
             n ->
-                readFrame(n, FrameSpec.BUSINESS_SPACE) == null
-                    ? new SpaceJudgment(n, null)
-                    : new SpaceJudgment(
-                        n, judgments.judgeBusinessSpace(n.frame(), applicant, Map.of())));
+                readFrame(n, spec) == null
+                    ? new OneJudgment(n, null)
+                    : new OneJudgment(
+                        n,
+                        spec == FrameSpec.STARTUP_SUPPORT
+                            ? judgments.judgeStartupSupport(n.frame(), applicant, Map.of())
+                            : judgments.judgeBusinessSpace(n.frame(), applicant, Map.of())));
   }
-
-  /**
-   * 사업공간 하나의 판정 결과.
-   *
-   * @param judgment 판정 틀이 아직 없으면 null (화면은 "자격 조건 정리 중")
-   */
-  public record SpaceJudgment(NoticeCandidate notice, JudgmentResult judgment) {}
 
   private MatchResult match(FrameSpec spec, JudgmentApplicantRequest request) {
     List<MatchResult.Item> items = new ArrayList<>(judgeAll(spec, request, false));
