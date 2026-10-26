@@ -167,6 +167,30 @@ public class AreaReportService {
     return detail(id);
   }
 
+  /**
+   * 최근 처리 끝낸 생활권 제보 (관리자 「처리 기록」을 모으는 notice가 불러요).
+   *
+   * @param handledBy 처리한 관리자 (로그인 계정 ID)
+   * @param result FIXED 고침 · KEPT 그대로 둠
+   */
+  public record Handled(
+      UUID id,
+      UUID noticeId,
+      String field,
+      String result,
+      String handledBy,
+      java.time.OffsetDateTime handledAt) {}
+
+  @Transactional(readOnly = true)
+  public List<Handled> handledSince(java.time.Instant since, int limit) {
+    return reports.handledSince(since, limit).stream()
+        .map(
+            r ->
+                new Handled(
+                    r.id(), r.noticeId(), r.field(), r.result(), r.handledBy(), r.handledAt()))
+        .toList();
+  }
+
   /** 탈퇴한 회원의 제보를 지워요 (요구사항 3-16). */
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public int forget(UUID reporterId) {
