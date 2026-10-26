@@ -1,14 +1,31 @@
 package kr.mujuthaek.api.user.security;
 
+import static kr.mujuthaek.api.user.domain.AdminPermission.ACTIVITY;
+import static kr.mujuthaek.api.user.domain.AdminPermission.ADMIN_APPOINT;
+import static kr.mujuthaek.api.user.domain.AdminPermission.BENEFIT_REVIEW;
+import static kr.mujuthaek.api.user.domain.AdminPermission.CHAT;
+import static kr.mujuthaek.api.user.domain.AdminPermission.CRITERIA;
+import static kr.mujuthaek.api.user.domain.AdminPermission.NOTICE_REVIEW;
+import static kr.mujuthaek.api.user.domain.AdminPermission.PERMISSION_GRANT;
+import static kr.mujuthaek.api.user.domain.AdminPermission.REPORTS;
+import static kr.mujuthaek.api.user.domain.AdminPermission.SOURCES;
+import static kr.mujuthaek.api.user.domain.AdminPermission.TRAFFIC;
+import static kr.mujuthaek.api.user.domain.AdminPermission.USERS_SUSPEND;
+import static kr.mujuthaek.api.user.domain.AdminPermission.USERS_VIEW;
+
 import java.util.List;
 import kr.mujuthaek.api.common.exception.ErrorCode;
+import kr.mujuthaek.api.user.domain.AdminPermission;
+import kr.mujuthaek.api.user.service.AdminUserService;
 import kr.mujuthaek.api.user.service.JwtProperties;
 import kr.mujuthaek.api.user.service.UserService;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.Customizer;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AuthorizeHttpRequestsConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizedClientRepository;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizedClientRepository;
@@ -30,7 +47,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
  *   <li>로그인: {@code GET /oauth2/authorization/kakao} → 카카오 → {@code /login/oauth2/code/kakao} →
  *       refresh token 쿠키를 받고 프론트로 돌아가요 (LoginSuccessHandler)
  *   <li>access token: {@code POST /api/auth/refresh}로 받아 {@code Authorization: Bearer}로 보내요
- *   <li>{@code /api/admin/**}는 ADMIN, {@code /api/users/**}는 로그인한 회원만. 나머지(공고·혜택 조회 등)는 누구나
+ *   <li>{@code /api/admin/**}는 관리자, 경로마다 받은 권한이 있어야 해요({@link #adminPaths}). {@code /api/users/**}는
+ *       로그인한 회원만. 나머지(공고·혜택 조회 등)는 누구나
  *   <li>서버는 로그인 상태를 저장하지 않아요(STATELESS). 카카오 로그인 중간의 state만 잠깐 세션에 둬요
  *   <li>CSRF는 끄요: 인증은 Bearer 헤더라 다른 사이트가 대신 보낼 수 없고, 쿠키를 쓰는 재발급·로그아웃은 SameSite=Lax + POST라 다른 사이트에서
  *       실리지 않아요
@@ -49,7 +67,9 @@ class SecurityConfig {
       LoginUserJwtConverter jwtConverter,
       KnownProviderAuthorizationRequestResolver providerResolver,
       ProblemResponses problems,
-      UserService userService)
+      UserService userService,
+      AdminUserService adminUsers,
+      AdminAuthorization admin)
       throws Exception {
     AuthenticationEntryPoint unauthorized =
         (request, response, error) -> problems.write(request, response, ErrorCode.UNAUTHENTICATED);
@@ -62,8 +82,7 @@ class SecurityConfig {
         .logout(logout -> logout.disable()) // 로그아웃은 AuthController (refresh token 폐기)
         .authorizeHttpRequests(
             auth ->
-                auth.requestMatchers("/api/admin/**")
-                    .hasRole("ADMIN")
+                adminPaths(auth, admin)
                     .requestMatchers("/api/users/**")
                     .authenticated()
                     .anyRequest()
@@ -84,7 +103,8 @@ class SecurityConfig {
                     .authenticationEntryPoint(unauthorized)
                     .accessDeniedHandler(forbidden))
         .addFilterAfter(
-            new WithdrawnUserFilter(userService, problems), BearerTokenAuthenticationFilter.class)
+            new WithdrawnUserFilter(userService, adminUsers, problems),
+            BearerTokenAuthenticationFilter.class)
         .exceptionHandling(
             errors ->
                 errors
@@ -92,6 +112,54 @@ class SecurityConfig {
                         unauthorized, PathPatternRequestMatcher.withDefaults().matcher("/api/**"))
                     .accessDeniedHandler(forbidden));
     return http.build();
+  }
+
+  /**
+   * 관리자 화면 경로와 필요한 권한 (권한 목록은 {@link AdminPermission}). 여기에 없는 새 관리자 경로는 최상위만 열려요 — 새 화면을 만들면 여기에
+   * 권한을 정해 주세요. 회원 관리의 주고 빼는 규칙은 AdminUserService가 다시 봐요.
+   */
+  private static AuthorizeHttpRequestsConfigurer<HttpSecurity>
+          .AuthorizationManagerRequestMatcherRegistry
+      adminPaths(
+          AuthorizeHttpRequestsConfigurer<HttpSecurity>.AuthorizationManagerRequestMatcherRegistry
+              auth,
+          AdminAuthorization admin) {
+    return auth.requestMatchers("/api/admin/me")
+        .access(admin.admin())
+        .requestMatchers(HttpMethod.GET, "/api/admin/users/names")
+        .access(admin.active())
+        .requestMatchers("/api/admin/super/**")
+        .access(admin.superOnly())
+        .requestMatchers("/api/admin/users/*/role")
+        .access(admin.anyOf(ADMIN_APPOINT))
+        .requestMatchers("/api/admin/users/*/permissions")
+        .access(admin.anyOf(PERMISSION_GRANT))
+        .requestMatchers("/api/admin/users/*/suspension")
+        .access(admin.anyOf(USERS_SUSPEND))
+        .requestMatchers(HttpMethod.GET, "/api/admin/users/changes")
+        .access(admin.anyOf(ACTIVITY, ADMIN_APPOINT, PERMISSION_GRANT, USERS_SUSPEND))
+        .requestMatchers(HttpMethod.GET, "/api/admin/users")
+        .access(admin.anyOf(USERS_VIEW, ADMIN_APPOINT, PERMISSION_GRANT, USERS_SUSPEND))
+        .requestMatchers("/api/admin/reviews/**")
+        .access(admin.anyOf(NOTICE_REVIEW))
+        .requestMatchers("/api/admin/benefit-reviews/**")
+        .access(admin.anyOf(BENEFIT_REVIEW))
+        .requestMatchers("/api/admin/sources/**")
+        .access(admin.anyOf(SOURCES))
+        .requestMatchers(HttpMethod.GET, "/api/admin/criteria/*/history")
+        .access(admin.anyOf(CRITERIA, ACTIVITY))
+        .requestMatchers("/api/admin/criteria/**", "/api/admin/regulated-areas/**")
+        .access(admin.anyOf(CRITERIA))
+        .requestMatchers("/api/admin/reports/**", "/api/admin/area-reports/**")
+        .access(admin.anyOf(REPORTS))
+        .requestMatchers("/api/admin/chat/**")
+        .access(admin.anyOf(CHAT))
+        .requestMatchers("/api/admin/traffic/**")
+        .access(admin.anyOf(TRAFFIC))
+        .requestMatchers("/api/admin/activity/**")
+        .access(admin.anyOf(ACTIVITY))
+        .requestMatchers("/api/admin/**")
+        .access(admin.superOnly());
   }
 
   /**

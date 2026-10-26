@@ -36,6 +36,9 @@ class LoginSuccessHandler implements AuthenticationSuccessHandler {
 
   static final String TOKEN_ISSUE_FAILED = "token_issue_failed";
 
+  /** 이용 정지된 회원: 프론트 /login?error=social&reason=suspended */
+  static final String SUSPENDED = "suspended";
+
   /** 로그인 뒤 돌아갈 프론트 화면. 처음 가입이면 ?new=1 (프론트가 약관 동의 화면으로 보내요) */
   static final String CALLBACK_PATH = "/auth/callback";
 
@@ -76,7 +79,11 @@ class LoginSuccessHandler implements AuthenticationSuccessHandler {
     try {
       pair = tokens.issue((LoginUser) auth.getPrincipal());
     } catch (RuntimeException e) {
-      var error = new OAuth2Error(TOKEN_ISSUE_FAILED, e.getMessage(), null);
+      String code =
+          e instanceof CustomException c && c.errorCode() == ErrorCode.ACCOUNT_SUSPENDED
+              ? SUSPENDED
+              : TOKEN_ISSUE_FAILED;
+      var error = new OAuth2Error(code, e.getMessage(), null);
       failureHandler.onAuthenticationFailure(
           request, response, new OAuth2AuthenticationException(error, e.getMessage(), e));
       return;

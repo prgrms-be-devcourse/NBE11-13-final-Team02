@@ -17,7 +17,7 @@ import org.springframework.security.oauth2.core.user.OAuth2User;
  * <p>다른 모듈 컨트롤러에서 {@code @AuthenticationPrincipal LoginUser user}로 받아 {@link #userId()}를 써요.
  *
  * @param nickname 없을 수 있어요
- * @param role USER 또는 ADMIN
+ * @param role USER, ADMIN 또는 SUPER_ADMIN (토큰을 받을 때의 값. 관리자 화면 권한은 요청마다 DB로 다시 확인해요)
  */
 public record LoginUser(UUID userId, String nickname, String role)
     implements OAuth2User, Serializable {
@@ -25,7 +25,7 @@ public record LoginUser(UUID userId, String nickname, String role)
   @Serial private static final long serialVersionUID = 1L;
 
   public boolean isAdmin() {
-    return "ADMIN".equals(role);
+    return Role.valueOf(role).isAdmin();
   }
 
   @Override
