@@ -39,6 +39,7 @@ from mujuthaek_extraction.assemble.slips import fix_format_slips
 from mujuthaek_extraction.intake.model import ExtractionMaterial
 from mujuthaek_extraction.model.base import ExtractionModel, ModelError, ModelRequest, StopReason
 from mujuthaek_extraction.model.runaway import MAX_STRING_CHARS, RUNAWAY_CHUNK, RUNAWAY_REPEATS, RUNAWAY_STEP, runaway  # noqa: F401 (시험·다른 모듈이 여기서 가져감)
+from mujuthaek_extraction.model.strict_schema import drop_null_optionals, keep_own, to_strict
 from mujuthaek_extraction.rules.base import CallSpec, FieldRules, call_schema, document_ids, output_limit, structure_summary
 from mujuthaek_extraction.usage import UsageRecorder, timed
 
@@ -109,10 +110,17 @@ def guarded(request: ModelRequest) -> ModelRequest:
     return replace(request, instructions=f"{request.instructions}\n\n{GUARD_NOTE}")
 
 
-def salvage_truncated(raw: str, sections: tuple[str, ...]) -> dict[str, Any] | None:
+def salvage_truncated(
+    raw: str, sections: tuple[str, ...], optional_names: frozenset[str] = frozenset(), own_schema: dict[str, Any] | None = None
+) -> dict[str, Any] | None:
     """출력 한도로 잘린 JSON에서 끝까지 적힌 항목만 살립니다. 인용(quotes) 목록이 끝까지 적혀 있고 맡은 섹션 목록 안에서 잘렸을 때만
     살립니다(인용 안에서 잘리면 항목이 없어 None). 잘린 섹션은 coverage PARTIAL(AI가 다 옮기지 못한 것과 같이 재확인·검수로),
-    끝까지 적힌 섹션은 EXTRACTED, 시작도 못 한 섹션은 FAILED입니다."""
+    끝까지 적힌 섹션은 EXTRACTED, 시작도 못 한 섹션은 FAILED입니다.
+
+    optional_names는 엄격 모드가 null로 채운 선택 칸 이름입니다. 모델 어댑터는 정상 종료 응답에서만 이 null을 지우므로(잘린 응답은
+    JSON이 아님) 여기서 지웁니다. 2026-10-25 33번: 잘린 서류 응답 인용의 「unitRow」: null 59개가 형식 오류가 되어 서류 전체를 버림.
+    own_schema(이번 호출의 형식)를 주면 공유 형식 응답에서 맡지 않은 섹션(null)도 지웁니다(어댑터의 keep_own과 같음. 같은 날 다시 돌린 33번:
+    맨 위 「eligibility」「notice」 null이 형식 오류가 되어 잘린 서류 제출 응답의 66개 항목을 또 버림)"""
     text = raw.strip()
     if text.startswith("```"):
         text = text.split("\n", 1)[1] if "\n" in text else ""
@@ -154,7 +162,9 @@ def salvage_truncated(raw: str, sections: tuple[str, ...]) -> dict[str, Any] | N
         return None
     cut, truncated = last_item_end
     try:
-        part = json.loads(text[:cut] + "]}")
+        part = drop_null_optionals(json.loads(text[:cut] + "]}"), optional_names)
+        if own_schema is not None:
+            part = keep_own(part, own_schema)
     except ValueError:
         return None
     if not isinstance(part, dict) or not isinstance(part.get("quotes"), list):
@@ -178,9 +188,13 @@ SPLIT_PARTIAL = "서류를 표 묶음별로 나눠 다시 불렀지만 일부 �
 
 
 def _item_key(section: str, item: dict[str, Any]) -> str:
-    """같은 항목인지 볼 열쇠: 서류는 이름·제출 시점, 일정은 이름·시작, 그 밖에는 이름·설명 글."""
+    """같은 항목인지 볼 열쇠: 서류는 이름·제출 시점·대상, 일정은 이름·시작, 그 밖에는 이름·설명 글.
+    서류 대상(appliesTo·대상 계층·공급 구분)을 넣는 까닭: 2026-10-25 33번에서 일반공급 공통 서류 14개가 이름이 같은 특별공급 서류와 같은 것으로
+    여겨져 모두 빠짐. 제출 시점 끝의 「시」「때」는 뺍니다(잘린 두 응답이 「…제출 시」「…제출」로만 달라 같은 서류가 두 번 들어감)."""
     if section == "requiredDocuments":
-        parts = [item.get("name"), item.get("submissionTime")]
+        scope = item.get("scope") if isinstance(item.get("scope"), dict) else {}
+        time = re.sub(r"\s*(?:시|때)\s*$", "", str(item.get("submissionTime") or ""))
+        parts = [item.get("name"), time, item.get("appliesTo"), json.dumps(scope.get("targetGroups"), ensure_ascii=False), scope.get("supplyCategory")]
     elif section == "schedules":
         parts = [item.get("rawLabel"), json.dumps(item.get("startsAt"), sort_keys=True)]
     else:
@@ -188,13 +202,30 @@ def _item_key(section: str, item: dict[str, Any]) -> str:
     return "|".join(re.sub(r"\s+", "", str(p or "")) for p in parts)
 
 
-def fill_from_cuts(part: dict[str, Any], cut_raws: list[str], sections: tuple[str, ...]) -> int:
+# 처음부터 나눠 부를 서류 표 행 수(설정 EXTRACTION_PRESPLIT_DOC_ROWS, 0이면 끔 = 이전처럼 잘린 뒤에만 나눠 부름)
+PRESPLIT_ROWS = int(os.getenv("EXTRACTION_PRESPLIT_DOC_ROWS", "60"))
+
+
+def document_rows(material: ExtractionMaterial) -> int:
+    """원문 서류 표에서 서류 낱말이 든 행 수(검증의 서류 누락 검사와 같은 기준)."""
+    from mujuthaek_extraction.verify.consistency import DOCUMENT_WORD, _document_table_rows
+
+    return sum(1 for row in _document_table_rows(material.text or "") if DOCUMENT_WORD.search(row))
+
+
+def fill_from_cuts(
+    part: dict[str, Any],
+    cut_raws: list[str],
+    sections: tuple[str, ...],
+    optional_names: frozenset[str] = frozenset(),
+    own_schema: dict[str, Any] | None = None,
+) -> int:
     """잘린 응답들에서 끝까지 적힌 항목 중 part에 없는 것을 더합니다(2026-10-24 여덟 번째 채점: 서류 호출 첫 응답은 일반공급 서류까지
     읽고 잘렸는데, 나중 응답(더 앞에서 잘림)·나눠 부른 결과만 써서 서류 11개가 빠짐). 인용 ref는 응답마다 앞머리(c1-, c2-)를 붙입니다.
     더한 항목 수를 돌려줍니다. 형식이 틀린 항목은 결합기가 뺍니다."""
     added = 0
     for number, raw in enumerate(cut_raws, start=1):
-        salvaged = salvage_truncated(raw, sections)
+        salvaged = salvage_truncated(raw, sections, optional_names, own_schema)
         if not salvaged:
             continue
         prefix = f"c{number}-"
@@ -389,6 +420,13 @@ def run_extraction(
             return None
 
         part, reason, repairs, truncations = None, None, 0, 0
+        presplit = dict(rules.runaway_splits).get(call.name)
+        if presplit and number > 0 and PRESPLIT_ROWS and document_rows(material) >= PRESPLIT_ROWS:
+            # 서류 표 행이 많으면 한 번에 부르면 출력 한도로 잘려 두세 번 다시 부르게 됩니다(2026-10-25 비용: 잘려 버린 출력이
+            # 전체의 8%). 처음부터 표 묶음별로 나눠 부르고, 받지 못하면 아래 한 번에 부르기로 돌아갑니다
+            part = run_split(number, call, presplit, known, sink)
+            if part is not None:
+                sink.notes.append(f"{call.name}: 서류 표 행이 많아 처음부터 표 묶음별로 나눠 불렀습니다")
         unrepaired = None  # 형식 위반이 있는 첫 응답. 수정 호출이 실패하면(예산 한도 등) 이것을 넘깁니다
         truncated_raw: str | None = None  # 다시 받아도 잘린 마지막 응답(나눠 부르기·끝까지 적힌 항목 살리기에 씀)
         cut_raws: list[str] = []  # 이 호출에서 잘린 응답 전부(앞 응답이 더 멀리 읽었을 수 있어 모두 모읍니다)
@@ -447,13 +485,14 @@ def run_extraction(
             if splits and number > 0:
                 part = run_split(number, call, splits, known, sink)
                 how = "표 묶음별로 나눠 부른 결과" if part is not None else None
+            optional = to_strict(request.output_schema)[1]  # 잘린 응답은 어댑터가 null 칸을 지우지 못했습니다
             if part is None:
-                salvaged = salvage_truncated(truncated_raw, call.sections)
+                salvaged = salvage_truncated(truncated_raw, call.sections, optional, request.output_schema)
                 if salvaged is not None and (schema_errors(salvaged, request.output_schema) is None or bad_items(salvaged, request.output_schema) is not None):
                     part, how = fix_format_slips(salvaged), "잘린 응답에서 끝까지 적힌 항목"
             if part is not None:
                 reason = None
-                added = fill_from_cuts(part, cut_raws, call.sections)
+                added = fill_from_cuts(part, cut_raws, call.sections, optional, request.output_schema)
                 more = f", 앞서 잘린 응답에서 끝까지 적힌 항목 {added}개를 더했습니다" if added else ""
                 sink.notes.append(f"{call.name}: 다시 받아도 출력 한도로 잘려 {how}를 썼습니다{more}")
         if part is None:

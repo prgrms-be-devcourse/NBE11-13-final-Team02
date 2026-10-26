@@ -213,3 +213,21 @@ def drop_null_optionals(value: Any, optional_names: frozenset[str]) -> Any:
     if isinstance(value, list):
         return [drop_null_optionals(v, optional_names) for v in value]
     return value
+
+
+def keep_own(value: Any, schema: dict[str, Any]) -> Any:
+    """공유 형식으로 받은 응답에서 이번 호출이 맡은 칸(맨 위·coverage)만 남깁니다. 검사는 호출 형식(output_schema)으로 합니다."""
+    if not isinstance(value, dict):
+        return value
+    own = schema.get("properties", {})
+    kept = {k: v for k, v in value.items() if k in own}
+    coverage_own = (own.get("coverage") or {}).get("properties")
+    if isinstance(kept.get("coverage"), dict) and coverage_own is not None:
+        kept["coverage"] = {k: v for k, v in kept["coverage"].items() if k in coverage_own}
+    # 맡은 목록 섹션을 null로 비우고 coverage에만 사유를 적은 경우(공유 형식은 섹션이 선택 칸이라 생김) 빈 목록으로 둡니다.
+    # 실측 OpenAI LH 제주 든든전세: 공급주택목록이 첨부라 supplyGroups를 null로 → 필수 칸 누락으로 구조 호출을 다시 요청
+    covered = kept.get("coverage") if isinstance(kept.get("coverage"), dict) else {}
+    for key in schema.get("required", []):
+        if key not in kept and (own.get(key) or {}).get("type") == "array" and isinstance(covered.get(key), dict):
+            kept[key] = []
+    return kept
