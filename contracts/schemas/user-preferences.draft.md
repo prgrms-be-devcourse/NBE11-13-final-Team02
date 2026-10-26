@@ -156,7 +156,7 @@ account.users (있음)
 | `GET /api/users/me/notification-email` | 가린 주소(`xo***@gmail.com`), 인증 여부, 상태 |
 | `GET`·`PUT /api/users/me/notification-settings` | 설정 조회·변경 |
 
-알림함 API(`GET /api/notifications`, 읽음 처리)는 api `notification` 모듈에 둬요.
+알림함 API는 api `notification` 모듈에 둬요: `GET /api/users/me/notifications`(커서, `unread=true`), `GET …/unread-count`, `POST …/{id}/read`, `POST …/read-all` (services/api README).
 
 ## 3. 마이그레이션 초안
 

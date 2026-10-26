@@ -171,8 +171,8 @@ PWA ──HTTP──▶ api
 1. 대상자 회원 ID 찾기 (user 모듈 조회 메서드, [user-preferences.draft.md](user-preferences.draft.md) 4장)
 2. 회원마다 알림 설정·이메일 조회 (user 모듈 `findNotificationContacts(userIds, type)` → `{userId, email | null, quietEnabled}`)
    - `email`은 `email_enabled` + 종류별 설정 켬 + `verified_at` 있음 + `status = ACTIVE`일 때만
-3. 문구 만들기 (아래 표) → 알림함(`notification` 모듈 테이블)에 회원마다 한 줄 (설정과 상관없이)
-4. 500명씩 `notification.requested`를 아웃박스에 기록
+3. 문구 만들기 (아래 표) → 알림함(`notification.notifications`)에 회원마다 한 줄 (설정과 상관없이, 같은 dedupKey면 한 번, 90일 보관)
+4. 500명씩 `notification.requested`를 아웃박스에 기록. 이메일도 푸시 기기도 없는(또는 이 종류를 끈) 회원은 알림함에만 남고 요청에서 빠져요
 
 - 1~4는 **공고 저장과 같은 트랜잭션**에서 해요 (내부 이벤트를 `@EventListener` 또는 `@TransactionalEventListener(phase = BEFORE_COMMIT)`로 받아요)
 - 다른 모듈 데이터는 service 조회 메서드로만 가져와요
