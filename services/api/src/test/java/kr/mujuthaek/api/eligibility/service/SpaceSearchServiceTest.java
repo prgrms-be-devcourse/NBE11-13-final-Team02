@@ -55,10 +55,58 @@ class SpaceSearchServiceTest {
         .containsExactly(no, soon, late, always);
   }
 
+  @Test
+  void sourceComesFromTheOriginalSite() {
+    assertThat(
+            SpaceSearchService.source(
+                "https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do?schM=view&pbancSn=179465"))
+        .isEqualTo("KSTARTUP");
+    assertThat(
+            SpaceSearchService.source(
+                "https://www.bizinfo.go.kr/sii/siia/selectSIIA200Detail.do?pblancId=PBLN_1"))
+        .isEqualTo("BIZINFO");
+    assertThat(SpaceSearchService.source("https://example.org")).isNull();
+    assertThat(SpaceSearchService.source(null)).isNull();
+  }
+
+  @Test
+  void sameRecruitmentFromTwoSitesShowsOnce() {
+    var bizinfo = policy("00000000-0000-0000-0000-000000000011", "BIZINFO", "[서울] 관악S밸리 입주기업 모집");
+    var kstartup = policy("00000000-0000-0000-0000-000000000012", "KSTARTUP", "서울 관악S밸리 입주기업 모집");
+    var other = policy("00000000-0000-0000-0000-000000000013", "BIZINFO", "동국대 창업보육센터 입주기업 모집");
+
+    // 글자·숫자만 같으면 같은 모집이에요. K-Startup을 남기고 처음 순서는 그대로
+    assertThat(SpaceSearchService.withoutDuplicates(List.of(bizinfo, other, kstartup)))
+        .containsExactly(other, kstartup);
+  }
+
+  private static SpaceSearchResponse.Item policy(String id, String source, String title) {
+    return new SpaceSearchResponse.Item(
+        UUID.fromString(id),
+        true,
+        source,
+        "STARTUP_SPACE",
+        title,
+        null,
+        null,
+        List.of(),
+        "APPLYING",
+        null,
+        null,
+        null,
+        Eligibility.NEEDS_INPUT,
+        null,
+        List.of(),
+        List.of(),
+        null,
+        List.of());
+  }
+
   private static SpaceSearchResponse.Item item(String id, Eligibility overall, String applyEnd) {
     return new SpaceSearchResponse.Item(
         UUID.fromString(id),
         false,
+        null,
         "STARTUP_SPACE",
         "공간",
         null,

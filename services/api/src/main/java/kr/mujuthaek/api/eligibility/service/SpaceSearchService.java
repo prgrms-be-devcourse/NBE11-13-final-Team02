@@ -60,10 +60,11 @@ public class SpaceSearchService {
             .stream()
             .collect(Collectors.toMap(NoticeQueryService.Candidate::id, Function.identity()));
     List<SpaceSearchResponse.Item> inRegion =
-        matches.judgeBusinessSpaceAll(request.applicant()).stream()
-            .filter(m -> inRegions(m.regionCodes(), f.regionCodes()))
-            .map(m -> item(m, info.get(m.noticeId()), today))
-            .toList();
+        withoutDuplicates(
+            matches.judgeBusinessSpaceAll(request.applicant()).stream()
+                .filter(m -> inRegions(m.regionCodes(), f.regionCodes()))
+                .map(m -> item(m, info.get(m.noticeId()), today))
+                .toList());
     Map<String, Integer> typeCounts = new LinkedHashMap<>();
     SPACE_TYPES.forEach(t -> typeCounts.put(t, 0));
     inRegion.forEach(i -> typeCounts.merge(i.spaceType(), 1, Integer::sum));
@@ -105,8 +106,57 @@ public class SpaceSearchService {
         matches
             .judgeBusinessSpace(id, applicant)
             .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_NOT_FOUND));
+    var n = j.notice();
+    LocalDate today = LocalDate.now(clock);
     return new SpaceEvaluationResponse(
-        id, j.notice().policy(), j.notice().title(), j.notice().detailUrl(), j.judgment());
+        id,
+        n.policy(),
+        n.policy() ? source(n.detailUrl()) : null,
+        n.title(),
+        n.detailUrl(),
+        n.applyStart(),
+        n.applyEnd(),
+        NoticeStatus.dday(n.applyEnd(), today),
+        status(n.applyStart(), n.applyEnd(), today),
+        n.regionCodes(),
+        j.judgment());
+  }
+
+  /** 모집 정책의 출처: 원문 주소의 기관 사이트로 정해요 (판정 틀에는 출처 칸이 없어요). */
+  static String source(String detailUrl) {
+    if (detailUrl == null) {
+      return null;
+    }
+    if (detailUrl.contains("k-startup.go.kr")) {
+      return "KSTARTUP";
+    }
+    return detailUrl.contains("bizinfo.go.kr") ? "BIZINFO" : null;
+  }
+
+  /**
+   * 같은 모집이 여러 출처(K-Startup·기업마당)에 올라오면 이름(글자·숫자만)이 같은 것 중 하나만 남겨요. 공고 → K-Startup(원문 본문까지 읽음) →
+   * 기업마당 → 출처 모름 순으로 남기고, 처음 순서는 그대로예요.
+   */
+  static List<SpaceSearchResponse.Item> withoutDuplicates(List<SpaceSearchResponse.Item> items) {
+    Map<String, SpaceSearchResponse.Item> best = new LinkedHashMap<>();
+    for (SpaceSearchResponse.Item i : items) {
+      best.merge(titleKey(i.title()), i, (a, b) -> preference(b) < preference(a) ? b : a);
+    }
+    return items.stream().filter(i -> best.containsValue(i)).toList();
+  }
+
+  private static String titleKey(String title) {
+    return title == null ? "" : title.replaceAll("[^\\p{IsHangul}\\p{Alnum}]", "").toLowerCase();
+  }
+
+  private static int preference(SpaceSearchResponse.Item i) {
+    if (!i.policy()) {
+      return 0;
+    }
+    if ("KSTARTUP".equals(i.source())) {
+      return 1;
+    }
+    return "BIZINFO".equals(i.source()) ? 2 : 3;
   }
 
   private static SpaceSearchResponse.Item item(
@@ -114,6 +164,7 @@ public class SpaceSearchService {
     return new SpaceSearchResponse.Item(
         m.noticeId(),
         m.policy(),
+        m.policy() ? source(m.detailUrl()) : null,
         c != null && c.noticeType() != null ? c.noticeType() : STARTUP_SPACE,
         m.title(),
         c == null ? null : c.provider(),

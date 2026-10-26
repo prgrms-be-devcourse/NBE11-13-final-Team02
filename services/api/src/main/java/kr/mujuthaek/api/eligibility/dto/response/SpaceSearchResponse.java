@@ -23,6 +23,7 @@ public record SpaceSearchResponse(
   /**
    * @param policy 사업공간 모집 정책(K-Startup·기업마당 입주기업 모집)이면 true. 공고 상세(GET /notices/{id})로 찾을 수 없어서 화면은
    *     detailUrl 원문으로 보내요
+   * @param source 모집 정책의 출처 KSTARTUP · BIZINFO (원문 주소로 정해요). 공고·모르면 null
    * @param spaceType STARTUP_SPACE · SHOP_RENTAL · MEETING_ROOM. 모집 정책은 입주기업 모집이라 STARTUP_SPACE
    * @param provider 공고 기관 코드 (모집 정책은 null)
    * @param regionCodes 공고 지역 법정동코드 10자리 (판정 목록과 같아요). 전국은 빈 목록, 모르면 null
@@ -34,6 +35,7 @@ public record SpaceSearchResponse(
   public record Item(
       UUID id,
       boolean policy,
+      String source,
       String spaceType,
       String title,
       String provider,
