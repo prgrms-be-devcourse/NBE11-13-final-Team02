@@ -2,15 +2,68 @@ package kr.mujuthaek.api.benefit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.benefit.service.BenefitForJudgment;
+import kr.mujuthaek.api.benefit.service.BenefitSummary;
 import org.junit.jupiter.api.Test;
 
-/** 판정 후보 조회: 지역 겹침, 숨김·마감 제외, 금액은 원. */
+/** 판정 후보 조회: 지역 겹침, 숨김·마감 제외, 금액은 원. 알림용 요약·마감 임박. */
 class BenefitQueryTest {
 
   private final BenefitFixture f = new BenefitFixture();
+
+  @Test
+  void 알림용_요약은_숨긴_혜택도_준다() {
+    UUID id = f.benefit(region("SIDO", "11"));
+    UUID hidden = f.benefit(p -> p.put("relevant", false));
+
+    BenefitSummary s = f.queries.findSummary(id).orElseThrow();
+    assertThat(s.field()).isEqualTo("BENEFIT");
+    assertThat(s.version()).isEqualTo(1);
+    assertThat(s.status()).isEqualTo("OPEN");
+    assertThat(s.applyEnd()).isEqualTo(LocalDate.of(2026, 11, 30));
+    assertThat(s.regionScope()).isEqualTo("SIDO");
+    assertThat(s.regionCodes()).containsExactly("11");
+    assertThat(f.queries.findSummary(hidden).orElseThrow().status()).isEqualTo("HIDDEN");
+    assertThat(f.queries.findSummary(UUID.randomUUID())).isEmpty();
+  }
+
+  @Test
+  void 마감_임박은_그날_마감이고_접수_중인_혜택만_준다() {
+    UUID d3 = f.benefit(p -> p.withObject("schedule").put("applyEnd", "2026-10-25"));
+    UUID d1 = f.benefit(p -> p.withObject("schedule").put("applyEnd", "2026-10-23"));
+    UUID other = f.benefit(p -> p.withObject("schedule").put("applyEnd", "2026-10-24"));
+    UUID hidden =
+        f.benefit(
+            p -> {
+              p.put("relevant", false);
+              p.withObject("schedule").put("applyEnd", "2026-10-25");
+            });
+    UUID always =
+        f.benefit(
+            p -> p.withObject("schedule").put("applyEnd", "2026-10-25").put("applyAlways", true));
+    UUID notStarted =
+        f.benefit(
+            p ->
+                p.withObject("schedule")
+                    .put("applyStart", "2026-10-23")
+                    .put("applyEnd", "2026-10-25"));
+
+    List<UUID> ids =
+        f
+            .queries
+            .findOpenClosingOn(
+                List.of(LocalDate.of(2026, 10, 25), LocalDate.of(2026, 10, 23)),
+                BenefitFixture.TODAY)
+            .stream()
+            .map(BenefitSummary::benefitId)
+            .toList();
+    assertThat(ids).contains(d1, d3).doesNotContain(other, hidden, always, notStarted);
+    assertThat(ids.indexOf(d1)).as("마감일 순").isLessThan(ids.indexOf(d3));
+    assertThat(f.queries.findOpenClosingOn(List.of(), BenefitFixture.TODAY)).isEmpty();
+  }
 
   private static java.util.function.Consumer<tools.jackson.databind.node.ObjectNode> region(
       String scope, String... codes) {

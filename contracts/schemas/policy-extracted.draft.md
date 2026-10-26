@@ -295,8 +295,10 @@ create index benefit_conditions_type_idx on benefit.benefit_conditions (type);
 
 | 상황 | 하는 일 |
 | --- | --- |
-| 처음 받은 `rawPolicyId` | `benefits` 추가 + 지원·조건 줄 추가. `relevant`이고 `reprocess=false`면 `BenefitPublished` |
+| 처음 받은 `rawPolicyId` | `benefits` 추가 + 지원·조건 줄 추가. `relevant`이고 `reprocess=false`면 `BenefitPublished(benefitId, field, regionScope, regionCodes, title, reprocess)` (지역은 저장한 값 전부) |
 | 이미 있는 `rawPolicyId`, 더 큰 `version` | `benefits` 고치고 지원·조건 줄은 **지우고 다시 넣어요** (줄 단위 비교 안 함) |
+| └ 숨김(`relevant=false`)이던 정책이 `relevant`가 됨 | 처음 보이는 것과 같아서 `BenefitPublished` (`reprocess=false`일 때) |
+| └ 보이던 정책이 계속 `relevant` | 고치기 전 값과 비교해 사용자가 볼 내용이 바뀌었으면 `BenefitUpdated(benefitId, field, version, changedFields, reprocess)`. `changedFields`: `basic`(제목·기관) · `region` · `schedule`(신청·사업 기간) · `supports`(종류·금액·단위·개월·비율) · `conditions`(종류·값·묶음·known) · `application`(서류·문의처·신청 주소). **AI 글(요약·신청 방법·일정 원문·근거·원문 글자)과 신뢰도는 비교하지 않아요** (재추출할 때마다 정정 알림이 가지 않게). 재처리면 `reprocess=true`로 보내요 (알림은 안 보냄) |
 | 같거나 작은 `version` | 버려요 (같은 이벤트 두 번은 `common.processed_events`로 막아요) |
 | `relevant=false` | `status = HIDDEN`. 목록·판정에서 빼요 |
 | 매일 상태 갱신 | `apply_start` 전 `UPCOMING`, 기간 안이거나 `apply_always` `OPEN`, `apply_end` 지나면 `CLOSED` + `BenefitClosed` |
@@ -400,7 +402,7 @@ LH, 전북개발공사, 지차체 등이 공급주체인 공공임대주택에 �
 
 ## 6. 결정이 필요한 것
 
-1. **지역 이름 → 코드**를 누가 바꿀지: extraction(규칙)이 채워 보낼지, benefit이 저장할 때 바꿀지. 시군구 코드표를 어디에 둘지는 condition-types 6장 4번과 같이 정해요. `BenefitPublished.regionCode`는 하나라서 여러 지역 정책을 어떻게 알릴지도 정해야 해요
+1. **지역 이름 → 코드**를 누가 바꿀지: extraction(규칙)이 채워 보낼지, benefit이 저장할 때 바꿀지. 시군구 코드표를 어디에 둘지는 condition-types 6장 4번과 같이 정해요. (여러 지역 정책 알림은 정함: `BenefitPublished`가 `regionScope`·`regionCodes`를 모두 담아요, 2026-10-26)
 2. **같은 정책 합치기**: 보조금24·복지로·온통청년에 같은 정책이 따로 올라와요. benefit에서 합칠지(대표 한 줄 + 출처 여러 개), 지금처럼 출처마다 한 줄로 둘지
 3. **"제외 대상" 조건**: "주택을 소유한 자 제외"를 `HOMELESS`로 바꾸는 것처럼 뒤집을 수 있는 건 뒤집고, 못 뒤집는 건 `OTHER`로 둘지. condition-types에 `negate` 칸을 둘지
 4. **창업 조건 type**: `APPLICANT_TYPE`(개인·법인·예비창업자), `COMPANY_TYPE`(중소기업·소상공인·벤처) 추가
