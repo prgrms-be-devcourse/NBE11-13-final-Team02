@@ -452,8 +452,41 @@ def _page_blocks(page: Any, number: int, first_table: int = 1) -> list[dict[str,
     return blocks
 
 
+# 같은 글자를 조금 어긋나게 겹쳐 찍은 굵은 글씨·그림자 글씨: 글자 크기의 이 비율(1pt 이상)까지 떨어진 같은 글자는 하나로 읽습니다.
+# 1pt로만 보면 큰 제목의 그림자(23pt 글자를 1.08pt 어긋나게 회색으로 한 번 더)를 놓쳐 「22002266년년 영영구구…」로 읽혔음(2026-10-26).
+# 글자 폭(크기의 절반 이상)보다 훨씬 작아 실제로 이어 쓴 같은 글자(「11」「00」)는 합치지 않습니다
+OVERPRINT_SHARE = 0.1
+
+
+def _dedupe_chars(page: Any) -> Any:
+    """겹쳐 찍은 같은 글자(같은 글꼴·크기, 가로·세로 모두 허용 거리 안)를 처음 것 하나만 남깁니다. 색은 보지 않습니다(그림자는 회색)."""
+    page = page.dedupe_chars()
+    seen: dict[tuple, list[dict[str, Any]]] = {}
+    drop: set[int] = set()
+    for char in page.chars:
+        size = float(char.get("size") or 0)
+        tolerance = max(1.0, size * OVERPRINT_SHARE)
+        x, top = float(char["x0"]), float(char["top"])
+        key = (char["text"], char.get("fontname"), round(size, 1))
+        cell = (round(x / tolerance), round(top / tolerance))
+        near = [
+            other
+            for dx in (-1, 0, 1)
+            for dy in (-1, 0, 1)
+            for other in seen.get((*key, cell[0] + dx, cell[1] + dy), ())
+            if abs(float(other["x0"]) - x) <= tolerance and abs(float(other["top"]) - top) <= tolerance
+        ]
+        if near and char["text"].strip():
+            drop.add(id(char))
+        else:
+            seen.setdefault((*key, *cell), []).append(char)
+    if not drop:
+        return page
+    return page.filter(lambda obj: obj.get("object_type") != "char" or id(obj) not in drop)
+
+
 def _read_page(page: Any) -> list[PdfPage]:
-    page = page.dedupe_chars()  # 굵게 보이려고 같은 글자를 겹쳐 찍은 제목을 한 번만 읽습니다 (실측: "부부부부산산산…")
+    page = _dedupe_chars(page)  # 굵게·그림자로 같은 글자를 겹쳐 찍은 제목을 한 번만 읽습니다 (실측: "부부부부산산산…", "22002266년년…")
     split = _column_split(page)
     if split is None:
         return [PdfPage(page.page_number, _page_blocks(page, page.page_number))]
