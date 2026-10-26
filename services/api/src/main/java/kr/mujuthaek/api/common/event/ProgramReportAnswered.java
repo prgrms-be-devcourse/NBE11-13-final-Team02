@@ -7,6 +7,14 @@ import java.util.UUID;
  *
  * @param programId 창업지원 사업 ID (수집 DB 정책 ID, rawPolicyId)
  * @param result FIXED 고침 · KEPT 그대로 둠
+ * @param targetTitle 창업지원 사업 제목
  */
 public record ProgramReportAnswered(
-    UUID reportId, UUID programId, UUID reporterId, String field, String result, String reply) {}
+    UUID reportId,
+    UUID programId,
+    UUID reporterId,
+    String field,
+    String result,
+    String reply,
+    String targetTitle)
+    implements ReportAnswered {}

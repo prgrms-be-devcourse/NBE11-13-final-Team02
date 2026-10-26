@@ -128,6 +128,11 @@ class NoticeReportServiceTest {
     assertThat(events)
         .extracting(e -> ((NoticeReportAnswered) e).reporterId())
         .containsExactlyInAnyOrder(a, b);
+    // 알림 쪽이 문구에 쓰는 대상 제목도 함께 실어요
+    assertThat(events)
+        .extracting(e -> ((NoticeReportAnswered) e).targetTitle())
+        .containsOnly(service.detail(first).report().noticeTitle())
+        .doesNotContainNull();
     assertThatThrownBy(
             () ->
                 service.resolve(
@@ -219,7 +224,10 @@ class NoticeReportServiceTest {
         .singleElement()
         .isInstanceOfSatisfying(
             kr.mujuthaek.api.common.event.ProgramReportAnswered.class,
-            e -> assertThat(e.programId()).isEqualTo(program));
+            e -> {
+              assertThat(e.programId()).isEqualTo(program);
+              assertThat(e.targetTitle()).isEqualTo("가상 예비창업 지원");
+            });
   }
 
   @Test
@@ -260,7 +268,10 @@ class NoticeReportServiceTest {
         .singleElement()
         .isInstanceOfSatisfying(
             kr.mujuthaek.api.common.event.BenefitReportAnswered.class,
-            e -> assertThat(e.policyId()).isEqualTo(policy));
+            e -> {
+              assertThat(e.policyId()).isEqualTo(policy);
+              assertThat(e.targetTitle()).isEqualTo("가상 청년 월세");
+            });
     reviewServer.verify();
   }
 }
