@@ -44,6 +44,10 @@ public enum ErrorCode {
   WITHDRAWAL_TICKET_INVALID(HttpStatus.BAD_REQUEST, "탈퇴 요청이 만료됐어요. 다시 시도해 주세요"),
   WITHDRAWAL_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "탈퇴하려는 계정과 다시 로그인한 계정이 달라요"),
 
+  // notification
+  PUSH_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "웹 푸시 알림을 아직 쓸 수 없어요"),
+  PUSH_SUBSCRIPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "등록된 기기를 찾을 수 없어요"),
+
   // eligibility
   CRITERIA_NOT_FOUND(HttpStatus.NOT_FOUND, "그 연도의 판정 기준값이 아직 없어요"),
   ELIGIBILITY_FIELD_MISMATCH(HttpStatus.BAD_REQUEST, "판정하려는 분야와 판정 틀의 분야(schema)가 달라요"),

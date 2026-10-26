@@ -9,7 +9,7 @@
 ```
 ① PWA  "알림 받기" 버튼 → 권한 허용 → pushManager.subscribe(VAPID 공개키)
         → 브라우저가 구독 정보 {endpoint, p256dh, auth}를 만들어 줌
-② PWA → api   PUT /api/v1/push/subscriptions (기기마다 1줄 저장)
+② PWA → api   PUT /api/users/me/push-subscriptions (기기마다 1줄 저장)
 ③ api  알림 요청을 만들 때 recipients[].push에 그 회원의 기기 목록을 넣음 → 아웃박스 → 알림 서버
 ④ 알림 서버  기기마다 endpoint로 암호화한 내용을 보냄 (VAPID 개인키로 서명)
         → 브라우저 회사의 푸시 서비스 (Google·Mozilla·Apple) → 기기
@@ -66,13 +66,15 @@
 
 ## 2. api HTTP (PWA가 불러요, api `notification` 모듈)
 
+로그인이 필요한 요청은 다른 회원 API처럼 `/api/users/me/…` 아래에 둬요 (SecurityConfig가 `/api/users/**`를 로그인한 회원만 받아요).
+
 | 요청 | 로그인 | 하는 일 | 응답 |
 | --- | --- | --- | --- |
-| `GET /api/v1/push/public-key` | 필요 없음 | VAPID 공개키 | `200 {"publicKey": "BEl6…"}` |
-| `PUT /api/v1/push/subscriptions` | 필요 | 이 기기 등록·갱신. 같은 `endpoint`가 있으면 내용·`updated_at`을 바꾸고, **다른 회원의 것이면 지금 회원으로 옮겨요**(같은 브라우저에서 다른 계정으로 로그인) | `204` |
-| `DELETE /api/v1/push/subscriptions` | 필요 | 이 기기 해제 (이 기기 알림 끄기, **로그아웃 직전**). 본문 없이 `?scope=all`이면 **내 기기 모두** 해제 (설정 화면 "모든 기기 알림 끄기") | `204` (없어도 204) |
-| `GET /api/v1/push/subscriptions` | 필요 | 내 기기 목록 (`id`, `userAgent`, `createdAt`, `updatedAt`). `endpoint`·키는 주지 않아요 | `200 [...]` |
-| `DELETE /api/v1/push/subscriptions/{id}` | 필요 | 목록에서 다른 기기 해제 | `204` / 남의 기기면 `404` |
+| `GET /api/v1/push/public-key` | 필요 없음 | VAPID 공개키 | `200 {"publicKey": "BEl6…"}`. 서버에 설정이 없으면 `503 PUSH_NOT_CONFIGURED` |
+| `PUT /api/users/me/push-subscriptions` | 필요 | 이 기기 등록·갱신. 같은 `endpoint`가 있으면 내용·`updated_at`을 바꾸고, **다른 회원의 것이면 지금 회원으로 옮겨요**(같은 브라우저에서 다른 계정으로 로그인) | `204` |
+| `DELETE /api/users/me/push-subscriptions` | 필요 | 이 기기 해제 (이 기기 알림 끄기, **로그아웃 직전**). 본문 없이 `?scope=all`이면 **내 기기 모두** 해제 (설정 화면 "모든 기기 알림 끄기") | `204` (없어도 204) |
+| `GET /api/users/me/push-subscriptions` | 필요 | 내 기기 목록 (`id`, `userAgent`, `createdAt`, `updatedAt`), 최근에 쓴 기기부터. `endpoint`·키는 주지 않아요 | `200 [...]` |
+| `DELETE /api/users/me/push-subscriptions/{id}` | 필요 | 목록에서 다른 기기 해제 | `204` / 남의 기기면 `404 PUSH_SUBSCRIPTION_NOT_FOUND` |
 
 `PUT`·`DELETE` 본문 (브라우저 `subscription.toJSON()` 모양 그대로):
 
@@ -86,7 +88,11 @@
 
 - `DELETE`는 `endpoint`만 있어도 돼요. 모두 해제할 때(`?scope=all`)는 본문이 없어요
 - 모두 해제한 뒤 이 기기에서 다시 켜면 PWA가 `PUT`만 다시 하면 돼요 (권한은 그대로라 창이 뜨지 않아요)
-- 검사: `endpoint`는 `https://`로 시작, `p256dh`·`auth`는 base64url. 틀리면 `400`
+- 검사 (틀리면 `400 VALIDATION_FAILED`, 오류 문구에는 칸 이름만 넣고 값은 넣지 않아요)
+  - `endpoint`: `https://`, 포트·사용자 정보 없음, 2,048자 이하, **푸시 서비스 도메인**(`fcm.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com`, `*.notify.windows.com`, 설정 `app.push.allowed-hosts`). 알림 서버가 이 주소로 요청을 보내서, 아무 주소나 받으면 우리 서버가 남의 서버를 부르게 돼요
+  - `p256dh`: base64url, 풀면 65바이트 / `auth`: base64url, 풀면 16바이트 (패딩 `=`은 있어도 돼요)
+  - `userAgent`: 없어도 돼요. 200자를 넘으면 잘라요
+- 탈퇴 뒤 남은 access token(최대 30분)으로 `PUT`하면 401이에요 (`WithdrawnUserFilter`가 쓰기 요청을 막아요). 지운 기기가 다시 생기지 않아요
 - PWA는 **앱을 열 때마다** 현재 구독을 `PUT`해요 (브라우저가 구독을 몰래 바꾼 경우를 맞추고, `updated_at`이 "최근에 쓴 기기"가 돼요)
 
 ## 3. `notification.requested`에 더하는 칸
