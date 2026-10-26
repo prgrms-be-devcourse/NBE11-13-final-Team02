@@ -15,7 +15,6 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
-import kr.mujuthaek.api.common.messaging.Outbox;
 import kr.mujuthaek.api.notice.service.NoticeFollowUpSummary;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.NoticeSummary;
@@ -58,12 +57,11 @@ public class NoticeNotificationService {
   public NoticeNotificationService(
       NoticeQueryService notices,
       RecipientFinder recipients,
-      Outbox outbox,
-      PushDeviceFinder push,
+      NotificationRequests requests,
       Clock clock) {
     this.notices = notices;
     this.recipients = recipients;
-    this.requests = new NotificationRequests(outbox, push);
+    this.requests = requests;
     this.clock = clock;
   }
 

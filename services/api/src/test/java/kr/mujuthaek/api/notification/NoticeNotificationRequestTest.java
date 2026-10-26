@@ -3,6 +3,7 @@ package kr.mujuthaek.api.notification;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
+import kr.mujuthaek.api.notification.service.internal.Recipient;
 import kr.mujuthaek.api.notification.service.internal.RecipientFinder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,6 +62,40 @@ class NoticeNotificationRequestTest {
         .update();
     jdbc.sql("delete from common.outbox").update();
     jdbc.sql("delete from notification.push_subscriptions").update();
+    jdbc.sql("delete from notification.notifications").update();
+  }
+
+  @Test
+  void everyRecipientGetsAnInboxEntryEvenWithoutAnyChannel() {
+    UUID silent = UUID.randomUUID(); // 기기·이메일 없음
+    UUID off = UUID.randomUUID(); // 이 종류를 끔 (기기는 있음)
+    subscribe(off, "https://fcm.googleapis.com/fcm/send/off", "2026-10-25T00:00:00Z");
+    doReturn(List.of(Recipient.push(silent, false), new Recipient(off, null, false, false)))
+        .when(recipients)
+        .forNewNotice(any(), any(), any(Boolean.class));
+
+    apply(fixture());
+
+    UUID id = onlyNotice();
+    assertThat(
+            jdbc.sql(
+                    "select user_id from notification.notifications where dedup_key = :k order by user_id")
+                .param("k", "NOTICE:" + id + ":NEW")
+                .query(UUID.class)
+                .list())
+        .containsExactlyInAnyOrder(silent, off, ME);
+    assertThat(
+            jdbc.sql("select title from notification.notifications where user_id = :u")
+                .param("u", silent)
+                .query(String.class)
+                .single())
+        .isEqualTo("새 공고: 서초구 서리풀 청년아트타운 잔여세대 입주자 모집공고");
+    JsonNode request = onlyRequest();
+    assertThat(request.path("recipients"))
+        .as("보낼 채널이 없는 회원은 요청에서 빠져요 (관심 공고로 둔 테스트 회원만)")
+        .hasSize(1);
+    assertThat(request.path("recipients").get(0).path("userId").asString())
+        .isEqualTo(ME.toString());
   }
 
   @Test

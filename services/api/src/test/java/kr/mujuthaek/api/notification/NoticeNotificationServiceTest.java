@@ -27,7 +27,9 @@ import kr.mujuthaek.api.common.messaging.Outbox;
 import kr.mujuthaek.api.notice.service.NoticeFollowUpSummary;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.NoticeSummary;
+import kr.mujuthaek.api.notification.repository.InboxRepository;
 import kr.mujuthaek.api.notification.service.internal.NoticeNotificationService;
+import kr.mujuthaek.api.notification.service.internal.NotificationRequests;
 import kr.mujuthaek.api.notification.service.internal.Recipient;
 import kr.mujuthaek.api.notification.service.internal.RecipientFinder;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,11 +41,13 @@ class NoticeNotificationServiceTest {
   final NoticeQueryService notices = mock(NoticeQueryService.class);
   final RecipientFinder finder = mock(RecipientFinder.class);
   final Outbox outbox = mock(Outbox.class);
+  final InboxRepository inbox = mock(InboxRepository.class);
   final Clock clock = Clock.fixed(Instant.parse("2026-10-25T00:00:00Z"), ZoneId.of("Asia/Seoul"));
   final NoticeNotificationService service =
-      new NoticeNotificationService(notices, finder, outbox, ids -> Map.of(), clock);
+      new NoticeNotificationService(
+          notices, finder, new NotificationRequests(outbox, ids -> Map.of(), inbox, clock), clock);
   final UUID id = UUID.randomUUID();
-  final Recipient me = new Recipient(UUID.randomUUID(), "me@example.com", false);
+  final Recipient me = new Recipient(UUID.randomUUID(), "me@example.com", false, true);
 
   @BeforeEach
   void favorites() {
@@ -169,7 +173,7 @@ class NoticeNotificationServiceTest {
   @Test
   void newNoticeCountsAPersonInBothListsOnceAndSaysAlwaysOpen() {
     when(notices.findSummary(id)).thenReturn(Optional.of(notice(id, "ALWAYS", 1, null)));
-    Recipient other = new Recipient(UUID.randomUUID(), null, true);
+    Recipient other = new Recipient(UUID.randomUUID(), "other@example.com", true, true);
     when(finder.forNewNotice(eq("HOUSING"), eq(List.of("11650")), anyBoolean()))
         .thenReturn(List.of(me, other));
 
@@ -183,6 +187,26 @@ class NoticeNotificationServiceTest {
                 (Map<String, Object> p) ->
                     ((List<?>) p.get("recipients")).size() == 2
                         && p.get("body").equals("관심 조건에 맞는 새 공고 소식이에요. SH공사 · 상시 모집")));
+  }
+
+  @Test
+  void membersWithoutAnyChannelOnlyGetAnInboxEntry() {
+    when(notices.findSummary(id)).thenReturn(Optional.of(notice(id, "APPLYING", 1, null)));
+    Recipient silent = Recipient.push(UUID.randomUUID(), false); // 기기 없음
+    Recipient off = new Recipient(UUID.randomUUID(), null, false, false); // 이 종류를 끔
+    when(finder.forNewNotice(any(), any(), anyBoolean())).thenReturn(List.of(silent, off));
+    when(finder.forFavorite("NOTICE", id)).thenReturn(List.of());
+
+    assertThat(service.onPublished(published(false))).isZero();
+
+    verify(inbox)
+        .addAll(
+            argThat(
+                (List<InboxRepository.NewEntry> rows) ->
+                    rows.size() == 2
+                        && rows.stream()
+                            .allMatch(r -> r.dedupKey().equals("NOTICE:" + id + ":NEW"))));
+    verifyNoInteractions(outbox);
   }
 
   @Test
