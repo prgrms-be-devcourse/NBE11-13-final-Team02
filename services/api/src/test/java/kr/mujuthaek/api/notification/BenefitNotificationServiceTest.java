@@ -76,7 +76,7 @@ class BenefitNotificationServiceTest {
   @Test
   void noRecipientsMeansNoRequest() {
     summary("OPEN", "BENEFIT");
-    when(finder.forFavorite(any(), any())).thenReturn(List.of());
+    when(finder.forFavorite(any(), any(), any())).thenReturn(List.of());
 
     assertThat(
             service.onUpdated(new BenefitUpdated(id, "BENEFIT", 2, List.of("conditions"), false)))

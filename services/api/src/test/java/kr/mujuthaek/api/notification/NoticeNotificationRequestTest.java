@@ -8,6 +8,7 @@ import static org.mockito.Mockito.doThrow;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
@@ -15,6 +16,12 @@ import kr.mujuthaek.api.notice.domain.IngestionOutcome;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
 import kr.mujuthaek.api.notification.service.internal.Recipient;
 import kr.mujuthaek.api.notification.service.internal.RecipientFinder;
+import kr.mujuthaek.api.user.domain.SocialProvider;
+import kr.mujuthaek.api.user.repository.FavoriteRepository;
+import kr.mujuthaek.api.user.repository.InterestRepository;
+import kr.mujuthaek.api.user.repository.NotificationSettingRepository;
+import kr.mujuthaek.api.user.service.SocialLoginService;
+import kr.mujuthaek.api.user.service.SocialProfile;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -48,6 +55,10 @@ class NoticeNotificationRequestTest {
   @Autowired JsonMapper json;
   @Autowired NotificationTestClock.MovableClock clock;
   @MockitoSpyBean RecipientFinder recipients;
+  @Autowired SocialLoginService logins;
+  @Autowired InterestRepository interests;
+  @Autowired NotificationSettingRepository settings;
+  @Autowired FavoriteRepository favorites;
 
   @BeforeEach
   void clean() {
@@ -63,6 +74,67 @@ class NoticeNotificationRequestTest {
     jdbc.sql("delete from common.outbox").update();
     jdbc.sql("delete from notification.push_subscriptions").update();
     jdbc.sql("delete from notification.notifications").update();
+    jdbc.sql("delete from account.housing_interests").update();
+    jdbc.sql("delete from account.favorites").update();
+  }
+
+  @Test
+  void realMembersAreChosenByInterestsFavoritesAndSettings() {
+    Instant now = Instant.now();
+    UUID seocho = member(); // 서초구 관심 + 기기
+    UUID seoulOff = member(); // 서울 전체 관심, 새 공고 알림 끔 + 기기
+    UUID busan = member(); // 부산 관심 → 이 공고는 아님. 나중에 관심 공고로 둠
+    interests.saveHousing(
+        seocho, new InterestRepository.Housing(List.of("11650"), false, List.of()), now);
+    interests.saveHousing(
+        seoulOff, new InterestRepository.Housing(List.of("11000"), false, List.of()), now);
+    interests.saveHousing(
+        busan, new InterestRepository.Housing(List.of("26350"), false, List.of()), now);
+    settings.save(
+        seoulOff,
+        new NotificationSettingRepository.Settings(false, true, true, true, true, false),
+        now);
+    subscribe(seocho, "https://fcm.googleapis.com/fcm/send/seocho", "2026-10-25T00:00:00Z");
+    subscribe(seoulOff, "https://fcm.googleapis.com/fcm/send/seoul-off", "2026-10-25T00:00:00Z");
+    subscribe(busan, "https://fcm.googleapis.com/fcm/send/busan", "2026-10-25T00:00:00Z");
+
+    apply(fixture());
+
+    UUID id = onlyNotice();
+    assertThat(inboxUsers("NOTICE:" + id + ":NEW"))
+        .as("관심 지역이 맞는 회원 + 테스트 회원 (알림을 끈 회원도 알림함에는)")
+        .containsExactlyInAnyOrder(seocho, seoulOff, ME);
+    assertThat(recipientIds(onlyRequest()))
+        .as("새 공고 알림을 끈 회원은 보내지 않음")
+        .containsExactlyInAnyOrder(seocho.toString(), ME.toString());
+
+    favorites.add(busan, "NOTICE", id, now);
+    jdbc.sql("delete from common.outbox").update();
+    apply(correctionOf(fixture(), "2026-11-07"));
+
+    assertThat(inboxUsers("NOTICE:" + id + ":CORRECTED:2")).containsExactlyInAnyOrder(busan, ME);
+    JsonNode corrected = onlyRequest();
+    assertThat(recipientIds(corrected)).containsExactlyInAnyOrder(busan.toString(), ME.toString());
+    assertThat(corrected.toString()).contains("fcm/send/busan").doesNotContain("seocho");
+  }
+
+  private UUID member() {
+    return logins
+        .login(new SocialProfile(SocialProvider.KAKAO, "rcpt-" + UUID.randomUUID(), "닉네임"))
+        .userId();
+  }
+
+  private List<UUID> inboxUsers(String dedupKey) {
+    return jdbc.sql("select user_id from notification.notifications where dedup_key = :k")
+        .param("k", dedupKey)
+        .query(UUID.class)
+        .list();
+  }
+
+  private static List<String> recipientIds(JsonNode request) {
+    List<String> ids = new java.util.ArrayList<>();
+    request.path("recipients").forEach(r -> ids.add(r.path("userId").asString()));
+    return ids;
   }
 
   @Test
@@ -72,7 +144,7 @@ class NoticeNotificationRequestTest {
     subscribe(off, "https://fcm.googleapis.com/fcm/send/off", "2026-10-25T00:00:00Z");
     doReturn(List.of(Recipient.push(silent, false), new Recipient(off, null, false, false)))
         .when(recipients)
-        .forNewNotice(any(), any(), any(Boolean.class));
+        .forNewNotice(any(), any(), any(Boolean.class), any());
 
     apply(fixture());
 
@@ -208,7 +280,7 @@ class NoticeNotificationRequestTest {
   void failureRollsBackTheNoticeSoItIsRetried() {
     doThrow(new IllegalStateException("회원 조회 실패"))
         .when(recipients)
-        .forNewNotice(any(), any(), any(Boolean.class));
+        .forNewNotice(any(), any(), any(Boolean.class), any());
 
     assertThatThrownBy(() -> apply(fixture())).isInstanceOf(IllegalStateException.class);
     assertThat(jdbc.sql("select count(*) from notice.notices").query(Long.class).single())
