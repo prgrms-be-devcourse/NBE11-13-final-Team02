@@ -59,7 +59,7 @@ class AdminBenefitReviewServiceTest {
   @Test
   void listMapsTheExtractionItems() {
     server
-        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING"))
+        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1000"))
         .andRespond(withSuccess("{\"items\":[" + ITEM + "]}", MediaType.APPLICATION_JSON));
     var item = service.list(null).items().get(0);
     assertThat(item.id()).isEqualTo(REVIEW);
@@ -111,7 +111,7 @@ class AdminBenefitReviewServiceTest {
                         + "\"edits\":[{\"path\":\"/summary\",\"value\":\"고친 요약\"}]}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"APPROVED\"}", MediaType.APPLICATION_JSON));
     server
-        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING"))
+        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1000"))
         .andRespond(withSuccess("{\"items\":[]}", MediaType.APPLICATION_JSON));
     var edit = new FieldEdit("/summary", JsonNodeFactory.instance.stringNode("고친 요약"));
     var result =
@@ -129,7 +129,7 @@ class AdminBenefitReviewServiceTest {
         .andExpect(content().json("{\"note\":\"[서비스 대상 아님] 주거 지원 아님\"}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
     server
-        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING"))
+        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1000"))
         .andRespond(withSuccess("{\"items\":[" + ITEM + "]}", MediaType.APPLICATION_JSON));
     var result =
         service.reject(

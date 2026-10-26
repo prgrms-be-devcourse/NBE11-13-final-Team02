@@ -215,7 +215,15 @@ public record NoticeDetailResponse(
   }
 
   /**
+   * 공급 묶음별 주택형 줄(가격 대상이 여럿이면 대상마다 한 줄).
+   *
+   * @param targetGroups 이 줄의 가격 대상(가군·주거급여수급자 등), 없으면 공급 묶음의 대상
+   * @param supplyCount 공급 호수. 같은 묶음의 줄이 여럿이면 첫 줄에만 있어요(합이 두 번 세지지 않게)
    * @param evidence 보여 주는 보증금·월임대료의 근거 원문
+   * @param supplyGroupId 공급 묶음 ID (같은 묶음의 줄끼리 같아요)
+   * @param siteName 단지·건물 이름 (모르면 null)
+   * @param salePriceMinWon 분양가 가장 낮은 값 (층·안별로 여러 개일 때, 분양이 아니면 null)
+   * @param salePriceMaxWon 분양가 가장 높은 값
    */
   public record UnitType(
       String houseType,
@@ -224,7 +232,11 @@ public record NoticeDetailResponse(
       Long depositWon,
       Long rentWon,
       Integer supplyCount,
-      List<Evidence> evidence) {}
+      List<Evidence> evidence,
+      String supplyGroupId,
+      String siteName,
+      Long salePriceMinWon,
+      Long salePriceMaxWon) {}
 
   /**
    * 대상별 자격 조건과 근거 원문. 판정은 POST /eligibility/notices/{id}/evaluate로 해요.

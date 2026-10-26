@@ -11,6 +11,7 @@ import tools.jackson.databind.JsonNode;
  * @param reviewStatus PENDING · APPROVED · REJECTED · SUPERSEDED
  * @param field 공고 분야 (HOUSING 등)
  * @param provider 공급 기관 (예: LH)
+ * @param detailUrl 기관 공고 원문 페이지 주소 (수집기가 준 값, 없으면 null)
  * @param issues 이슈 코드와 가리키는 칸 (예: VALUE_NOT_IN_QUOTE, /eligibility/3/value)
  * @param fields 사람이 확인할 칸. 신뢰도 숫자 대신 상태와 이유를 줘요
  * @param sources 확인할 칸의 원문 근거(쪽·인용문). 화면의 원문 강조에 써요
@@ -27,6 +28,7 @@ public record AdminReviewDetailResponse(
     String sourceCode,
     Integer rawVersion,
     String rawPostId,
+    String detailUrl,
     OffsetDateTime receivedAt,
     List<Issue> issues,
     List<Field> fields,

@@ -76,6 +76,9 @@ public class NoticeRegulationService {
   /**
    * 공고 지역(법정동 10자리)과 규제지역(시군구 5자리, 시도 전체는 xx000)을 맞춰요. 같은 시군구거나, 규제지역이 시도 전체면 그 시도의 모든 시군구가 걸려요.
    * 공고가 시도 전체(xx000…)면 그 시도 안 규제지역이 일부라도 있으면 걸리고 partial이에요. 전국 공고(빈 목록)는 걸리지 않아요.
+   *
+   * <p>일반구가 있는 시(수원시 41110 → 장안구 41111·권선구 41113 …)는 앞 4자리가 같아요. 규제지역이 시면 그 구 공고도 걸리고, 공고가 시인데
+   * 규제지역이 그 시의 구 일부면 partial이에요(2026-10-25 검토: 예전엔 5자리가 같아야만 맞았음).
    */
   static List<NoticeRegulationResponse.Area> match(
       List<String> regionCodes, List<RegulatedArea> active) {
@@ -90,12 +93,16 @@ public class NoticeRegulationService {
       for (RegulatedArea area : active) {
         String target = area.regionCode();
         boolean sameSido = target.substring(0, 2).equals(sigungu.substring(0, 2));
+        boolean cityOfDistrict = isCity(target) && sameCity(target, sigungu);
+        boolean districtOfCity = isCity(sigungu) && sameCity(target, sigungu) && !isCity(target);
         boolean hit =
             target.equals(sigungu)
                 || (target.endsWith("000") && sameSido)
-                || (wholeSido && sameSido);
+                || (wholeSido && sameSido)
+                || cityOfDistrict
+                || districtOfCity;
         if (hit && seen.add(target + "/" + area.kind())) {
-          boolean partial = wholeSido && !target.endsWith("000");
+          boolean partial = (wholeSido && !target.endsWith("000")) || districtOfCity;
           out.add(
               new NoticeRegulationResponse.Area(
                   target,
@@ -109,6 +116,16 @@ public class NoticeRegulationService {
       }
     }
     return out;
+  }
+
+  /** 시도 전체(xx000)가 아니고 끝자리가 0인 시군구(일반구를 거느릴 수 있는 시). */
+  private static boolean isCity(String code) {
+    return code.length() == 5 && code.endsWith("0") && !code.endsWith("000");
+  }
+
+  /** 시와 그 일반구는 앞 4자리가 같아요(41110 수원시 · 41117 영통구). */
+  private static boolean sameCity(String a, String b) {
+    return !a.equals(b) && a.substring(0, 4).equals(b.substring(0, 4));
   }
 
   static List<String> guidance(List<NoticeRegulationResponse.Area> areas) {

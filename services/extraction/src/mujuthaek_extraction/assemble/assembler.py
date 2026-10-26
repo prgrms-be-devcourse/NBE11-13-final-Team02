@@ -285,6 +285,7 @@ class _Assembler:
                     item["endsAt"] = copy.deepcopy(item["startsAt"])
                 elif item.get("endCondition") is None:  # 시각(MINUTE)·월(MONTH)
                     item["endStatus"] = "NOT_IN_SOURCE"
+                    self.issue(["schedules"], "AI_OUTPUT_VALUE_CHANGED", f"끝 날짜가 없어 끝 상태를 FIXED에서 NOT_IN_SOURCE로 바꿨습니다: {_label(item)}")
         fix_format_slips(part)  # 엄격 모드가 채운 빈 사유·추첨 순서 번호 등(slips.py). 예전엔 가점표 12행이 형식 오류로 빠졌습니다
         # 소득 기준 연도가 항목 원문에 「전년도」「당해연도」처럼 공고일 기준으로만 있으면 버전에 그 원문 표현을 적습니다. 연도·버전이 둘 다 비면
         # 계약 검사(INCOMPLETE_INCOME_BENCHMARK)에 걸려 소득 조건이 통째로 빠졌습니다(실측 2026-10-17 dcco-24788).
@@ -586,11 +587,13 @@ class _Assembler:
     # 5. 수량 묶음 정리: 묶음 정보(부모·합계 완결)가 맞지 않으면 값은 두고 묶음만 풉니다
     def normalize_counts(self) -> None:
         counts: dict[str, dict[str, Any]] = {}
+        where: dict[str, list[str | int]] = {}
         for section in SECTIONS:
-            for _, node in _walk(self.sections.get(section), [section]):
-                for count in node.get("counts") or []:
+            for tokens, node in _walk(self.sections.get(section), [section]):
+                for i, count in enumerate(node.get("counts") or []):
                     if isinstance(count, dict) and "id" in count:
                         counts[count["id"]] = count
+                        where[count["id"]] = [*tokens, "counts", i]
         for count_id, count in counts.items():
             parent_id = count.get("parentCountId")
             if parent_id is None:
@@ -600,14 +603,14 @@ class _Assembler:
                 count["parentCountId"] = None
                 if count.get("aggregationRole") == "COMPONENT":
                     count["aggregationRole"] = "STANDALONE"
-                self.notes.append(f"/counts/{count_id}: 상위 합계({parent_id})와 맞지 않아 묶음을 풀었습니다(값은 그대로)")
+                self.issue(where[count_id], "AI_OUTPUT_VALUE_CHANGED", f"상위 합계({parent_id})와 맞지 않아 수량 묶음을 풀었습니다(값은 그대로)")
         for count_id, count in counts.items():
             if not count.get("aggregationComplete"):
                 continue
             children = [c for c in counts.values() if c.get("parentCountId") == count_id]
             if count.get("aggregationRole") != "TOTAL" or not children or count.get("value") is None or any(c.get("value") is None for c in children):
                 count["aggregationComplete"] = False
-                self.notes.append(f"/counts/{count_id}: 구성 수량이 다 있지 않아 '합계 완결' 표시를 지웠습니다")
+                self.issue(where[count_id], "AI_OUTPUT_VALUE_CHANGED", "구성 수량이 다 있지 않아 '합계 완결' 표시를 지웠습니다")
 
     def fill_benchmark_years(self) -> None:
         """소득 기준 연도를 「전년도」「당해연도」처럼 공고일 기준으로만 적었으면 공고일 연도에서 계산하고, 원문 표현은 referenceVersion에 그대로 둡니다.

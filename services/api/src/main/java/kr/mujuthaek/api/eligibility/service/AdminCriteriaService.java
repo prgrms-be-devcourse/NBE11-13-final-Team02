@@ -143,6 +143,13 @@ public class AdminCriteriaService {
             .toList());
   }
 
+  /** 적용 시작일이 그 해 밖이면 「어느 해 값을 쓸지」가 어긋나요(2026-10-25 검토). */
+  static void checkValidFrom(int year, LocalDate validFrom) {
+    if (validFrom.getYear() != year) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "적용 시작일은 " + year + "년 안이어야 해요");
+    }
+  }
+
   /** 한 해 값 넣기·바꾸기. 바꾸면 바꾸기 전 값을 기록에 남겨요. */
   @Transactional
   public AdminCriteriaResponse save(
@@ -154,6 +161,7 @@ public class AdminCriteriaService {
     checkData(kind, request.data());
     LocalDate validFrom =
         request.validFrom() != null ? request.validFrom() : LocalDate.of(year, 1, 1);
+    checkValidFrom(year, validFrom);
     store.save(
         kind,
         year,

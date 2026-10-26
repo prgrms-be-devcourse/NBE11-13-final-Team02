@@ -28,11 +28,13 @@ from psycopg.types.json import Jsonb
 
 from mujuthaek_extraction.cost_alert import monthly_costs
 from mujuthaek_extraction.pipeline import Outcome
+from mujuthaek_extraction.verify.verifier import DROPPED_VALUE_CODES
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
 
 log = logging.getLogger(__name__)
 REVIEW_STATUSES = {"IN_REVIEW", "INTAKE_REVIEW"}
+COMPLETED = "COMPLETED"  # 모두 통과해 발행. 버린 값 표시가 있으면 검수 대기열에도 넣습니다(공개 유지)
 PARTIAL = "PARTIAL"  # 부분 게시: 이미 발행했고, 보류 항목은 사람이 확인해 승인할 수 있게 검수 목록에도 넣습니다(게시를 막지 않음)
 SUPERSEDED = "SUPERSEDED"
 JUDGMENT_NAMESPACE = uuid.UUID("5b0c8f9e-2f0a-4f41-9d7e-3f1c2a6b9d10")  # 창업지원 판정 틀 처리 기록 ID를 만드는 이름공간(고정값)
@@ -86,6 +88,27 @@ def _insert_benefit_result(cur, event: dict[str, Any], origin: str, source_paylo
         ),
     )
     return result_id
+
+
+def _refresh_reported_review(cur, result_id: str, payload: dict[str, Any]) -> bool:
+    """같은 정책에 회원 제보로 연(opened_by가 있는) 대기 검수가 있으면, 대체하지 않고 그 검수를 새 결과로 갱신합니다.
+    api의 제보는 이 검수 ID를 가리키므로 ID가 바뀌면 처리 중이던 제보가 끊겨요(2026-10-25 검토). 사유는 앞선 것과 새 것을 합칩니다."""
+    row = cur.execute(
+        "select id, reasons from benefit_reviews where raw_policy_id = %s and status = 'PENDING' and opened_by is not null order by created_at desc limit 1",
+        (payload["rawPolicyId"],),
+    ).fetchone()
+    if row is None:
+        return False
+    reasons = list(dict.fromkeys([*(row[1] or []), *payload["quality"]["reviewReasons"]]))
+    cur.execute(
+        "update benefit_reviews set result_id = %s, raw_version = %s, reasons = %s where id = %s",
+        (result_id, payload["version"], Jsonb(reasons), row[0]),
+    )
+    cur.execute(  # 제보 검수 말고 남은 대기 건은 쓸모가 없음
+        "update benefit_reviews set status = 'SUPERSEDED', decided_at = now() where raw_policy_id = %s and status = 'PENDING' and id <> %s",
+        (payload["rawPolicyId"], row[0]),
+    )
+    return True
 
 
 def _open_benefit_review(cur, result_id: str, payload: dict[str, Any], reasons: list[str], opened_by: str | None, note: str | None) -> str:
@@ -187,6 +210,13 @@ def _held_reasons(candidate: dict[str, Any] | None) -> list[str]:
     return sorted({code for item in held for code in item.get("codes", [])})
 
 
+def _dropped_reasons(candidate: dict[str, Any] | None) -> list[str]:
+    """AI·원본 값을 비우거나 빼거나 바꾼 표시(verifier.DROPPED_VALUE_CODES)를 「코드 위치」로. 메모(notes)·검수 이슈 어디에 있든 셉니다."""
+    quality = (candidate or {}).get("quality") or {}
+    found = [i for i in [*(quality.get("notes") or []), *(quality.get("reviewIssues") or [])] if i.get("code") in DROPPED_VALUE_CODES]
+    return sorted({f"{i['code']} {i.get('target', '')}".strip() for i in found})
+
+
 def _payload(raw_event: dict[str, Any]) -> dict[str, Any]:
     payload = raw_event.get("payload")
     return payload if isinstance(payload, dict) else {}
@@ -260,7 +290,8 @@ class JobStore:
                 cur.execute("update extraction_spend set job_id = %s where run_id = %s", (job_id, run_id))
             if status in REVIEW_STATUSES:
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(outcome.review_reasons)))
-            elif status == PARTIAL and (held := _held_reasons(outcome.candidate)):
+            elif status in (PARTIAL, COMPLETED) and (held := _held_reasons(outcome.candidate) + _dropped_reasons(outcome.candidate)):
+                # 보류 항목, 또는 버리거나 바꾼 값이 있으면 공개는 유지하고 사람이 확인하게 검수 대기열에 넣습니다(2026-10-26 공통 검사)
                 cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(held)))
             if event:  # 이 버전을 발행함: 옛 버전·정정 전 공고의 대기 검수는 대체됨
                 _supersede_pending(cur, job_id, raw_post_id, raw_version, corrected_post)
@@ -291,7 +322,9 @@ class JobStore:
             _lock_notice(cur, payload["rawPolicyId"])
             outbox.add(cur, event)
             result_id = _insert_benefit_result(cur, event, "EXTRACTED", raw_event.get("payload"))
-            if payload["quality"]["needsReview"]:
+            if _refresh_reported_review(cur, result_id, payload):
+                pass  # 제보로 연 검수는 대체하지 않고 새 결과로 갱신해 제보와의 연결을 지켜요
+            elif payload["quality"]["needsReview"]:
                 _open_benefit_review(cur, result_id, payload, list(payload["quality"]["reviewReasons"]), None, None)
             else:  # 새 결과가 검수 없이 나갔으면 같은 정책의 앞선 대기 건은 쓸모가 없음
                 cur.execute(
@@ -299,6 +332,10 @@ class JobStore:
                     (payload["rawPolicyId"],),
                 )
         return True
+
+    def benefit_review_count(self, status: str = "PENDING") -> int:
+        """그 상태의 혜택 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토)."""
+        return int(self.conn.execute("select count(*) from benefit_reviews where status = %s", (status,)).fetchone()[0])
 
     def benefit_reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
         """혜택 검수 목록(오래된 것부터). applyEndsOn은 결과의 신청 마감일, reported는 정책 제보로 다시 연 건인지."""
@@ -411,6 +448,10 @@ class JobStore:
         self.conn.execute("delete from extraction_claims where raw_post_id = %s and raw_version = %s and owner = %s", (raw_post_id, raw_version, owner))
 
     # ---- 검수 ----
+    def review_count(self, status: str = "PENDING") -> int:
+        """그 상태의 공고 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토)."""
+        return int(self.conn.execute("select count(*) from review_queue where status = %s", (status,)).fetchone()[0])
+
     def reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
         """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다.
         applyEndsOn은 후보의 신청(APPLICATION) 일정 중 가장 이른 끝 날짜예요(관리자 개요의 「마감이 가까운 검수 대기」, 2026-10-25)."""
@@ -538,14 +579,20 @@ class JobStore:
 
     def review_stats(self, days: int = 7) -> dict[str, Any]:
         """관리자 개요의 처리 통계: 최근 days일과 오늘(한국 시간)의 그대로 승인·고쳐서 승인·반려 수와, 들어와서 처리되기까지 걸린 시간의 중앙값(분).
-        대체(SUPERSEDED)는 사람이 처리한 것이 아니라 세지 않습니다."""
+        대체(SUPERSEDED)는 사람이 처리한 것이 아니라 세지 않습니다. 제보로 다시 열어 review_history로 옮긴 앞선 처리도 셉니다
+        (2026-10-25 검토: 예전엔 다시 열면 그 전 승인·반려가 통계에서 사라졌음). 혜택 정책 검수(benefit_reviews)의 처리도 같이 셉니다
+        (2026-10-26: 관리자 개요가 공고 검수만 세어 혜택 승인이 빠졌음). 혜택은 칸별 수정(edits)이 있으면 고쳐서 승인입니다."""
 
         def counts(since_sql: str, params: tuple[Any, ...]) -> dict[str, Any]:
             row = self.conn.execute(
                 "select count(*) filter (where status = 'APPROVED' and not edited), count(*) filter (where status = 'APPROVED' and edited),"
                 " count(*) filter (where status = 'REJECTED'),"
                 " percentile_cont(0.5) within group (order by extract(epoch from decided_at - created_at))"
-                f" from review_queue where status in ('APPROVED', 'REJECTED') and decided_at >= {since_sql}",
+                " from (select status, edited, created_at, decided_at from review_queue"
+                " union all select status, edited, created_at, decided_at from review_history"
+                " union all select status, coalesce(jsonb_typeof(edits) = 'array' and jsonb_array_length(edits) > 0, false),"
+                " created_at, decided_at from benefit_reviews) d"
+                f" where status in ('APPROVED', 'REJECTED') and decided_at >= {since_sql}",
                 params,
             ).fetchone()
             median = None if row[3] is None else round(float(row[3]) / 60)

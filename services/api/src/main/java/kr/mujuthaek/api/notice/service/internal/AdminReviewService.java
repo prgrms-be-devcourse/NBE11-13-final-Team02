@@ -92,21 +92,23 @@ public class AdminReviewService {
     if (reason != null && !REASONS.contains(reason)) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "reason은 MUST·CHECK·FORMAT 중 하나예요");
     }
-    List<Item> all = items(client.list(PENDING));
+    JsonNode page = client.page(PENDING);
+    List<Item> all = items(page == null ? null : page.get("items"));
     List<Item> shown =
         reason == null ? all : all.stream().filter(i -> reason.equals(i.reason())).toList();
-    return new AdminReviewListResponse(all.size(), shown);
+    return new AdminReviewListResponse(ExtractionReviewClient.total(page), shown);
   }
 
   public AdminReviewCountsResponse counts() {
-    List<Item> all = items(client.list(PENDING));
+    JsonNode page = client.page(PENDING);
+    List<Item> all = items(page == null ? null : page.get("items"));
     OffsetDateTime oldest =
         all.stream()
             .map(Item::receivedAt)
             .filter(Objects::nonNull)
             .min(Comparator.naturalOrder())
             .orElse(null);
-    return new AdminReviewCountsResponse(all.size(), oldest);
+    return new AdminReviewCountsResponse(ExtractionReviewClient.total(page), oldest);
   }
 
   /** 처리 통계. days는 1~90. */
@@ -196,6 +198,7 @@ public class AdminReviewService {
         text(raw.path("sourceCode")),
         integer(raw.path("version")),
         text(item.path("rawPostId")),
+        text(raw.path("detailUrl")),
         received,
         issues(item.path("reasons")),
         fields,
@@ -216,6 +219,10 @@ public class AdminReviewService {
       return "추출 결과가 없어 승인할 수 없어요. 원본 자료를 고친 뒤 다시 처리해야 해요.";
     }
     long held = fields.stream().filter(f -> "HELD".equals(f.status())).count();
+    if ("APPROVED".equals(jobStatus) || "COMPLETED".equals(jobStatus)) {
+      // 이미 공개된 공고: 제보로 다시 연 건이거나, 값을 버리거나 바꾼 표시가 있어 공개한 채 올라온 건(2026-10-26 공통 검사)
+      return "이미 사용자에게 보이는 공고예요. 승인하면 고친 값으로 다시 발행되고 판정이 다시 계산돼요.";
+    }
     if ("PARTIAL".equals(jobStatus)) {
       return held > 0
           ? "이미 사용자에게 보이는 공고예요. 승인하면 보류한 " + held + "칸이 화면·판정에 나와요."
@@ -472,8 +479,7 @@ public class AdminReviewService {
   }
 
   private int remaining() {
-    JsonNode list = client.list(PENDING);
-    return list == null ? 0 : list.size();
+    return ExtractionReviewClient.total(client.page(PENDING));
   }
 
   private static List<Item> items(JsonNode list) {

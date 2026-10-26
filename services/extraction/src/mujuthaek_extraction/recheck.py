@@ -339,8 +339,8 @@ def _keep_verified_dates(parts: list[dict[str, Any]], answer: dict[str, Any]) ->
     index = _part_with(parts, "schedules")
     if index is None or not isinstance(answer.get("schedules"), list):
         return answer
-    first_quotes = {q["ref"]: q["text"] for q in parts[index].get("quotes", []) if isinstance(q, dict)}
-    new_quotes = {q["ref"]: q["text"] for q in answer.get("quotes", []) if isinstance(q, dict)}
+    first_quotes = {q["ref"]: q["text"] for q in parts[index].get("quotes") or [] if isinstance(q, dict)}
+    new_quotes = {q["ref"]: q["text"] for q in answer.get("quotes") or [] if isinstance(q, dict)}
     original = {item.get("id"): item for item in parts[index]["schedules"] if isinstance(item, dict)}
 
     def lost(item: dict[str, Any]) -> bool:
@@ -412,7 +412,7 @@ def merge_recheck(
     sent(sent_scope): 보낸 항목만 바꾸고, 공고 기본 정보는 문제가 난 칸만 바꿉니다(2026-10-21 검토: 보내지 않은 일정·가격이 응답에 섞여
     다른 값으로 바뀌어도 메모만 생기면 채택될 수 있었음). None이면 응답의 모든 항목을 받습니다(이전 동작)."""
     merged = copy.deepcopy(parts)
-    quotes = [{**q, "ref": REF_PREFIX + q["ref"]} for q in recheck_part.get("quotes", [])]
+    quotes = [{**q, "ref": REF_PREFIX + q["ref"]} for q in recheck_part.get("quotes") or []]
     touched: set[int] = set()
     for section in SECTIONS:
         if section not in recheck_part:
@@ -436,7 +436,7 @@ def merge_recheck(
         allowed = None if sent is None else sent["items"].get(section, set())
         fixed = {
             item["id"]: _rename_refs(item)
-            for item in recheck_part[section]
+            for item in recheck_part.get(section) or []
             if isinstance(item, dict) and "id" in item and (allowed is None or item["id"] in allowed or section in add_sections)
         }
         replace = fixed if allowed is None else {k: v for k, v in fixed.items() if k in allowed}
@@ -453,7 +453,7 @@ def merge_recheck(
                     target["coverage"][section] = new_coverage
                 touched.add(index)
     for index in touched:
-        merged[index]["quotes"] = [*merged[index].get("quotes", []), *quotes]
+        merged[index]["quotes"] = [*(merged[index].get("quotes") or []), *quotes]
     return merged
 
 
@@ -498,7 +498,7 @@ def recheck_problems(
         if index is None or not isinstance(parts[index].get(section), list):
             continue
         kept = {item["id"] for item in first.candidate[section]}
-        for item in parts[index][section]:
+        for item in parts[index].get(section) or []:
             if isinstance(item, dict) and item.get("id") not in kept and not _represented(section, item, first.candidate):
                 problems.setdefault((section, item.get("id")), []).append(DROPPED_PROBLEM)
 
@@ -510,13 +510,13 @@ def recheck_problems(
         if index is None:
             continue
         part = parts[index]
-        quotes = {q["ref"]: q["text"] for q in part.get("quotes", []) if isinstance(q, dict)}
+        quotes = {q["ref"]: q["text"] for q in part.get("quotes") or [] if isinstance(q, dict)}
         if section == "notice":
             item = part["notice"]
         elif item_id is None:  # 섹션 전체: 지금 있는 항목 id와 AI가 적은 범위 사유만 보냅니다(목록 전체를 다시 보내지 않음, 비용)
-            item = {"existingIds": [x.get("id") for x in part[section] if isinstance(x, dict)], "coverage": (part.get("coverage") or {}).get(section)}
+            item = {"existingIds": [x.get("id") for x in part.get(section) or [] if isinstance(x, dict)], "coverage": (part.get("coverage") or {}).get(section)}
         else:
-            item = next((x for x in part[section] if isinstance(x, dict) and x.get("id") == item_id), None)
+            item = next((x for x in part.get(section) or [] if isinstance(x, dict) and x.get("id") == item_id), None)
             if item is None:
                 continue
         target = {"section": section, "id": item_id, "item": _with_quotes(item, quotes), "problems": descriptions}
@@ -615,3 +615,47 @@ def recheck_problems(
     if adopted:
         return RecheckResult(current, report, rechecked, True, run, tuple(adopted), tuple(rejected))
     return RecheckResult(parts, first, rechecked, False, run, rejected=tuple(rejected))
+
+
+def _leaves(value: Any, path: str = ""):
+    """값이 있는 끝 칸(글자·숫자·참거짓)의 위치와 값. 근거 참조(quoteRefs·evidenceIds 등)는 바뀌어도 값이 사라진 게 아니라 뺍니다."""
+    if isinstance(value, dict):
+        for key, child in value.items():
+            if key in ("quoteRefs", "evidenceIds", "quotes", "id"):
+                continue
+            yield from _leaves(child, f"{path}/{key}")
+    elif isinstance(value, list):
+        for index, child in enumerate(value):
+            yield from _leaves(child, f"{path}/{index}")
+    elif value is not None and value != "":
+        yield path, value
+
+
+def lost_by_recheck(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> list[tuple[str, str]]:
+    """재확인 답을 채택하며 처음 AI 답의 값 있는 칸이 비거나 없어진 곳(같은 섹션·같은 id 항목, 공고 기본 정보는 칸 단위).
+    채택 검사(_lost_values)는 개수만 보므로, 면적·신청 방법·장소처럼 검사가 없는 칸이 조용히 사라질 수 있었습니다(2026-10-26 감사)."""
+
+    def index(parts: list[dict[str, Any]]) -> dict[tuple[str, str], Any]:
+        found: dict[tuple[str, str], Any] = {}
+        for part in parts:
+            for section in SECTIONS:
+                value = part.get(section)
+                if section == "notice" and isinstance(value, dict):
+                    found[("notice", "")] = value
+                elif isinstance(value, list):
+                    for item in value:
+                        if isinstance(item, dict) and "id" in item:
+                            found[(section, str(item["id"]))] = item
+        return found
+
+    old, new = index(before), index(after)
+    lost: list[tuple[str, str]] = []
+    for (section, item_id), item in old.items():
+        if (section, item_id) not in new:
+            continue  # 항목째 빠진 것은 다른 검사(DROPPED_PROBLEM·ITEM_DROPPED_NO_EVIDENCE)가 봅니다
+        kept = dict(_leaves(new[(section, item_id)]))
+        gone = [path for path, _ in _leaves(item) if path not in kept]
+        if gone:
+            where = f"/{section}" + (f" {item_id}" if item_id else "")
+            lost.append((f"/{section}", f"{where}: 재확인 답으로 바꾸며 처음 값이 사라졌어요({', '.join(gone[:5])}{' …' if len(gone) > 5 else ''})"))
+    return lost

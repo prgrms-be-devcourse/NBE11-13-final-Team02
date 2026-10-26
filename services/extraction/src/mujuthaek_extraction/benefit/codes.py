@@ -213,7 +213,8 @@ def youth_rules(record: dict[str, Any], text: str) -> RuleResult:
     low, high = _int(record.get("sprtTrgtMinAge")), _int(record.get("sprtTrgtMaxAge"))
     if (low or 0) > 0 or (high or 0) > 0:
         value = {k: v for k, v in (("min", low), ("max", high)) if v}
-        raw = f"만 {low}~{high}세" if low and high else (f"만 {low}세 이상" if low else f"만 {high}세 이하")
+        # 출처 칸에는 만 나이인지 출생연도 기준인지 없어 「만」을 붙이지 않아요(2026-10-26 원문 대조: 출생연도 기준 나이가 「만 19~39세」로 보였음)
+        raw = f"{low}~{high}세" if low and high else (f"{low}세 이상" if low else f"{high}세 이하")
         add([("AGE", value, raw)], _evidence(text, "sprtTrgtMaxAge" if high else "sprtTrgtMinAge", high or low))
 
     if (marital := MARITAL.get(str(record.get("mrgSttsCd") or ""))) is not None:

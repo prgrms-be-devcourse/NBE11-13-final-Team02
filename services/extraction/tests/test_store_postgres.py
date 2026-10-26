@@ -3,6 +3,7 @@
 EXTRACTION_TEST_DB_URL=postgresql://extraction_app:extraction-pass@127.0.0.1:5432/extraction uv run pytest tests/test_store_postgres.py
 """
 
+import json
 import os
 import uuid
 from pathlib import Path
@@ -414,6 +415,10 @@ def test_publishing_newer_version_supersedes_older_pending_review(store):
     assert status == 409 and "v2" in body["error"] and "새 버전" in body["error"]
     assert review_status(store, v1) == "SUPERSEDED" and store.review(v1)["note"] == "v2 발행으로 대체됨"
     assert service.list("SUPERSEDED")[0] == 200 and service.list("NOPE")[0] == 400
+    # 목록은 limit에서 잘려도 total은 그 상태의 전체 건수(2026-10-25 검토)
+    status, body = service.list("SUPERSEDED", "1")
+    assert status == 200 and len(body["items"]) <= 1 and body["total"] >= len(body["items"])
+    assert service.list("PENDING", "0")[0] == 400 and service.list("PENDING", "x")[0] == 400
     assert count(store, "select count(*) from outbox") == 1  # v2 발행 한 번뿐(대체된 v1은 발행 없음)
 
     # 여러 번 해도 같음: v3 발행은 v2만 대체하고 이미 대체된 v1의 기록(대체한 버전)은 그대로
@@ -608,10 +613,13 @@ def test_published_result_can_be_reopened_for_review_and_fixed_again(store):
     service = ReviewService(lambda: Session(), fresh_event)
     assert store.reopen(post) is None  # 아직 발행 전이면 다시 열 결과가 없음
     assert service.approve(job_id, {"reviewer": "admin:1", "note": "처음 승인"})[0] == 200
+    approved_before = store.review_stats(7)["recent"]["approved"]
 
     status, opened = service.reopen({"rawPostId": post, "reviewer": "admin:2", "note": "공고 제보: 보증금"})
     assert status == 200 and opened == {"jobId": job_id, "reviewStatus": "PENDING", "reopened": True}
     assert service.reopen({"rawPostId": post})[1]["reopened"] is False  # 이미 대기 중
+    # 다시 열어도 앞선 승인은 통계에 남아요(기록으로 옮겨져도 셈)
+    assert store.review_stats(7)["recent"]["approved"] == approved_before
     detail = store.review(job_id)
     assert detail["reviewStatus"] == "PENDING" and "USER_REPORT" in detail["reasons"]
     assert [(h["reviewStatus"], h["decidedBy"], h["reopenedBy"], h["reopenNote"]) for h in detail["history"]] == [
@@ -667,6 +675,8 @@ def test_benefit_needing_review_is_saved_listed_and_approved_with_edits(store):
     assert published["summary"] == "고친 요약" and published["reprocess"] is True
     assert published["quality"]["needsReview"] is False and published["quality"]["reviewReasons"] == ["NO_DOCUMENT"]
     assert store.benefit_review(item["reviewId"])["edits"] == [{"path": "/summary", "before": event["payload"]["summary"], "after": "고친 요약"}]
+    # 관리자 개요 처리 통계에 혜택 검수도 들어가요(칸을 고쳤으니 고쳐서 승인)
+    assert store.review_stats(7)["recent"]["editedApproved"] == 1
     assert service.benefit_decide(item["reviewId"], "APPROVED", {})[0] == 409
     assert service.benefit_decide(str(uuid.uuid4()), "APPROVED", {})[0] == 404
 
@@ -694,8 +704,26 @@ def test_reported_benefit_is_reopened_and_rejection_hides_it(store):
     assert status == 200
     assert store.benefit(policy)["relevant"] is False
     published = store.conn.execute("select payload->'payload' from outbox order by created_at desc limit 1").fetchone()[0]
-    assert published["relevanceReason"] == "관리자 반려: 주거 지원 아님"
+    # 반려 메모는 발행 값에 나가지 않아요(내부 기록에만)
+    assert published["relevanceReason"] == "관리자가 확인해 서비스 대상에서 뺐어요"
+    assert "주거 지원 아님" not in json.dumps(published, ensure_ascii=False)
     assert service.benefit_reopen({"rawPolicyId": str(uuid.uuid4())})[0] == 404
+
+
+def test_reprocessing_keeps_the_review_opened_by_a_report(store):
+    """제보로 연 혜택 검수는 같은 정책이 다시 처리돼도 대체되지 않고 새 결과로 갱신돼요(제보가 가리키는 검수 ID 유지, 2026-10-25 검토)."""
+    policy = str(uuid.uuid4())
+    raw, event = benefit_event(policy, 1, needs_review=False)
+    store.save_benefit(raw, event)
+    service = benefit_service(store)
+    _, opened = service.benefit_reopen({"rawPolicyId": policy, "reviewer": "admin-1", "note": "정책 제보"})
+    raw2, event2 = benefit_event(policy, 1, needs_review=True, title="가상 청년 월세 (재처리)")
+    store.save_benefit(raw2, event2)
+    [item] = store.benefit_reviews()
+    assert item["reviewId"] == opened["reviewId"] and item["reported"] is True
+    assert "REPORTED" in item["reasons"] and "EVIDENCE_NOT_FOUND" in item["reasons"]
+    assert store.benefit_review(item["reviewId"])["payload"]["source"]["title"] == "가상 청년 월세 (재처리)"
+    assert store.benefit_reviews("SUPERSEDED") == []
 
 
 def test_newer_benefit_version_supersedes_the_pending_review_and_blocks_old_approval(store):

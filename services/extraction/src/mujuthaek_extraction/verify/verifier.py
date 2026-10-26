@@ -71,6 +71,16 @@ NOTE_CODES = {
     # 공급표 전환안의 부호와 숫자가 어긋나 숫자(기본 요금 대비 보증금·월세 증감)로 방향을 고침(supply_tables, 2026-10-24). 고친 값이라 표시만
     "CONVERSION_DIRECTION_CORRECTED",
 }
+# 공통 검사(2026-10-26 사용자 결정 「모두 검수, 공개 유지」): AI·원본이 준 값을 비우거나 빼거나 바꾼 표시. 판정 섹션 밖이라 메모로 내려가도,
+# 이 코드가 하나라도 있으면 공고는 공개한 채 검수 대기열에 올립니다(store.save). 값을 버리는 새 처리를 만들면 여기 코드 중 하나를 남기세요
+DROPPED_VALUE_CODES = {
+    "ITEM_DROPPED_NO_EVIDENCE",
+    "AI_OUTPUT_ITEM_DROPPED",
+    "ITEM_QUARANTINED",
+    "DETAIL_UNVERIFIED_CLEARED",
+    "AI_OUTPUT_FIELD_CLEARED",
+    "AI_OUTPUT_VALUE_CHANGED",
+}
 # 비교를 못 했을 뿐 불일치가 아닌 API 대조 결과: 섹션과 상관없이 표시만 (불일치 API_MISMATCH는 사람 확인)
 # API_VALUE_NOT_EXTRACTED: API에는 값이 있는데 추출값이 비어 있음(누락). 틀린 값이 아니라 빠진 값이라 공고를 막지 않습니다(2026-10-20)
 ALWAYS_NOTE_CODES = {
@@ -83,6 +93,9 @@ ALWAYS_NOTE_CODES = {
     "VALUE_CONFIRMED_BY_API",
     "INCOME_CRITERION_UNUSED",
     "AI_OUTPUT_ID_RENAMED",
+    # AI가 준 값을 프로그램이 더 안전한 쪽으로 바꾸거나 비움(수량 묶음 풀기·참조 정리·재확인 교체로 사라진 값 등, 2026-10-26).
+    # 바꾼 값을 숨기지(보류) 않고 메모로 두되, DROPPED_VALUE_CODES라 공고는 검수 대기열에 오릅니다
+    "AI_OUTPUT_VALUE_CHANGED",
 }
 # INCOME_CRITERION_UNUSED: 소득 기준 일부 누락 의심. 실측 정밀도가 낮아(재계약·완화 표 등) 검수자 화면 메모로만 둡니다(2026-10-16)
 
@@ -122,6 +135,36 @@ def check_reported_partial(result: dict[str, Any]) -> list[Finding]:
         for section, entry in result["quality"]["coverage"].items()
         if section not in CRITICAL_SECTIONS and self_reported_partial(entry)
     ]
+
+
+# 일본어 가나·한자. 원문에 없는 이 글자가 AI가 쓴 문장에 섞이면(2026-10-26 원문 대조: 「入주개시일」, 「증빙する」, 「수령내역など」)
+# 회원 화면에 그대로 보이므로, 그 칸이 든 항목을 보류하고 검수로 보냅니다. 원문에 있는 글자(한자 병기 등)는 잡지 않습니다
+FOREIGN_SCRIPT = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿]")
+FOREIGN_SCRIPT_SKIP = {"quality", "sourceDocuments", "evidence"}  # 검증 기록·원문 인용(원문 글자 그대로)은 보지 않습니다
+
+
+def check_foreign_script(result: dict[str, Any], sources: SourceBundle) -> list[Finding]:
+    """AI가 쓴 글에 원문에 없는 가나·한자가 섞인 칸. 칸마다 하나씩, 그 칸의 위치를 가리킵니다(항목 단위로 보류)."""
+    source = "".join(sources.texts.values())
+    findings: list[Finding] = []
+
+    def walk(node: Any, path: str) -> None:
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key not in FOREIGN_SCRIPT_SKIP:
+                    walk(value, f"{path}/{key}")
+        elif isinstance(node, list):
+            for i, value in enumerate(node):
+                walk(value, f"{path}/{i}")
+        elif isinstance(node, str):
+            foreign = sorted({c for c in FOREIGN_SCRIPT.findall(node) if c not in source})
+            if foreign:
+                findings.append(
+                    Finding("V2", "AI_TEXT_FOREIGN_SCRIPT", path, f"원문에 없는 외국 문자({''.join(foreign)})가 섞인 글입니다. 한국어로 고쳐 주세요")
+                )
+
+    walk({k: v for k, v in result.items() if k not in FOREIGN_SCRIPT_SKIP}, "")
+    return findings
 
 
 def _dicts(node: Any):
@@ -193,7 +236,7 @@ def verify_extraction(
         api_matched = frozenset(f["target"] for f in comparison["fields"] if f["status"] == "MATCH")
         source_findings = check_evidence(result, sources, pdf_text) + check_numbers(result, sources) + check_missing_exceptions(result, sources)
         source_findings += check_consistency(result, sources) + check_claims(result, sources, api_matched=api_matched)
-        source_findings += check_directions(result) + check_reported_partial(result)
+        source_findings += check_directions(result) + check_reported_partial(result) + check_foreign_script(result, sources)
         findings += source_findings + api_findings + _gate_findings(result, contract, contract_errors, clock().isoformat())
         quality["verification"]["apiComparison"] = comparison
         blocking = [f for f in source_findings if not is_note(f.issue())]

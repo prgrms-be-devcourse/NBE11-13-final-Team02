@@ -126,6 +126,17 @@ def _same_notice(candidate: dict[str, Any], raw_payload: dict[str, Any]) -> bool
     return all((str(r.get("rawPostId")), r.get("rawVersion")) == expected[:2] for r in references)
 
 
+MAX_LIST_LIMIT = 1000
+REJECTED_RELEVANCE_REASON = "관리자가 확인해 서비스 대상에서 뺐어요"
+
+
+def _list_limit(raw: str | None) -> int | None:
+    """목록 limit 칸: 비우면 최대값, 1~MAX_LIST_LIMIT 정수가 아니면 None(400)."""
+    if raw is None or raw == "":
+        return MAX_LIST_LIMIT
+    return int(raw) if raw.isdigit() and 1 <= int(raw) <= MAX_LIST_LIMIT else None
+
+
 class ReviewService:
     """HTTP와 분리한 검수 동작. store_session은 JobStore를 여는 컨텍스트입니다(요청마다 DB 연결)."""
 
@@ -170,11 +181,15 @@ class ReviewService:
         log.info("검수 다시 열기", extra={"jobId": opened["jobId"], "reopened": opened["reopened"]})
         return 200, opened
 
-    def list(self, status: str) -> tuple[int, Any]:
+    def list(self, status: str, limit: str | None = None) -> tuple[int, Any]:
+        """검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 그 상태의 전체 건수 total. 건수는 목록 길이가 아니라 total을 쓰세요(2026-10-25 검토)."""
         if status not in REVIEW_LIST_STATUSES:
             return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
+        size = _list_limit(limit)
+        if size is None:
+            return 400, {"error": f"limit은 1~{MAX_LIST_LIMIT} 사이 정수입니다."}
         with self.store_session() as store:
-            return 200, {"items": store.reviews(status)}
+            return 200, {"items": store.reviews(status, size), "total": store.review_count(status)}
 
     def detail(self, job_id: str) -> tuple[int, Any]:
         with self.store_session() as store:
@@ -240,11 +255,15 @@ class ReviewService:
         return 200, {"jobId": job_id, "reviewStatus": "REJECTED"}
 
     # ---- 혜택 검수 (2026-10-25) ----
-    def benefit_list(self, status: str) -> tuple[int, Any]:
+    def benefit_list(self, status: str, limit: str | None = None) -> tuple[int, Any]:
+        """혜택 검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 전체 건수 total."""
         if status not in REVIEW_LIST_STATUSES:
             return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
+        size = _list_limit(limit)
+        if size is None:
+            return 400, {"error": f"limit은 1~{MAX_LIST_LIMIT} 사이 정수입니다."}
         with self.store_session() as store:
-            return 200, {"items": store.benefit_reviews(status)}
+            return 200, {"items": store.benefit_reviews(status, size), "total": store.benefit_review_count(status)}
 
     def benefit_detail(self, review_id: str) -> tuple[int, Any]:
         with self.store_session() as store:
@@ -284,9 +303,10 @@ class ReviewService:
                 if problem:
                     return 422, {"error": problem}
             if decision == "REJECTED":
-                note = (body.get("note") or "").strip()
+                # 반려 메모는 내부 기록(benefit_reviews.note)에만 남기고, 발행 값에는 고정 문구만 넣어요.
+                # 메모가 회원 화면까지 나갈 수 있었음(2026-10-25 검토)
                 payload["relevant"] = False
-                payload["relevanceReason"] = f"관리자 반려: {note}" if note else "관리자 반려"
+                payload["relevanceReason"] = REJECTED_RELEVANCE_REASON
             payload["reprocess"] = True
             quality = payload["quality"]
             quality["needsReview"] = False
@@ -324,22 +344,49 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
             self.wfile.write(data)
 
         def _body(self) -> dict[str, Any] | None:
-            """요청 본문을 JSON 객체로 읽습니다. 본문이 없으면 빈 객체, 길이·형식이 맞지 않거나 note가 글자가 아니면 None입니다."""
-            try:
-                length = int(self.headers.get("Content-Length") or 0)
-            except ValueError:
-                return None
-            if length == 0:
+            """요청 본문을 JSON 객체로 읽습니다. 본문이 없으면 빈 객체, 길이·형식이 맞지 않거나 note가 글자가 아니면 None입니다.
+            조각 전송(Transfer-Encoding: chunked)도 읽습니다(2026-10-25: api 서버가 길이 없이 보내 본문이 빈 것으로 읽혀 승인·반려가 400이 됨)."""
+            if "chunked" in (self.headers.get("Transfer-Encoding") or "").lower():
+                raw = self._chunked()
+                if raw is None:
+                    return None
+            else:
+                try:
+                    length = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    return None
+                if length == 0:
+                    return {}
+                if not 0 < length <= MAX_BODY:  # 음수 길이는 끝까지 읽어 버리므로 거절합니다
+                    return None
+                raw = self.rfile.read(length)
+            if not raw.strip():
                 return {}
-            if not 0 < length <= MAX_BODY:  # 음수 길이는 끝까지 읽어 버리므로 거절합니다
-                return None
             try:
-                value = json.loads(self.rfile.read(length))
+                value = json.loads(raw)
             except ValueError:
                 return None
             if not isinstance(value, dict) or not isinstance(value.get("note"), str | None) or not isinstance(value.get("reviewer"), str | None):
                 return None
             return value
+
+        def _chunked(self) -> bytes | None:
+            """조각 전송 본문을 이어 붙입니다. MAX_BODY를 넘거나 형식이 틀리면 None."""
+            data = b""
+            while True:
+                line = self.rfile.readline(64).strip()
+                try:
+                    size = int(line.split(b";")[0], 16)
+                except ValueError:
+                    return None
+                if size == 0:
+                    while self.rfile.readline(1024).strip():  # 끝 머리말(trailer)은 버림
+                        pass
+                    return data
+                if len(data) + size > MAX_BODY:
+                    return None
+                data += self.rfile.read(size)
+                self.rfile.readline(4)  # 조각 끝 CRLF
 
         def _job_id(self, match: re.Match[str]) -> str | None:
             try:
@@ -358,13 +405,15 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
             if not self._allowed():
                 return self._send(401, {"error": "인증이 필요합니다."})
             if url.path == "/reviews":
-                return self._send(*service.list(parse_qs(url.query).get("status", ["PENDING"])[0]))
+                query = parse_qs(url.query)
+                return self._send(*service.list(query.get("status", ["PENDING"])[0], query.get("limit", [None])[0]))
             if url.path == "/reviews/stats":
                 return self._send(*service.stats(parse_qs(url.query).get("days", [None])[0]))
             if url.path == "/costs":
                 return self._send(*service.costs(parse_qs(url.query).get("month", [None])[0]))
             if url.path == "/benefit-reviews":
-                return self._send(*service.benefit_list(parse_qs(url.query).get("status", ["PENDING"])[0]))
+                query = parse_qs(url.query)
+                return self._send(*service.benefit_list(query.get("status", ["PENDING"])[0], query.get("limit", [None])[0]))
             match = REVIEW_PATH.match(url.path)
             if match and not match[2]:
                 job_id = self._job_id(match)

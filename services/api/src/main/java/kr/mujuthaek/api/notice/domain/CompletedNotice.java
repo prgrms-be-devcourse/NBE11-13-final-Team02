@@ -91,8 +91,8 @@ public record CompletedNotice(
         supplyType,
         NoticeType.fromSupplyType(supplyType, field),
         text(p.path("regionCode")),
-        date(p.path("schedule").path("applyStartOn")),
-        date(p.path("schedule").path("applyEndOn")),
+        applyPeriod(p)[0],
+        applyPeriod(p)[1],
         announced != null ? announced : date(source.path("postedOn")),
         text(p.path("summary")),
         text(source.path("detailUrl")),
@@ -125,6 +125,34 @@ public record CompletedNotice(
 
   private static String text(JsonNode node) {
     return node.isMissingNode() || node.isNull() ? null : node.asString();
+  }
+
+  /**
+   * 공고의 접수 기간 [시작, 끝]. 공고 전체 접수 일정이 하나면 그 기간(schedule)이고, 순위·대상별로 여러 개라 schedule이 없으면 검증된 접수
+   * 구간(applicationWindows)의 가장 이른 시작 ~ 가장 늦은 끝이에요. 끝을 모르는 구간이 하나라도 있으면 끝은 null이에요(2026-10-26 원문 대조:
+   * 1·2순위 접수가 따로 있는 공고는 기간이 비어 「일정 확인」으로 보였음).
+   */
+  static LocalDate[] applyPeriod(JsonNode p) {
+    LocalDate start = date(p.path("schedule").path("applyStartOn"));
+    LocalDate end = date(p.path("schedule").path("applyEndOn"));
+    JsonNode windows = p.path("applicationWindows");
+    if (start != null || end != null || !windows.isArray() || windows.isEmpty()) {
+      return new LocalDate[] {start, end};
+    }
+    boolean endKnown = true;
+    for (JsonNode w : windows) {
+      LocalDate s = date(w.path("applyStartOn"));
+      LocalDate e = date(w.path("applyEndOn"));
+      if (s != null && (start == null || s.isBefore(start))) {
+        start = s;
+      }
+      if (e == null) {
+        endKnown = false;
+      } else if (end == null || e.isAfter(end)) {
+        end = e;
+      }
+    }
+    return new LocalDate[] {start, endKnown ? end : null};
   }
 
   private static LocalDate date(JsonNode node) {

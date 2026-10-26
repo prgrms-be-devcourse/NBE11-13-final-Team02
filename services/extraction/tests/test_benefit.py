@@ -237,7 +237,8 @@ def test_ai_conditions_are_checked_and_converted_to_manwon():
     assert min(c["group"] for c in ai) > max(rule_groups)  # AI 묶음 번호는 규칙 뒤로
     assert ai[1]["group"] == ai[2]["group"]  # 본인 또는 부부 기준
     assert data["supports"][0]["ratePct"] == 3.5 and data["supports"][0]["amountMax"] is None
-    assert data["quality"]["needsReview"] is False and data["quality"]["reviewReasons"] == ["NO_DOCUMENT"]
+    # 「본인 6천 또는 부부 8천」은 기혼자의 본인 소득만 6천 이하여도 맞아 너그럽게 틀릴 수 있어 확인 필요(2026-10-26 공통 규칙)
+    assert data["quality"]["needsReview"] is True and data["quality"]["reviewReasons"] == ["LOW_CONFIDENCE", "NO_DOCUMENT"]
     assert (
         tools().validate(
             {
@@ -627,3 +628,159 @@ def test_a_loan_limit_on_another_line_is_filled_and_needs_review():
     nowhere = {**support, "amountMaxWon": 55_000_000}  # 원문 어디에도 없는 금액은 비움
     data = build_payload(payload(text=text), BenefitReading(answer(supports=[nowhere]), False, "recorded"), rules_for("youth", RECORD, text), REGIONS)
     assert data["supports"][0]["amountMax"] is None
+
+
+def test_counts_with_small_units_are_not_amounts():
+    """「청년 5천명」「3백 가구」는 금액이 아닙니다. 천·백·십만 붙은 숫자는 「원」이 있어야 금액(2026-10-25 검토)."""
+    assert won_amounts("청년 5천명 지원, 최대 2억원") == {200_000_000}
+    assert won_amounts("3백 가구 모집") == set()
+    assert won_amounts("월 5천원 지원") == {5_000}
+
+
+def test_parts_of_one_sentence_share_used_amounts():
+    """같은 문장 전체와 그 일부를 근거로 두 조건이 금액을 나눠 쓰면 남는 금액이 없습니다."""
+    from mujuthaek_extraction.benefit.build import _leftover_amounts
+
+    whole = {"type": "INCOME_AMOUNT", "evidence": "연소득 6천만원(부부합산 8천만원)이하", "amountMaxWon": 60_000_000}
+    part = {"type": "INCOME_AMOUNT", "evidence": "부부합산 8천만원", "amountMaxWon": 80_000_000}
+    assert _leftover_amounts([whole, part]) == set()
+    # 정말 남는 금액(조건부 금액일 수 있음)은 그대로 잡습니다
+    alone = {"type": "LEASE", "evidence": "전세 보증금 5억원(지방 4억원 이하)", "depositMaxWon": 500_000_000}
+    assert _leftover_amounts([alone]) == {"전세보증금5억원(지방4억원이하)"}
+
+
+def test_ai_dates_must_be_written_as_dates():
+    """연·월·일 숫자가 원문에 따로따로 있는 것만으로는 날짜로 인정하지 않습니다(2026-10-25 검토)."""
+    from mujuthaek_extraction.benefit.build import _date
+
+    assert _date("2026-12-31", "2026년 사업 · 만 31세 이하 · 12개월 거주") is None
+    assert _date("2026-12-31", "신청 기간: 2026. 11. 1. ~ 2026. 12. 31.", end=True) == "2026-12-31"
+    assert _date("2026-01-07", "사업 시작일: 20260107") == "2026-01-07"
+    assert _date("2025-11-01", "신청 기간: 2026. 11. 1.") is None  # 연도가 다름
+
+
+def test_separate_age_ranges_stay_as_or_and_need_review():
+    """이어지지 않는 나이 범위(19~24, 30~34)는 지우지 않고 「또는」으로 남기고 확인 필요(2026-10-25 검토)."""
+    from mujuthaek_extraction.benefit.build import _merge_ages
+
+    rows = [
+        {"type": "AGE", "value": {"min": 19, "max": 24}, "group": 1, "known": True, "rawText": "19~24세"},
+        {"type": "AGE", "value": {"min": 30, "max": 34}, "group": 2, "known": True, "rawText": "30~34세"},
+    ]
+    assert _merge_ages(rows) is True
+    assert [(r["value"], r["group"]) for r in rows] == [({"min": 19, "max": 24}, 1), ({"min": 30, "max": 34}, 1)]
+    joined = [
+        {"type": "AGE", "value": {"min": 19, "max": 34}, "group": 1, "known": True, "rawText": "19~34세"},
+        {"type": "AGE", "value": {"min": 35, "max": 39}, "group": 2, "known": True, "rawText": "35~39세"},
+    ]
+    assert _merge_ages(joined) is False
+    assert [r["value"] for r in joined] == [{"min": 19, "max": 39}]
+
+
+def test_a_looser_row_without_amount_does_not_wipe_the_amount():
+    """금액 없는 넓은 줄(「전월세 임차보증금」)이 금액 있는 같은 type 줄과 다른 묶음에 있어도 금액을 잃지 않습니다(2026-10-26)."""
+    from mujuthaek_extraction.benefit.build import _drop_looser_rows
+
+    strict = {"type": "LEASE", "group": 5, "known": True, "value": {"kind": ["JEONSE", "MONTHLY"], "unit": "MANWON", "depositMax": 25000}}
+    loose = {"type": "LEASE", "group": 6, "known": True, "value": {"kind": ["JEONSE", "MONTHLY"], "unit": "MANWON"}}
+    rows = [strict, loose]
+    _drop_looser_rows(rows)
+    assert strict["known"] is True and strict["value"]["depositMax"] == 25000
+    assert loose["known"] is False and loose["value"] is None
+    # 넓기만 한 게 아니라 다른 조건(월세만)이면 그대로 둡니다(전형별 조건 규칙이 판단)
+    monthly = {"type": "LEASE", "group": 7, "known": True, "value": {"kind": ["MONTHLY"], "unit": "MANWON"}}
+    rows = [dict(strict), monthly]
+    _drop_looser_rows(rows)
+    assert monthly["known"] is True
+
+
+@pytest.mark.parametrize(
+    "conditions, supports",
+    [
+        # 같은 종류(핵심 아님)가 서로 다른 묶음에 다른 조건으로 나뉨 → 비워짐
+        (
+            [
+                condition("LEASE", "전세보증금 2.5억원 이하 주거용 주택", group=5, leaseKinds=["JEONSE"], depositMaxWon=250_000_000),
+                condition("LEASE", "전월세 임차보증금 대출이자 지원", group=6, leaseKinds=["MONTHLY"]),
+            ],
+            None,
+        ),
+        # 지원 금액이 원문 어디에도 없음 → 비워짐
+        (
+            [],
+            [
+                {
+                    "kind": "DEPOSIT_LOAN",
+                    "amountMaxWon": 70_000_000,
+                    "amountPer": "ONCE",
+                    "months": None,
+                    "ratePct": None,
+                    "rawText": "대출금 최대 7천만원",
+                    "evidence": "대출금 최대 1억원(임차보증금의 90% 이내)의 최대 연 3.5% 이자지원",
+                }
+            ],
+        ),
+    ],
+)
+def test_any_value_emptied_by_any_rule_goes_to_review(conditions, supports):
+    """공통 검사(2026-10-26): AI·출처가 준 값이 어떤 규칙으로든 비워지면 이유와 상관없이 확인 필요."""
+    data = build_payload(payload(), BenefitReading(answer(conditions, supports), False, "recorded"), rules_for("youth", RECORD, TEXT), REGIONS)
+    emptied = [c for c in data["conditions"] if c["origin"] == "AI" and not c["known"] and c["type"] == "LEASE"] or [
+        s for s in data["supports"] if s["amountMax"] is None
+    ]
+    assert emptied, "시험 전제: 값이 비워져야 함"
+    assert data["quality"]["needsReview"] is True and "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+
+
+# ---- 원문과 어긋나는 값은 값을 두고 확인 필요 (2026-10-26 원문 대조, 공통 규칙) ----
+
+
+def test_always_open_with_application_dates_needs_review():
+    text = TEXT + "\n신청 기간: 2026. 11. 1. ~ 2026. 11. 30."
+    data = build_payload(
+        payload(text=text),
+        BenefitReading(
+            answer(
+                schedule={
+                    "applyStart": "2026-11-01",
+                    "applyEnd": "2026-11-30",
+                    "applyAlways": True,
+                    "businessStart": None,
+                    "businessEnd": None,
+                    "rawText": None,
+                }
+            ),
+            False,
+            "recorded",
+        ),
+        rules_for("youth", RECORD, text),
+        REGIONS,
+    )
+    assert data["schedule"]["applyAlways"] is True and data["schedule"]["applyStart"] == "2026-11-01"
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+    assert "LOW_CONFIDENCE" not in built()["quality"]["reviewReasons"]  # 상시이고 기간이 없으면 그대로
+
+
+@pytest.mark.parametrize("line", ["지원 대상: 1987년~2006년 출생자", "만 65세 이하(1959. 1. 1 이후 출생)인 자", "나이 제한 없음"])
+def test_an_age_that_the_text_sets_by_birth_year_or_does_not_limit_needs_review(line):
+    data = built_text(TEXT + "\n" + line, [])
+    assert [c["value"] for c in data["conditions"] if c["type"] == "AGE"] == [{"min": 19, "max": 39}]  # 값은 그대로
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+
+
+def test_amounts_for_different_tracks_in_one_or_group_need_review():
+    text = TEXT + "\n(소득) 외벌이 가구 연소득 7천만원 이하, 맞벌이 가구 본인 연소득 5천만원 이하"
+    data = built_text(
+        text,
+        [
+            condition("INCOME_AMOUNT", "외벌이 가구 연소득 7천만원 이하", amountMaxWon=70_000_000, amountPer="YEAR", basis="HOUSEHOLD"),
+            condition("INCOME_AMOUNT", "맞벌이 가구 본인 연소득 5천만원 이하", amountMaxWon=50_000_000, amountPer="YEAR", basis="PERSONAL"),
+        ],
+    )
+    assert sorted(c["value"]["max"] for c in data["conditions"] if c["type"] == "INCOME_AMOUNT") == [5000, 7000]
+    assert "LOW_CONFIDENCE" in data["quality"]["reviewReasons"]
+
+
+def test_the_source_age_field_does_not_claim_international_age():
+    age = next(c for c in youth_rules(RECORD, TEXT).conditions if c["type"] == "AGE")
+    assert age["rawText"] == "19~39세"

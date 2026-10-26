@@ -38,7 +38,7 @@ class ExtractionReviewClientTest {
   void listSendsTokenAndReturnsItems() {
     var client = client("test-token");
     server
-        .expect(requestTo(BASE + "/reviews?status=PENDING"))
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
         .andExpect(header("Authorization", "Bearer test-token"))
         .andRespond(
             withSuccess("{\"items\":[{\"jobId\":\"" + JOB + "\"}]}", MediaType.APPLICATION_JSON));
@@ -50,7 +50,7 @@ class ExtractionReviewClientTest {
   void noTokenSendsNoAuthorization() {
     var client = client("");
     server
-        .expect(requestTo(BASE + "/reviews?status=PENDING"))
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
         .andExpect(
             request -> assertThat(request.getHeaders().containsHeader("Authorization")).isFalse())
         .andRespond(withSuccess("{\"items\":[]}", MediaType.APPLICATION_JSON));
@@ -100,18 +100,53 @@ class ExtractionReviewClientTest {
   @Test
   void serverErrorAndAuthFailureAreUnavailable() {
     var client = client(null);
-    server.expect(requestTo(BASE + "/reviews?status=PENDING")).andRespond(withServerError());
+    server
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
+        .andRespond(withServerError());
     assertThatThrownBy(() -> client.list("PENDING"))
         .isInstanceOfSatisfying(
             CustomException.class,
             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.NOTICE_REVIEW_UNAVAILABLE));
     server.reset();
     server
-        .expect(requestTo(BASE + "/reviews?status=PENDING"))
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
         .andRespond(withStatus(HttpStatus.UNAUTHORIZED));
     assertThatThrownBy(() -> client.list("PENDING"))
         .isInstanceOfSatisfying(
             CustomException.class,
             e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.NOTICE_REVIEW_UNAVAILABLE));
+  }
+
+  @Test
+  void realClientSendsContentLengthNotChunked() throws Exception {
+    // 2026-10-25 로컬 실제 흐름: 조각 전송(chunked)이면 파이썬 검수 API가 본문을 빈 것으로 읽어 승인·반려·다시 열기가 400이 됐어요
+    var seen = new java.util.concurrent.atomic.AtomicReference<String>();
+    var http =
+        com.sun.net.httpserver.HttpServer.create(new java.net.InetSocketAddress("127.0.0.1", 0), 0);
+    http.createContext(
+        "/",
+        exchange -> {
+          seen.set(
+              exchange.getRequestHeaders().getFirst("Content-Length")
+                  + "|"
+                  + exchange.getRequestHeaders().getFirst("Transfer-Encoding"));
+          exchange.getRequestBody().readAllBytes();
+          byte[] reply = "{\"reviewStatus\":\"REJECTED\"}".getBytes();
+          exchange.getResponseHeaders().add("Content-Type", "application/json");
+          exchange.sendResponseHeaders(200, reply.length);
+          exchange.getResponseBody().write(reply);
+          exchange.close();
+        });
+    http.start();
+    try {
+      var client =
+          new ExtractionReviewClient(
+              new ExtractionReviewProperties(
+                  "http://127.0.0.1:" + http.getAddress().getPort(), null, Duration.ofSeconds(2)));
+      client.reject(JOB, "메모", "admin-1");
+      assertThat(seen.get()).doesNotEndWith("|chunked").doesNotStartWith("null|");
+    } finally {
+      http.stop(0);
+    }
   }
 }

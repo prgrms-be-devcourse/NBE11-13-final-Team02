@@ -60,8 +60,24 @@ class AdminReviewServiceTest {
 
   private void expectList(int times) {
     server
-        .expect(ExpectedCount.times(times), requestTo(BASE + "/reviews?status=PENDING"))
+        .expect(ExpectedCount.times(times), requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
         .andRespond(withSuccess(LIST, MediaType.APPLICATION_JSON));
+  }
+
+  @Test
+  void countsUseTheTotalNotTheTruncatedListLength() {
+    var service = service();
+    server
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
+        .andRespond(
+            withSuccess(
+                """
+                {"total":1200,"items":[{"jobId":"%s","jobStatus":"IN_REVIEW","reasons":[],
+                 "queuedAt":"2026-10-24 21:00:00+00:00","title":"가상 공고"}]}
+                """
+                    .formatted(A),
+                MediaType.APPLICATION_JSON));
+    assertThat(service.counts().reviewPending()).isEqualTo(1200);
   }
 
   @Test
@@ -114,7 +130,7 @@ class AdminReviewServiceTest {
                  "reasons":["CRITERION_NOT_STRUCTURED /eligibility/10"],"decidedAt":"2026-10-25 03:00:00+00:00",
                  "rawPostId":"44444444-4444-4444-4444-444444444444",
                  "candidate":{"notice":{"title":"가상 행복주택 모집"}},
-                 "rawEvent":{"occurredAt":"2026-10-24T20:00:00Z","payload":{"field":"HOUSING","provider":"LH","sourceCode":"lh_myhome","version":2,"title":"가상 글"}}}
+                 "rawEvent":{"occurredAt":"2026-10-24T20:00:00Z","payload":{"field":"HOUSING","provider":"LH","sourceCode":"lh_myhome","version":2,"title":"가상 글","detailUrl":"https://example.test/notice/1"}}}
                 """
                     .formatted(A),
                 MediaType.APPLICATION_JSON));
@@ -123,6 +139,7 @@ class AdminReviewServiceTest {
     assertThat(detail.reason()).isEqualTo("MUST");
     assertThat(detail.provider()).isEqualTo("LH");
     assertThat(detail.rawVersion()).isEqualTo(2);
+    assertThat(detail.detailUrl()).isEqualTo("https://example.test/notice/1");
     assertThat(detail.issues())
         .containsExactly(new Issue("CRITERION_NOT_STRUCTURED", "/eligibility/10"));
     assertThat(detail.log())
@@ -305,5 +322,8 @@ class AdminReviewServiceTest {
         .startsWith("추출 결과가 없어");
     assertThat(AdminReviewService.impact("APPROVED", "IN_REVIEW", candidate, java.util.List.of()))
         .isNull();
+    // 제보로 다시 연 건(이미 발행된 결과)은 「발행 전」이 아니에요
+    assertThat(AdminReviewService.impact("PENDING", "APPROVED", candidate, java.util.List.of()))
+        .startsWith("이미 사용자에게 보이는 공고예요");
   }
 }

@@ -2649,7 +2649,11 @@
           "depositWon",
           "rentWon",
           "supplyCount",
-          "evidence"
+          "evidence",
+          "supplyGroupId",
+          "siteName",
+          "salePriceMinWon",
+          "salePriceMaxWon"
         ],
         "properties": {
           "houseType": {
@@ -2660,7 +2664,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "이 줄의 가격 대상(가군·주거급여수급자 등), 없으면 공급 묶음의 대상"
           },
           "exclusiveM2": {
             "type": [
@@ -2688,7 +2693,7 @@
               "integer",
               "null"
             ],
-            "description": "공급 호수 (같은 주택형 합, 수량을 보류한 묶음이 있으면 null)"
+            "description": "공급 호수. 묶음 전체 수량이 있으면 그것만, 없으면 대상별 수량의 합(하위 수량은 세지 않음). 같은 묶음의 줄이 여럿(가격 대상별)이면 첫 줄에만 있고 나머지는 null. 수량을 보류했으면 null"
           },
           "evidence": {
             "type": "array",
@@ -2696,8 +2701,37 @@
               "$ref": "#/components/schemas/Evidence"
             },
             "description": "보여 주는 보증금·월임대료의 근거 원문"
+          },
+          "supplyGroupId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "공급 묶음 ID (같은 묶음의 줄끼리 같아요)"
+          },
+          "siteName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지·건물 이름 (모르면 null)"
+          },
+          "salePriceMinWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "분양가 가장 낮은 값 (원, 층·안별로 여러 개일 때. 분양이 아니거나 보류했으면 null)"
+          },
+          "salePriceMaxWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "분양가 가장 높은 값 (원)"
           }
-        }
+        },
+        "description": "공급 묶음별 주택형 줄. 다른 묶음(단지·대상)은 주택형 이름이 같아도 합치지 않아요. 가격 대상이 여럿이면 대상마다 한 줄이에요."
       },
       "Condition": {
         "type": "object",
@@ -3384,6 +3418,7 @@
           "sourceCode",
           "rawVersion",
           "rawPostId",
+          "detailUrl",
           "receivedAt",
           "issues",
           "fields",
@@ -3446,6 +3481,13 @@
               "string",
               "null"
             ]
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "기관 공고 원문 페이지 주소 (수집기가 준 값, 없으면 null)"
           },
           "receivedAt": {
             "type": [

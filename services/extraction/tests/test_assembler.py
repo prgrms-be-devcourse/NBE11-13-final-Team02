@@ -276,7 +276,9 @@ def test_broken_count_grouping_is_ungrouped_but_values_kept():
     assert fixed["aggregationComplete"] is False and fixed["value"] == count["value"]
     orphan = result.candidate["supplyGroups"][0]["counts"][0]
     assert orphan["parentCountId"] is None and orphan["aggregationRole"] == "STANDALONE"
-    assert any("묶음을 풀었습니다" in n for n in result.notes)
+    # 조용히 바꾸지 않고 검수로 가는 표시를 남겨요(2026-10-26 공통 검사)
+    changed = [i for i in result.issues if i["code"] == "AI_OUTPUT_VALUE_CHANGED"]
+    assert {i["target"] for i in changed} == {"/notice/counts/0", "/supplyGroups/0/counts/0"}
 
 
 def test_missing_field_pointing_nowhere_is_dropped():

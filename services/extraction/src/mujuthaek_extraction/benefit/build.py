@@ -18,6 +18,7 @@ from typing import Any
 
 from mujuthaek_extraction.benefit.codes import RuleResult
 from mujuthaek_extraction.benefit.reading import PROMPT_VERSION, BenefitReading
+from mujuthaek_extraction.verify.claims import has_date
 
 ENUMS = {
     "MARITAL": {"SINGLE", "MARRIED", "NEWLYWED", "ENGAGED"},
@@ -49,6 +50,11 @@ CORE = {"AGE", "RESIDENCE", "HOMELESS", "MARITAL", "INCOME_AMOUNT", "INCOME_MEDI
 DEFAULT_BASIS = {"INCOME_AMOUNT": "HOUSEHOLD", "INCOME_MEDIAN_PCT": "HOUSEHOLD", "HOMELESS": "PERSON"}
 LOW_CONFIDENCE = 0.6
 AMOUNT_KEYS = {"min", "max", "depositMax", "monthlyMax"}  # 조건 값에서 금액·수치 칸
+# 출생연도로 정한 나이(「1987년~2006년 출생자」, 「1990년생」, 「출생연도 기준」)와 나이 제한 없음(「연령 기준 미적용」, 「나이 제한 없음」)
+BIRTH_YEAR_AGE = re.compile(
+    r"출생\s*연도|(?:19|20)\d{2}\s*년생|(?:19|20)\d{2}[^\n]{0,40}?(?:이후|이전|부터|까지|~)\s*출생|(?:19|20)\d{2}[^\n]{0,40}?출생(?:자|한\s*(?:청년|사람|자|분|주민))"
+)
+NO_AGE_LIMIT = re.compile(r"(?:연령|나이)\s*(?:기준|제한)?\s*(?:미적용|없음|무관|제한\s*없)")
 
 
 def _norm(text: str | None) -> str:
@@ -101,7 +107,10 @@ def won_amounts(quote: str) -> set[int]:
     text = unicodedata.normalize("NFKC", quote or "")
     found: set[int] = set()
     for match in _MONEY.finditer(text):
-        total = _korean_amount(match.group(1))
+        token = match.group(1)
+        if not re.search(r"[만억]|원\s*$", token):
+            continue  # 「청년 5천명」「3백 가구」처럼 천·백·십만 붙고 「원」이 없으면 금액이 아닙니다(2026-10-25 검토)
+        total = _korean_amount(token)
         if total == total.to_integral_value() and total > 0:
             found.add(int(total))
     return found
@@ -316,18 +325,17 @@ def _support(item: dict[str, Any], sources: list[str]) -> tuple[dict[str, Any], 
     )
 
 
-def _date(value: Any, sources_text: str) -> str | None:
-    """AI 날짜는 연·월·일 숫자가 원문에 있을 때만."""
+def _date(value: Any, sources_text: str, *, end: bool = False) -> str | None:
+    """AI 날짜는 원문에 그 날짜로 적혀 있을 때만(공고 쪽 has_date와 같은 규칙). 연도와 함께 적혔으면 연도까지 같아야 하고,
+    연도 없이 「10. 7.」로 적혔으면 원문에 나온 연도 중 하나여야 합니다. 출처 칸의 「20260107」 같은 8자리 날짜도 인정합니다.
+    (2026-10-25 검토: 예전에는 연·월·일 숫자가 원문 어디에든 따로 있으면 통과해서 「2026년 … 만 31세 … 12개월」로 2026-12-31이 통과했음)"""
     if not value or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(value)):
         return None
-    year, month, day = (int(p) for p in str(value).split("-"))
-    numbers = {n.lstrip("0") or "0" for n in re.findall(r"\d+", sources_text)}
-    compact = f"{year:04d}{month:02d}{day:02d}"
-    if compact in re.sub(r"\D", "", sources_text):
+    text = unicodedata.normalize("NFKC", sources_text or "")
+    if str(value).replace("-", "") in re.findall(r"(?<!\d)\d{8}(?!\d)", text):
         return str(value)
-    if (str(year) in numbers or str(year % 100) in numbers) and str(month) in numbers and str(day) in numbers:
-        return str(value)
-    return None
+    years = {int(y) for y in re.findall(r"(?<!\d)(20\d{2})(?!\d)", text)}
+    return str(value) if has_date([text], {"value": str(value), "precision": "DAY"}, end=end, years=years) else None
 
 
 def _source(payload: dict[str, Any], regions: Any) -> dict[str, Any]:
@@ -405,7 +413,9 @@ def _leftover_amounts(items: list[dict[str, Any]]) -> set[str]:
         won = {int(item[k]) for k in WON_FIELDS if isinstance(item.get(k), int | float) and item[k] > 0}
         if won:
             used.setdefault(_norm(item["evidence"]), set()).update(won)
-    return {quote for quote, won in used.items() if won_amounts(quote) - won}
+    # 「연소득 6천만원(부부합산 8천만원)이하」와 그 일부 「부부합산 8천만원」을 근거로 두 조건이 나눠 쓰면 남는 금액이 없습니다(2026-10-25 검토)
+    merged = {quote: set().union(*(w for other, w in used.items() if _same_sentence(quote, other))) for quote in used}
+    return {quote for quote, won in merged.items() if won_amounts(quote) - won}
 
 
 def _settle_age(rule_rows: list[dict[str, Any]], items: list[dict[str, Any]], sources: list[str], regions: Any) -> str | None:
@@ -436,21 +446,59 @@ def _settle_age(rule_rows: list[dict[str, Any]], items: list[dict[str, Any]], so
     return "RULE_AI_CONFLICT"
 
 
-def _merge_ages(conditions: list[dict[str, Any]]) -> None:
+def _covers(loose: dict[str, Any], strict: dict[str, Any]) -> bool:
+    """금액·수치가 없는 loose 조건이 strict 조건보다 넓기만 한지(strict를 만족하면 loose도 만족). 목록 칸은 strict 쪽이 부분집합이어야 합니다."""
+    for key, value in loose.items():
+        if key in AMOUNT_KEYS or key not in strict:
+            return False
+        if isinstance(value, list):
+            if not isinstance(strict[key], list) or not set(strict[key]) <= set(value):
+                return False
+        elif strict[key] != value:
+            return False
+    return True
+
+
+def _drop_looser_rows(conditions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """같은 type에 금액이 있는 줄(「전세보증금 2.5억원 이하」)과 금액 없이 더 넓기만 한 줄(「전월세 임차보증금」)이 다른 묶음에 있으면,
+    넓은 줄은 아무것도 더 거르지 않으므로 글로만 남깁니다. 그대로 두면 아래 「전형별 조건」 규칙이 둘 다 비워 맞는 금액까지 잃어요
+    (2026-10-26 혜택 8건 재처리: 대구 청년 전월세의 보증금 2.5억이 비워졌음)."""
+    known = [r for r in conditions if r["known"] and isinstance(r["value"], dict) and r["type"] != "AGE"]
+    dropped: list[dict[str, Any]] = []
+    for row in known:
+        if any(k in AMOUNT_KEYS for k in row["value"]):
+            continue
+        stricter = [
+            other
+            for other in known
+            if other is not row and other["type"] == row["type"] and other["group"] != row["group"] and any(k in AMOUNT_KEYS for k in other["value"])
+        ]
+        if any(_covers(row["value"], other["value"]) for other in stricter):
+            row.update(known=False, value=None)
+            dropped.append(row)
+    return dropped
+
+
+def _merge_ages(conditions: list[dict[str, Any]]) -> bool:
     """AI가 나이를 여러 묶음(「그리고」)에 나눠 담으면(「19~34세는 복지로, 35~39세는 인천청년포털」) 이어지는 범위를 한 줄로 합칩니다.
-    나이는 비우지 않습니다. 범위가 이어지지 않으면(19~24, 30~34) 첫 줄만 남기고 나머지는 글로 둡니다."""
+    나이는 비우지 않습니다. 범위가 이어지지 않으면(19~24, 30~34) 모두 첫 줄의 묶음(「또는」)에 남기고 True(확인 필요)를 돌려줍니다.
+    (2026-10-25 검토: 예전에는 나머지 범위 줄을 지워 30~34세가 확인 없이 「지원 불가」가 됐음)"""
     ages = [row for row in conditions if row["type"] == "AGE" and row["known"]]
     if len({row["group"] for row in ages}) < 2:
-        return
+        return False
     ranges = sorted((row["value"].get("min", 0), row["value"].get("max", 200)) for row in ages)
     joined = all(nxt[0] <= cur[1] + 1 for cur, nxt in zip(ranges, ranges[1:], strict=False))
     keep = ages[0]
-    if joined:
-        low, high = min(r[0] for r in ranges), max(r[1] for r in ranges)
-        keep["value"] = {k: v for k, v in (("min", low if low else None), ("max", high if high < 200 else None)) if v is not None}
-        keep["rawText"] = " / ".join(row["rawText"] for row in ages)
+    if not joined:
+        for row in ages[1:]:
+            row["group"] = keep["group"]
+        return True
+    low, high = min(r[0] for r in ranges), max(r[1] for r in ranges)
+    keep["value"] = {k: v for k, v in (("min", low if low else None), ("max", high if high < 200 else None)) if v is not None}
+    keep["rawText"] = " / ".join(row["rawText"] for row in ages)
     for row in ages[1:]:
         conditions.remove(row)
+    return False
 
 
 def _settle_income(rule_rows: list[dict[str, Any]], income: dict[str, int], items: list[dict[str, Any]], sources: list[str], regions: Any) -> str | None:
@@ -499,6 +547,10 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
         reasons.append(conflict)
     if conflict := _settle_age(rule_rows, answer.get("conditions") or [], sources, regions):
         reasons.append(conflict)
+    # 공통 검사(2026-10-26 사용자: 사례별로 고치지 말 것): 출처 칸·AI가 준 값이 아래 어떤 규칙으로든 비워지면, 어느 규칙이었든
+    # 마지막에 확인 필요를 붙입니다. 규칙마다 따로 챙기다 빠지는 일을 막아요(누락은 검수로).
+    given = {id(row) for row in rule_rows if row["known"]}
+    lost = 0
     rule_types: dict[str, dict[str, Any]] = {}
     for row in rule_rows:
         rule_types.setdefault(row["type"], row)
@@ -514,11 +566,13 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
             if ai_value(item, regions) is not None:
                 reasons.append("LOW_CONFIDENCE")
         value = ai_value(item, regions) if evidence_ok else None
+        had_value = value is not None and item["type"] not in TEXT_ONLY
         if value is not None and _norm(item["evidence"]) in leftover and any(item.get(k) for k in WON_FIELDS):
             if item["type"] in CORE:
                 reasons.append("LOW_CONFIDENCE")  # 근거 문장에 다른 금액(조건부 금액일 수 있음)이 있음: 채우고 확인 필요
             else:
                 value = None  # 근거 문장의 다른 금액(조건부 금액일 수 있음)을 쓰지 않음
+                reasons.append("LOW_CONFIDENCE")  # 비운 조건은 검수로(2026-10-26)
         if not evidence_ok:
             failed_evidence += 1
         if item["type"] in rule_types:
@@ -540,11 +594,12 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
         if item["type"] in TEXT_ONLY and _norm(item["evidence"]) in rule_evidence:
             continue
         known = value is not None and item["type"] not in TEXT_ONLY
+        lost += had_value and not known
         key = ("solo", index) if item["type"] in TEXT_ONLY else ("ai", item["group"])
         ai_rows.append(
             (
                 key,
-                {
+                row := {
                     "type": item["type"],
                     "value": value if known else None,
                     "group": 0,
@@ -556,6 +611,8 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
                 },
             )
         )
+        if known:
+            given.add(id(row))
     ai_rows, moved = _split_or_groups(ai_rows, covered, rule_types)
     keyed = [(moved.get(row["group"], ("rule", row["group"])), row) for row in rule_rows] + ai_rows
     numbers: dict[tuple, int] = {}
@@ -565,7 +622,9 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     # 같은 type이 서로 다른 묶음(「그리고」)에 나오면 전형별 조건입니다(「미혼 그리고 기혼」 「순자산 5.11억(구입) 그리고 3.45억(전세)」).
     # 이 형식은 「(A 그리고 B) 또는 (C 그리고 D)」를 나타내지 못해, 핵심 값은 한 묶음 「또는」으로 모아 어느 전형이든 맞으면 되게 하고
     # 확인 필요로 표시합니다(2026-10-25 사용자 결정). 핵심 값이 아니면 비웁니다
-    _merge_ages(conditions)
+    if _merge_ages(conditions):
+        reasons.append("LOW_CONFIDENCE")
+    given -= {id(row) for row in _drop_looser_rows(conditions)}  # 더 넓기만 해서 뺀 줄은 잃은 값이 아님
     groups_by_type: dict[str, list[int]] = {}
     for row in conditions:
         if row["known"] and row["group"] not in groups_by_type.get(row["type"], []):
@@ -577,7 +636,9 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
                 row["group"] = groups[0]
                 reasons.append("LOW_CONFIDENCE")
             else:
+                # 비우되 사람이 보게 합니다(2026-10-26: 대구 청년 전월세 「전세 2.5억 이하」·「월세」가 조용히 비워져 검수 없이 나갔음)
                 row.update(known=False, value=None)
+                reasons.append("LOW_CONFIDENCE")
     # 같은 묶음(「또는」)에 type·기준이 같고 금액만 다른 줄이 있으면 조건부 금액입니다(「부부합산 1.3억, 맞벌이는 2억」).
     # 핵심 값은 「또는」 그대로 두고(어느 쪽이든 맞으면 됨) 확인 필요, 핵심 값이 아니면 큰 금액이 모두에게 적용되어 너그럽게 틀리므로 비웁니다
     same_kind: dict[tuple, list[dict[str, Any]]] = {}
@@ -592,9 +653,27 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
                 continue
             for row in rows:
                 row.update(known=False, value=None)
+            reasons.append("LOW_CONFIDENCE")  # 비운 조건은 검수로
+    # 같은 「또는」 묶음에 type이 같은데 기준·대상(금액 밖의 칸)도 금액도 다른 줄(「외벌이 7천만·맞벌이 8.5천만」, 「구입 5.11억·전세 3.45억」)은
+    # 대상별 금액이라 이 형식으로는 누구에게 어느 금액인지 나타내지 못해 큰 상한이 작은 상한을 덮습니다(2026-10-26 원문 대조). 값은 두고 확인 필요
+    by_type: dict[tuple, list[dict[str, Any]]] = {}
+    for row in conditions:
+        if row["known"] and isinstance(row["value"], dict) and row["type"] != "AGE" and any(row["value"].get(k) is not None for k in AMOUNT_KEYS):
+            by_type.setdefault((row["group"], row["type"]), []).append(row)
+    for rows in by_type.values():
+        amounts = {json.dumps({k: v for k, v in r["value"].items() if k in AMOUNT_KEYS}, sort_keys=True) for r in rows}
+        kinds = {json.dumps({k: v for k, v in r["value"].items() if k not in AMOUNT_KEYS}, sort_keys=True, ensure_ascii=False) for r in rows}
+        if len(amounts) > 1 and len(kinds) > 1:
+            reasons.append("LOW_CONFIDENCE")
+    # 나이 조건이 있는데 원문이 출생연도로 나이를 정하거나(「1987~2006년 출생자」: 만 나이와 다름) 나이 제한이 없다고 적었으면(「연령 기준 미적용」)
+    # 둘 중 하나는 틀린 값입니다(2026-10-26 원문 대조). 값은 두고 확인 필요
+    if any(row["type"] == "AGE" and row["known"] for row in conditions) and any(BIRTH_YEAR_AGE.search(s) or NO_AGE_LIMIT.search(s) for s in sources):
+        reasons.append("LOW_CONFIDENCE")
     numbers = {}
     for row in conditions:  # 묶음 번호를 나온 차례대로 다시 매김
         row["group"] = numbers.setdefault(row["group"], len(numbers) + 1)
+    if lost or any(id(row) in given and not row["known"] for row in conditions):
+        reasons.append("LOW_CONFIDENCE")  # 공통 검사: 받은 값을 비운 조건이 있으면 검수로
 
     supports = []
     for item in answer.get("supports") or []:
@@ -603,6 +682,9 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
             failed_evidence += 1
         if elsewhere:
             reasons.append("LOW_CONFIDENCE")
+        # 공통 검사: AI가 준 금액·개월·비율을 원문에서 확인하지 못해 비웠으면 검수로
+        if any(item.get(src) is not None and made[dst] is None for src, dst in (("amountMaxWon", "amountMax"), ("months", "months"), ("ratePct", "ratePct"))):
+            reasons.append("LOW_CONFIDENCE")
         if made["evidence"]:
             supports.append(made)
 
@@ -610,13 +692,19 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
     ai_schedule = answer.get("schedule") or {}
     schedule = {
         "applyStart": _date(ai_schedule.get("applyStart"), sources_text),
-        "applyEnd": _date(ai_schedule.get("applyEnd"), sources_text),
+        "applyEnd": _date(ai_schedule.get("applyEnd"), sources_text, end=True),
         "applyAlways": bool(ai_schedule.get("applyAlways")),
         "businessStart": _date(ai_schedule.get("businessStart"), sources_text),
-        "businessEnd": _date(ai_schedule.get("businessEnd"), sources_text),
+        "businessEnd": _date(ai_schedule.get("businessEnd"), sources_text, end=True),
         "rawText": ai_schedule.get("rawText"),
     }
     schedule.update({k: v for k, v in rules.schedule.items() if v is not None})  # 규칙 값이 AI 값보다 우선
+    # 신청·사업 기간은 핵심 값이라, AI가 읽은 날짜가 원문에서 확인되지 않아 비웠으면 확인 필요로 보냅니다
+    if any(ai_schedule.get(k) and schedule.get(k) is None for k in ("applyStart", "applyEnd", "businessStart", "businessEnd")):
+        reasons.append("LOW_CONFIDENCE")
+    # 상시 접수인데 신청 기간도 있음(출처 칸 「상시」, 본문 기간 등): 둘 중 하나는 틀린 값이라 값은 두고 확인 필요(2026-10-26 원문 대조)
+    if schedule["applyAlways"] and (schedule["applyStart"] or schedule["applyEnd"]):
+        reasons.append("LOW_CONFIDENCE")
 
     if failed_evidence:
         reasons.append("EVIDENCE_NOT_FOUND")

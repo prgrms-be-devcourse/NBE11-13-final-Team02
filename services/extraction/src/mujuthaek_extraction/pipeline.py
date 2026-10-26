@@ -35,7 +35,7 @@ from mujuthaek_extraction.method import LEGACY, STRUCTURED, extraction_method
 from mujuthaek_extraction.model.factory import NoticeModels
 from mujuthaek_extraction.model.fallback import FallbackOnErrorModel, extract_with_fallback
 from mujuthaek_extraction.publish import completed_payload
-from mujuthaek_extraction.recheck import recheck_problems
+from mujuthaek_extraction.recheck import lost_by_recheck, recheck_problems
 from mujuthaek_extraction.rules import discover
 from mujuthaek_extraction.rules.base import FieldRules
 from mujuthaek_extraction.usage import MeteredModel, UsageRecorder
@@ -233,11 +233,18 @@ def _process(
     if (summary := recheck.summary()) is not None:
         usage.record("recheck", summary)
     # 2) 그래도 남은 계약 오류는 위치만 보고 그 항목만 낮춥니다 (검증 전 후보에 적용하고 다시 검증)
+    quarantine_actions: list[str] = []
     if report.contract_errors:
         with usage.stage("quarantine"):
             cleaned, actions = quarantine(assembled(recheck.parts) or report.candidate, report.contract_errors)
             report = verify(cleaned)
         repairs += actions
+        quarantine_actions = list(actions)
+    # 공통 검사: 재확인 답으로 바꿔 넣으며 처음 값이 사라진 칸, 계약 오류 정리로 바꾸거나 비운 값을 메모로 남겨 검수로 보냅니다(2026-10-26)
+    changed = [*lost_by_recheck(run.parts, recheck.parts if recheck.accepted else run.parts), *(("/", a) for a in quarantine_actions)]
+    notes = report.candidate["quality"].setdefault("notes", [])
+    for target, description in changed:
+        notes.append({"code": "AI_OUTPUT_VALUE_CHANGED", "target": target, "description": description})
     raw = raw_event["payload"]
     with usage.stage("publish"):
         # 판정 틀의 page: 근거 위치를 PDF 원문의 쪽 표시로 쪽 번호로 바꿉니다
