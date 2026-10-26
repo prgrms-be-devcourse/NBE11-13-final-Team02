@@ -1,18 +1,24 @@
 package kr.mujuthaek.api.traffic.service;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import kr.mujuthaek.api.traffic.TrafficProperties;
 import kr.mujuthaek.api.traffic.dto.BotTrafficResponse;
+import kr.mujuthaek.api.traffic.dto.RealtimeResponse;
 import kr.mujuthaek.api.traffic.dto.TrafficResponse;
 import kr.mujuthaek.api.traffic.dto.TrafficResponse.Daily;
 import kr.mujuthaek.api.traffic.dto.TrafficResponse.FunnelStep;
 import kr.mujuthaek.api.traffic.dto.TrafficResponse.Item;
+import kr.mujuthaek.api.traffic.dto.TrafficResponse.NoticeView;
 import kr.mujuthaek.api.traffic.ga.GaDataClient;
 import kr.mujuthaek.api.traffic.ga.GaDataClient.ReportSpec;
 import kr.mujuthaek.api.traffic.ga.GaDataClient.Row;
@@ -43,6 +49,7 @@ public class TrafficService {
               List.of("activeUsers", "newUsers", "sessions", "screenPageViews"),
               null,
               0,
+              null,
               null),
           item("sessionDefaultChannelGroup", "sessions"),
           item("sessionSource", "sessions"),
@@ -57,9 +64,26 @@ public class TrafficService {
               List.of("eventCount", "totalUsers"),
               "eventCount",
               0,
-              FUNNEL.stream().map(f -> f[0]).toList()));
+              FUNNEL.stream().map(f -> f[0]).toList(),
+              null),
+          // 공고 상세 페이지(/notices/{id})별 조회 → 인기 공고. 한 공고의 하위 경로까지 넉넉히 받아 공고별로 합쳐요
+          new ReportSpec(
+              List.of("pagePath"),
+              List.of("screenPageViews", "activeUsers"),
+              "screenPageViews",
+              100,
+              null,
+              "/notices/"));
 
   private record Cached(Instant at, TrafficResponse.Ga ga) {}
+
+  /** 공고 상세 주소에서 공고 ID (/notices/{id}, 뒤의 하위 경로·쿼리는 같은 공고) */
+  private static final Pattern NOTICE_PATH = Pattern.compile("^/notices/([^/?#]+)");
+
+  /** 실시간은 30초만 다시 써요(같은 화면을 여러 번 열어도 GA를 매번 부르지 않게). */
+  private static final Duration REALTIME_TTL = Duration.ofSeconds(30);
+
+  private volatile RealtimeResponse realtimeCache;
 
   private final GaDataClient ga;
   private final RequestLogStore logs;
@@ -79,7 +103,7 @@ public class TrafficService {
     // 주 값이 활성 사용자면 사용자 수도 그 값이에요(측정항목 하나만 물어요)
     List<String> metrics =
         "activeUsers".equals(metric) ? List.of(metric) : List.of(metric, "activeUsers");
-    return new ReportSpec(List.of(dimension), metrics, metric, 10, null);
+    return new ReportSpec(List.of(dimension), metrics, metric, 10, null, null);
   }
 
   /** 개요·유입·이용 흐름(GA)과 서버 숫자. */
@@ -132,7 +156,8 @@ public class TrafficService {
               items(r.get(6)),
               items(r.get(7)),
               items(r.get(8)),
-              funnel(r.get(9)));
+              funnel(r.get(9)),
+              popularNotices(r.get(10)));
       cache.put(days, new Cached(now, result));
       return result;
     } catch (RuntimeException failure) {
@@ -140,6 +165,61 @@ public class TrafficService {
       // 실패해도 지난번 값이 있으면 그걸 보여 줘요
       return hit != null ? hit.ga() : TrafficResponse.Ga.off("GA 숫자를 가져오지 못했어요. 잠시 뒤 다시 열어 주세요");
     }
+  }
+
+  /** 지금 접속자: 최근 30분·5분 활성 사용자와 기기별. */
+  public RealtimeResponse realtime() {
+    if (!ga.configured()) {
+      return RealtimeResponse.off("GA가 연결되지 않았어요(속성 ID·서비스 계정 키 설정 필요)");
+    }
+    Instant now = clock.instant();
+    RealtimeResponse hit = realtimeCache;
+    if (hit != null && hit.fetchedAt().plus(REALTIME_TTL).isAfter(now)) {
+      return hit;
+    }
+    try {
+      long last30 = total(ga.realtime(List.of(), List.of("activeUsers"), null));
+      long last5 = total(ga.realtime(List.of(), List.of("activeUsers"), 5));
+      List<Item> devices =
+          ga.realtime(List.of("deviceCategory"), List.of("activeUsers"), null).stream()
+              .map(
+                  r ->
+                      new Item(
+                          r.dimensions().getFirst(),
+                          r.metrics().getFirst(),
+                          r.metrics().getFirst()))
+              .sorted((x, y) -> Long.compare(y.value(), x.value()))
+              .toList();
+      RealtimeResponse result = new RealtimeResponse(true, null, now, last30, last5, devices);
+      realtimeCache = result;
+      return result;
+    } catch (RuntimeException failure) {
+      log.warn("GA 실시간 보고서를 가져오지 못했어요: {}", failure.getMessage());
+      return hit != null ? hit : RealtimeResponse.off("GA 실시간 숫자를 가져오지 못했어요");
+    }
+  }
+
+  private static long total(List<Row> rows) {
+    return rows.stream().mapToLong(r -> r.metrics().getFirst()).sum();
+  }
+
+  /** 공고 상세 경로별 조회를 공고 ID로 합쳐 많이 본 순 10개. */
+  static List<NoticeView> popularNotices(List<Row> rows) {
+    Map<String, long[]> byNotice = new LinkedHashMap<>();
+    for (Row row : rows) {
+      Matcher m = NOTICE_PATH.matcher(row.dimensions().getFirst());
+      if (!m.find()) {
+        continue;
+      }
+      long[] sum = byNotice.computeIfAbsent(m.group(1), k -> new long[2]);
+      sum[0] += row.metrics().get(0);
+      sum[1] += row.metrics().get(1);
+    }
+    return byNotice.entrySet().stream()
+        .map(e -> new NoticeView(e.getKey(), e.getValue()[0], e.getValue()[1]))
+        .sorted((x, y) -> Long.compare(y.views(), x.views()))
+        .limit(10)
+        .toList();
   }
 
   private static Daily daily(Row row) {

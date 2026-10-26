@@ -48,7 +48,8 @@ public class GaDataClient {
       List<String> metrics,
       String orderByMetric,
       int limit,
-      List<String> eventNames) {}
+      List<String> eventNames,
+      String pathPrefix) {}
 
   /** 보고서 한 줄: 측정기준 값들과 측정항목 값들(같은 순서). */
   public record Row(List<String> dimensions, List<Long> metrics) {}
@@ -117,7 +118,17 @@ public class GaDataClient {
     if (spec.limit() > 0) {
       request.put("limit", spec.limit());
     }
-    if (spec.eventNames() != null && !spec.eventNames().isEmpty()) {
+    if (spec.pathPrefix() != null) {
+      request.put(
+          "dimensionFilter",
+          Map.of(
+              "filter",
+              Map.of(
+                  "fieldName",
+                  "pagePath",
+                  "stringFilter",
+                  Map.of("matchType", "BEGINS_WITH", "value", spec.pathPrefix()))));
+    } else if (spec.eventNames() != null && !spec.eventNames().isEmpty()) {
       request.put(
           "dimensionFilter",
           Map.of(
@@ -126,6 +137,32 @@ public class GaDataClient {
                   "fieldName", "eventName", "inListFilter", Map.of("values", spec.eventNames()))));
     }
     return request;
+  }
+
+  /**
+   * 실시간 보고서(최근 30분까지, 표준 보고서와 달리 바로 반영). minutes가 있으면 최근 그 분만 봐요.
+   *
+   * @param dimensions 측정기준(없으면 합계 한 줄)
+   */
+  public List<Row> realtime(List<String> dimensions, List<String> metrics, Integer minutes) {
+    var request = new java.util.LinkedHashMap<String, Object>();
+    if (!dimensions.isEmpty()) {
+      request.put("dimensions", dimensions.stream().map(d -> Map.of("name", d)).toList());
+    }
+    request.put("metrics", metrics.stream().map(m -> Map.of("name", m)).toList());
+    if (minutes != null) {
+      request.put(
+          "minuteRanges", List.of(Map.of("startMinutesAgo", minutes - 1, "endMinutesAgo", 0)));
+    }
+    JsonNode body =
+        http.post()
+            .uri(api + "/properties/{id}:runRealtimeReport", props.propertyId())
+            .header("Authorization", "Bearer " + accessToken())
+            .contentType(MediaType.APPLICATION_JSON)
+            .body(request)
+            .retrieve()
+            .body(JsonNode.class);
+    return rows(body);
   }
 
   private static List<Row> rows(JsonNode report) {
