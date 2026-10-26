@@ -11,17 +11,22 @@ import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 
-/** 공고·창업지원 사업 제보 (notice.notice_reports). 대상은 공고(notice_id)나 사업(raw_policy_id) 중 하나예요. */
+/**
+ * 공고·창업지원 사업·혜택 정책 제보 (notice.notice_reports). 대상은 공고(notice_id)·사업(raw_policy_id)·혜택
+ * 정책(benefit_policy_id) 중 하나예요.
+ */
 @Repository
 public class NoticeReportRepository {
 
   private static final String COLUMNS =
-      "r.id, r.notice_id, r.raw_policy_id, coalesce(n.title, p.title) as title, r.reporter_id,"
+      "r.id, r.notice_id, r.raw_policy_id, r.benefit_policy_id, coalesce(n.title, p.title,"
+          + " r.target_title) as title, r.reporter_id,"
           + " r.field, r.current_value, r.reported_value,"
           + " r.note, r.screen, r.status, r.result, r.reply, r.handled_by, r.created_at,"
           + " r.started_at, r.handled_at, r.review_job_id, (select count(*) from notice.notice_reports g where"
           + " g.notice_id is not distinct from r.notice_id and g.raw_policy_id is not distinct from"
-          + " r.raw_policy_id and g.field = r.field and g.status <> 'DONE') as open_in_group";
+          + " r.raw_policy_id and g.benefit_policy_id is not distinct from r.benefit_policy_id"
+          + " and g.field = r.field and g.status <> 'DONE') as open_in_group";
 
   private final JdbcClient jdbc;
 
@@ -63,13 +68,16 @@ public class NoticeReportRepository {
   /** 넣어요. 같은 회원·공고·칸의 처리 전 제보가 있으면 넣지 않고 false. */
   public boolean insert(Row row) {
     return jdbc.sql(
-                "insert into notice.notice_reports (id, notice_id, raw_policy_id, reporter_id,"
-                    + " field, current_value, reported_value, note, screen, created_at) values (:id,"
-                    + " :notice, :program, :reporter, :field, :current, :reported, :note, :screen,"
+                "insert into notice.notice_reports (id, notice_id, raw_policy_id,"
+                    + " benefit_policy_id, target_title, reporter_id, field, current_value,"
+                    + " reported_value, note, screen, created_at) values (:id, :notice, :program,"
+                    + " :benefit, :title, :reporter, :field, :current, :reported, :note, :screen,"
                     + " :now) on conflict do nothing")
             .param("id", row.id())
             .param("notice", row.noticeId())
             .param("program", row.rawPolicyId())
+            .param("benefit", row.benefitPolicyId())
+            .param("title", row.targetTitle())
             .param("reporter", row.reporterId())
             .param("field", row.field())
             .param("current", row.currentValue())
@@ -105,21 +113,25 @@ public class NoticeReportRepository {
         .optional();
   }
 
-  /** 같은 대상(공고·사업)·칸의 다른 제보 (오래된 것부터). */
+  /** 같은 대상(공고·사업·혜택 정책)·칸의 다른 제보 (오래된 것부터). */
   public List<Report> sameGroup(Report target, UUID except) {
-    return sameGroup(target.noticeId(), target.rawPolicyId(), target.field(), except);
+    return sameGroup(
+        target.noticeId(), target.rawPolicyId(), target.benefitPolicyId(), target.field(), except);
   }
 
-  private List<Report> sameGroup(UUID noticeId, UUID rawPolicyId, String field, UUID except) {
+  private List<Report> sameGroup(
+      UUID noticeId, UUID rawPolicyId, UUID benefitPolicyId, String field, UUID except) {
     return jdbc.sql(
             "select "
                 + COLUMNS
                 + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
                 + " where r.notice_id is not distinct from cast(:notice as uuid) and"
-                + " r.raw_policy_id is not distinct from cast(:program as uuid) and r.field ="
+                + " r.raw_policy_id is not distinct from cast(:program as uuid) and"
+                + " r.benefit_policy_id is not distinct from cast(:benefit as uuid) and r.field ="
                 + " :field and r.id <> :except order by r.created_at limit 50")
         .param("notice", noticeId)
         .param("program", rawPolicyId)
+        .param("benefit", benefitPolicyId)
         .param("field", field)
         .param("except", except)
         .query(NoticeReportRepository::report)
@@ -217,6 +229,7 @@ public class NoticeReportRepository {
         rs.getObject("id", UUID.class),
         rs.getObject("notice_id", UUID.class),
         rs.getObject("raw_policy_id", UUID.class),
+        rs.getObject("benefit_policy_id", UUID.class),
         rs.getString("title"),
         rs.getObject("reporter_id", UUID.class),
         rs.getString("field"),
@@ -235,11 +248,17 @@ public class NoticeReportRepository {
         rs.getInt("open_in_group"));
   }
 
-  /** 넣을 제보. */
+  /**
+   * 넣을 제보. 대상은 noticeId·rawPolicyId·benefitPolicyId 중 하나만.
+   *
+   * @param targetTitle 혜택 정책 제목 (혜택 정책 제보만, 나머지는 null)
+   */
   public record Row(
       UUID id,
       UUID noticeId,
       UUID rawPolicyId,
+      UUID benefitPolicyId,
+      String targetTitle,
       UUID reporterId,
       String field,
       String currentValue,
@@ -257,6 +276,7 @@ public class NoticeReportRepository {
       UUID id,
       UUID noticeId,
       UUID rawPolicyId,
+      UUID benefitPolicyId,
       String noticeTitle,
       UUID reporterId,
       String field,

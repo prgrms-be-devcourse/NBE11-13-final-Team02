@@ -15,9 +15,11 @@ public record AdminReportListResponse(Counts counts, List<Item> items) {
    *
    * @param status NEW 새 제보 · DOING 처리 중 · DONE 처리 끝
    * @param screen 제보한 화면
-   * @param targetType NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보
+   * @param targetType NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보 · BENEFIT 주거·복지 정책(혜택) 제보
    * @param noticeId 공고 제보면 공고 ID (사업이면 null)
    * @param programId 사업 제보면 창업지원 사업 ID(rawPolicyId) (공고면 null)
+   * @param benefitPolicyId 혜택 정책 제보면 정책 원본 ID (그 밖이면 null). 「고치기」는 혜택
+   *     검수(/api/admin/benefit-reviews)로 이어져요
    * @param field 칸 이름
    * @param summary 설명 앞부분
    * @param groupCount 같은 공고·칸의 처리 전 제보 수 (이 제보 포함, 끝난 제보면 0)
@@ -30,6 +32,7 @@ public record AdminReportListResponse(Counts counts, List<Item> items) {
       String targetType,
       UUID noticeId,
       UUID programId,
+      UUID benefitPolicyId,
       String noticeTitle,
       String field,
       String currentValue,

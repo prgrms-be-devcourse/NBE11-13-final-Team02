@@ -103,6 +103,69 @@ public class ExtractionReviewClient {
     return post(jobId, "reject", body(note, reviewer));
   }
 
+  /** 혜택(주거·이주 정책) 검수 목록. 응답의 items 배열. */
+  public JsonNode benefitList(String status) {
+    JsonNode body =
+        call(
+            () ->
+                http.get()
+                    .uri("/benefit-reviews?status={s}", status)
+                    .retrieve()
+                    .body(JsonNode.class));
+    return body == null ? null : body.get("items");
+  }
+
+  /** 혜택 검수 상세: payload(정제 결과)·source(받은 원본). */
+  public JsonNode benefitDetail(String reviewId) {
+    return call(
+        () -> http.get().uri("/benefit-reviews/{id}", reviewId).retrieve().body(JsonNode.class));
+  }
+
+  /**
+   * 혜택 검수 승인(approve)·반려(reject). 검수 API가 고친 결과를 다시 발행해요(반려는 relevant=false).
+   *
+   * @param edits 칸별 수정 [{path, value}]. 승인에서만 보내요
+   */
+  public JsonNode benefitDecide(
+      String reviewId,
+      String action,
+      String note,
+      String reviewer,
+      List<Map<String, Object>> edits) {
+    Map<String, Object> body = body(note, reviewer);
+    if (edits != null && !edits.isEmpty()) {
+      body.put("edits", edits);
+    }
+    return call(
+        () ->
+            http.post()
+                .uri("/benefit-reviews/{id}/{action}", reviewId, action)
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .body(JsonNode.class));
+  }
+
+  /** 정책 제보로 그 정책의 가장 새 정제 결과를 검수 대기로 다시 열어요. 응답: {reviewId, reopened}. */
+  public JsonNode benefitReopen(String rawPolicyId, String reviewer, String note) {
+    Map<String, Object> body = body(note, reviewer);
+    body.put("rawPolicyId", rawPolicyId);
+    return call(
+        () ->
+            http.post()
+                .uri("/benefit-reviews/reopen")
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(body)
+                .retrieve()
+                .body(JsonNode.class));
+  }
+
+  /** 그 정책의 가장 새 정제 결과 요약(제목·출처·relevant). 없으면 {@link ErrorCode#NOTICE_REVIEW_NOT_FOUND}. */
+  public JsonNode benefit(String rawPolicyId) {
+    return call(
+        () -> http.get().uri("/benefits/{id}", rawPolicyId).retrieve().body(JsonNode.class));
+  }
+
   private static Map<String, Object> body(String note, String reviewer) {
     Map<String, Object> body = new LinkedHashMap<>();
     if (note != null) {

@@ -7,6 +7,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import kr.mujuthaek.api.common.event.BenefitReportAnswered;
 import kr.mujuthaek.api.common.event.NoticeReportAnswered;
 import kr.mujuthaek.api.common.event.ProgramReportAnswered;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -68,6 +69,9 @@ public class NoticeReportService {
     if ("DONE".equals(report.status())) {
       throw new CustomException(ErrorCode.CONFLICT, "이미 처리한 제보예요");
     }
+    if (report.benefitPolicyId() != null) {
+      return openBenefitReview(report, admin);
+    }
     if (report.noticeId() == null) {
       throw new CustomException(
           ErrorCode.CONFLICT, "창업지원 사업은 아직 「고치기」를 지원하지 않아요. 확인 뒤 처리 끝으로 답해 주세요");
@@ -84,6 +88,69 @@ public class NoticeReportService {
         .forEach(r -> ids.add(r.id()));
     reports.linkReview(ids, reviewId, admin, clock.instant());
     return new AdminReportReviewResponse(id, reviewId, opened.path("reopened").asBoolean(true));
+  }
+
+  /** 혜택 정책 「고치기」: 그 정책의 가장 새 정제 결과를 혜택 검수 대기로 다시 열어요(관리자 혜택 검수 화면에서 고쳐 승인). */
+  private AdminReportReviewResponse openBenefitReview(Report report, String admin) {
+    JsonNode opened =
+        extraction.benefitReopen(
+            report.benefitPolicyId().toString(), admin, "정책 제보: " + report.field());
+    UUID reviewId = UUID.fromString(opened.path("reviewId").asString());
+    List<UUID> ids = new ArrayList<>(List.of(report.id()));
+    reports.sameGroup(report, report.id()).stream()
+        .filter(r -> !"DONE".equals(r.status()))
+        .forEach(r -> ids.add(r.id()));
+    reports.linkReview(ids, reviewId, admin, clock.instant());
+    return new AdminReportReviewResponse(
+        report.id(), reviewId, opened.path("reopened").asBoolean(true));
+  }
+
+  /**
+   * 회원의 주거·복지 정책(혜택) 제보. 추출 서비스에 정제 결과가 있는 정책에만 받고, 제목은 그때 받아 둬요(api에 혜택 표가 아직 없어요).
+   *
+   * @param policyId 정책 원본 ID (policy.extracted의 rawPolicyId)
+   */
+  @Transactional
+  public NoticeReportCreatedResponse reportBenefit(
+      UUID policyId, NoticeReportRequest request, String reporter) {
+    UUID reporterId = reporterId(reporter);
+    if (blank(request.reportedValue()) && blank(request.note())) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "맞는 값이나 설명 중 하나는 적어 주세요");
+    }
+    String title;
+    try {
+      title = extraction.benefit(policyId.toString()).path("title").asString();
+    } catch (CustomException e) {
+      if (e.errorCode() == ErrorCode.NOTICE_REVIEW_NOT_FOUND) {
+        throw new CustomException(ErrorCode.NOT_FOUND, "정책을 찾을 수 없어요");
+      }
+      throw e;
+    }
+    Instant now = clock.instant();
+    Instant todayStart = LocalDate.ofInstant(now, SEOUL).atStartOfDay(SEOUL).toInstant();
+    if (reports.countSince(reporterId, todayStart) >= DAILY_LIMIT) {
+      throw new CustomException(ErrorCode.RATE_LIMITED, "제보는 하루에 " + DAILY_LIMIT + "건까지 보낼 수 있어요");
+    }
+    UUID id = UuidV7.next();
+    boolean added =
+        reports.insert(
+            new NoticeReportRepository.Row(
+                id,
+                null,
+                null,
+                policyId,
+                title,
+                reporterId,
+                request.field().trim(),
+                trim(request.currentValue()),
+                trim(request.reportedValue()),
+                trim(request.note()),
+                trim(request.screen()),
+                now));
+    if (!added) {
+      throw new CustomException(ErrorCode.CONFLICT, "같은 칸에 보낸 제보를 아직 확인하고 있어요");
+    }
+    return new NoticeReportCreatedResponse(id, "NEW");
   }
 
   /** 회원 제보 받기. 로그인한 회원만, 공개된 공고에만. */
@@ -108,6 +175,8 @@ public class NoticeReportService {
             new NoticeReportRepository.Row(
                 id,
                 noticeId,
+                null,
+                null,
                 null,
                 reporterId,
                 request.field().trim(),
@@ -145,6 +214,8 @@ public class NoticeReportService {
                 id,
                 null,
                 programId,
+                null,
+                null,
                 reporterId,
                 request.field().trim(),
                 trim(request.currentValue()),
@@ -236,13 +307,21 @@ public class NoticeReportService {
                     done.field(),
                     done.result(),
                     reply)
-                : new ProgramReportAnswered(
-                    done.id(),
-                    done.rawPolicyId(),
-                    done.reporterId(),
-                    done.field(),
-                    done.result(),
-                    reply));
+                : done.benefitPolicyId() != null
+                    ? new BenefitReportAnswered(
+                        done.id(),
+                        done.benefitPolicyId(),
+                        done.reporterId(),
+                        done.field(),
+                        done.result(),
+                        reply)
+                    : new ProgramReportAnswered(
+                        done.id(),
+                        done.rawPolicyId(),
+                        done.reporterId(),
+                        done.field(),
+                        done.result(),
+                        reply));
       }
     }
     return detail(id);
@@ -265,9 +344,10 @@ public class NoticeReportService {
         r.id(),
         r.status(),
         r.screen(),
-        r.noticeId() != null ? "NOTICE" : "PROGRAM",
+        r.noticeId() != null ? "NOTICE" : r.benefitPolicyId() != null ? "BENEFIT" : "PROGRAM",
         r.noticeId(),
         r.rawPolicyId(),
+        r.benefitPolicyId(),
         r.noticeTitle(),
         r.field(),
         r.currentValue(),

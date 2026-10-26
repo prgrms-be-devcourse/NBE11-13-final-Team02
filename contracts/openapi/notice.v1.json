@@ -26,6 +26,10 @@
     {
       "name": "admin-source",
       "description": "관리자 수집 현황 (수집기 관리자 API 대행)"
+    },
+    {
+      "name": "admin-benefit-review",
+      "description": "관리자 혜택(주거·이주 정책) 검수 (ADMIN)"
     }
   ],
   "paths": {
@@ -1347,6 +1351,268 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews": {
+      "get": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "listAdminBenefitReviews",
+        "summary": "혜택(주거·이주 정책) 검수 목록",
+        "description": "추출 서비스의 혜택 정제 결과 중 확인 필요(needsReview)와 정책 제보로 다시 연 건. 오래 기다린 것부터.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "APPROVED",
+                "REJECTED",
+                "SUPERSEDED"
+              ],
+              "default": "PENDING"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "검수 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBenefitReviewList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews/{id}": {
+      "get": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "getAdminBenefitReview",
+        "summary": "혜택 검수 상세 (정제 결과·받은 원문·처리 기록)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "검수 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBenefitReviewDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews/{id}/approve": {
+      "post": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "approveAdminBenefitReview",
+        "summary": "혜택 검수 승인 (칸별 수정 후 확인 필요를 풀어 다시 내보냄, 알림 없음)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews/{id}/reject": {
+      "post": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "rejectAdminBenefitReview",
+        "summary": "혜택 검수 반려 (relevant=false로 다시 내보내 서비스에 안 보임)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/benefits/{id}/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportBenefit",
+        "summary": "주거·복지 정책(혜택) 제보 (로그인한 회원)",
+        "description": "혜택 정책의 틀린 값을 알려요. id는 정책 원본 ID(policy.extracted의 rawPolicyId)이고, 추출 서비스에 정제 결과가 있는 정책에만 받아요. 관리자 「고치기」는 혜택 검수(/api/admin/benefit-reviews)로 이어지고, 답은 BenefitReportAnswered 이벤트로 알림 쪽에 가요. 하루 20건까지.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "혜택 정책 원본 ID (policy.extracted의 rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticeReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
           }
         }
       }
@@ -3630,6 +3896,7 @@
           "targetType",
           "noticeId",
           "programId",
+          "benefitPolicyId",
           "noticeTitle",
           "field",
           "currentValue",
@@ -3663,9 +3930,10 @@
             "type": "string",
             "enum": [
               "NOTICE",
-              "PROGRAM"
+              "PROGRAM",
+              "BENEFIT"
             ],
-            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보"
+            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보 · BENEFIT 주거·복지 정책(혜택) 제보"
           },
           "noticeId": {
             "type": [
@@ -3729,6 +3997,14 @@
               null
             ],
             "description": "FIXED 고침 · KEPT 원문대로 그대로 둠"
+          },
+          "benefitPolicyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "혜택 정책 제보면 정책 원본 ID (그 밖이면 null). 「고치기」는 혜택 검수로 이어져요"
           }
         }
       },
@@ -4348,6 +4624,253 @@
               "$ref": "#/components/schemas/Evidence"
             },
             "description": "이 안내의 근거 원문"
+          }
+        }
+      },
+      "AdminBenefitReviewItem": {
+        "type": "object",
+        "description": "혜택 검수 한 건",
+        "required": [
+          "id",
+          "rawPolicyId",
+          "rawVersion",
+          "sourceCode",
+          "policyId",
+          "title",
+          "status",
+          "reasons",
+          "reported",
+          "relevant",
+          "applyEndsOn",
+          "queuedAt",
+          "decidedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rawPolicyId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "정책 원본 ID (버전이 바뀌어도 같음)"
+          },
+          "rawVersion": {
+            "type": "integer"
+          },
+          "sourceCode": {
+            "type": "string",
+            "description": "출처 (youth 온통청년 등)"
+          },
+          "policyId": {
+            "type": "string",
+            "description": "출처의 정책 번호"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "SUPERSEDED"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "EVIDENCE_NOT_FOUND",
+                "LOW_CONFIDENCE",
+                "NO_DOCUMENT",
+                "RULE_AI_CONFLICT",
+                "TEXT_TRUNCATED",
+                "REPORTED"
+              ]
+            },
+            "description": "확인할 이유. LOW_CONFIDENCE는 기본 기준·전형별 값처럼 확실하지 않은 핵심 값을 채운 것, REPORTED는 정책 제보로 다시 연 것"
+          },
+          "reported": {
+            "type": "boolean"
+          },
+          "relevant": {
+            "type": "boolean",
+            "description": "주거·이주 혜택으로 판정했는지 (false면 서비스에 안 보임)"
+          },
+          "applyEndsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminBenefitReviewList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminBenefitReviewItem"
+            }
+          }
+        }
+      },
+      "AdminBenefitReviewDetail": {
+        "type": "object",
+        "description": "혜택 검수 상세. result는 policy.extracted payload(contracts/events/policy.extracted.v1.json)이고, 칸별 수정 path는 이 객체 기준 JSON Pointer(예: /conditions/0/value). 원본·버전·출처(source)·품질(quality) 칸은 못 고쳐요",
+        "required": [
+          "id",
+          "rawPolicyId",
+          "rawVersion",
+          "status",
+          "reasons",
+          "note",
+          "queuedAt",
+          "decidedAt",
+          "decidedBy",
+          "result",
+          "edits",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rawPolicyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rawVersion": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "SUPERSEDED"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decidedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "type": "object",
+            "description": "정제 결과 (policy.extracted payload)"
+          },
+          "edits": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "처리한 칸별 수정 [{path, before, after}]"
+          },
+          "source": {
+            "type": "object",
+            "description": "받은 원본 (raw.policy.collected)",
+            "required": [
+              "title",
+              "agency",
+              "detailUrl",
+              "applyUrl",
+              "categories",
+              "text",
+              "documentStatus"
+            ],
+            "properties": {
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "agency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "detailUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "applyUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "documentStatus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
           }
         }
       }

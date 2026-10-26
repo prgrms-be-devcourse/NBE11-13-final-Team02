@@ -33,6 +33,13 @@ class NoticeReportController {
     return reports.reportProgram(id, request, principal == null ? null : principal.getName());
   }
 
+  /** 주거·복지 정책(혜택) 제보 (로그인한 회원만). id는 정책 원본 ID(policy.extracted의 rawPolicyId)예요. */
+  @PostMapping("/api/v1/benefits/{id}/reports")
+  NoticeReportCreatedResponse reportBenefit(
+      @PathVariable UUID id, @Valid @RequestBody NoticeReportRequest request, Principal principal) {
+    return reports.reportBenefit(id, request, principal == null ? null : principal.getName());
+  }
+
   @PostMapping("/api/v1/notices/{id}/reports")
   NoticeReportCreatedResponse report(
       @PathVariable UUID id, @Valid @RequestBody NoticeReportRequest request, Principal principal) {
