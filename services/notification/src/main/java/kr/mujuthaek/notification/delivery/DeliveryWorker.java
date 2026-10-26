@@ -86,7 +86,10 @@ public class DeliveryWorker {
     }
     try {
       String messageId =
-          channel.send(latest.address(), group.stream().map(DueDelivery::notification).toList());
+          channel.send(
+              first.userId(),
+              latest.address(),
+              group.stream().map(DueDelivery::notification).toList());
       deliveries.markSent(ids(group), messageId, schedule.now());
       log.info("발송함: userId={}, channel={}, 건수={}", first.userId(), first.channel(), group.size());
     } catch (DeliveryException e) {

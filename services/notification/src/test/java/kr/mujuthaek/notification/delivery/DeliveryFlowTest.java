@@ -65,6 +65,7 @@ public class DeliveryFlowTest {
   void setUp() {
     jdbc.sql("delete from deliveries").update();
     jdbc.sql("delete from withdrawn_users").update();
+    jdbc.sql("delete from outbox").update();
     email.sent.clear();
     email.failure.set(null);
     push.sent.clear();
@@ -260,6 +261,19 @@ public class DeliveryFlowTest {
     assertThat(status(Channel.PUSH)).containsExactly("FAILED");
     assertThat(jdbc.sql("select last_error from deliveries").query(String.class).single())
         .isEqualTo("ALL_EXPIRED");
+    // 죽은 기기는 발송 결과와 같은 트랜잭션에서 아웃박스에 (api가 받아 그 기기를 지워요)
+    assertThat(
+            jdbc.sql(
+                    "select payload->'payload'->>'endpoint' from outbox"
+                        + " where event_type = 'push.subscription.expired' order by 1")
+                .query(String.class)
+                .list())
+        .containsExactly(device("a").endpoint(), device("b").endpoint());
+    assertThat(
+            jdbc.sql("select distinct payload->>'producer' from outbox")
+                .query(String.class)
+                .single())
+        .isEqualTo("notification");
   }
 
   @Test

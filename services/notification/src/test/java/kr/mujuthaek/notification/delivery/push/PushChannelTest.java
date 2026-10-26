@@ -1,6 +1,9 @@
 package kr.mujuthaek.notification.delivery.push;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +26,7 @@ class PushChannelTest {
 
   final JsonMapper json = JsonMapper.builder().build();
   final Scripted sender = new Scripted();
+  final ExpiredSubscriptions expired = mock(ExpiredSubscriptions.class);
   final PushChannel channel =
       new PushChannel(
           sender,
@@ -33,7 +37,8 @@ class PushChannelTest {
               "mailto:a@b.c",
               List.of("fcm.googleapis.com", "push.apple.com"),
               Duration.ofSeconds(5)),
-          json);
+          json,
+          expired);
   final UUID user = UUID.randomUUID();
 
   @Test
@@ -83,6 +88,8 @@ class PushChannelTest {
                 "https://fcm.googleapis.com/d"));
 
     assertThat(e.permanent()).isFalse();
+    verify(expired).report(user, "https://web.push.apple.com/c", 410); // 죽은 기기는 api에 알려요
+    verifyNoMoreInteractions(expired);
     assertThat(e.remainingAddress().orElseThrow())
         .contains("/b")
         .contains("/d")
@@ -96,10 +103,12 @@ class PushChannelTest {
     sender.plan("https://fcm.googleapis.com/b", 404);
 
     channel.send(
+        user,
         address("https://fcm.googleapis.com/a", "https://fcm.googleapis.com/b"),
         one(NotificationType.CORRECTED));
 
     assertThat(sender.sent).hasSize(2);
+    verify(expired).report(user, "https://fcm.googleapis.com/b", 404);
   }
 
   @Test
@@ -195,7 +204,7 @@ class PushChannelTest {
     assertThat(PushChannel.ttl(NotificationType.FOLLOW_UP, false)).hasHours(72);
     assertThat(PushChannel.ttl(NotificationType.CORRECTED, true)).hasHours(24);
 
-    channel.send(address("https://fcm.googleapis.com/a"), one(NotificationType.DEADLINE_D3));
+    channel.send(user, address("https://fcm.googleapis.com/a"), one(NotificationType.DEADLINE_D3));
     assertThat(sender.sent.getFirst().urgency()).isEqualTo("normal");
   }
 
@@ -220,7 +229,7 @@ class PushChannelTest {
   private DeliveryException catchDelivery(
       String address, List<OutgoingNotification> notifications) {
     try {
-      channel.send(address, notifications);
+      channel.send(user, address, notifications);
     } catch (DeliveryException e) {
       return e;
     }
