@@ -293,18 +293,31 @@ class ChatApiTest {
                 "select content from chat.messages where id = ?::uuid", String.class, id))
         .isEqualTo("욕설이 섞인 부적절한 글");
     LoginUser user = member();
+    LoginUser admin = new LoginUser(user.userId(), user.nickname(), "ADMIN");
     MvcResult reports =
         mvc.perform(
                 get("/api/admin/chat/reports")
                     .param("size", "100")
-                    .header(
-                        "Authorization",
-                        bearer(new LoginUser(user.userId(), user.nickname(), "ADMIN"))))
+                    .header("Authorization", bearer(admin)))
             .andExpect(status().isOk())
             .andReturn();
     List<String> seen =
         JsonPath.read(body(reports), "$.items[?(@.messageId == '" + id + "')].message.content");
     assertThat(seen).containsExactly("욕설이 섞인 부적절한 글");
+
+    // 지운 글의 신고도 관리자가 닫을 수 있어요. 지운 글은 다시 보이게 하지 않아요
+    review(id, admin, "KEEP_HIDDEN");
+    assertThat(
+            jdbc.queryForList(
+                "select review_status from chat.message_reports where message_id = ?::uuid",
+                String.class,
+                id))
+        .containsOnly("KEPT_HIDDEN");
+    review(id, admin, "RESTORE");
+    assertThat(
+            jdbc.queryForObject(
+                "select status from chat.messages where id = ?::uuid", String.class, id))
+        .isEqualTo("DELETED");
   }
 
   @Test

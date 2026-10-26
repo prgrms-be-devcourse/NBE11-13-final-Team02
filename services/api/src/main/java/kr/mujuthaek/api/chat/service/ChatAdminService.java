@@ -58,15 +58,21 @@ public class ChatAdminService {
    *   <li>RESTORE: 다시 보이게(VISIBLE), 검토 전 신고 수 0. 가려져 있었으면 SSE로 message.restored
    * </ul>
    *
-   * 지운 메시지는 404예요.
+   * 작성자가 지운 메시지는 신고만 처리 결과로 닫고 상태는 DELETED 그대로 둬요 (지운 글을 다시 보이게 하지 않아요). 신고된 뒤 지운 글도 검토 목록에서 닫을 수
+   * 있게요.
    */
   @Transactional
   public void review(UUID messageId, ReviewAction action) {
     MessageRow row =
         messages
             .find(messageId, null)
-            .filter(m -> m.status() != MessageStatus.DELETED)
             .orElseThrow(() -> new CustomException(ErrorCode.CHAT_MESSAGE_NOT_FOUND));
+    if (row.status() == MessageStatus.DELETED) {
+      reports.review(
+          messageId,
+          action == ReviewAction.KEEP_HIDDEN ? ReviewStatus.KEPT_HIDDEN : ReviewStatus.RESTORED);
+      return;
+    }
     switch (action) {
       case KEEP_HIDDEN -> {
         messages.review(messageId, MessageStatus.HIDDEN_ADMIN, false);
