@@ -90,8 +90,15 @@ def shop_recruitment(title: Any) -> bool:
     return bool(SHOP_RECRUIT.search(name)) and not SHOP_SUPPORT.search(name)
 
 
+# 온라인몰·판매전·판매관에 상품을 올릴 업체를 뽑는 「입점」은 공간을 빌려주지 않아서 사업공간 모집이 아니에요 (판로 지원, STARTUP_SUPPORT).
+# 2026-10-26 기업마당 사업공간 모집 6건 중 6건: 김해온몰 입점기업, 북소e몰 입점 소상공인, K-SEAFOOD 판매 전용관 입점 제품,
+#   인천국제공항 면세점 연계 수산식품 판매홍보관 입점업체, 김포시 우수제품 판매전 E-커머스 입점기업
+ONLINE_SALES = re.compile(r"온라인|쇼핑몰|[eE]\s*몰|온몰|이커머스|[eE]-?\s*커머스|판매\s*전|판매\s*전용관|판매\s*홍보관|입점\s*제품")
+
+
 def space_recruitment(title: Any) -> bool:
-    return bool(SPACE_RECRUIT.search(str(title or ""))) and not shop_recruitment(title)
+    name = str(title or "")
+    return bool(SPACE_RECRUIT.search(name)) and not shop_recruitment(title) and not ONLINE_SALES.search(name)
 
 
 def startup_in_scope(title: Any, text: Any = None, *, category_ok: bool = False) -> bool:
