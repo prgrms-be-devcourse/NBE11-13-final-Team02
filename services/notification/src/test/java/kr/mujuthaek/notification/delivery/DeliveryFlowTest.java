@@ -64,6 +64,7 @@ public class DeliveryFlowTest {
   @BeforeEach
   void setUp() {
     jdbc.sql("delete from deliveries").update();
+    jdbc.sql("delete from withdrawn_users").update();
     email.sent.clear();
     email.failure.set(null);
     push.sent.clear();
@@ -150,6 +151,29 @@ public class DeliveryFlowTest {
     clock.set("2026-10-23T18:00");
     worker.runOnce();
     assertThat(email.sent).isEmpty();
+  }
+
+  @Test
+  void requestThatArrivesAfterWithdrawalSkipsThatMember() {
+    UUID other = UUID.fromString("0192b6f0-0000-7000-8000-0000000000b2");
+    tx.executeWithoutResult(s -> cleaner.delete(USER)); // user.withdrawn이 먼저 옴
+
+    // 탈퇴 전에 api가 만든 요청이 재시도로 늦게 옴
+    UUID targetId = UUID.randomUUID();
+    tx.executeWithoutResult(
+        s ->
+            service.handle(
+                new NotificationRequest(
+                    NotificationType.CORRECTED,
+                    "NOTICE:X:CORRECTED:2",
+                    new NotificationRequest.Target(TargetType.NOTICE, targetId),
+                    "제목",
+                    "본문",
+                    "/notices/" + targetId,
+                    List.of(EMAIL_ONLY, Recipient.emailOnly(other, "other@example.com", false)))));
+
+    assertThat(jdbc.sql("select user_id from deliveries").query(UUID.class).list())
+        .containsExactly(other);
   }
 
   @Test
