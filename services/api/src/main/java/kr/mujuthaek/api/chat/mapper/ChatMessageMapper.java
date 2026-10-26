@@ -23,14 +23,6 @@ public final class ChatMessageMapper {
    * @param viewer 보는 회원 (내 글 여부용). 비로그인·SSE로 보내는 메시지는 null
    */
   public static ChatMessageResponse toResponse(MessageRow row, UUID viewer) {
-    ChatMessageResponse.Parent parent =
-        row.parentId() == null
-            ? null
-            : new ChatMessageResponse.Parent(
-                row.parentId(),
-                row.parentNickname(),
-                row.parentStatus() == MessageStatus.VISIBLE ? preview(row.parentContent()) : null,
-                row.parentStatus());
     return new ChatMessageResponse(
         row.id(),
         row.noticeId(),
@@ -40,8 +32,20 @@ public final class ChatMessageMapper {
         row.likeCount(),
         row.likedByViewer(),
         viewer != null && viewer.equals(row.userId()),
-        parent,
+        row.parentId() == null ? null : parent(row),
         seoul(row.createdAt()));
+  }
+
+  /** 답장 원문 미리보기. 원문이 작성자 탈퇴로 지워져 줄이 없으면 지운 글처럼 보여줘요. */
+  private static ChatMessageResponse.Parent parent(MessageRow row) {
+    if (row.parentStatus() == null) {
+      return new ChatMessageResponse.Parent(row.parentId(), null, null, MessageStatus.DELETED);
+    }
+    return new ChatMessageResponse.Parent(
+        row.parentId(),
+        row.parentNickname(),
+        row.parentStatus() == MessageStatus.VISIBLE ? preview(row.parentContent()) : null,
+        row.parentStatus());
   }
 
   public static ChatReportResponse toResponse(ReportRow row) {

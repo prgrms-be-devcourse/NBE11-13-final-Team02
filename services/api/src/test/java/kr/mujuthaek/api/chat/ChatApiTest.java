@@ -1,6 +1,8 @@
 package kr.mujuthaek.api.chat;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -22,7 +24,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.chat.domain.ChatRoom;
 import kr.mujuthaek.api.chat.service.ChatRooms;
-import kr.mujuthaek.api.chat.service.ChatService;
+import kr.mujuthaek.api.common.event.UserWithdrawn;
 import kr.mujuthaek.api.user.domain.SocialProvider;
 import kr.mujuthaek.api.user.service.AuthTokenService;
 import kr.mujuthaek.api.user.service.LoginUser;
@@ -33,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.context.annotation.Primary;
@@ -93,7 +96,7 @@ class ChatApiTest {
   @Autowired SocialLoginService logins;
   @Autowired AuthTokenService tokens;
   @Autowired JdbcTemplate jdbc;
-  @Autowired ChatService chats;
+  @Autowired ApplicationEventPublisher events;
 
   @Test
   void readsWithoutLoginButWritesNeedLogin() throws Exception {
@@ -458,42 +461,79 @@ class ChatApiTest {
   }
 
   @Test
-  void withdrawalErasesChatData() throws Exception {
+  void withdrawalDeletesTheMembersRowsButKeepsOthersReplies() throws Exception {
     UUID room = UUID.randomUUID();
     LoginUser a = member();
     LoginUser b = member();
     String mine = send(room, a, "탈퇴할 회원의 글");
-    String theirs = send(room, b, "남는 회원의 글");
-    mvc.perform(put("/api/v1/chat/messages/{id}/like", theirs).header("Authorization", bearer(a)))
+    MvcResult reply =
+        sendRaw(room, b, "{\"content\": \"남는 회원의 답장\", \"parentId\": \"" + mine + "\"}")
+            .andExpect(status().isCreated())
+            .andReturn();
+    String replyId = JsonPath.read(body(reply), "$.id");
+    mvc.perform(put("/api/v1/chat/messages/{id}/like", mine).header("Authorization", bearer(b)))
+        .andExpect(status().isOk());
+    mvc.perform(put("/api/v1/chat/messages/{id}/like", replyId).header("Authorization", bearer(a)))
         .andExpect(jsonPath("$.likeCount").value(1));
-    report(theirs, a, "ETC").andExpect(status().isCreated());
+    report(replyId, a, "ETC").andExpect(status().isCreated());
+    MvcResult stream =
+        mvc.perform(get("/api/v1/notices/{id}/chat/stream", room))
+            .andExpect(request().asyncStarted())
+            .andReturn();
 
-    chats.forget(a.userId());
+    // user 모듈이 탈퇴를 커밋하면 이 이벤트가 나가요 (테스트는 트랜잭션 밖에서 바로 보냄)
+    events.publishEvent(new UserWithdrawn(a.userId()));
 
-    var row =
+    // 그 회원의 메시지·좋아요·신고 줄이 남지 않아요 (다른 모듈 제보처럼)
+    for (String sql :
+        List.of(
+            "select count(*) from chat.messages where user_id = ?",
+            "select count(*) from chat.message_likes where user_id = ?",
+            "select count(*) from chat.message_reports where reporter_id = ?")) {
+      assertThat(jdbc.queryForObject(sql, Integer.class, a.userId())).as(sql).isZero();
+    }
+    // 지운 메시지에 다른 사람이 누른 좋아요도 같이 지워져요
+    assertThat(
+            jdbc.queryForObject(
+                "select count(*) from chat.message_likes where message_id = ?::uuid",
+                Integer.class,
+                mine))
+        .isZero();
+    // 남는 답장의 좋아요·검토 전 신고 수는 그 회원 몫만큼 줄어요
+    var counts =
         jdbc.queryForMap(
-            "select user_id, author_nickname, content, status from chat.messages where id = ?::uuid",
-            mine);
-    assertThat(row.get("user_id")).isNull();
-    assertThat(row.get("author_nickname")).isNull();
-    assertThat(row.get("content")).isEqualTo("");
-    assertThat(row.get("status")).isEqualTo("DELETED");
+            "select like_count, report_count from chat.messages where id = ?::uuid", replyId);
+    assertThat(counts.get("like_count")).isEqualTo(0);
+    assertThat(counts.get("report_count")).isEqualTo(0);
+    // 다른 사람의 답장은 남고, 원문 자리는 지운 글처럼 보여요
+    mvc.perform(get("/api/v1/notices/{id}/chat/messages", room))
+        .andExpect(jsonPath("$.items.length()").value(1))
+        .andExpect(jsonPath("$.items[0].id").value(replyId))
+        .andExpect(jsonPath("$.items[0].parent.id").value(mine))
+        .andExpect(jsonPath("$.items[0].parent.status").value("DELETED"))
+        .andExpect(jsonPath("$.items[0].parent.content").doesNotExist())
+        .andExpect(jsonPath("$.items[0].parent.authorNickname").doesNotExist());
+    // 보고 있던 사람 화면에서도 내려가요
+    assertThat(body(stream)).contains("event:message.deleted").contains(mine);
+  }
+
+  @Test
+  void mobileAndResidentNumbersCannotBePosted() throws Exception {
+    UUID room = UUID.randomUUID();
+    LoginUser a = member();
+
+    for (String content : List.of("연락 주세요 010-1234-5678", "01012345678", "주민번호 970101-1234567")) {
+      sendRaw(room, a, "{\"content\": \"" + content + "\"}")
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.code").value("CHAT_PERSONAL_INFO"))
+          .andExpect(jsonPath("$.detail").value(not(containsString("1234"))));
+    }
     assertThat(
             jdbc.queryForObject(
-                "select like_count from chat.messages where id = ?::uuid", Integer.class, theirs))
+                "select count(*) from chat.messages where notice_id = ?", Integer.class, room))
         .isZero();
-    assertThat(
-            jdbc.queryForObject(
-                "select count(*) from chat.message_likes where user_id = ?",
-                Integer.class,
-                a.userId()))
-        .isZero();
-    assertThat(
-            jdbc.queryForObject(
-                "select count(*) from chat.message_reports where reporter_id = ?",
-                Integer.class,
-                a.userId()))
-        .isZero();
+    // 대표번호는 막지 않아요
+    send(room, a, "LH 콜센터 1600-1004로 물어보세요");
   }
 
   private LoginUser member() {

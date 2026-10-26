@@ -59,6 +59,7 @@ public enum ErrorCode {
   // chat
   CHAT_MESSAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "메시지를 찾을 수 없어요"),
   CHAT_INVALID_CONTENT(HttpStatus.BAD_REQUEST, "메시지는 1~500자로 써 주세요"),
+  CHAT_PERSONAL_INFO(HttpStatus.BAD_REQUEST, "휴대폰 번호·주민등록번호는 채팅에 올릴 수 없어요"),
   CHAT_REPLY_DEPTH(HttpStatus.BAD_REQUEST, "답장에는 답장할 수 없어요"),
   CHAT_NOT_OWNER(HttpStatus.FORBIDDEN, "내가 쓴 메시지만 지울 수 있어요"),
   CHAT_READ_ONLY(HttpStatus.CONFLICT, "접수 마감 30일이 지나 읽기만 할 수 있는 채팅방이에요"),

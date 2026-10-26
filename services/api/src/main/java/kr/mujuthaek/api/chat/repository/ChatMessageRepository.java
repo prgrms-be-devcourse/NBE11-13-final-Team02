@@ -34,8 +34,8 @@ public class ChatMessageRepository {
   }
 
   /**
-   * @param userId 작성자. 탈퇴하면 null
-   * @param parentStatus 답장 대상의 상태 (답장이 아니면 null)
+   * @param userId 작성자
+   * @param parentStatus 답장 대상의 상태 (답장이 아니거나, 원문이 작성자 탈퇴로 지워졌으면 null)
    * @param likedByViewer 보는 사람이 좋아요했는지 (보는 사람이 없으면 false)
    */
   public record MessageRow(
@@ -226,9 +226,17 @@ public class ChatMessageRepository {
             .addValue("reset", resetReports));
   }
 
-  /** 탈퇴한 회원의 채팅 데이터를 지워요: 메시지는 "삭제된 메시지"로 바꾸고 본문·닉네임·작성자를 비우고, 좋아요는 지우고 숫자를 줄이고, 신고는 신고자만 비워요. */
-  public void forget(UUID userId, OffsetDateTime at) {
-    var params = new MapSqlParameterSource().addValue("user", userId).addValue("at", at);
+  /** 지운 메시지 하나 (방에 알리려고). */
+  public record MessageRef(UUID id, UUID noticeId) {}
+
+  /**
+   * 탈퇴한 회원의 채팅 데이터 줄을 지워요 (다른 모듈처럼): 그 회원이 누른 좋아요(숫자도 줄여요), 남긴 신고(검토 전이면 신고 수도 줄여요), 쓴 메시지(달린
+   * 좋아요·신고는 같이 지워져요). 다른 사람이 단 답장은 남아요.
+   *
+   * @return 지운 메시지
+   */
+  public List<MessageRef> forget(UUID userId) {
+    var params = new MapSqlParameterSource("user", userId);
     jdbc.update(
         """
         update chat.messages m set like_count = m.like_count - 1
@@ -237,15 +245,18 @@ public class ChatMessageRepository {
         params);
     jdbc.update("delete from chat.message_likes where user_id = :user", params);
     jdbc.update(
-        "update chat.message_reports set reporter_id = null where reporter_id = :user", params);
-    jdbc.update(
         """
-        update chat.messages
-        set user_id = null, author_nickname = null, content = '', status = 'DELETED',
-            deleted_at = coalesce(deleted_at, :at)
-        where user_id = :user
+        update chat.messages m set report_count = m.report_count - 1
+        where m.report_count > 0
+          and exists (select 1 from chat.message_reports r
+                      where r.message_id = m.id and r.reporter_id = :user and r.review_status = 'PENDING')
         """,
         params);
+    jdbc.update("delete from chat.message_reports where reporter_id = :user", params);
+    return jdbc.query(
+        "delete from chat.messages where user_id = :user returning id, notice_id",
+        params,
+        (rs, i) -> new MessageRef(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class)));
   }
 
   private static MessageRow row(ResultSet rs, int i) throws SQLException {

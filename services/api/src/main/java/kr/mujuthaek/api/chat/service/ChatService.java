@@ -8,6 +8,7 @@ import java.util.UUID;
 import java.util.function.Supplier;
 import kr.mujuthaek.api.chat.domain.ChatRoom;
 import kr.mujuthaek.api.chat.domain.MessageStatus;
+import kr.mujuthaek.api.chat.domain.PersonalInfo;
 import kr.mujuthaek.api.chat.dto.request.ReportRequest;
 import kr.mujuthaek.api.chat.dto.request.SendMessageRequest;
 import kr.mujuthaek.api.chat.dto.response.ChatMessageResponse;
@@ -26,6 +27,7 @@ import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
@@ -207,10 +209,15 @@ public class ChatService {
     return emitter;
   }
 
-  /** 탈퇴한 회원의 채팅 데이터를 지워요 (요구사항 3-16: 탈퇴 후 데이터 0건). */
-  @Transactional
+  /**
+   * 탈퇴한 회원의 채팅 데이터 줄을 지워요 (요구사항 3-16: 탈퇴 후 데이터 0건). 보고 있는 사람 화면에서도 내려가게 지운 메시지를 방송해요. 탈퇴 커밋 뒤에 불려서
+   * 새 트랜잭션으로 해요 (notice·area 제보 지우기와 같아요).
+   */
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void forget(UUID userId) {
-    messages.forget(userId, now());
+    for (var message : messages.forget(userId)) {
+      events.publishEvent(ChatEvent.deleted(message.noticeId(), message.id()));
+    }
   }
 
   private ChatRoom findRoom(UUID noticeId) {
@@ -229,6 +236,9 @@ public class ChatService {
     int length = stripped.codePointCount(0, stripped.length());
     if (length == 0 || length > MAX_LENGTH) {
       throw new CustomException(ErrorCode.CHAT_INVALID_CONTENT);
+    }
+    if (PersonalInfo.contains(stripped)) {
+      throw new CustomException(ErrorCode.CHAT_PERSONAL_INFO);
     }
     return stripped;
   }
