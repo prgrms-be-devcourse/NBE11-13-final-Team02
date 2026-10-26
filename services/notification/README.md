@@ -38,7 +38,7 @@ make db-notification          # 알림 DB 만들기 (이미 있는 볼륨에 한
 
 ```
 notification.requested → NotificationService  회원마다·채널마다 받을 곳이 있으면 발송 줄(deliveries)
-                         DeliveryWorker        보낼 시각이 된 줄을 채널에 넘기고 SENT·재시도·FAILED 기록
+                         DeliveryWorker        보낼 시각이 된 줄을 맡고(10분, 잠금 없이) 채널에 넘긴 뒤 SENT·재시도·FAILED 기록
                          NotificationChannel   채널마다 다른 일만: 요청에서 받을 곳 꺼내기 / 묶음 간격 / 보내기
                            ├ EmailChannel → EmailSender (log: 로그만, ses: AWS SES)
                            └ PushChannel  → PushSender  (log: 로그만, webpush: 푸시 서비스)
@@ -51,6 +51,7 @@ notification.requested → NotificationService  회원마다·채널마다 받�
 - 묶음: 같은 회원·같은 30분 칸의 새 소식은 한 번에. 2건 이상이면 "새 소식 N건"(누르면 알림함 `/notifications`), 기기 목록은 가장 최근 요청의 것
 - 결과: 2xx 받음 · 404·410 죽은 구독(빼요) · 429·5xx·연결 실패 그 기기만 다시(429는 Retry-After만큼, 최대 하루) · 400·413 등 실패 · 401·403 VAPID 키 문제(경고 로그, 실패). 모든 기기가 죽었으면 FAILED `ALL_EXPIRED`
 - TTL(기기가 꺼져 있을 때 푸시 서비스가 들고 있는 시간): D-1 12시간, D-3 48시간, 새 소식·묶음 24시간, 정정·후속 안내 72시간. D-1은 Urgency `high`
+- 기기가 여러 대면 동시에 보내요 (가상 스레드). 죽은 기기(404·410)는 `push.subscription.expired`로 api에 알려요 (알림 서버 아웃박스 `outbox`, 1초마다 RabbitMQ로)
 - 받을 곳은 https 푸시 서비스 도메인(`notification.push.allowed-hosts`)만. 리다이렉트는 따라가지 않아요. 기기 주소·키·내용은 로그에 남기지 않아요 (도메인·응답 코드만)
 - 설정: `NOTIFICATION_PUSH_PROVIDER=webpush` + `PUSH_VAPID_PUBLIC_KEY`·`PUSH_VAPID_PRIVATE_KEY`(`npx web-push generate-vapid-keys`, 공개키는 api와 같은 값) + `PUSH_VAPID_SUBJECT`(`mailto:` 주소). 키가 없거나 짝이 맞지 않으면 서버가 뜨지 않아요. 개인키는 커밋하지 않아요
 

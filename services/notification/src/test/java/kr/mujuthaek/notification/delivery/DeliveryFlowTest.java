@@ -70,6 +70,8 @@ public class DeliveryFlowTest {
     email.failure.set(null);
     push.sent.clear();
     push.statuses.clear();
+    push.onSend = null;
+    push.retryAfter = null;
     clock.set("2026-10-23T10:00");
   }
 
@@ -183,7 +185,8 @@ public class DeliveryFlowTest {
 
     worker.runOnce();
 
-    assertThat(push.endpoints()).containsExactly(device("a").endpoint(), device("b").endpoint());
+    assertThat(push.endpoints())
+        .containsExactlyInAnyOrder(device("a").endpoint(), device("b").endpoint());
     assertThat(push.sent.getFirst().urgency()).isEqualTo("high");
     assertThat(push.sent.getFirst().ttl()).hasHours(12);
     assertThat(status(Channel.PUSH)).containsExactly("SENT"); // 회원 1명·채널 1개 = 발송 줄 1개
@@ -203,7 +206,8 @@ public class DeliveryFlowTest {
 
     clock.set("2026-10-23T10:30");
     worker.runOnce();
-    assertThat(push.endpoints()).containsExactly(device("a").endpoint(), device("b").endpoint());
+    assertThat(push.endpoints())
+        .containsExactlyInAnyOrder(device("a").endpoint(), device("b").endpoint());
     assertThat(push.payload(0))
         .contains("\"type\":\"NEW_DIGEST\"")
         .contains("\"title\":\"새 소식 2건\"")
@@ -236,7 +240,8 @@ public class DeliveryFlowTest {
     request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", pushTo("a", "b"));
 
     worker.runOnce();
-    assertThat(push.endpoints()).containsExactly(device("a").endpoint(), device("b").endpoint());
+    assertThat(push.endpoints())
+        .containsExactlyInAnyOrder(device("a").endpoint(), device("b").endpoint());
     assertThat(status(Channel.PUSH)).containsExactly("PENDING");
     assertThat(jdbc.sql("select address from deliveries").query(String.class).single())
         .contains(device("a").endpoint())
@@ -245,7 +250,7 @@ public class DeliveryFlowTest {
     clock.set("2026-10-23T10:01");
     worker.runOnce();
     assertThat(push.endpoints())
-        .containsExactly(
+        .containsExactlyInAnyOrder(
             device("a").endpoint(), device("b").endpoint(), device("a").endpoint()); // b는 한 번만
     assertThat(status(Channel.PUSH)).containsExactly("SENT");
   }
@@ -290,6 +295,52 @@ public class DeliveryFlowTest {
     clock.set("2026-10-23T10:10");
     worker.runOnce();
     assertThat(push.sent).hasSize(2);
+    assertThat(status(Channel.PUSH)).containsExactly("SENT");
+  }
+
+  @Test
+  void sendingHoldsNoDatabaseLockButMarksTheRowAsTaken() {
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", pushTo("a"));
+    List<String> seen = new java.util.ArrayList<>();
+    push.onSend =
+        () -> {
+          // 보내는 동안 다른 연결이 그 줄을 바로 잠글 수 있어야 해요 (nowait: 잠겨 있으면 바로 오류)
+          seen.add(
+              jdbc.sql("select status from deliveries for update nowait")
+                  .query(String.class)
+                  .single());
+          seen.add(
+              jdbc.sql("select (locked_until is not null)::text from deliveries")
+                  .query(String.class)
+                  .single());
+        };
+
+    worker.runOnce();
+
+    assertThat(seen).containsExactly("PENDING", "true");
+    assertThat(
+            jdbc.sql("select (locked_until is null)::text || status from deliveries")
+                .query(String.class)
+                .single())
+        .as("결과를 적으며 맡기를 풀어요")
+        .isEqualTo("trueSENT");
+  }
+
+  @Test
+  void rowTakenByAnotherServerIsSkippedUntilItsLeaseRunsOut() {
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", pushTo("a"));
+    // 다른 서버가 맡고 보내다가 죽음 (결과를 못 적음)
+    jdbc.sql("update deliveries set locked_until = :until")
+        .param(
+            "until", clock.instant().plus(DeliveryWorker.LEASE).atOffset(java.time.ZoneOffset.UTC))
+        .update();
+
+    assertThat(worker.runOnce()).isZero();
+    assertThat(push.sent).isEmpty();
+
+    clock.set("2026-10-23T10:11"); // 맡은 시간(10분)이 지남
+    assertThat(worker.runOnce()).isEqualTo(1);
+    assertThat(push.sent).hasSize(1);
     assertThat(status(Channel.PUSH)).containsExactly("SENT");
   }
 
@@ -390,8 +441,14 @@ public class DeliveryFlowTest {
     final Map<String, Deque<Integer>> statuses = new ConcurrentHashMap<>();
     volatile Duration retryAfter;
 
+    /** 보내는 순간에 할 일 (테스트가 그때 DB 상태를 봐요) */
+    volatile Runnable onSend;
+
     @Override
     public PushResponse send(PushMessage message) {
+      if (onSend != null) {
+        onSend.run();
+      }
       sent.add(message);
       Deque<Integer> planned = statuses.get(message.device().endpoint());
       int status = planned == null || planned.isEmpty() ? 201 : planned.poll();

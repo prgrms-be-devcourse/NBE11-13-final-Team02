@@ -46,22 +46,33 @@ public class DeliveryRepository {
         == 1;
   }
 
-  /** 보낼 시각이 지난 묶음이 아닌 줄. 서버가 여러 대여도 같은 줄을 두 번 가져가지 않게 잠가요 (트랜잭션 안에서 불러요) */
-  public List<DueDelivery> lockDueSingles(Instant now, int limit) {
-    return jdbc.sql(
+  /**
+   * 보낼 시각이 지난 묶음이 아닌 줄을 맡아요: {@code leaseUntil}까지 이 서버가 보낸다고 표시하고 돌려줘요 (짧은 트랜잭션 안에서 불러요). 서버가 여러
+   * 대여도 같은 줄을 두 번 맡지 않고(for update skip locked), 맡은 서버가 죽으면 그 시각 뒤에 다시 맡을 수 있어요.
+   */
+  public List<DueDelivery> claimDueSingles(Instant now, int limit, Instant leaseUntil) {
+    return jdbc
+        .sql(
             """
-            select id, user_id, channel, address, type, title, body, link_path, digest, quiet,
-                   scheduled_at, attempts
-              from deliveries
-             where status = 'PENDING' and not digest and scheduled_at <= :now
-             order by scheduled_at, user_id
-             limit :limit
-               for update skip locked
+            update deliveries set locked_until = :lease
+             where id in (select id from deliveries
+                           where status = 'PENDING' and not digest and scheduled_at <= :now
+                             and (locked_until is null or locked_until <= :now)
+                           order by scheduled_at, user_id
+                           limit :limit
+                             for update skip locked)
+            returning id, user_id, channel, address, type, title, body, link_path, digest, quiet,
+                      scheduled_at, attempts
             """)
         .param("now", at(now))
         .param("limit", limit)
+        .param("lease", at(leaseUntil))
         .query(DeliveryRepository::due)
-        .list();
+        .list()
+        .stream()
+        .sorted(
+            java.util.Comparator.comparing(DueDelivery::scheduledAt).thenComparing(DueDelivery::id))
+        .toList();
   }
 
   /**
@@ -75,6 +86,7 @@ public class DeliveryRepository {
                    scheduled_at
               from deliveries
              where status = 'PENDING' and digest and scheduled_at <= :now
+               and (locked_until is null or locked_until <= :now)
              group by 1, 2, 3, 4
              order by scheduled_at, user_id
              limit :limit
@@ -104,27 +116,35 @@ public class DeliveryRepository {
   }
 
   /**
-   * 맡은 묶음의 줄을 모두 잠가요. 다른 트랜잭션이 잠깐 잡고 있으면 놓을 때까지 기다려요 (빠지는 줄 없이 한 통으로). 만든 순서라 마지막 줄이 가장 최근 요청이에요.
+   * 맡은 묶음의 줄을 모두 맡아요 ({@link #tryLockDigest} 뒤, 같은 트랜잭션). 다른 트랜잭션이 잠깐 잡고 있으면 놓을 때까지 기다려요 (빠지는 줄 없이
+   * 한 통으로). 만든 순서(UUID v7)라 마지막 줄이 가장 최근 요청이에요.
    */
-  public List<DueDelivery> lockDigestGroup(DigestKey key) {
-    return jdbc.sql(
+  public List<DueDelivery> claimDigestGroup(DigestKey key, Instant now, Instant leaseUntil) {
+    return jdbc
+        .sql(
             """
-            select id, user_id, channel, address, type, title, body, link_path, digest, quiet,
-                   scheduled_at, attempts
-              from deliveries
-             where status = 'PENDING' and digest
-               and user_id = :userId and channel = :channel
-               and (cast(:address as text) is null or address = :address)
-               and scheduled_at = :at
-             order by created_at
-               for update
+            update deliveries set locked_until = :lease
+             where id in (select id from deliveries
+                           where status = 'PENDING' and digest
+                             and user_id = :userId and channel = :channel
+                             and (cast(:address as text) is null or address = :address)
+                             and scheduled_at = :at
+                             and (locked_until is null or locked_until <= :now)
+                             for update)
+            returning id, user_id, channel, address, type, title, body, link_path, digest, quiet,
+                      scheduled_at, attempts
             """)
         .param("userId", key.userId())
         .param("channel", key.channel().name())
         .param("address", key.address(), Types.VARCHAR)
         .param("at", at(key.scheduledAt()))
+        .param("now", at(now))
+        .param("lease", at(leaseUntil))
         .query(DeliveryRepository::due)
-        .list();
+        .list()
+        .stream()
+        .sorted(java.util.Comparator.comparing(DueDelivery::id))
+        .toList();
   }
 
   public void markSent(List<UUID> ids, String providerMessageId, Instant now) {
@@ -132,7 +152,7 @@ public class DeliveryRepository {
             """
             update deliveries
                set status = 'SENT', attempts = attempts + 1, provider_message_id = :messageId,
-                   sent_at = :now, last_error = null, address = null
+                   sent_at = :now, last_error = null, address = null, locked_until = null
              where id in (:ids)
             """)
         .param("ids", ids)
@@ -147,7 +167,7 @@ public class DeliveryRepository {
             """
             update deliveries
                set attempts = attempts + 1, last_error = :error, scheduled_at = :at,
-                   address = coalesce(cast(:address as text), address)
+                   address = coalesce(cast(:address as text), address), locked_until = null
              where id in (:ids)
             """)
         .param("ids", ids)
@@ -162,7 +182,7 @@ public class DeliveryRepository {
     jdbc.sql(
             """
             update deliveries
-               set status = 'FAILED', last_error = :error, address = null,
+               set status = 'FAILED', last_error = :error, address = null, locked_until = null,
                    attempts = attempts + case when :attempted then 1 else 0 end
              where id in (:ids)
             """)
@@ -173,7 +193,7 @@ public class DeliveryRepository {
   }
 
   public void reschedule(List<UUID> ids, Instant at) {
-    jdbc.sql("update deliveries set scheduled_at = :at where id in (:ids)")
+    jdbc.sql("update deliveries set scheduled_at = :at, locked_until = null where id in (:ids)")
         .param("ids", ids)
         .param("at", at(at))
         .update();
