@@ -6,13 +6,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.function.Predicate;
 import kr.mujuthaek.api.eligibility.dto.request.HomeSummaryRequest;
+import kr.mujuthaek.api.eligibility.dto.response.BenefitSearchResponse;
 import kr.mujuthaek.api.eligibility.dto.response.HomeSummaryResponse;
 import kr.mujuthaek.api.eligibility.dto.response.NoticeSearchResponse;
 import kr.mujuthaek.api.eligibility.rule.Applicant;
 import kr.mujuthaek.api.eligibility.rule.Overall;
 import org.springframework.stereotype.Service;
 
-/** 홈 요약: 맞춤 목록과 같은 판정 결과에서 개수·새 공고·마감 임박·생활권 좋은 곳을 골라요. 판정 입력은 저장하지 않아요. */
+/** 홈 요약: 맞춤 목록과 같은 판정 결과에서 개수·새 공고·마감 임박을, 혜택 판정에서 혜택 요약을 골라요. 판정 입력은 저장하지 않아요. */
 @Service
 public class HomeSummaryService {
 
@@ -23,10 +24,13 @@ public class HomeSummaryService {
   static final int DEADLINE_DAYS = 14;
 
   private final NoticeSearchService search;
+  private final BenefitEvaluationService benefits;
   private final Clock clock;
 
-  public HomeSummaryService(NoticeSearchService search, Clock clock) {
+  public HomeSummaryService(
+      NoticeSearchService search, BenefitEvaluationService benefits, Clock clock) {
     this.search = search;
+    this.benefits = benefits;
     this.clock = clock;
   }
 
@@ -51,18 +55,25 @@ public class HomeSummaryService {
             (int) open.stream().filter(isNew).count(),
             (int) open.stream().filter(closingWithin7).count());
 
-    var bestArea =
-        open.stream()
-            .filter(i -> i.areaScore() != null)
+    var regionCodes = request.filtersOrEmpty().regionCodes();
+    var benefitItems =
+        benefits.judgeAll(regionCodes == null ? List.of() : regionCodes, applicant).stream()
+            .map(benefits::item)
+            .toList();
+    var eligibleBenefits =
+        benefitItems.stream().filter(i -> i.overall() == Overall.ELIGIBLE).toList();
+    var benefitSummary =
+        new HomeSummaryResponse.Benefits(
+            eligibleBenefits.size(),
+            (int) benefitItems.stream().filter(i -> i.overall() == Overall.NEEDS_INPUT).count(),
+            eligibleBenefits.stream().mapToLong(BenefitSearchResponse.Item::annualAmountWon).sum());
+    var suggested =
+        eligibleBenefits.stream()
             .max(
-                Comparator.comparing(NoticeSearchResponse.Item::areaScore)
-                    .thenComparing(i -> i.overall() == Overall.ELIGIBLE)
+                Comparator.comparingLong(BenefitSearchResponse.Item::annualAmountWon)
                     .thenComparing(
-                        NoticeSearchResponse.Item::id, Comparator.<java.util.UUID>reverseOrder()))
-            .map(
-                i ->
-                    new HomeSummaryResponse.BestArea(
-                        i.id(), i.title(), i.regionName(), i.areaScore()))
+                        BenefitSearchResponse.Item::id, Comparator.<java.util.UUID>reverseOrder()))
+            .map(i -> new HomeSummaryResponse.SuggestedBenefit(i.id(), i.title(), i.amountText()))
             .orElse(null);
 
     var news =
@@ -86,7 +97,7 @@ public class HomeSummaryService {
             .map(HomeSummaryService::notice)
             .toList();
 
-    return new HomeSummaryResponse(homes, bestArea, news, deadlines);
+    return new HomeSummaryResponse(homes, benefitSummary, suggested, news, deadlines);
   }
 
   /** 접수 중이고 오늘부터 days일 안에 마감 (D-0 ~ D-(days-1)). */
