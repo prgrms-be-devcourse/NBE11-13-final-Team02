@@ -80,6 +80,18 @@ class SpaceSearchServiceTest {
         .containsExactly(other, kstartup);
   }
 
+  @Test
+  void sameProgramWithDifferentTitlesIsFoundByCoreNameAndDeadline() {
+    LocalDate end = LocalDate.parse("2026-11-03");
+    String kstartup = "<2026년 시제품 고도화 바우처 지원 프로그램> 참여 기업 모집 (~11.3.14시)";
+    String bizinfo = "[충북] 청주시 2026년 시제품 고도화 바우처 지원 프로그램 참여 기업 모집 공고";
+    assertThat(SpaceSearchService.sameProgram(kstartup, end, bizinfo, end)).isTrue();
+    // 마감일이 다르면 다른 회차예요
+    assertThat(SpaceSearchService.sameProgram(kstartup, end, bizinfo, end.plusDays(7))).isFalse();
+    // 짧은 흔한 이름끼리는 포함 관계여도 묶지 않아요
+    assertThat(SpaceSearchService.sameProgram("창업 지원", end, "서울 창업 지원 사업", end)).isFalse();
+  }
+
   private static SpaceSearchResponse.Item policy(String id, String source, String title) {
     return new SpaceSearchResponse.Item(
         UUID.fromString(id),

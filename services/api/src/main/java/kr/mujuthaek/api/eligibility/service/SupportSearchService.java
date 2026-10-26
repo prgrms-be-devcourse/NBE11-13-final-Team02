@@ -54,7 +54,7 @@ public class SupportSearchService {
     LocalDate today = LocalDate.now(clock);
     List<SupportSearchResponse.Item> inRegion =
         withoutDuplicates(
-            matches.judgeStartupSupportAll(request.applicant()).stream()
+            matches.judgeStartupSupportAll(request.applicant(), request.answers()).stream()
                 .filter(m -> SpaceSearchService.inRegions(m.regionCodes(), f.regionCodes()))
                 .map(m -> item(m, today))
                 .toList());
@@ -143,17 +143,17 @@ public class SupportSearchService {
         m.detailUrl());
   }
 
-  /** 같은 사업이 K-Startup·기업마당에 같이 올라오면 이름(글자·숫자만)이 같은 것 중 K-Startup을 남겨요. 처음 순서는 그대로예요. */
+  /**
+   * 같은 사업이 K-Startup·기업마당에 같이 올라오면 하나만, K-Startup을 남겨요 (같은지는 {@link
+   * SpaceSearchService#sameProgram}).
+   */
   static List<SupportSearchResponse.Item> withoutDuplicates(
       List<SupportSearchResponse.Item> items) {
-    Map<String, SupportSearchResponse.Item> best = new LinkedHashMap<>();
-    for (SupportSearchResponse.Item i : items) {
-      best.merge(
-          SpaceSearchService.titleKey(i.title()),
-          i,
-          (a, b) -> preference(b) < preference(a) ? b : a);
-    }
-    return items.stream().filter(best::containsValue).toList();
+    return SpaceSearchService.withoutDuplicates(
+        items,
+        SupportSearchResponse.Item::title,
+        SupportSearchResponse.Item::applyEnd,
+        SupportSearchService::preference);
   }
 
   private static int preference(SupportSearchResponse.Item i) {

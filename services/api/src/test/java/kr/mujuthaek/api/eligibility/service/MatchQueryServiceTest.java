@@ -183,7 +183,7 @@ class MatchQueryServiceTest {
     String individual =
         """
         {"business": {"applicantType": "INDIVIDUAL"}, "statuses": ["SOCIAL_ENTERPRISE"]}""";
-    assertThat(matches.judgeBusinessSpaceAll(applicant(individual)))
+    assertThat(matches.judgeBusinessSpaceAll(applicant(individual), null))
         .singleElement()
         .satisfies(
             i -> {
@@ -217,6 +217,14 @@ class MatchQueryServiceTest {
         .extracting(JudgmentResult.Question::answer)
         .containsExactly(Answer.NO);
 
+    // 목록도 공간별 답을 받아요: 답이 실리면 목록 판정의 그 공간 결과도 같아져요
+    var listed =
+        matches.judgeBusinessSpaceAll(
+            applicant(corp), Map.of(SEONGDONG, Map.of("social-value-articles", Answer.NO)));
+    assert listed.size() == 1;
+    org.assertj.core.api.Assertions.assertThat(listed.getFirst().status())
+        .isEqualTo(answered.judgment().result());
+
     // 열린 사업공간이 아니면(주거 공고 ID) 찾을 수 없어요
     assertThat(matches.judgeBusinessSpace(JEONSE, null, null)).isEmpty();
   }
@@ -224,7 +232,7 @@ class MatchQueryServiceTest {
   @Test
   void supportSearchKeepsIneligibleProgramsAndJudgesOneProgram() {
     String tooOld = "{\"business\": {\"history\": [{\"openedOn\": \"2023-10-16\"}]}}";
-    assertThat(matches.judgeStartupSupportAll(applicant(tooOld)))
+    assertThat(matches.judgeStartupSupportAll(applicant(tooOld), null))
         .singleElement()
         .satisfies(
             i -> {

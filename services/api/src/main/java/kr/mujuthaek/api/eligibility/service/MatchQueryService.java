@@ -75,13 +75,15 @@ public class MatchQueryService {
   }
 
   /** 사업공간 맞춤 목록(POST /spaces/search)용: 지원 불가까지 열린 사업공간 공고·모집 정책을 모두 판정해요. 정렬·걸러내기는 부르는 쪽이 해요. */
-  public List<MatchResult.Item> judgeBusinessSpaceAll(JudgmentApplicantRequest applicant) {
-    return judgeAll(FrameSpec.BUSINESS_SPACE, applicant, true);
+  public List<MatchResult.Item> judgeBusinessSpaceAll(
+      JudgmentApplicantRequest applicant, Map<UUID, Map<String, Answer>> answers) {
+    return judgeAll(FrameSpec.BUSINESS_SPACE, applicant, true, answers);
   }
 
   /** 사업 지원 맞춤 목록(POST /supports/search)용: 지원 불가까지 열린 창업지원 사업을 모두 판정해요. */
-  public List<MatchResult.Item> judgeStartupSupportAll(JudgmentApplicantRequest applicant) {
-    return judgeAll(FrameSpec.STARTUP_SUPPORT, applicant, true);
+  public List<MatchResult.Item> judgeStartupSupportAll(
+      JudgmentApplicantRequest applicant, Map<UUID, Map<String, Answer>> answers) {
+    return judgeAll(FrameSpec.STARTUP_SUPPORT, applicant, true, answers);
   }
 
   /**
@@ -129,14 +131,21 @@ public class MatchQueryService {
   }
 
   private MatchResult match(FrameSpec spec, JudgmentApplicantRequest request) {
-    List<MatchResult.Item> items = new ArrayList<>(judgeAll(spec, request, false));
+    List<MatchResult.Item> items = new ArrayList<>(judgeAll(spec, request, false, Map.of()));
     items.sort(ORDER);
     return MatchMapper.toResult(spec.field(), items);
   }
 
+  /**
+   * @param answers 공고(정책) ID → 그 공고의 질문 답. 상세에서 답한 것을 목록에도 반영해요. 없으면 답 없음
+   */
   private List<MatchResult.Item> judgeAll(
-      FrameSpec spec, JudgmentApplicantRequest request, boolean includeIneligible) {
-    Applicant applicant = ApplicantMapper.toApplicant(request, Map.of());
+      FrameSpec spec,
+      JudgmentApplicantRequest request,
+      boolean includeIneligible,
+      Map<UUID, Map<String, Answer>> answers) {
+    Applicant base = ApplicantMapper.toApplicant(request, Map.of());
+    Map<UUID, Map<String, Answer>> given = answers == null ? Map.of() : answers;
     List<MatchResult.Item> items = new ArrayList<>();
     for (NoticeCandidate notice : candidates.openNotices(spec.field())) {
       Frame frame = readFrame(notice, spec);
@@ -144,6 +153,8 @@ public class MatchQueryService {
         items.add(MatchMapper.notReady(notice));
         continue;
       }
+      Map<String, Answer> mine = given.get(notice.noticeId());
+      Applicant applicant = mine == null || mine.isEmpty() ? base : base.withAnswers(mine);
       FrameJudgment judgment = judgments.judge(frame, applicant);
       if (includeIneligible || judgment.result() != Eligibility.INELIGIBLE) {
         items.add(MatchMapper.judged(notice, judgment));

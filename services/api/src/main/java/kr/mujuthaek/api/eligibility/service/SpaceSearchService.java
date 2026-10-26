@@ -62,7 +62,7 @@ public class SpaceSearchService {
             .collect(Collectors.toMap(NoticeQueryService.Candidate::id, Function.identity()));
     List<SpaceSearchResponse.Item> inRegion =
         withoutDuplicates(
-            matches.judgeBusinessSpaceAll(request.applicant()).stream()
+            matches.judgeBusinessSpaceAll(request.applicant(), request.answers()).stream()
                 .filter(m -> inRegions(m.regionCodes(), f.regionCodes()))
                 .map(m -> item(m, info.get(m.noticeId()), today))
                 .toList());
@@ -136,19 +136,76 @@ public class SpaceSearchService {
   }
 
   /**
-   * 같은 모집이 여러 출처(K-Startup·기업마당)에 올라오면 이름(글자·숫자만)이 같은 것 중 하나만 남겨요. 공고 → K-Startup(원문 본문까지 읽음) →
+   * 같은 모집이 여러 출처(K-Startup·기업마당)에 올라오면 하나만 남겨요({@link #sameProgram}). 공고 → K-Startup(원문 본문까지 읽음) →
    * 기업마당 → 출처 모름 순으로 남기고, 처음 순서는 그대로예요.
    */
   static List<SpaceSearchResponse.Item> withoutDuplicates(List<SpaceSearchResponse.Item> items) {
-    Map<String, SpaceSearchResponse.Item> best = new LinkedHashMap<>();
-    for (SpaceSearchResponse.Item i : items) {
-      best.merge(titleKey(i.title()), i, (a, b) -> preference(b) < preference(a) ? b : a);
+    return withoutDuplicates(
+        items,
+        SpaceSearchResponse.Item::title,
+        SpaceSearchResponse.Item::applyEnd,
+        SpaceSearchService::preference);
+  }
+
+  /** 같은 모집끼리 preference가 작은 것 하나만 남겨요. 처음 순서는 그대로예요 (사업공간·사업 지원 같이 써요). */
+  static <T> List<T> withoutDuplicates(
+      List<T> items,
+      java.util.function.Function<T, String> title,
+      java.util.function.Function<T, LocalDate> applyEnd,
+      java.util.function.ToIntFunction<T> preference) {
+    List<T> kept = new java.util.ArrayList<>();
+    for (T item : items) {
+      int same = -1;
+      for (int k = 0; k < kept.size() && same < 0; k++) {
+        T other = kept.get(k);
+        if (sameProgram(
+            title.apply(item), applyEnd.apply(item), title.apply(other), applyEnd.apply(other))) {
+          same = k;
+        }
+      }
+      if (same < 0) {
+        kept.add(item);
+      } else if (preference.applyAsInt(item) < preference.applyAsInt(kept.get(same))) {
+        kept.set(same, item);
+      }
     }
-    return items.stream().filter(i -> best.containsValue(i)).toList();
+    return items.stream().filter(kept::contains).toList();
+  }
+
+  /** 핵심 이름이 이보다 짧으면 포함 관계로 같다고 보지 않아요 (「창업 지원」처럼 흔한 이름끼리 묶이지 않게). */
+  private static final int MIN_CONTAINED = 10;
+
+  /**
+   * 같은 모집인지: 핵심 이름이 같으면(마감일을 하나라도 모르면 그대로) 같고, 아니면 마감일이 같으면서(둘 다 상시면 같음) 한쪽이 다른 쪽을 품으면 같아요. 핵심 이름은
+   * 대괄호·괄호 안 말(지역 머리말 [충북] · 마감 표시 (~11.3))과 「공고」를 빼고 글자·숫자만 남긴 것이에요. 예: 「&lt;2026년 시제품 고도화 바우처 지원
+   * 프로그램&gt; 참여 기업 모집 (~11.3.14시)」 · 「[충북] 청주시 2026년 시제품 고도화 바우처 지원 프로그램 참여 기업 모집 공고」
+   */
+  static boolean sameProgram(String a, LocalDate endA, String b, LocalDate endB) {
+    String ka = titleKey(a);
+    String kb = titleKey(b);
+    if (ka.isEmpty() || kb.isEmpty()) {
+      return false;
+    }
+    if (ka.equals(kb)) {
+      return endA == null || endB == null || endA.equals(endB);
+    }
+    if (!java.util.Objects.equals(endA, endB)) {
+      return false;
+    }
+    String shorter = ka.length() <= kb.length() ? ka : kb;
+    String longer = shorter == ka ? kb : ka;
+    return shorter.length() >= MIN_CONTAINED && longer.contains(shorter);
   }
 
   static String titleKey(String title) {
-    return title == null ? "" : title.replaceAll("[^\\p{IsHangul}\\p{Alnum}]", "").toLowerCase();
+    if (title == null) {
+      return "";
+    }
+    return title
+        .replaceAll("\\[[^\\]]*\\]|\\([^)]*\\)", "")
+        .replace("공고", "")
+        .replaceAll("[^\\p{IsHangul}\\p{Alnum}]", "")
+        .toLowerCase();
   }
 
   private static int preference(SpaceSearchResponse.Item i) {
