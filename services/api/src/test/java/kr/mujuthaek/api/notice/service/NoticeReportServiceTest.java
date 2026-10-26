@@ -225,9 +225,22 @@ class NoticeReportServiceTest {
   @Test
   void benefitPoliciesAreReportedReopenedAsBenefitReviewsAndAnswered() {
     UUID policy = UUID.randomUUID();
+    UUID missing = UUID.fromString(policy.toString().replace('0', '1'));
+    UUID review = UUID.randomUUID();
+    // 가짜 추출 서버는 요청이 오기 전에 기대를 모두 적어야 해요(요청 뒤에는 더할 수 없음)
     reviewServer
         .expect(requestTo("http://extraction.test/benefits/" + policy))
         .andRespond(withSuccess("{\"title\":\"가상 청년 월세\"}", MediaType.APPLICATION_JSON));
+    reviewServer
+        .expect(requestTo("http://extraction.test/benefit-reviews/reopen"))
+        .andExpect(content().json("{\"rawPolicyId\":\"" + policy + "\",\"reviewer\":\"admin-1\"}"))
+        .andRespond(
+            withSuccess(
+                "{\"reviewId\":\"" + review + "\",\"reopened\":true}", MediaType.APPLICATION_JSON));
+    reviewServer
+        .expect(requestTo("http://extraction.test/benefits/" + missing))
+        .andRespond(withStatus(HttpStatus.NOT_FOUND));
+
     UUID reporter = UUID.randomUUID();
     UUID id = service.reportBenefit(policy, deposit("공고문 3쪽"), reporter.toString()).id();
 
@@ -236,24 +249,9 @@ class NoticeReportServiceTest {
     assertThat(detail.report().benefitPolicyId()).isEqualTo(policy);
     assertThat(detail.report().noticeTitle()).isEqualTo("가상 청년 월세");
 
-    UUID review = UUID.randomUUID();
-    reviewServer
-        .expect(requestTo("http://extraction.test/benefit-reviews/reopen"))
-        .andExpect(content().json("{\"rawPolicyId\":\"" + policy + "\",\"reviewer\":\"admin-1\"}"))
-        .andRespond(
-            withSuccess(
-                "{\"reviewId\":\"" + review + "\",\"reopened\":true}", MediaType.APPLICATION_JSON));
     assertThat(service.openReview(id, "admin-1").reviewId()).isEqualTo(review);
 
-    reviewServer
-        .expect(requestTo("http://extraction.test/benefits/" + policy.toString().replace('0', '1')))
-        .andRespond(withStatus(HttpStatus.NOT_FOUND));
-    assertThatThrownBy(
-            () ->
-                service.reportBenefit(
-                    UUID.fromString(policy.toString().replace('0', '1')),
-                    deposit("x"),
-                    reporter.toString()))
+    assertThatThrownBy(() -> service.reportBenefit(missing, deposit("x"), reporter.toString()))
         .isInstanceOfSatisfying(
             CustomException.class, e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.NOT_FOUND));
 
