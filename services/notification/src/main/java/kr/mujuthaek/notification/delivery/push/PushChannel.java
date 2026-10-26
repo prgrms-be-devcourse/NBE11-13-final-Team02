@@ -9,6 +9,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.regex.Pattern;
 import kr.mujuthaek.notification.delivery.Channel;
 import kr.mujuthaek.notification.delivery.DeliveryException;
@@ -32,7 +33,8 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <ul>
  *   <li>새 공고·새 정책은 30분마다 모아서, 2건 이상이면 "새 소식 N건" 한 번으로 보내요
- *   <li>받았거나 죽은 기기(404·410)는 빼고, 일시적으로 못 보낸 기기만 남겨 다시 보내요 (이미 받은 기기가 두 번 받지 않게)
+ *   <li>받았거나 죽은 기기(404·410)는 빼고, 일시적으로 못 보낸 기기만 남겨 다시 보내요 (이미 받은 기기가 두 번 받지 않게). 죽은 기기는
+ *       push.subscription.expired로 api에 알려요
  *   <li>모든 기기가 죽었으면 FAILED {@code ALL_EXPIRED}. VAPID 키 문제(401·403)는 모든 발송이 실패하는 설정 오류라 경고 로그
  * </ul>
  *
@@ -61,11 +63,14 @@ class PushChannel implements NotificationChannel {
   private final PushSender sender;
   private final PushProperties properties;
   private final JsonMapper json;
+  private final ExpiredSubscriptions expired;
 
-  PushChannel(PushSender sender, PushProperties properties, JsonMapper json) {
+  PushChannel(
+      PushSender sender, PushProperties properties, JsonMapper json, ExpiredSubscriptions expired) {
     this.sender = sender;
     this.properties = properties;
     this.json = json;
+    this.expired = expired;
   }
 
   @Override
@@ -93,7 +98,7 @@ class PushChannel implements NotificationChannel {
   }
 
   @Override
-  public String send(String address, List<OutgoingNotification> notifications)
+  public String send(UUID userId, String address, List<OutgoingNotification> notifications)
       throws DeliveryException {
     List<PushDevice> devices = read(address);
     OutgoingNotification first = notifications.getFirst();
@@ -106,7 +111,7 @@ class PushChannel implements NotificationChannel {
 
     List<PushDevice> remaining = new ArrayList<>();
     int delivered = 0;
-    int expired = 0;
+    int dead = 0;
     String retryCode = null;
     String failCode = null;
     Duration retryAfter = null;
@@ -129,8 +134,9 @@ class PushChannel implements NotificationChannel {
       if (status >= 200 && status < 300) {
         delivered++;
       } else if (status == 404 || status == 410) {
-        expired++; // 앱 삭제·권한 끔·만료. 다음 단계에서 api에 알려 구독을 지워요 (push.subscription.expired)
-        log.info("죽은 푸시 구독이라 뺐어요: host={}, status={}", host, status);
+        dead++; // 앱 삭제·권한 끔·만료. api에 알려 구독을 지워요
+        this.expired.report(userId, device.endpoint(), status);
+        log.info("죽은 푸시 구독이라 뺐어요 (api에 알림): userId={}, host={}, status={}", userId, host, status);
       } else if (status == 401 || status == 403) {
         log.warn("푸시 서비스가 VAPID 서명을 거절했어요 (키 설정 확인): host={}, status={}", host, status);
         throw new DeliveryException("PUSH_" + status, true);
