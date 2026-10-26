@@ -50,6 +50,11 @@
       "file": "area.source.ready.boundary.json",
       "schema": "events/area.source.ready.v1.json",
       "synthetic": false
+    },
+    {
+      "file": "policy.extracted.json",
+      "schema": "events/policy.extracted.v1.json",
+      "synthetic": true
     }
   ]
 }

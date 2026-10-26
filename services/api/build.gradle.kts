@@ -66,7 +66,12 @@ tasks.withType<Test> {
 val legalDongCodes = layout.projectDirectory.dir("../extraction/data/legal-dong-codes")
 tasks.processResources {
     from("../../contracts") {
-        include("schemas/*.json", "events/extraction.completed.v1.json", "mappings/*.json")
+        include(
+            "schemas/*.json",
+            "events/extraction.completed.v1.json",
+            "events/policy.extracted.v1.json",
+            "mappings/*.json",
+        )
         into("contracts")
     }
     inputs.dir(legalDongCodes).withPropertyName("legalDongCodes")
