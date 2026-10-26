@@ -153,3 +153,23 @@ def test_formula_cells_without_saved_values_are_flagged_not_treated_as_blank():
     listing = read_xlsx(raw_xlsx(row))
     assert "| 달서구 1 | 12000000 | |" in listing.text or "| 달서구 1 | 12000000 |" in listing.text  # 저장값이 있는 수식은 그 값
     assert "계산값이 없는 수식 칸이 1개" in listing.text
+
+
+def test_column_title_line_follows_header_rows_below_title_and_notice_lines():
+    """실측(2026-10-26 LH 청년 매입임대 주택목록): 맨 위 제목·안내 줄 다음 묶음 줄과 칸 이름 줄. 열 제목 줄이 없으면 검증(V6)이
+    제목 「…청년…」을 열 제목으로 읽어 모든 가격을 "청년" 열로 보고 보류했어요."""
+    rows = [
+        ["경기북부 청년 매입임대주택 공급대상 주택목록"],
+        ["* 주택목록은 해당주택 공가 추가 등으로 변경될 수 있습니다."],
+        ["순번", "주택정보", "", "수급자 등", "그 외"],
+        ["순번", "주소", "호", "임대보증금", "임대보증금"],
+        [1, "경기도 김포시 김포한강10로133번길 126", "214", 1000000, 2000000],
+    ]
+    lines = read_xlsx(make_xlsx(rows)).text.splitlines()
+    title = lines.index("  [열 제목] 1. 순번 | 2. 주택정보 주소 | 3. 호 | 4. 수급자 등 임대보증금 | 5. 그 외 임대보증금")
+    assert lines[title - 1].startswith("| 순번 | 주소 |") and lines[title + 1].startswith("| 1 |")
+
+
+def test_no_title_line_when_no_header_row_is_found():
+    listing = read_xlsx(make_xlsx([[1, "가", 3], [2, "나", 4]]))
+    assert "[열 제목]" not in listing.text

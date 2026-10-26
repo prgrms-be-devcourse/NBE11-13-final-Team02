@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -46,6 +47,9 @@ class Spec:
     merge: Callable[[list[Criterion]], list[Criterion]] = lambda criteria: criteria  # ALL 안 같은 종류 합치기
     simplify: Callable[[Criterion], Criterion] = lambda criterion: criterion  # ANY_OF 정리(사업공간 거주지·사업장 지역)
     preferences: bool = False  # 우대(preferences) 칸이 있는 틀
+    # 선정 규칙·안내를 틀 안내(notes)로 다시 옮길지. 주거는 상세 화면이 selectionRules·guidance를 직접 써서 옮기면 같은 글이
+    # 두 번 실려요(실측 2026-10-26 홍성: 안내 98개 중 선정 77·안내 19가 복사본). 정의·순위 문장 같은 자격 항목의 안내는 그대로 둬요
+    copy_selection_notes: bool = True
     # 닫힌 목록(2026-10-21 결정): 코드가 자동 판정하는 조건 종류. 그 밖의 종류는 원문 질문(ASK)으로 바꿉니다. None이면 제한 없음(사업공간)
     automatic: frozenset[str] | None = None
     # 두 방법 일치: 자동 판정 조건의 값을 코드가 원문에서 따로 읽어 다르면 이유(같으면 None). None이면 하지 않음
@@ -105,6 +109,12 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
             continue
         for target in targets:
             by_name[target]["criteria"].extend(ctx.copy(c, by_name[target]["id"]) if len(targets) > 1 else c for c in made)
+    groups, moved = _merge_same_groups(groups, notes)
+    if moved:  # 사라진 대상군 이름은 남는 대상군을 가리키게 (선정 규칙·범위 나누기가 이름으로 찾아요)
+        by_id = {g["id"]: g for g in groups}
+        by_name = {name: by_id[moved.get(g["id"], g["id"])] for name, g in by_name.items()}
+        limited = [(scope, list(dict.fromkeys(by_name[t]["name"] for t in targets)), made) for scope, targets, made in limited]
+        open_names = {by_name[t]["name"] for t in open_names}
     for group in groups:
         # 이름 전체가 신분이거나, 순위·소득 구간 말고는 신분 낱말뿐인 이름(「1순위 월평균소득 70% 이하 장애인」)만 신분 조건으로 씁니다.
         # 「장애인 등 주거약자」「국가유공자 등」처럼 신분 말고 다른 대상이 남으면 신분 하나로 좁히지 않고 대상 해당 여부를 묻습니다
@@ -118,7 +128,7 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
                 0,
                 {
                     **base_fields(ctx.new_id(f"{group['id']}-member"), "ASK", None),
-                    "question": f"「{group['name']}」 대상에 해당하나요?",
+                    "question": f"「{clean_group_name(group['name'])}」 대상에 해당하나요?",
                     "metWhen": "YES",
                 },
             )
@@ -129,19 +139,32 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
             # 둘 다 틀릴 수 있으므로 대상 해당 여부를 묻고 확인 필요로 둡니다
             membership = {
                 **base_fields(ctx.new_id(f"{group['id']}-member"), "ASK", None),
-                "question": f"「{group['name']}」 대상에 해당하나요?",
+                "question": f"「{clean_group_name(group['name'])}」 대상에 해당하나요?",
                 "metWhen": "YES",
             }
             ctx.flag(membership, ["이 대상의 자격 조건을 추출 결과에서 찾지 못했습니다"])
             group["criteria"].append(membership)
     preferences, selection = _selection(ctx, spec, candidate, by_name, when)
-    notes = [*notes, *selection]
+    if spec.copy_selection_notes:
+        notes = [*notes, *selection]
     if limited:
         groups = _split_by_scope(ctx, candidate, groups, limited, open_names)
         kept = {g["id"] for g in groups}
         for entry in [*notes, *preferences]:  # 빠진 대상군을 가리키던 안내·우대는 공고 전체로
             if entry.get("groupId") is not None and entry["groupId"] not in kept:
                 entry["groupId"] = None
+    for group in groups:
+        group["name"] = clean_group_name(group["name"])
+        if group["id"] != "all" and not group["criteria"]:
+            # 자격 항목이 가리켰지만 조건이 모두 안내로 빠졌거나(정의 문장·순위 문장) 범위로 나뉘며 비었을 때: 비워 두면 공통 조건만으로
+            # 「지원 가능」이 되어 누구나 대상이 돼요(실측 2026-10-26 LH 청년 매입임대 「수급자 가구」 조건 0개 → 공고 전체 지원 가능)
+            membership = {
+                **base_fields(ctx.new_id(f"{group['id']}-member"), "ASK", None),
+                "question": f"「{group['name']}」 대상에 해당하나요?",
+                "metWhen": "YES",
+            }
+            ctx.flag(membership, ["이 대상의 자격 조건을 원문에서 확인해야 해요"])
+            group["criteria"].append(membership)
     groups = [{"id": g["id"], "name": g["name"], "rank": rank_of(g["name"]), "criteria": g["criteria"]} for g in groups]
     shared = {"criteria": common}
     for group in [shared, *groups]:
@@ -158,8 +181,67 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
     }
     if spec.preferences:
         frame["preferences"] = preferences
-    frame["notes"] = [*notes, *_guidance_notes(candidate)]
+    frame["notes"] = [*notes, *_guidance_notes(candidate)] if spec.copy_selection_notes else notes
     return _strip_private(frame)
+
+
+# 대상 이름의 목차 표기: 「나목」「타목」「「가」군」「타.」(실측 홍성·대전 영구임대: 「1순위 나목 국가유공자 등」 ↔ 「일반공급 1순위 나목
+# 국가유공자 등」, 「타. 장애인(2순위)」 ↔ 「타목 장애인(2순위)」처럼 같은 대상이 두 이름으로 나와 대상 칩이 40개까지 늘어남, 2026-10-26)
+OUTLINE_MARK = re.compile(r"「\s*[가-하]\s*」\s*군\s*|(?<![가-힣])[가-하]\s*목\s+|^\s*[가-하]\s*[.)]\s*")
+SUPPLY_PREFIX = re.compile(r"^\s*일반\s*공급\s*")
+
+
+def clean_group_name(name: str) -> str:
+    """목차 표기를 뺀 대상 이름 (「1순위 나목 국가유공자 등」 → 「1순위 국가유공자 등」). 다 빠지면 원래 이름."""
+    cleaned = re.sub(r"\s+", " ", OUTLINE_MARK.sub("", name)).strip()
+    return cleaned or name
+
+
+def _criteria_key(criteria: list[dict[str, Any]]) -> str:
+    """조건 목록 비교용: id·근거(quote·page)·검수 표시를 뺀 내용."""
+
+    def strip(node: Any) -> Any:
+        if isinstance(node, dict):
+            return {k: strip(v) for k, v in sorted(node.items()) if k not in ("id", "quote", "page", "inReview", "reviewReason")}
+        if isinstance(node, list):
+            return [strip(v) for v in node]
+        return node
+
+    return json.dumps(strip(criteria), ensure_ascii=False, sort_keys=True)
+
+
+def _merge_same_groups(groups: list[dict[str, Any]], entries: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """목차 표기만 다른 같은 대상군을 하나로: 이름(목차 표기·앞의 「일반공급」을 뺀 것)이 같고 조건이 같으면 합치고, 조건이 빈 쪽은
+    조건 있는 쪽에 흡수합니다. 사라진 대상군을 가리키던 안내는 남는 쪽으로. (남는 대상군 목록, 사라진 id → 남는 id)."""
+    kept: list[dict[str, Any]] = []
+    moved: dict[str, str] = {}
+
+    def key(group: dict[str, Any]) -> str:
+        return SUPPLY_PREFIX.sub("", clean_group_name(group["name"]))
+
+    for group in groups:
+        same = next(
+            (
+                k
+                for k in kept
+                if key(k) == key(group) and (not group["criteria"] or not k["criteria"] or _criteria_key(k["criteria"]) == _criteria_key(group["criteria"]))
+            ),
+            None,
+        )
+        if same is None:
+            kept.append(group)
+        elif not same["criteria"] and group["criteria"]:  # 빈 쪽이 먼저 있었으면 조건 있는 쪽을 남겨요
+            kept[kept.index(same)] = group
+            moved[same["id"]] = group["id"]
+        else:
+            moved[group["id"]] = same["id"]
+    for old in list(moved):  # 남겼다가 다시 바뀐 대상군을 따라가요
+        while moved[old] in moved:
+            moved[old] = moved[moved[old]]
+    for entry in entries:
+        if entry.get("groupId") in moved:
+            entry["groupId"] = moved[entry["groupId"]]
+    return kept, moved
 
 
 # 대상 이름에서 신분 말고 남아도 되는 말: 순위·목·군·공급 구분·소득 구간

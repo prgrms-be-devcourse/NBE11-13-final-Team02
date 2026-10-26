@@ -178,6 +178,45 @@ class XlsxList:
     sheets: tuple[tuple[str, tuple[tuple[str, ...], ...]], ...] = ()  # (시트 이름, 원문에 붙인 행들). 잘리면 비움(근거로 찾을 수 없으므로)
 
 
+HEADER_SCAN = 10  # 시트 맨 위 몇 행에서 머리 행을 찾을지(제목·안내 행이 먼저 올 수 있음)
+HEADER_DEPTH = 3  # 묶음 제목 줄(「주택정보」「임대조건」) 아래 칸 이름 줄까지
+HEADER_WORD = re.compile(r"주소|소재지|주택|호|동|면적|보증금|임대료|월세|공급|모집")
+NUMERIC_CELL = re.compile(r"[-+]?[\d,]+(?:\.\d+)?\s*(?:원|만원|천원|㎡|%|호|세대)?")
+TITLE_LINE = "  [열 제목] "  # verify/consistency.TITLE_LINE·pdf_reader와 같은 줄: 검증이 맨 위 제목·안내 행을 열 제목으로 읽지 않게
+
+
+def _header_like(row: list[str]) -> bool:
+    return sum(1 for c in row if c) >= 3 and not any(NUMERIC_CELL.fullmatch(c) for c in row if c)
+
+
+def _header_rows(rows: list[list[str]]) -> tuple[int, int] | None:
+    """머리 행 범위 (시작, 끝 다음). 맨 위 제목·안내 줄(칸 1~2개) 다음, 칸 이름이 셋 이상이고 주택·금액 낱말이 있는 첫 줄부터
+    숫자 없는 줄이 이어지는 데까지(최대 3줄). 실측(2026-10-26 LH 청년 매입임대 주택목록): 제목 「…청년…」·안내 「…공가 추가…」
+    줄 다음에 「주택정보」「수급자 등」 묶음 줄과 칸 이름 줄이 있어요. 열 제목 줄이 없으면 검증(V6)이 제목·안내 글을 열 제목으로 읽어
+    모든 열을 "청년"·"공가" 열로 보던 오탐이 났어요(37행 보류)."""
+    for start, row in enumerate(rows[:HEADER_SCAN]):
+        if _header_like(row) and any(HEADER_WORD.search(c) for c in row):
+            end = start + 1
+            while end < len(rows) and end - start < HEADER_DEPTH and _header_like(rows[end]):
+                end += 1
+            return start, end
+    return None
+
+
+def _title_line(rows: list[list[str]], start: int, end: int) -> str:
+    """머리 행들을 칸마다 위아래로 이어 붙인 열 제목 줄 (「  [열 제목] 1. 순번 | 2. 지자체 지역본부 | …」)."""
+    width = max(len(r) for r in rows[start:end])
+    titles = []
+    for i in range(width):
+        parts: list[str] = []
+        for row in rows[start:end]:
+            cell = row[i] if i < len(row) else ""
+            if cell and cell not in parts:
+                parts.append(cell)
+        titles.append(" ".join(parts) or "-")
+    return TITLE_LINE + " | ".join(f"{i + 1}. {t}" for i, t in enumerate(titles))
+
+
 def read_xlsx(data: bytes) -> XlsxList | None:
     """시트마다 [엑셀 시트 이름] 다음에 표 행을 적은 글자. 읽을 수 없거나 값이 하나도 없으면 None."""
     try:
@@ -237,7 +276,11 @@ def read_xlsx(data: bytes) -> XlsxList | None:
         for name, rows, counted, uncached in sheets:
             lines.append(f"[엑셀 시트 {name}]")
             shown = rows[:HEAD_ROWS] if truncated else rows
-            lines.extend("| " + " | ".join(row) + " |" for row in shown)
+            header = _header_rows(shown)
+            for index, row in enumerate(shown):
+                lines.append("| " + " | ".join(row) + " |")
+                if header and index == header[1] - 1:
+                    lines.append(_title_line(shown, *header))
             if uncached:  # 설계 검토(2026-10-17): 수식과 저장값을 구분. 계산되지 않은 수식 칸을 '미기재'로 읽지 않게 알립니다
                 note = f"(이 시트에는 저장된 계산값이 없는 수식 칸이 {uncached}개 있어 빈칸으로 보입니다."
                 lines.append(note + " 그 값은 원문에 없는 것이 아니라 읽지 못한 것입니다.)")

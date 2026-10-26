@@ -198,6 +198,65 @@ def test_structure_location_with_the_same_address_is_merged_into_the_code_locati
     assert all(any(q["ref"] == ref for q in ai["quotes"]) for ref in code["quoteRefs"]) and code["quoteRefs"][0].startswith("tbl-")
 
 
+def named_unit_list(rows):
+    header = ("주소", "호", "주택군", "보증금")
+    table = st.Table("엑셀1", 0, "", header, rows, None)
+    columns = [column(1, "ADDRESS"), column(2, "UNIT"), column(3, "COMPLEX"), column(4, "PRICE", "DEPOSIT")]
+    mapping = {"tables": [{"table": "엑셀1", "role": "SUPPLY", "rowUnit": "HOUSING_UNIT", "complex": None, "columns": columns}]}
+    return st.build_part([table], mapping, "pdf-text")
+
+
+def ai_location(id_, name, address=None):
+    return {
+        "id": id_,
+        "kind": "COMPLEX",
+        "parentLocationId": None,
+        "complexName": name,
+        "buildingName": None,
+        "address": address,
+        "region": None,
+        "quoteRefs": ["q1"],
+    }
+
+
+def test_structure_location_with_only_the_complex_name_is_merged_into_the_code_location():
+    # 실측 2026-10-26 LH 청년 매입임대 김포·포천: 구조 호출은 「김포시 구래동(더럭스나인)」(주택군 칸 이름)을 주소 없이,
+    # 코드는 주소 칸으로 위치를 만들어 단지 3곳이 6곳으로 나왔어요 → 주택군 이름이 같은 코드 위치가 하나면 합칩니다
+    table_part = named_unit_list(
+        (
+            ("경기도 김포시 김포한강10로133번길 126", "214", "김포시 구래동(더럭스나인)", "1,000,000"),
+            ("경기도 김포시 김포한강10로133번길 126", "243", "김포시 구래동(더럭스나인)", "1,000,000"),
+            ("경기도 포천시 포천로1585번길 8", "301", "포천시 신읍동(헤리센트)", "1,000,000"),
+        )
+    )
+    assert [loc["complexName"] for loc in table_part["locations"]] == ["김포시 구래동(더럭스나인)", "포천시 신읍동(헤리센트)"]
+    ai = {
+        "quotes": [{"ref": "q1", "documentId": "pdf-text", "text": "더럭스나인"}],
+        "locations": [ai_location("complex-deoreuxnine", "김포시 구래동(더럭스나인)"), ai_location("complex-hericent", "포천시 신읍동(헤리센트)")],
+        "schedules": [{"id": "s1", "scope": {"locationIds": ["complex-deoreuxnine"]}}],
+    }
+    made = st.merge_into_structure(table_part, ai)
+    assert [(loc["id"], loc["kind"], loc["address"]) for loc in ai["locations"]] == [
+        ("loc-addr1", "COMPLEX", "경기도 김포시 김포한강10로133번길 126"),
+        ("loc-addr2", "COMPLEX", "경기도 포천시 포천로1585번길 8"),
+    ]
+    assert ai["schedules"][0]["scope"]["locationIds"] == ["loc-addr1"]  # 이름 위치를 가리키던 곳도 따라와요
+    assert "q1" in ai["locations"][0]["quoteRefs"]
+    assert made == set()  # 합친 위치는 뒤 호출의 구조 요약에 남겨요
+
+
+def test_complex_name_shared_by_two_addresses_is_not_merged():
+    table_part = named_unit_list(
+        (
+            ("경기도 김포시 가상로 1", "101", "김포 행복단지", "1,000,000"),
+            ("경기도 김포시 가상로 2", "102", "김포 행복단지", "1,000,000"),
+        )
+    )
+    ai = {"quotes": [{"ref": "q1", "documentId": "pdf-text", "text": "김포"}], "locations": [ai_location("complex-a", "김포 행복단지")]}
+    made = st.merge_into_structure(table_part, ai)
+    assert [loc["id"] for loc in ai["locations"]] == ["complex-a", "loc-addr1", "loc-addr2"] and made == {"loc-addr1", "loc-addr2"}
+
+
 def test_structure_supply_counts_are_kept_beside_price_only_code_groups():
     # 실측 LH 대전대동2: 코드는 층별 분양가 표만 옮겨 수량이 없고, 주택형별 공급 호수는 구조 호출이 원문에서 뽑음.
     # 구조 호출 묶음의 금액이 코드가 옮긴 금액과 같으면 겹치므로 뺍니다

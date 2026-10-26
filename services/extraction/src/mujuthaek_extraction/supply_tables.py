@@ -55,6 +55,7 @@ def option_table(table: Table) -> bool:
 
 MAX_TABLES = 40
 SUPPLY_HINT = re.compile(r"보증금|임대료|월세|분양|가격|전용|면적|호수|세대\s*수|모집|공급|공가|예비|deposit|rent|price|area|units", re.I)
+UNIT_FLOOR = re.compile(r"(\d{1,2})\d{2}")  # 3~4자리 숫자 호수의 앞자리 = 층 (지하·문자 호수는 건드리지 않음)
 SUBTOTAL = re.compile(r"^(?:합\s*계|소\s*계|총\s*계|계|합계)$")
 NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 UNIT_IN_TITLE = re.compile(r"\((천원|만원|원)\)|(천원|만원)")
@@ -682,6 +683,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
                     "itemKind": {"HOUSING_TYPE": "HOUSING_TYPE", "HOUSING_UNIT": "HOUSING_UNIT"}.get(entry.get("rowUnit"), "UNKNOWN"),
                     "unitLabel": _unit_label(named, entry.get("rowUnit")),
                     "floor": named.get("FLOOR"),
+                    "_unit": named.get("UNIT"),
                     "commonAreaSqm": None,
                     "leaseTerm": None,
                     # 표 전체의 단지 이름이 있으면 「해당동 101 102」 같은 동 칸보다 먼저 씁니다(실측: 철원 공급표의 동 번호가 단지로 쓰여 가격표가 안 붙음)
@@ -819,6 +821,12 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
         code = TYPE_CODE_AREA.match(group.get("housingTypeCode") or "")
         if code and group["exclusiveAreaSqm"] is None and group["exclusiveAreaRange"] is None:
             group["exclusiveAreaSqm"] = float(code[1])
+    # 층 열이 없고 호 칸만 있으면 호수 앞자리가 층(「214」 → 2층, 「1005」 → 10층)
+    # 실측 2026-10-26 LH 청년 매입임대 주택목록은 층 열이 없어 31호 모두 층이 비었어요
+    for group in groups:
+        unit = UNIT_FLOOR.fullmatch((group.get("_unit") or "").strip().removesuffix("호"))
+        if group["itemKind"] == "HOUSING_UNIT" and not group.get("floor") and unit and int(unit[1]) > 0:
+            group["floor"] = f"{int(unit[1])}층"
     groups = _attach_price_tables(groups)
     if not groups:
         return None
@@ -849,6 +857,7 @@ def build_part(tables: list[Table], mapping: dict[str, Any], document_id: str) -
             price.pop("_attached", None)
         group.pop("_plans")
         group.pop("_merged_cells", None)
+        group.pop("_unit", None)
         name = group.get("unitLabel") or group.get("housingTypeCode") or group["id"]
         uncertain = group.pop("_scope_uncertain", None)
         if uncertain:
@@ -953,27 +962,33 @@ def _address_locations(groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """주소 칸이 있으면 주소마다 위치 하나를 만들고 묶음에 잇습니다(실측 2026-10-20 LH 대구경북 엑셀 565호·주소 258곳:
     AI 구조 호출은 위치를 10곳만 만들어 호실이 위치·지역에 이어지지 않음). 지역 코드는 결합기가 주소로 정합니다."""
     locations: list[dict[str, Any]] = []
-    by_address: dict[str, str] = {}
+    by_address: dict[str, dict[str, Any]] = {}
+    names: dict[str, set[str]] = {}  # 주소 → 그 주소 행들의 단지 이름(주택군 칸)
     for group in groups:
         address = group.pop("_address", None)
         if not address:
             continue
         key = _norm(address)
         if key not in by_address:
-            by_address[key] = f"loc-addr{len(by_address) + 1}"
-            locations.append(
-                {
-                    "id": by_address[key],
-                    "kind": "BUILDING",
-                    "parentLocationId": None,
-                    "complexName": None,
-                    "buildingName": None,
-                    "address": address,
-                    "region": None,
-                    "quoteRefs": group["quoteRefs"][:1],
-                }
-            )
-        group["locationId"] = by_address[key]
+            by_address[key] = {
+                "id": f"loc-addr{len(by_address) + 1}",
+                "kind": "BUILDING",
+                "parentLocationId": None,
+                "complexName": None,
+                "buildingName": None,
+                "address": address,
+                "region": None,
+                "quoteRefs": group["quoteRefs"][:1],
+            }
+            locations.append(by_address[key])
+        if group.get("_complex"):
+            names.setdefault(key, set()).add(group["_complex"])
+        group["locationId"] = by_address[key]["id"]
+    # 한 주소의 행이 모두 같은 단지 이름이면 위치에도 그 이름을 둡니다. 구조 호출이 같은 단지를 이름만으로 따로 만들었을 때
+    # merge_into_structure가 이름으로 합쳐요(실측 2026-10-26 LH 청년 매입임대: 단지 3곳이 이름 위치·주소 위치로 두 번씩 나옴)
+    for key, location in by_address.items():
+        if len(names.get(key, ())) == 1:
+            location["complexName"] = next(iter(names[key]))
     return locations
 
 
@@ -1359,6 +1374,24 @@ def merge_into_structure(table_part: dict[str, Any], part: dict[str, Any]) -> se
             for loc in part["locations"]
             if isinstance(loc, dict) and isinstance(loc.get("address"), str) and _norm(loc["address"]) in known
         }
+        # 주소 없이 이름만 있는 AI 위치: 그 이름의 코드 위치(주택군 칸 이름)가 하나뿐이면 같은 단지로 합칩니다
+        by_name: dict[str, list[dict[str, Any]]] = {}
+        named: set[str] = set()  # 이름으로 합친 코드 위치: 뒤 호출의 구조 요약에 남겨 그 id를 쓰게 해요(AI 위치 id는 사라짐)
+        for loc in code_locations:
+            if _norm(loc.get("complexName")):
+                by_name.setdefault(_norm(loc["complexName"]), []).append(loc)
+        for loc in part["locations"]:
+            if not isinstance(loc, dict) or loc.get("id") in rename or isinstance(loc.get("address"), str) and loc["address"].strip():
+                continue
+            hits = {id(c): c for n in {_norm(loc.get("complexName")), _norm(loc.get("buildingName"))} - {""} for c in by_name.get(n, [])}
+            if len(by_name.get(_norm(loc.get("complexName")), [])) > 1 or len(hits) != 1:
+                continue
+            [code] = hits.values()
+            rename[loc["id"]] = code["id"]
+            named.add(code["id"])
+            code["kind"] = loc.get("kind") or code["kind"]
+            code["buildingName"] = code.get("buildingName") or loc.get("buildingName")
+            code["quoteRefs"] = list(dict.fromkeys([*code.get("quoteRefs", []), *(loc.get("quoteRefs") or [])]))
         part["locations"] = [loc for loc in part["locations"] if not (isinstance(loc, dict) and loc.get("id") in rename)]
         _rename_locations(part, rename)
         _move_quotes(table_part, part, code_locations, QUOTE_PREFIX)
@@ -1367,7 +1400,7 @@ def merge_into_structure(table_part: dict[str, Any], part: dict[str, Any]) -> se
         if isinstance(coverage, dict) and (coverage.get("locations") or {}).get("status") not in ("EXTRACTED", "PARTIAL"):
             coverage["locations"] = {"status": "EXTRACTED", "reason": None}
     else:
-        code_locations = []
+        code_locations, named = [], set()
     counted = has_counts(table_part)
     groups = part.pop("supplyGroups", None)  # 수량을 코드가 옮겼으면 이 호출에 묶음을 맡기지 않았으므로 버립니다(겹침 방지)
     if isinstance(groups, list) and groups and not counted:
@@ -1380,7 +1413,7 @@ def merge_into_structure(table_part: dict[str, Any], part: dict[str, Any]) -> se
         coverage = part.get("coverage")
         if isinstance(coverage, dict):
             coverage.pop("supplyGroups", None)
-    return {loc["id"] for loc in code_locations}
+    return {loc["id"] for loc in code_locations} - named
 
 
 def _rename_locations(node: Any, rename: dict[str, str]) -> None:
