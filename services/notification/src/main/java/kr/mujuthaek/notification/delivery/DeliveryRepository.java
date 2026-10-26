@@ -1,5 +1,6 @@
 package kr.mujuthaek.notification.delivery;
 
+import java.sql.Types;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -63,14 +64,18 @@ public class DeliveryRepository {
         .list();
   }
 
-  /** 보낼 시각이 지난 묶음 메일 단위 (회원·채널·주소·시각). 잠그지 않고 고르기만 해요 */
+  /**
+   * 보낼 시각이 지난 묶음 단위 (회원·채널·주소·시각). 잠그지 않고 고르기만 해요. 웹 푸시는 요청마다 기기 목록이 다를 수 있어서(그사이 기기 등록·해제) 주소로 나누지
+   * 않아요 (주소 null).
+   */
   public List<DigestKey> dueDigestKeys(Instant now, int limit) {
     return jdbc.sql(
             """
-            select user_id, channel, address, scheduled_at
+            select user_id, channel, case when channel = 'PUSH' then null else address end as address,
+                   scheduled_at
               from deliveries
              where status = 'PENDING' and digest and scheduled_at <= :now
-             group by user_id, channel, address, scheduled_at
+             group by 1, 2, 3, 4
              order by scheduled_at, user_id
              limit :limit
             """)
@@ -98,7 +103,9 @@ public class DeliveryRepository {
             .single());
   }
 
-  /** 맡은 묶음의 줄을 모두 잠가요. 다른 트랜잭션이 잠깐 잡고 있으면 놓을 때까지 기다려요 (빠지는 줄 없이 한 통으로) */
+  /**
+   * 맡은 묶음의 줄을 모두 잠가요. 다른 트랜잭션이 잠깐 잡고 있으면 놓을 때까지 기다려요 (빠지는 줄 없이 한 통으로). 만든 순서라 마지막 줄이 가장 최근 요청이에요.
+   */
   public List<DueDelivery> lockDigestGroup(DigestKey key) {
     return jdbc.sql(
             """
@@ -106,14 +113,15 @@ public class DeliveryRepository {
                    scheduled_at, attempts
               from deliveries
              where status = 'PENDING' and digest
-               and user_id = :userId and channel = :channel and address = :address
+               and user_id = :userId and channel = :channel
+               and (cast(:address as text) is null or address = :address)
                and scheduled_at = :at
              order by created_at
                for update
             """)
         .param("userId", key.userId())
         .param("channel", key.channel().name())
-        .param("address", key.address())
+        .param("address", key.address(), Types.VARCHAR)
         .param("at", at(key.scheduledAt()))
         .query(DeliveryRepository::due)
         .list();
@@ -133,15 +141,19 @@ public class DeliveryRepository {
         .update();
   }
 
-  public void markRetry(List<UUID> ids, String error, Instant retryAt) {
+  /** {@code address}가 있으면 받을 곳도 바꿔요 (못 보낸 기기만 남김). null이면 그대로 */
+  public void markRetry(List<UUID> ids, String error, Instant retryAt, String address) {
     jdbc.sql(
             """
-            update deliveries set attempts = attempts + 1, last_error = :error, scheduled_at = :at
+            update deliveries
+               set attempts = attempts + 1, last_error = :error, scheduled_at = :at,
+                   address = coalesce(cast(:address as text), address)
              where id in (:ids)
             """)
         .param("ids", ids)
         .param("error", error)
         .param("at", at(retryAt))
+        .param("address", address, Types.VARCHAR)
         .update();
   }
 
@@ -203,7 +215,7 @@ public class DeliveryRepository {
       boolean quiet,
       Instant scheduledAt) {}
 
-  /** 묶음 메일 한 통의 단위 */
+  /** 묶음 한 통의 단위. 웹 푸시는 address가 null이에요 (주소로 나누지 않음) */
   public record DigestKey(UUID userId, Channel channel, String address, Instant scheduledAt) {
     String lockName() {
       return "delivery-digest:" + userId + ":" + channel + ":" + address + ":" + scheduledAt;

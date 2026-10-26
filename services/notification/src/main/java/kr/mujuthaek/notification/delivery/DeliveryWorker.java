@@ -1,5 +1,6 @@
 package kr.mujuthaek.notification.delivery;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.List;
@@ -17,10 +18,11 @@ import org.springframework.transaction.annotation.Transactional;
  * 보낼 시각이 지난 발송 줄을 채널에 넘기고 결과를 남겨요. 어느 채널이든 이 흐름은 같아요.
  *
  * <ol>
- *   <li>같은 회원·같은 채널·같은 받을 곳·같은 묶음 시각의 묶음 줄은 1통으로, 나머지는 1건씩 보내요. 묶음은 서버 한 대만 맡아서(advisory lock) 서버가
- *       여러 대여도 두 통으로 나뉘지 않아요
- *   <li>묶음이 아니고 회원이 조용한 시간을 켰으면, 22:00~08:00에는 다음 08:00으로 미뤄요 (재시도가 밤으로 밀린 경우)
- *   <li>성공하면 SENT, 실패하면 1분 → 5분 → 30분 뒤 다시, 그래도 안 되면 FAILED
+ *   <li>같은 회원·같은 채널·같은 받을 곳(웹 푸시는 받을 곳 상관없이)·같은 묶음 시각의 묶음 줄은 1통으로, 나머지는 1건씩 보내요. 받을 곳은 가장 최근 줄의
+ *       것이에요. 묶음은 서버 한 대만 맡아서(advisory lock) 서버가 여러 대여도 두 통으로 나뉘지 않아요
+ *   <li>회원이 조용한 시간을 켰으면, 22:00~08:00에는 다음 08:00으로 미뤄요 (재시도가 밤으로 밀린 경우)
+ *   <li>성공하면 SENT, 실패하면 1분 → 5분 → 30분 뒤 다시(발송 서비스가 더 기다리라고 하면 그만큼), 그래도 안 되면 FAILED. 일부 기기만 못 받았으면
+ *       그 기기에만 다시 보내요
  * </ol>
  *
  * <p>보낼지 말지(회원 설정)는 api가 요청을 만들 때 이미 정했어요. 여기서는 다시 따지지 않아요.
@@ -71,37 +73,40 @@ public class DeliveryWorker {
 
   private void deliver(List<DueDelivery> group) {
     DueDelivery first = group.getFirst();
+    DueDelivery latest = group.getLast(); // 묶음이면 가장 최근 요청의 받을 곳·설정으로
     NotificationChannel channel = channels.get(first.channel());
-    if (channel == null || first.address() == null) {
+    if (channel == null || latest.address() == null) {
       deliveries.markFailed(ids(group), "CHANNEL_UNAVAILABLE", false);
       return;
     }
-    if (!first.digest()) {
-      Optional<Instant> later = schedule.postponeForQuiet(first.quiet());
-      if (later.isPresent()) {
-        deliveries.reschedule(ids(group), later.get());
-        return;
-      }
+    Optional<Instant> later = schedule.postponeForQuiet(latest.quiet());
+    if (later.isPresent()) {
+      deliveries.reschedule(ids(group), later.get()); // 묶음은 모두 같은 시각으로 미뤄서 계속 한 묶음
+      return;
     }
     try {
       String messageId =
-          channel.send(first.address(), group.stream().map(DueDelivery::notification).toList());
+          channel.send(latest.address(), group.stream().map(DueDelivery::notification).toList());
       deliveries.markSent(ids(group), messageId, schedule.now());
       log.info("발송함: userId={}, channel={}, 건수={}", first.userId(), first.channel(), group.size());
     } catch (DeliveryException e) {
-      fail(group, e.code(), e.permanent());
+      fail(group, e);
     } catch (RuntimeException e) {
       log.warn("발송 중 예상하지 못한 오류: userId={}, channel={}", first.userId(), first.channel(), e);
-      fail(group, e.getClass().getSimpleName(), false);
+      fail(group, new DeliveryException(e.getClass().getSimpleName(), false));
     }
   }
 
-  private void fail(List<DueDelivery> group, String code, boolean permanent) {
+  private void fail(List<DueDelivery> group, DeliveryException e) {
+    String code = e.code();
     int attempts = group.stream().mapToInt(DueDelivery::attempts).max().orElse(0) + 1;
-    Optional<Instant> retryAt = permanent ? Optional.empty() : schedule.retryAt(attempts);
+    Optional<Instant> retryAt =
+        e.permanent()
+            ? Optional.empty()
+            : schedule.retryAt(attempts).map(at -> later(at, e.retryAfter().orElse(null)));
     DueDelivery first = group.getFirst();
     if (retryAt.isPresent()) {
-      deliveries.markRetry(ids(group), code, retryAt.get());
+      deliveries.markRetry(ids(group), code, retryAt.get(), e.remainingAddress().orElse(null));
       log.warn(
           "발송 실패, 다시 보내요: userId={}, channel={}, error={}, attempts={}",
           first.userId(),
@@ -117,6 +122,15 @@ public class DeliveryWorker {
           code,
           attempts);
     }
+  }
+
+  /** 정한 재시도 시각과 발송 서비스가 기다리라고 한 시간 중 늦은 쪽 */
+  private Instant later(Instant retryAt, Duration retryAfter) {
+    if (retryAfter == null) {
+      return retryAt;
+    }
+    Instant asked = schedule.now().plus(retryAfter);
+    return asked.isAfter(retryAt) ? asked : retryAt;
   }
 
   private static List<UUID> ids(List<DueDelivery> group) {

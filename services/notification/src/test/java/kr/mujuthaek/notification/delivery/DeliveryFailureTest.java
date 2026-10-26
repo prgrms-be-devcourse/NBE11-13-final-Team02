@@ -174,6 +174,6 @@ class DeliveryFailureTest {
                     title,
                     "본문",
                     "/notices/" + targetId,
-                    new ArrayList<>(List.of(new Recipient(user, "me@example.com", false))))));
+                    new ArrayList<>(List.of(Recipient.emailOnly(user, "me@example.com", false))))));
   }
 }

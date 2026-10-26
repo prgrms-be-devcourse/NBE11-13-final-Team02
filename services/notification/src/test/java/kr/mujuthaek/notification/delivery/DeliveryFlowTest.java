@@ -2,20 +2,28 @@ package kr.mujuthaek.notification.delivery;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.util.ArrayList;
+import java.util.ArrayDeque;
+import java.util.Deque;
 import java.util.List;
-import java.util.Optional;
+import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import kr.mujuthaek.notification.TestcontainersConfiguration;
 import kr.mujuthaek.notification.delivery.email.EmailMessage;
 import kr.mujuthaek.notification.delivery.email.EmailSender;
+import kr.mujuthaek.notification.delivery.push.PushMessage;
+import kr.mujuthaek.notification.delivery.push.PushResponse;
+import kr.mujuthaek.notification.delivery.push.PushSender;
 import kr.mujuthaek.notification.notification.NotificationRequest;
+import kr.mujuthaek.notification.notification.NotificationRequest.PushDevice;
 import kr.mujuthaek.notification.notification.NotificationRequest.Recipient;
 import kr.mujuthaek.notification.notification.NotificationService;
 import kr.mujuthaek.notification.notification.NotificationType;
@@ -34,15 +42,15 @@ import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
- * 알림 요청 → 발송 줄 → 워커 → 채널까지. 이메일은 실제로 보내지 않고 기록만 하는 가짜, 웹 푸시는 테스트용 채널로 끼워서 채널을 추가해도 같은 흐름으로 도는지
- * 확인해요.
+ * 알림 요청 → 발송 줄 → 워커 → 채널까지. 이메일·웹 푸시 모두 실제로 보내지 않고 기록만 하는 가짜 발송기를 끼워요 (채널은 진짜
+ * EmailChannel·PushChannel).
  */
 @SpringBootTest(properties = "notification.delivery.poll-enabled=false")
 @Import({TestcontainersConfiguration.class, DeliveryFlowTest.Fakes.class})
 public class DeliveryFlowTest {
 
   static final UUID USER = UUID.fromString("0192b6f0-0000-7000-8000-0000000000a1");
-  static final Recipient EMAIL_ONLY = new Recipient(USER, "me@example.com", false);
+  static final Recipient EMAIL_ONLY = Recipient.emailOnly(USER, "me@example.com", false);
 
   @Autowired NotificationService service;
   @Autowired DeliveryWorker worker;
@@ -51,7 +59,7 @@ public class DeliveryFlowTest {
   @Autowired JdbcClient jdbc;
   @Autowired MutableClock clock;
   @Autowired RecordingEmailSender email;
-  @Autowired FakePushChannel push;
+  @Autowired RecordingPushSender push;
 
   @BeforeEach
   void setUp() {
@@ -59,7 +67,7 @@ public class DeliveryFlowTest {
     email.sent.clear();
     email.failure.set(null);
     push.sent.clear();
-    push.devices.clear();
+    push.statuses.clear();
     clock.set("2026-10-23T10:00");
   }
 
@@ -80,7 +88,8 @@ public class DeliveryFlowTest {
 
   @Test
   void recipientWithoutAddressGetsNoDelivery() {
-    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", new Recipient(USER, null, false));
+    request(
+        NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", Recipient.emailOnly(USER, null, false));
 
     assertThat(jdbc.sql("select count(*) from deliveries").query(Long.class).single()).isZero();
   }
@@ -106,7 +115,7 @@ public class DeliveryFlowTest {
     request(
         NotificationType.DEADLINE_D1,
         "NOTICE:X:D1:2026-10-24",
-        new Recipient(USER, "me@example.com", true));
+        Recipient.emailOnly(USER, "me@example.com", true));
 
     worker.runOnce();
     assertThat(email.sent).isEmpty();
@@ -144,15 +153,116 @@ public class DeliveryFlowTest {
   }
 
   @Test
-  void addedChannelGetsItsOwnDeliveryWithoutDigest() {
-    push.devices.addAll(List.of("device-1", "device-2"));
-    request(NotificationType.NEW_NOTICE, "NOTICE:A:NEW", EMAIL_ONLY);
+  void pushDeadlineGoesToEveryDeviceRightAwayInOneDelivery() {
+    request(NotificationType.DEADLINE_D1, "NOTICE:X:D1:2026-10-24", pushTo("a", "b"));
 
     worker.runOnce();
 
-    assertThat(push.sent).containsExactly("device-1", "device-2"); // 푸시는 묶지 않아서 기기마다 바로
-    assertThat(email.sent).isEmpty(); // 이메일은 18시 묶음
+    assertThat(push.endpoints()).containsExactly(device("a").endpoint(), device("b").endpoint());
+    assertThat(push.sent.getFirst().urgency()).isEqualTo("high");
+    assertThat(push.sent.getFirst().ttl()).hasHours(12);
     assertThat(status(Channel.PUSH)).containsExactly("SENT"); // 회원 1명·채널 1개 = 발송 줄 1개
+    assertThat(jdbc.sql("select address from deliveries").query(String.class).optional())
+        .isEmpty(); // 보낸 뒤에는 기기 목록을 남기지 않아요
+  }
+
+  @Test
+  void newNoticesOnPushAreBundledEveryThirtyMinutesWithTheLatestDevices() {
+    clock.set("2026-10-23T10:07");
+    request(NotificationType.NEW_NOTICE, "NOTICE:A:NEW", pushTo("a"));
+    clock.set("2026-10-23T10:12");
+    request(NotificationType.NEW_NOTICE, "NOTICE:B:NEW", pushTo("a", "b")); // 그사이 기기 b 등록
+
+    worker.runOnce();
+    assertThat(push.sent).isEmpty(); // 10:30 칸 전
+
+    clock.set("2026-10-23T10:30");
+    worker.runOnce();
+    assertThat(push.endpoints()).containsExactly(device("a").endpoint(), device("b").endpoint());
+    assertThat(push.payload(0))
+        .contains("\"type\":\"NEW_DIGEST\"")
+        .contains("\"title\":\"새 소식 2건\"")
+        .contains("\"body\":\"제목 NOTICE:A:NEW 외 1건\"")
+        .contains("\"linkPath\":\"/notifications\"");
+    assertThat(status(Channel.PUSH)).containsExactly("SENT", "SENT");
+  }
+
+  @Test
+  void pushBundleThatFallsIntoQuietHoursWaitsUntilEight() {
+    clock.set("2026-10-23T21:50");
+    request(
+        NotificationType.NEW_NOTICE,
+        "NOTICE:A:NEW",
+        new Recipient(USER, null, true, List.of(device("a"))));
+
+    clock.set("2026-10-23T22:00");
+    worker.runOnce();
+    assertThat(push.sent).isEmpty();
+
+    clock.set("2026-10-24T08:00");
+    worker.runOnce();
+    assertThat(push.sent).hasSize(1);
+    assertThat(push.payload(0)).contains("\"title\":\"제목 NOTICE:A:NEW\""); // 1건은 묶음 문구 없이
+  }
+
+  @Test
+  void onlyDevicesThatMissedItAreRetried() {
+    push.statuses.put(device("a").endpoint(), new ArrayDeque<>(List.of(503, 201)));
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", pushTo("a", "b"));
+
+    worker.runOnce();
+    assertThat(push.endpoints()).containsExactly(device("a").endpoint(), device("b").endpoint());
+    assertThat(status(Channel.PUSH)).containsExactly("PENDING");
+    assertThat(jdbc.sql("select address from deliveries").query(String.class).single())
+        .contains(device("a").endpoint())
+        .doesNotContain(device("b").endpoint());
+
+    clock.set("2026-10-23T10:01");
+    worker.runOnce();
+    assertThat(push.endpoints())
+        .containsExactly(
+            device("a").endpoint(), device("b").endpoint(), device("a").endpoint()); // b는 한 번만
+    assertThat(status(Channel.PUSH)).containsExactly("SENT");
+  }
+
+  @Test
+  void deliveryFailsWhenEveryDeviceIsGone() {
+    push.statuses.put(device("a").endpoint(), new ArrayDeque<>(List.of(410)));
+    push.statuses.put(device("b").endpoint(), new ArrayDeque<>(List.of(404)));
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", pushTo("a", "b"));
+
+    worker.runOnce();
+
+    assertThat(status(Channel.PUSH)).containsExactly("FAILED");
+    assertThat(jdbc.sql("select last_error from deliveries").query(String.class).single())
+        .isEqualTo("ALL_EXPIRED");
+  }
+
+  @Test
+  void tooManyRequestsWaitsAsLongAsThePushServiceAsks() {
+    push.statuses.put(device("a").endpoint(), new ArrayDeque<>(List.of(429, 201)));
+    push.retryAfter = Duration.ofMinutes(10);
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", pushTo("a"));
+
+    worker.runOnce();
+    clock.set("2026-10-23T10:05"); // 정한 재시도(1분)는 지났지만 10분을 기다려요
+    worker.runOnce();
+    assertThat(push.sent).hasSize(1);
+
+    clock.set("2026-10-23T10:10");
+    worker.runOnce();
+    assertThat(push.sent).hasSize(2);
+    assertThat(status(Channel.PUSH)).containsExactly("SENT");
+  }
+
+  private static Recipient pushTo(String... names) {
+    return new Recipient(
+        USER, null, false, java.util.Arrays.stream(names).map(DeliveryFlowTest::device).toList());
+  }
+
+  static PushDevice device(String name) {
+    return new PushDevice(
+        "https://fcm.googleapis.com/fcm/send/" + name, "p256dh-" + name, "auth-" + name);
   }
 
   private void request(NotificationType type, String dedupKey, Recipient recipient) {
@@ -193,8 +303,9 @@ public class DeliveryFlowTest {
     }
 
     @Bean
-    FakePushChannel fakePushChannel() {
-      return new FakePushChannel();
+    @Primary
+    RecordingPushSender recordingPushSender() {
+      return new RecordingPushSender();
     }
   }
 
@@ -235,33 +346,26 @@ public class DeliveryFlowTest {
     }
   }
 
-  /**
-   * 웹 푸시 자리. 실제 PushChannel은 요청의 recipients[]에 api가 넣어 준 구독 기기 목록을 꺼내고, 기기마다 web-push로 보내요. 이 가짜는
-   * 모든 회원이 {@link #devices}에 구독했다고 쳐요
-   */
-  static class FakePushChannel implements NotificationChannel {
-    final List<String> devices = new ArrayList<>();
-    final List<String> sent = new CopyOnWriteArrayList<>();
+  /** 보내지 않고 기록만 해요. 기기마다 돌려줄 상태 코드를 미리 정할 수 있어요 (없으면 201) */
+  public static class RecordingPushSender implements PushSender {
+    public final List<PushMessage> sent = new CopyOnWriteArrayList<>();
+    final Map<String, Deque<Integer>> statuses = new ConcurrentHashMap<>();
+    volatile Duration retryAfter;
 
     @Override
-    public Channel channel() {
-      return Channel.PUSH;
+    public PushResponse send(PushMessage message) {
+      sent.add(message);
+      Deque<Integer> planned = statuses.get(message.device().endpoint());
+      int status = planned == null || planned.isEmpty() ? 201 : planned.poll();
+      return new PushResponse(status, status == 429 ? retryAfter : null);
     }
 
-    @Override
-    public Optional<String> address(Recipient recipient) {
-      return devices.isEmpty() ? Optional.empty() : Optional.of(String.join(",", devices));
+    List<String> endpoints() {
+      return sent.stream().map(m -> m.device().endpoint()).toList();
     }
 
-    @Override
-    public boolean supportsDigest() {
-      return false;
-    }
-
-    @Override
-    public String send(String address, List<OutgoingNotification> notifications) {
-      sent.addAll(List.of(address.split(","))); // 기기마다 보내요
-      return "push-" + sent.size();
+    String payload(int index) {
+      return new String(sent.get(index).payload(), StandardCharsets.UTF_8);
     }
   }
 }

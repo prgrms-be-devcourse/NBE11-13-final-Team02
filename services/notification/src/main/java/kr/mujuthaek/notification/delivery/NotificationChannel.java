@@ -22,13 +22,16 @@ public interface NotificationChannel {
    */
   Optional<String> address(NotificationRequest.Recipient recipient);
 
-  /** 묶음 종류(NotificationType.digest)를 하루 두 번 묶어 보내나. 이메일은 묶고, 웹 푸시는 바로 보내요 */
-  boolean supportsDigest();
+  /** 묶음 종류(NotificationType.digest)를 모아 보내는 간격. 이메일은 하루 두 번, 웹 푸시는 30분마다. 비어 있으면 묶지 않고 바로 보내요 */
+  Optional<DigestCadence> digestCadence();
 
   /**
    * {@link #address}가 준 곳에 보내요. 묶음이면 여러 건, 아니면 1건이에요.
    *
-   * @return 발송 서비스가 준 ID (SES MessageId 등). 반송 알림과 맞출 때 써요
+   * <p>받을 곳이 여러 개(푸시 기기)인데 일부만 보냈으면 {@link DeliveryException#remainingAddress()}에 못 보낸 곳만 담아 던져요.
+   * 다시 보낼 때는 그곳에만 보내요.
+   *
+   * @return 발송 서비스가 준 ID (SES MessageId 등). 반송 알림과 맞출 때 써요. 없으면 null
    */
   String send(String address, List<OutgoingNotification> notifications) throws DeliveryException;
 }

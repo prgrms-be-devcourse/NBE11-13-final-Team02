@@ -37,6 +37,11 @@ notification:
     ses:
       region: ${AWS_REGION:ap-northeast-2}
       max-per-second: ${NOTIFICATION_SES_MAX_PER_SECOND:1}  # 샌드박스 한도
+  push:                                             # 웹 푸시 (contracts/schemas/web-push.draft.md 4장)
+    provider: ${NOTIFICATION_PUSH_PROVIDER:log}     # log: 보내지 않고 로그만, webpush: 푸시 서비스로 보내기 (VAPID 키 필요)
+    vapid-public-key: ${PUSH_VAPID_PUBLIC_KEY:}     # api와 같은 공개키. 만들기: npx web-push generate-vapid-keys
+    vapid-private-key: ${PUSH_VAPID_PRIVATE_KEY:}   # 개인키는 커밋하지 말고 .env·배포 비밀값에만
+    vapid-subject: ${PUSH_VAPID_SUBJECT:mailto:noreply@localhost}  # 푸시 서비스가 문제 있을 때 연락할 곳
   delivery:
     poll-interval-ms: 5000
     batch-size: 20

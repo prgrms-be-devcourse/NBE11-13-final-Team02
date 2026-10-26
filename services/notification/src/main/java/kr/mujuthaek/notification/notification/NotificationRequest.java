@@ -27,8 +27,35 @@ public record NotificationRequest(
    *
    * @param email 이메일로 보낼 주소. api가 "이메일 켬 + 이 종류 켬 + 인증된 주소"일 때만 넣고, 아니면 null
    * @param quietEnabled 22:00~08:00 알림을 08:00에 보내기
+   * @param push 웹 푸시로 보낼 구독 기기 (contracts/schemas/web-push.draft.md 3장). api가 "이 종류 켬 + 기기 1대 이상"일
+   *     때만 넣고, 아니면 null. 최대 5대
    */
-  public record Recipient(UUID userId, String email, boolean quietEnabled) {}
+  public record Recipient(UUID userId, String email, boolean quietEnabled, List<PushDevice> push) {
+
+    /** 이메일만 받는 회원 (푸시 기기 없음) */
+    public static Recipient emailOnly(UUID userId, String email, boolean quietEnabled) {
+      return new Recipient(userId, email, quietEnabled, null);
+    }
+
+    @Override
+    public String toString() {
+      return "Recipient[userId=" + userId + ", quietEnabled=" + quietEnabled + "]";
+    }
+  }
+
+  /**
+   * 구독 기기 1대. 알면 그 기기에 알림을 보낼 수 있는 값이라 로그에 남기지 않아요 (toString도 가려요).
+   *
+   * @param endpoint 푸시 서비스 주소
+   * @param p256dh 내용 암호화 공개키 (base64url)
+   * @param auth 내용 암호화 비밀값 (base64url)
+   */
+  public record PushDevice(String endpoint, String p256dh, String auth) {
+    @Override
+    public String toString() {
+      return "PushDevice[***]";
+    }
+  }
 
   /** 계약에 맞지 않으면 IllegalArgumentException. 다시 받아도 같아서 실패 큐로 보내요. */
   public void validate() {
