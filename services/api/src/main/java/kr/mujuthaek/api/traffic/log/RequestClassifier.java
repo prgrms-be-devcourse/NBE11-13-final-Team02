@@ -22,7 +22,9 @@ public final class RequestClassifier {
     API,
     ADMIN,
     AUTH,
-    LOGIN
+    LOGIN,
+    /** 프론트 서버가 넘긴 화면 요청(주소를 직접 연 것). 응답 코드·처리 시간은 몰라요 */
+    PAGE
   }
 
   /** 소셜 로그인이 끝났을 때의 결과(돌아가는 주소로 판단). */

@@ -42,6 +42,7 @@ class TrafficServiceTest {
         "salt",
         14,
         90,
+        "",
         new TrafficProperties.Ga(propertyId, keyFile, Duration.ofHours(1), Duration.ofSeconds(5)));
   }
 

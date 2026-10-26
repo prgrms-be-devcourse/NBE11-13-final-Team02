@@ -9,10 +9,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param ipSalt IP 해시에 섞는 비밀 값(TRAFFIC_IP_SALT). 날짜와 함께 섞어 날마다 해시가 달라져요(오래 따라가지 못하게)
  * @param rawIpDays 원본 IP 보관 일수. 지나면 지워요(보안 대응용)
  * @param keepDays 요청 기록 보관 일수
+ * @param ingestToken 프론트 서버가 화면 요청을 넘길 때 쓰는 비밀 값(TRAFFIC_INGEST_TOKEN). 비면 화면 요청을 받지 않아요
  * @param ga GA4 Data API 설정
  */
 @ConfigurationProperties("mujuthaek.traffic")
-public record TrafficProperties(String ipSalt, int rawIpDays, int keepDays, Ga ga) {
+public record TrafficProperties(
+    String ipSalt, int rawIpDays, int keepDays, String ingestToken, Ga ga) {
+
+  public boolean ingestEnabled() {
+    return ingestToken != null && !ingestToken.isBlank();
+  }
 
   /**
    * @param propertyId GA4 속성 ID(숫자). 비면 GA 숫자를 가져오지 않아요(화면에 「GA 연결 안 됨」)

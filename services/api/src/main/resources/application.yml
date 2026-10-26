@@ -104,6 +104,7 @@ mujuthaek:
     ip-salt: ${TRAFFIC_IP_SALT:local-dev-salt}  # IP 해시에 섞는 비밀 값. 운영은 꼭 따로 넣어요
     raw-ip-days: 14                     # 원본 IP 보관 일수(보안 대응용). 지나면 지워요
     keep-days: 90                       # 요청 기록 보관 일수
+    ingest-token: ${TRAFFIC_INGEST_TOKEN:}  # 프론트 서버가 화면 요청을 넘길 때 쓰는 비밀 값. 비면 화면 요청은 안 받아요
     ga:
       property-id: ${GA_PROPERTY_ID:}   # GA4 속성 ID(숫자). 비면 GA 숫자 없이 서버 숫자만
       credentials-file: ${GA_CREDENTIALS_FILE:}  # 서비스 계정 키(JSON) 경로. 저장소 밖에 둬요

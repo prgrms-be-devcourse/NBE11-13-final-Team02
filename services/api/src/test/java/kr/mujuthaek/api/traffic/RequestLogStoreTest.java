@@ -33,6 +33,7 @@ class RequestLogStoreTest {
           "salt",
           14,
           90,
+          "ingest-token",
           new TrafficProperties.Ga("", "", Duration.ofHours(1), Duration.ofSeconds(5)));
   private final RequestLogStore store = new RequestLogStore(jdbc, props, clock);
   private final RequestLogFilter filter = new RequestLogFilter(store, clock);

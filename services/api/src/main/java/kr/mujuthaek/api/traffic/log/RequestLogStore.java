@@ -35,13 +35,13 @@ public class RequestLogStore {
   private static final Logger log = LoggerFactory.getLogger(RequestLogStore.class);
   private static final int MAX_PENDING = 20_000;
 
-  /** 요청 한 건. ip는 원본, ipHash는 저장 때 계산해요. */
+  /** 요청 한 건. ip는 원본, ipHash는 저장 때 계산해요. 화면 요청(PAGE)은 응답 코드·처리 시간을 몰라서 null이에요. */
   public record Entry(
       Instant at,
       String method,
       String path,
-      int status,
-      int durationMs,
+      Integer status,
+      Integer durationMs,
       Client client,
       String userAgent,
       String ip,
@@ -263,7 +263,7 @@ public class RequestLogStore {
   }
 
   public record Access(
-      Instant at, String method, String path, int status, String maskedIp, String client) {}
+      Instant at, String method, String path, Integer status, String maskedIp, String client) {}
 
   /** 최근 관리자 API 요청(누가 했는지는 저장하지 않아요. 시각·경로·결과·가린 IP). */
   public List<Access> adminAccess(Instant from, Instant to, int limit) {
@@ -285,7 +285,7 @@ public class RequestLogStore {
                 rs.getTimestamp("occurred_at").toInstant(),
                 rs.getString("method"),
                 rs.getString("path"),
-                rs.getInt("status"),
+                rs.getObject("status", Integer.class),
                 RequestClassifier.maskIp(rs.getString("ip")),
                 rs.getString("client")),
         Timestamp.from(from),

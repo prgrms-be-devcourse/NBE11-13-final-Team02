@@ -30,6 +30,7 @@ public class RequestLogFilter extends OncePerRequestFilter {
     String path = request.getRequestURI();
     return "OPTIONS".equals(request.getMethod())
         || path.startsWith("/actuator")
+        || path.startsWith("/api/internal/traffic/") // 프론트 서버가 넘기는 화면 요청은 따로 기록해요
         || !(path.startsWith("/api/")
             || path.startsWith("/login/oauth2/")
             || path.startsWith("/oauth2/"));
