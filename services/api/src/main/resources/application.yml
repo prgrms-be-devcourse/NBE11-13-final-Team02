@@ -29,6 +29,10 @@ spring:
           max-attempts: 3
           initial-interval: 2s
           multiplier: 2
+    publisher-confirm-type: correlated  # 아웃박스: 브로커가 받았다고 답해야 보낸 것으로 쳐요
+    publisher-returns: true             # 받을 큐가 없으면 버리지 말고 되돌려 받아요
+    template:
+      mandatory: true
   security:
     oauth2:
       client:
@@ -66,6 +70,8 @@ spring:
             user-name-attribute: response  # 회원 정보가 response 안에 들어 있어요
 
 app:
+  outbox:
+    relay-interval-ms: 1000             # 아웃박스 → RabbitMQ 발송 주기
   frontend-url: ${FRONTEND_URL:http://localhost:3000}  # 로그인 뒤 돌아갈 화면, CORS 허용 주소
   cors-origins: ${CORS_ORIGINS:}        # 더 허용할 프론트 주소, 쉼표로 여러 개 (예: http://localhost:3200,https://preview.mujuthaek.kr)
   jwt:
