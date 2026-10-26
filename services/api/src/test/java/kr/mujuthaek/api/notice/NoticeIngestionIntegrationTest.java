@@ -119,7 +119,8 @@ class NoticeIngestionIntegrationTest {
   void clean() {
     clock.now = START;
     jdbc.sql(
-            "truncate notice.notice_versions, notice.notice_posts, notice.notice_follow_ups,"
+            "truncate notice.notice_reports, notice.notice_versions, notice.notice_posts,"
+                + " notice.notice_follow_ups,"
                 + " notice.notice_regions, notice.notice_source_heads,"
                 + " notice.notice_duplicate_candidates, notice.notice_area_scores, notice.notices,"
                 + " notice.extraction_results, notice.policy_judgments,"

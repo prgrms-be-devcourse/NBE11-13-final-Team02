@@ -530,3 +530,95 @@ def test_migration_supersedes_pending_reviews_already_behind_a_published_version
     finally:
         conn.execute(f"drop schema {schema} cascade")
         conn.close()
+
+
+def test_review_record_and_stats(store):
+    """관리자 검수 화면(2026-10-25): 누가·고쳐서 승인했는지 남기고, 그대로 승인·고쳐서 승인·반려 수와 처리 시간 중앙값을 셉니다."""
+    from test_worker_parts import pending_item
+
+    def queued(post_suffix):
+        item = pending_item()
+        event = raw_event() | {"eventId": str(uuid.uuid4())}
+        event["payload"] = event["payload"] | {"rawPostId": f"01929a3e-0000-7000-8000-00000000{post_suffix}"}
+        item["candidate"]["input"]["rawPostId"] = event["payload"]["rawPostId"]
+        for ref in item["candidate"]["sourceReferences"]:
+            ref["rawPostId"] = event["payload"]["rawPostId"]
+        return store.save(event, Outcome("IN_REVIEW", candidate=item["candidate"], review_reasons=["EXCEPTION_SUSPECTED /eligibility/2"]))
+
+    plain, edited, rejected = queued("0a01"), queued("0a02"), queued("0a03")
+    store.conn.execute("update review_queue set created_at = now() - interval '30 minutes'")
+
+    class Session:
+        def __enter__(self):
+            return store
+
+        def __exit__(self, *exc):
+            return False
+
+    def fresh_event(*args):
+        return new_event(*args) | {"eventId": str(uuid.uuid4())}  # 승인마다 다른 이벤트(시험용 new_event는 ID가 고정)
+
+    service = ReviewService(lambda: Session(), fresh_event)
+    assert service.approve(plain, {"reviewer": "admin:1"})[0] == 200
+    status, body = service.approve(edited, {"reviewer": "admin:2", "edits": [{"path": "/eligibility/0/description", "value": "가상 설명 고침"}]})
+    assert status == 200, body
+    assert service.reject(rejected, {"reviewer": "admin:1", "note": "[중복 공고]"})[0] == 200
+
+    detail = store.review(edited)
+    assert detail["decidedBy"] == "admin:2" and detail["edited"] is True
+    assert detail["edits"][0]["path"] == "/eligibility/0/description" and detail["edits"][0]["after"] == "가상 설명 고침"
+    assert detail["queuedAt"] is not None
+    assert store.review(plain)["edited"] is False and store.review(rejected)["decidedBy"] == "admin:1"
+
+    stats = store.review_stats(7)
+    assert stats["recent"] == {"approved": 1, "editedApproved": 1, "rejected": 1, "medianMinutes": 30}
+    assert stats["today"]["approved"] + stats["today"]["editedApproved"] + stats["today"]["rejected"] in (0, 3)  # 한국 자정 직후면 0
+
+
+def test_review_list_has_earliest_application_end(store):
+    """관리자 개요의 「마감이 가까운 검수 대기」: 후보의 신청 일정 중 가장 이른 끝 날짜(2026-10-25)."""
+    from test_worker_parts import pending_item
+
+    item = pending_item()
+    ends = [s["endsAt"]["value"][:10] for s in item["candidate"]["schedules"] if "APPLICATION" in s["kinds"] and (s.get("endsAt") or {}).get("value")]
+    store.save(item["rawEvent"], Outcome("IN_REVIEW", candidate=item["candidate"], review_reasons=[]))
+    [listed] = store.reviews("PENDING")
+    assert listed["applyEndsOn"] == (min(ends) if ends else None)
+    assert ends  # 시험 자료에 신청 마감이 있어야 의미가 있음
+
+
+def test_published_result_can_be_reopened_for_review_and_fixed_again(store):
+    """사용자 제보로 공고 값을 고칠 때(2026-10-25): 발행한 결과를 다시 열고, 앞선 처리 기록은 history로 남기고, 칸별 수정으로 다시 발행합니다."""
+    from test_worker_parts import pending_item
+
+    item = pending_item()
+    post = item["rawEvent"]["payload"]["rawPostId"]
+    job_id = store.save(item["rawEvent"], Outcome("IN_REVIEW", candidate=item["candidate"], review_reasons=["EXCEPTION_SUSPECTED /eligibility/2"]))
+
+    class Session:
+        def __enter__(self):
+            return store
+
+        def __exit__(self, *exc):
+            return False
+
+    def fresh_event(*args):
+        return new_event(*args) | {"eventId": str(uuid.uuid4())}
+
+    service = ReviewService(lambda: Session(), fresh_event)
+    assert store.reopen(post) is None  # 아직 발행 전이면 다시 열 결과가 없음
+    assert service.approve(job_id, {"reviewer": "admin:1", "note": "처음 승인"})[0] == 200
+
+    status, opened = service.reopen({"rawPostId": post, "reviewer": "admin:2", "note": "공고 제보: 보증금"})
+    assert status == 200 and opened == {"jobId": job_id, "reviewStatus": "PENDING", "reopened": True}
+    assert service.reopen({"rawPostId": post})[1]["reopened"] is False  # 이미 대기 중
+    detail = store.review(job_id)
+    assert detail["reviewStatus"] == "PENDING" and "USER_REPORT" in detail["reasons"]
+    assert [(h["reviewStatus"], h["decidedBy"], h["reopenedBy"], h["reopenNote"]) for h in detail["history"]] == [
+        ("APPROVED", "admin:1", "admin:2", "공고 제보: 보증금")
+    ]
+
+    status, body = service.approve(job_id, {"reviewer": "admin:2", "edits": [{"path": "/eligibility/0/description", "value": "제보로 고친 설명"}]})
+    assert status == 200, body
+    assert count(store, "select count(*) from outbox where payload->'payload'->>'reviewStatus' = 'APPROVED'") == 2
+    assert store.review(job_id)["candidate"]["eligibility"][0]["description"] == "제보로 고친 설명"

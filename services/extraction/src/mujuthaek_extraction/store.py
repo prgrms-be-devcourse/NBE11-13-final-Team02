@@ -263,39 +263,57 @@ class JobStore:
 
     # ---- 검수 ----
     def reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
-        """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다."""
+        """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다.
+        applyEndsOn은 후보의 신청(APPLICATION) 일정 중 가장 이른 끝 날짜예요(관리자 개요의 「마감이 가까운 검수 대기」, 2026-10-25)."""
         rows = self.conn.execute(
             "select j.id, j.raw_post_id, j.raw_version, j.source_code, j.status, r.status, r.reasons, r.created_at, j.candidate->'notice'->>'title',"
-            " j.raw_event->'payload'->>'title', r.decided_at, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
+            " j.raw_event->'payload'->>'title', r.decided_at,"
+            " (select min(left(s->'endsAt'->>'value', 10)) from jsonb_array_elements(case when jsonb_typeof(j.candidate->'schedules') = 'array'"
+            " then j.candidate->'schedules' else '[]'::jsonb end) s"
+            " where s->'kinds' ? 'APPLICATION' and s->'endsAt'->>'value' ~ '^\\d{4}-\\d{2}-\\d{2}'),"
+            " r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
             " from review_queue r join extraction_jobs j on j.id = r.job_id where r.status = %s order by r.created_at limit %s",
             (status, limit),
         ).fetchall()
         keys = ("jobId", "rawPostId", "rawVersion", "sourceCode", "jobStatus", "reviewStatus", "reasons", "queuedAt", "title", "sourceTitle", "decidedAt")
+        keys += ("applyEndsOn",)
         items = []
         for row in rows:
-            item = {k: (str(v) if k in ("jobId", "rawPostId") and v else v) for k, v in zip(keys, row[:11], strict=True)}
-            items.append(item | {"supersededBy": _superseded_by(*row[11:])})
+            item = {k: (str(v) if k in ("jobId", "rawPostId") and v else v) for k, v in zip(keys, row[:12], strict=True)}
+            items.append(item | {"supersededBy": _superseded_by(*row[12:])})
         return items
 
     def review(self, job_id: str) -> dict[str, Any] | None:
         row = self.conn.execute(
             "select j.id, j.status, r.status, r.reasons, r.note, j.candidate, j.raw_event, j.error, j.model_used, j.cost_usd, j.raw_post_id,"
-            " r.decided_at, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
+            " r.decided_at, r.created_at, r.decided_by, r.edited, r.edits, r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
             " from review_queue r join extraction_jobs j on j.id = r.job_id where j.id = %s",
             (job_id,),
         ).fetchone()
         if row is None:
             return None
         keys = ("jobId", "jobStatus", "reviewStatus", "reasons", "note", "candidate", "rawEvent", "error", "modelUsed", "costUsd", "rawPostId", "decidedAt")
-        item = dict(zip(keys, row[:12], strict=True))
+        keys += ("queuedAt", "decidedBy", "edited", "edits")
+        item = dict(zip(keys, row[:16], strict=True))
         item["jobId"] = str(item["jobId"])
         item["rawPostId"] = str(item["rawPostId"]) if item["rawPostId"] else None
         item["costUsd"] = float(item["costUsd"])
-        item["supersededBy"] = _superseded_by(*row[12:])
+        item["supersededBy"] = _superseded_by(*row[16:])
+        item["history"] = self.review_history(item["jobId"])
         return item
 
-    def approve(self, job_id: str, candidate: dict[str, Any], event: dict[str, Any], note: str | None) -> None:
+    def approve(
+        self,
+        job_id: str,
+        candidate: dict[str, Any],
+        event: dict[str, Any],
+        note: str | None,
+        reviewer: str | None = None,
+        edited: bool = False,
+        edits: list[dict[str, Any]] | None = None,
+    ) -> None:
         """대기 중인 검수를 승인하고 고친 후보와 발행할 이벤트를 한 트랜잭션으로 저장합니다.
+        reviewer·edited·edits는 처리 기록(관리자 화면, 2026-10-25)입니다. edits는 칸별 수정 [{path, before, after}].
         더 새 버전이 이미 발행됐거나 대기 중인 검수가 아니면 LookupError를 냅니다."""
         with self.conn.transaction(), self.conn.cursor() as cur:
             job = cur.execute("select raw_post_id, raw_version, raw_event->'payload' from extraction_jobs where id = %s", (job_id,)).fetchone()
@@ -303,8 +321,9 @@ class JobStore:
             corrected_post = _corrected_post(job[2] if job and isinstance(job[2], dict) else {})
             _lock_notice(cur, raw_post_id, corrected_post)
             cur.execute(
-                "update review_queue set status = 'APPROVED', note = %s, decided_at = now() where job_id = %s and status = 'PENDING'",
-                (note, job_id),
+                "update review_queue set status = 'APPROVED', note = %s, decided_at = now(), decided_by = %s, edited = %s, edits = %s"
+                " where job_id = %s and status = 'PENDING'",
+                (note, reviewer, edited, Jsonb(edits) if edits is not None else None, job_id),
             )
             if cur.rowcount != 1:
                 raise _not_pending(cur, job_id)  # 대체된 건이면 대체한 버전을 알려 줌
@@ -317,14 +336,75 @@ class JobStore:
             outbox.add(cur, event)
             _supersede_pending(cur, job_id, raw_post_id, job[1] if job else None, corrected_post)  # 승인으로 이 버전을 발행함
 
-    def reject(self, job_id: str, note: str | None) -> None:
+    def reject(self, job_id: str, note: str | None, reviewer: str | None = None) -> None:
         with self.conn.transaction(), self.conn.cursor() as cur:
             cur.execute(
-                "update review_queue set status = 'REJECTED', note = %s, decided_at = now() where job_id = %s and status = 'PENDING'",
-                (note, job_id),
+                "update review_queue set status = 'REJECTED', note = %s, decided_at = now(), decided_by = %s where job_id = %s and status = 'PENDING'",
+                (note, reviewer, job_id),
             )
             if cur.rowcount != 1:
                 raise _not_pending(cur, job_id)
+
+    def reopen(self, raw_post_id: str, reviewer: str | None = None, note: str | None = None) -> dict[str, Any] | None:
+        """그 원본의 가장 새로 발행한 결과를 검수 대기로 다시 엽니다(관리자 화면: 사용자 제보로 공고 값을 고칠 때, 2026-10-25).
+        이미 대기 중이면 그대로 돌려줍니다. 앞선 처리 기록은 review_history로 옮깁니다. 발행한 결과가 없으면 None."""
+        with self.conn.transaction(), self.conn.cursor() as cur:
+            job = cur.execute(
+                "select id from extraction_jobs where raw_post_id = %s and completed_event_id is not null and candidate is not null"
+                " order by raw_version desc, updated_at desc limit 1 for update",
+                (raw_post_id,),
+            ).fetchone()
+            if job is None:
+                return None
+            job_id = job[0]
+            row = cur.execute("select status from review_queue where job_id = %s for update", (job_id,)).fetchone()
+            if row is not None and row[0] == "PENDING":
+                return {"jobId": str(job_id), "reviewStatus": "PENDING", "reopened": False}
+            if row is None:
+                cur.execute("insert into review_queue (job_id, reasons) values (%s, %s)", (job_id, Jsonb(["USER_REPORT"])))
+            else:
+                cur.execute(
+                    "insert into review_history (job_id, status, reasons, note, created_at, decided_at, decided_by, edited, edits, reopened_by, reopen_note)"
+                    " select job_id, status, reasons, note, created_at, decided_at, decided_by, edited, edits, %s, %s from review_queue where job_id = %s",
+                    (reviewer, note, job_id),
+                )
+                cur.execute(
+                    "update review_queue set status = 'PENDING',"
+                    " reasons = (case when reasons ? 'USER_REPORT' then reasons else reasons || '[\"USER_REPORT\"]'::jsonb end),"
+                    " note = null, created_at = now(), decided_at = null, decided_by = null, edited = false, edits = null,"
+                    " superseded_by_job_id = null, superseded_by_raw_post_id = null, superseded_by_version = null where job_id = %s",
+                    (job_id,),
+                )
+            return {"jobId": str(job_id), "reviewStatus": "PENDING", "reopened": True}
+
+    def review_history(self, job_id: str) -> list[dict[str, Any]]:
+        """다시 열기 전의 처리 기록(오래된 것부터)."""
+        rows = self.conn.execute(
+            "select status, note, decided_at, decided_by, edited, edits, archived_at, reopened_by, reopen_note"
+            " from review_history where job_id = %s order by id",
+            (job_id,),
+        ).fetchall()
+        keys = ("reviewStatus", "note", "decidedAt", "decidedBy", "edited", "edits", "reopenedAt", "reopenedBy", "reopenNote")
+        return [dict(zip(keys, row, strict=True)) for row in rows]
+
+    def review_stats(self, days: int = 7) -> dict[str, Any]:
+        """관리자 개요의 처리 통계: 최근 days일과 오늘(한국 시간)의 그대로 승인·고쳐서 승인·반려 수와, 들어와서 처리되기까지 걸린 시간의 중앙값(분).
+        대체(SUPERSEDED)는 사람이 처리한 것이 아니라 세지 않습니다."""
+
+        def counts(since_sql: str, params: tuple[Any, ...]) -> dict[str, Any]:
+            row = self.conn.execute(
+                "select count(*) filter (where status = 'APPROVED' and not edited), count(*) filter (where status = 'APPROVED' and edited),"
+                " count(*) filter (where status = 'REJECTED'),"
+                " percentile_cont(0.5) within group (order by extract(epoch from decided_at - created_at))"
+                f" from review_queue where status in ('APPROVED', 'REJECTED') and decided_at >= {since_sql}",
+                params,
+            ).fetchone()
+            median = None if row[3] is None else round(float(row[3]) / 60)
+            return {"approved": row[0], "editedApproved": row[1], "rejected": row[2], "medianMinutes": median}
+
+        recent = counts("now() - make_interval(days => %s)", (days,))
+        today = counts("(date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul')", ())
+        return {"days": days, "recent": recent, "today": today}
 
     # ---- 비용 ----
     def monthly_costs(self, month: str | None = None, budget_usd: float | None = None) -> dict[str, Any]:
