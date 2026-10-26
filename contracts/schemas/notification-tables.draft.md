@@ -37,6 +37,8 @@ processed_events   받은 이벤트 장부 (같은 이벤트 두 번 처리 방�
 | `sent_at` | timestamptz \| null | |
 | `created_at` | timestamptz | 90일 지나면 지워요 |
 
+**탈퇴 회원 기록 (`withdrawn_users`)**: `user_id` PK, `withdrawn_at`. `user.withdrawn`을 받을 때 발송 줄을 지우면서 넣어요. 탈퇴 전에 만든 `notification.requested`가 재시도로 늦게 와도 그 회원 줄은 만들지 않아요. 90일 지나면 지워요 (04:00 정리 작업)
+
 **보낼 시각 (`scheduled_at`)**
 - `NEW_NOTICE`·`NEW_SUPPORT`: `digest = true`, 채널의 다음 묶음 시각 (Asia/Seoul)
   - 이메일: 08:00 또는 18:00. 두 시각 모두 조용한 시간 밖이에요
