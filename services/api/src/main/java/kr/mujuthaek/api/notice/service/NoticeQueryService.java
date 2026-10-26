@@ -463,6 +463,16 @@ public class NoticeQueryService {
     return java.util.Optional.ofNullable(findSummaries(List.of(noticeId)).get(noticeId));
   }
 
+  /**
+   * 공고에 가장 최근 붙이거나 바뀐 후속 안내 하나 (알림 담당 요청: NoticeUpdated(followUps)를 받았을 때 어떤 글인지). 그 이벤트를 받는 트랜잭션
+   * 안에서 부르면 이벤트의 글이에요. 후속 안내가 없으면 빈 값. noticeId는 합친(남은) 공고 ID로 물으세요(findSummary의 noticeId).
+   */
+  public java.util.Optional<NoticeFollowUpSummary> findLatestFollowUp(UUID noticeId) {
+    return followUps
+        .findLatestByNotice(noticeId)
+        .map(f -> new NoticeFollowUpSummary(f.rawPostId(), f.title(), f.postedOn()));
+  }
+
   private static NoticeSummary summary(NoticeQueries.SummaryRow row) {
     return new NoticeSummary(
         row.id(),

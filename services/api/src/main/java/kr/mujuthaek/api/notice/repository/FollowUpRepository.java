@@ -102,6 +102,23 @@ public class FollowUpRepository {
         .list();
   }
 
+  /** 공고에 가장 최근 붙이거나 바꾼 후속 안내 하나 (알림용). 후속 안내를 붙이는 트랜잭션 안에서 부르면 방금 붙인 글이에요(updated_at이 가장 늦어요). */
+  public Optional<Latest> findLatestByNotice(UUID noticeId) {
+    return jdbc.sql(
+            "select raw_post_id, title, posted_on from notice.notice_follow_ups"
+                + " where notice_id = :id order by updated_at desc, raw_post_id desc limit 1")
+        .param("id", noticeId)
+        .query(
+            (rs, i) ->
+                new Latest(
+                    rs.getObject("raw_post_id", UUID.class),
+                    rs.getString("title"),
+                    rs.getObject("posted_on", LocalDate.class)))
+        .optional();
+  }
+
+  public record Latest(UUID rawPostId, String title, LocalDate postedOn) {}
+
   public record Attached(
       UUID noticeId, int rawVersion, String contentHash, ReviewStatus reviewStatus) {}
 

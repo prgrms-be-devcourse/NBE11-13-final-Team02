@@ -1,0 +1,218 @@
+package kr.mujuthaek.api.notification;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doCallRealMethod;
+import static org.mockito.Mockito.doThrow;
+
+import java.util.List;
+import java.util.OptionalInt;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import kr.mujuthaek.api.TestcontainersConfiguration;
+import kr.mujuthaek.api.benefit.BenefitFixture;
+import kr.mujuthaek.api.benefit.service.internal.BenefitIngestionService;
+import kr.mujuthaek.api.notification.service.internal.DeadlineReminderService;
+import kr.mujuthaek.api.notification.service.internal.RecipientFinder;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ObjectNode;
+
+/** 마감 D-3·D-1: 하루 한 번, 09:00 뒤 따라잡기, 여러 서버, 실패 뒤 다시. 픽스처 신청 기간은 10/1~11/30이에요. */
+@SpringBootTest(
+    properties = {
+      "app.outbox.scheduling-enabled=false",
+      "benefit.status-refresh.enabled=false",
+      "notification.deadline-reminder.enabled=false", // 테스트에서 직접 불러요
+      "app.notification.test-recipients[0].user-id=0192b6f0-0000-7000-8000-0000000000a1",
+      "app.notification.test-recipients[0].email=me@example.com",
+      "app.notification.test-recipients[0].quiet-enabled=false"
+    })
+@Import({TestcontainersConfiguration.class, NotificationTestClock.class})
+class DeadlineReminderTest {
+
+  @Autowired DeadlineReminderService reminders;
+  @Autowired BenefitIngestionService ingestion;
+  @Autowired JdbcClient jdbc;
+  @Autowired JsonMapper json;
+  @Autowired NotificationTestClock.MovableClock clock;
+  @MockitoSpyBean RecipientFinder recipients;
+
+  @BeforeEach
+  void clear() {
+    clock.set("2026-10-25T12:00");
+    jdbc.sql("delete from benefit.benefits").update();
+    jdbc.sql("delete from notification.reminder_runs").update();
+  }
+
+  @Test
+  void threeAndOneDayBeforeDeadlineAreRequestedOnceADay() {
+    UUID policy = policy(p -> {}); // 마감 11/30
+    UUID other =
+        policy(
+            p -> {
+              p.withObject("source").put("title", "청년 전세 이자 지원");
+              p.withObject("schedule").put("applyEnd", "2026-11-28");
+            });
+    jdbc.sql("delete from common.outbox").update();
+
+    clock.set("2026-11-27T08:59");
+    assertThat(reminders.runIfDue()).as("09:00 전").isEmpty();
+
+    clock.set("2026-11-27T09:00");
+    assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(2));
+    List<JsonNode> sent = requests();
+    JsonNode d3 = byType(sent, "DEADLINE_D3");
+    assertThat(d3.path("dedupKey").asString()).isEqualTo("BENEFIT:" + policy + ":D3:2026-11-30");
+    assertThat(d3.path("title").asString()).isEqualTo("마감 3일 전: 청년 취업자 주거비 지원사업");
+    assertThat(d3.path("body").asString()).isEqualTo("관심 지원 정책 접수가 11월 30일에 마감돼요.");
+    assertThat(d3.path("linkPath").asString()).isEqualTo("/benefits/" + policy);
+    JsonNode d1 = byType(sent, "DEADLINE_D1");
+    assertThat(d1.path("dedupKey").asString()).isEqualTo("BENEFIT:" + other + ":D1:2026-11-28");
+    assertThat(d1.path("title").asString()).isEqualTo("내일 마감: 청년 전세 이자 지원");
+    assertThat(d1.path("body").asString()).isEqualTo("관심 지원 정책 접수가 내일(11월 28일) 마감돼요.");
+    assertThat(d1.path("target").path("type").asString()).isEqualTo("BENEFIT");
+    assertThat(d1.path("recipients").get(0).path("email").asString()).isEqualTo("me@example.com");
+
+    clock.set("2026-11-27T21:00");
+    assertThat(reminders.runIfDue()).as("같은 날 두 번째 확인").isEmpty();
+    assertThat(requests()).hasSize(2);
+
+    clock.set("2026-11-29T09:10");
+    assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
+    assertThat(requests())
+        .extracting(r -> r.path("dedupKey").asString())
+        .contains("BENEFIT:" + policy + ":D1:2026-11-30");
+  }
+
+  @Test
+  void serverDownAtNineCatchesUpLaterThatDay() {
+    policy(p -> {});
+    jdbc.sql("delete from common.outbox").update();
+
+    clock.set("2026-11-29T23:55"); // 09:00부터 꺼져 있다가 밤에 켜짐
+
+    assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
+    assertThat(byType(requests(), "DEADLINE_D1")).isNotNull();
+  }
+
+  @Test
+  void hiddenAlwaysNotStartedAndOtherDatesAreLeftOut() {
+    policy(p -> p.put("relevant", false));
+    policy(p -> p.withObject("schedule").put("applyAlways", true));
+    policy(p -> p.withObject("schedule").put("applyStart", "2026-11-28"));
+    policy(p -> p.withObject("schedule").put("applyEnd", "2026-11-29"));
+    jdbc.sql("delete from common.outbox").update();
+
+    clock.set("2026-11-27T09:00"); // D-3 = 11/30, D-1 = 11/28
+
+    assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(0));
+    assertThat(requests()).isEmpty();
+    assertThat(
+            jdbc.sql("select requested from notification.reminder_runs")
+                .query(Integer.class)
+                .single())
+        .as("보낼 것이 없어도 그날 했다고 남겨요")
+        .isZero();
+  }
+
+  @Test
+  void twoServersAtNineMakeOneSetOfRequests() throws Exception {
+    for (int i = 0; i < 5; i++) {
+      policy(p -> {});
+    }
+    jdbc.sql("delete from common.outbox").update();
+    clock.set("2026-11-27T09:00");
+    CyclicBarrier together = new CyclicBarrier(2);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      List<CompletableFuture<OptionalInt>> runs =
+          List.of(
+              CompletableFuture.supplyAsync(() -> runTogether(together), pool),
+              CompletableFuture.supplyAsync(() -> runTogether(together), pool));
+      int ran = 0;
+      for (CompletableFuture<OptionalInt> run : runs) {
+        if (run.get(30, TimeUnit.SECONDS).isPresent()) {
+          ran++;
+        }
+      }
+      assertThat(ran).as("한 서버만").isEqualTo(1);
+    } finally {
+      pool.shutdownNow();
+    }
+    assertThat(requests()).hasSize(5);
+  }
+
+  @Test
+  void failureRollsBackTheRunSoItIsRetried() {
+    policy(p -> {});
+    jdbc.sql("delete from common.outbox").update();
+    clock.set("2026-11-27T09:00");
+    doThrow(new IllegalStateException("회원 조회 실패")).when(recipients).forFavorite(any(), any());
+
+    assertThatThrownBy(() -> reminders.runIfDue()).isInstanceOf(IllegalStateException.class);
+    assertThat(
+            jdbc.sql("select count(*) from notification.reminder_runs").query(Long.class).single())
+        .as("실행 기록도 되돌려짐")
+        .isZero();
+
+    doCallRealMethod().when(recipients).forFavorite(any(), any());
+    clock.set("2026-11-27T09:10");
+    assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
+    assertThat(requests()).hasSize(1);
+  }
+
+  private OptionalInt runTogether(CyclicBarrier together) {
+    try {
+      together.await(10, TimeUnit.SECONDS);
+    } catch (Exception e) {
+      throw new IllegalStateException(e);
+    }
+    return reminders.runIfDue();
+  }
+
+  /** 혜택 하나를 저장하고 ID를 돌려줘요 (dev benefit 픽스처: 주거 혜택, 신청 10/1~11/30) */
+  private UUID policy(java.util.function.Consumer<ObjectNode> change) {
+    UUID raw = UUID.randomUUID();
+    ingestion.apply(BenefitFixture.event(raw, 1, change));
+    return jdbc.sql("select id from benefit.benefits where raw_policy_id = :raw")
+        .param("raw", raw)
+        .query(UUID.class)
+        .single();
+  }
+
+  private UUID onlyId(String table) {
+    return jdbc.sql("select id from " + table).query(UUID.class).single();
+  }
+
+  private List<JsonNode> requests() {
+    return jdbc
+        .sql(
+            "select payload::text from common.outbox where event_type = 'notification.requested'"
+                + " order by created_at")
+        .query(String.class)
+        .list()
+        .stream()
+        .map(s -> json.readTree(s).path("payload"))
+        .toList();
+  }
+
+  private static JsonNode byType(List<JsonNode> sent, String type) {
+    return sent.stream()
+        .filter(r -> type.equals(r.path("type").asString()))
+        .findFirst()
+        .orElseThrow();
+  }
+}
