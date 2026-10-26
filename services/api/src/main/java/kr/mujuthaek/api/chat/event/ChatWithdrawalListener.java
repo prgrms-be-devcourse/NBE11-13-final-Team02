@@ -8,11 +8,11 @@ import org.springframework.transaction.event.TransactionalEventListener;
 
 /** 회원 탈퇴가 커밋된 뒤 그 회원의 채팅 데이터를 지워요. */
 @Component
-class UserWithdrawnListener {
+class ChatWithdrawalListener {
 
   private final ChatService chats;
 
-  UserWithdrawnListener(ChatService chats) {
+  ChatWithdrawalListener(ChatService chats) {
     this.chats = chats;
   }
 
