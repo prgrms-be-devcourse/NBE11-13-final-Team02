@@ -11,7 +11,6 @@ import kr.mujuthaek.api.benefit.service.BenefitQueryService;
 import kr.mujuthaek.api.benefit.service.BenefitSummary;
 import kr.mujuthaek.api.common.event.BenefitPublished;
 import kr.mujuthaek.api.common.event.BenefitUpdated;
-import kr.mujuthaek.api.common.messaging.Outbox;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,12 +40,11 @@ public class BenefitNotificationService {
   public BenefitNotificationService(
       BenefitQueryService benefits,
       RecipientFinder recipients,
-      Outbox outbox,
-      PushDeviceFinder push,
+      NotificationRequests requests,
       Clock clock) {
     this.benefits = benefits;
     this.recipients = recipients;
-    this.requests = new NotificationRequests(outbox, push);
+    this.requests = requests;
     this.clock = clock;
   }
 

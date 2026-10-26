@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.OptionalInt;
 import kr.mujuthaek.api.benefit.service.BenefitQueryService;
 import kr.mujuthaek.api.benefit.service.BenefitSummary;
-import kr.mujuthaek.api.common.messaging.Outbox;
 import kr.mujuthaek.api.notification.repository.ReminderRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -50,13 +49,12 @@ public class DeadlineReminderService {
       BenefitQueryService benefits,
       RecipientFinder recipients,
       ReminderRunRepository runs,
-      Outbox outbox,
-      PushDeviceFinder push,
+      NotificationRequests requests,
       Clock clock) {
     this.benefits = benefits;
     this.recipients = recipients;
     this.runs = runs;
-    this.requests = new NotificationRequests(outbox, push);
+    this.requests = requests;
     this.clock = clock;
   }
 

@@ -24,7 +24,9 @@ import kr.mujuthaek.api.benefit.service.BenefitSummary;
 import kr.mujuthaek.api.common.event.BenefitPublished;
 import kr.mujuthaek.api.common.event.BenefitUpdated;
 import kr.mujuthaek.api.common.messaging.Outbox;
+import kr.mujuthaek.api.notification.repository.InboxRepository;
 import kr.mujuthaek.api.notification.service.internal.BenefitNotificationService;
+import kr.mujuthaek.api.notification.service.internal.NotificationRequests;
 import kr.mujuthaek.api.notification.service.internal.Recipient;
 import kr.mujuthaek.api.notification.service.internal.RecipientFinder;
 import org.junit.jupiter.api.Test;
@@ -37,7 +39,11 @@ class BenefitNotificationServiceTest {
   final Outbox outbox = mock(Outbox.class);
   final Clock clock = Clock.fixed(Instant.parse("2026-10-25T00:00:00Z"), ZoneId.of("Asia/Seoul"));
   final BenefitNotificationService service =
-      new BenefitNotificationService(benefits, finder, outbox, ids -> Map.of(), clock);
+      new BenefitNotificationService(
+          benefits,
+          finder,
+          new NotificationRequests(outbox, ids -> Map.of(), mock(InboxRepository.class), clock),
+          clock);
   final UUID id = UUID.randomUUID();
 
   @Test
@@ -99,7 +105,7 @@ class BenefitNotificationServiceTest {
 
   private static List<Recipient> people(int n) {
     return IntStream.range(0, n)
-        .mapToObj(i -> new Recipient(UUID.randomUUID(), "u" + i + "@example.com", false))
+        .mapToObj(i -> new Recipient(UUID.randomUUID(), "u" + i + "@example.com", false, true))
         .toList();
   }
 }

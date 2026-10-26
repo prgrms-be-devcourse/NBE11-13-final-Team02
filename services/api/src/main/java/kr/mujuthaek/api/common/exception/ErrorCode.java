@@ -47,6 +47,7 @@ public enum ErrorCode {
   // notification
   PUSH_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "웹 푸시 알림을 아직 쓸 수 없어요"),
   PUSH_SUBSCRIPTION_NOT_FOUND(HttpStatus.NOT_FOUND, "등록된 기기를 찾을 수 없어요"),
+  NOTIFICATION_NOT_FOUND(HttpStatus.NOT_FOUND, "알림을 찾을 수 없어요"),
 
   // eligibility
   CRITERIA_NOT_FOUND(HttpStatus.NOT_FOUND, "그 연도의 판정 기준값이 아직 없어요"),

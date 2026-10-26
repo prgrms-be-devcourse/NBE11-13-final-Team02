@@ -1,22 +1,33 @@
 package kr.mujuthaek.api.notification.service.internal;
 
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import kr.mujuthaek.api.common.id.UuidV7;
 import kr.mujuthaek.api.common.messaging.Outbox;
+import kr.mujuthaek.api.notification.repository.InboxRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
 
 /**
- * notification.requested를 아웃박스에 적어요 (contracts/schemas/notification-events.draft.md). 받는 사람은 한 요청에
- * 500명까지라 넘으면 나눠 적어요. 부르는 쪽의 트랜잭션 안에서 써요.
+ * 알림 하나를 받는 사람들에게 남기고 보내요. 부르는 쪽(공고·정책 저장, 마감 확인)의 트랜잭션 안에서 써요.
  *
- * <p>받는 사람마다 웹 푸시 구독 기기를 붙여요 (recipients[].push, contracts/schemas/web-push.draft.md 3장). 기기가 없으면
- * null이에요. 누구에게 보낼지(종류별 켬·끔)는 받는 사람을 고를 때 이미 정해서, 여기서는 기기만 찾아 붙여요. 500명마다 한 번 조회해요.
+ * <ol>
+ *   <li>알림함: 받는 사람마다 한 줄 (알림 설정·기기와 상관없이, 같은 dedupKey면 한 번)
+ *   <li>웹 푸시 기기: 회원마다 최근 5대 (recipients[].push, contracts/schemas/web-push.draft.md 3장)
+ *   <li>notification.requested를 아웃박스에 (contracts/schemas/notification-events.draft.md). 이메일도 기기도 없는
+ *       회원은 알림 서버가 할 일이 없어서 빼요. 한 요청에 500명까지라 넘으면 나눠 적어요
+ * </ol>
+ *
+ * <p>누구에게 보낼지(관심 조건·종류별 켬·끔)는 받는 사람을 고를 때 이미 정했어요. 500명마다 기기를 한 번 조회해요.
  */
-final class NotificationRequests {
+@Component
+public class NotificationRequests {
 
   private static final Logger log = LoggerFactory.getLogger(NotificationRequests.class);
 
@@ -25,13 +36,18 @@ final class NotificationRequests {
 
   private final Outbox outbox;
   private final PushDeviceFinder push;
+  private final InboxRepository inbox;
+  private final Clock clock;
 
-  NotificationRequests(Outbox outbox, PushDeviceFinder push) {
+  public NotificationRequests(
+      Outbox outbox, PushDeviceFinder push, InboxRepository inbox, Clock clock) {
     this.outbox = outbox;
     this.push = push;
+    this.inbox = inbox;
+    this.clock = clock;
   }
 
-  /** 적은 요청 수를 돌려줘요. 받는 사람이 없으면 0 */
+  /** 적은 요청 수를 돌려줘요. 받는 사람이 없거나 모두 알림함에만 남기면 0 */
   int write(
       String type,
       String dedupKey,
@@ -44,30 +60,59 @@ final class NotificationRequests {
       log.debug("받을 회원이 없어 알림 요청을 만들지 않아요: type={}, targetId={}", type, targetId);
       return 0;
     }
+    String linkPath = linkPath(targetType, targetId);
+    Instant now = clock.instant();
     int sent = 0;
     int withPush = 0;
+    int stored = 0;
     for (int from = 0; from < to.size(); from += MAX_RECIPIENTS) {
       List<Recipient> chunk = to.subList(from, Math.min(from + MAX_RECIPIENTS, to.size()));
+      stored +=
+          inbox.addAll(
+              chunk.stream()
+                  .map(
+                      r ->
+                          new InboxRepository.NewEntry(
+                              UuidV7.next(),
+                              r.userId(),
+                              type,
+                              targetType,
+                              targetId,
+                              title,
+                              body,
+                              linkPath,
+                              dedupKey,
+                              now))
+                  .toList());
       Map<UUID, List<PushDevice>> devices =
-          push.latest(chunk.stream().map(Recipient::userId).toList());
+          push.latest(
+              chunk.stream().filter(Recipient::pushEnabled).map(Recipient::userId).toList());
       withPush += devices.size();
+      List<Map<String, Object>> recipients =
+          chunk.stream()
+              .map(r -> recipient(r, r.pushEnabled() ? devices.get(r.userId()) : null))
+              .filter(m -> m.get("email") != null || m.get("push") != null)
+              .toList();
+      if (recipients.isEmpty()) {
+        continue; // 모두 알림함에만 (기기·이메일 없음 또는 이 종류를 끔)
+      }
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("type", type);
       payload.put("dedupKey", dedupKey);
       payload.put("target", Map.of("type", targetType, "id", targetId));
       payload.put("title", title);
       payload.put("body", body);
-      payload.put("linkPath", linkPath(targetType, targetId));
-      payload.put(
-          "recipients", chunk.stream().map(r -> recipient(r, devices.get(r.userId()))).toList());
+      payload.put("linkPath", linkPath);
+      payload.put("recipients", recipients);
       outbox.add(EVENT_TYPE, 1, payload);
       sent++;
     }
     log.info(
-        "알림 요청을 아웃박스에 적음: type={}, targetId={}, 받는 사람={}, 푸시 기기 있는 사람={}, 요청={}",
+        "알림을 남기고 요청을 적음: type={}, targetId={}, 받는 사람={}, 알림함 새 줄={}, 푸시 기기 있는 사람={}, 요청={}",
         type,
         targetId,
         to.size(),
+        stored,
         withPush,
         sent);
     return sent;

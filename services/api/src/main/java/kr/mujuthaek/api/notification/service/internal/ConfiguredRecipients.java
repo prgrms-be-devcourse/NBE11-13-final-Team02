@@ -23,21 +23,30 @@ class ConfiguredRecipients implements RecipientFinder {
 
   @Override
   public List<Recipient> forNewBenefit(String field, String regionScope, List<String> regionCodes) {
-    return properties.testRecipients();
+    return recipients();
   }
 
   @Override
   public List<Recipient> forNewNotice(String field, List<String> regionCodes, boolean nationwide) {
-    return properties.testRecipients();
+    return recipients();
   }
 
   @Override
   public List<Recipient> forFavorite(String targetType, UUID targetId) {
-    return properties.testRecipients();
+    return recipients();
   }
 
+  private List<Recipient> recipients() {
+    return properties.testRecipients().stream()
+        .map(t -> new Recipient(t.userId(), t.email(), t.quietEnabled(), true))
+        .toList();
+  }
+
+  /** 설정 파일의 테스트 회원 한 명 (모든 종류 켬) */
+  record TestRecipient(UUID userId, String email, boolean quietEnabled) {}
+
   @ConfigurationProperties("app.notification")
-  record Properties(@DefaultValue List<Recipient> testRecipients) {}
+  record Properties(@DefaultValue List<TestRecipient> testRecipients) {}
 
   @Configuration
   @EnableConfigurationProperties(Properties.class)

@@ -76,3 +76,14 @@ src/main/java/kr/mujuthaek/api/
 - 회원당 5대. 넘으면 마지막 등록(`updated_at`)이 가장 오래된 기기를 지워요. 다른 회원이 쓰던 주소를 등록하면 이 회원으로 옮겨요 (같은 브라우저에서 다른 계정으로 로그인)
 - 주소·키는 로그에 남기지 않아요 (회원 ID와 푸시 서비스 도메인만). 탈퇴하면 `UserWithdrawn`으로 그 회원 기기를 모두 지워요
 - 환경 변수: `PUSH_VAPID_PUBLIC_KEY` (`npx web-push generate-vapid-keys`로 만든 공개키). 개인키는 알림 서버에만 둬요
+
+## 알림함 (notification 모듈)
+
+알림 요청을 만들 때 받는 사람마다 한 줄 남겨요 (`notification.notifications`). 알림 설정(종류별 켬·끔)이나 기기·이메일이 없어도 남고, 설정은 푸시·이메일로 보낼지만 정해요. 같은 알림(dedupKey)은 한 번만, 90일 지나면 매일 04:40(한국 시각)에 지워요. 탈퇴하면 `UserWithdrawn`으로 모두 지워요.
+
+| 하는 일 | 요청 | 비고 |
+| --- | --- | --- |
+| 내 알림 | `GET /api/users/me/notifications[?cursor=&size=&unread=true]` | 최근 것부터. `{items: [{id, type, target{type,id}, title, body, linkPath, createdAt, readAt}], nextCursor, hasNext}` |
+| 안 읽은 수 | `GET /api/users/me/notifications/unread-count` | `{count}` |
+| 읽음 | `POST /api/users/me/notifications/{id}/read` | 204. 이미 읽었어도 204, 내 알림이 아니면 404 `NOTIFICATION_NOT_FOUND` |
+| 모두 읽음 | `POST /api/users/me/notifications/read-all` | 204 |
