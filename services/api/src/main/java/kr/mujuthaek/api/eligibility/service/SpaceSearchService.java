@@ -22,7 +22,6 @@ import kr.mujuthaek.api.eligibility.dto.response.SpaceSearchResponse;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
 import kr.mujuthaek.api.eligibility.rule.frame.Answer;
-import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.stereotype.Service;
 
@@ -118,7 +117,7 @@ public class SpaceSearchService {
         n.detailUrl(),
         n.applyStart(),
         n.applyEnd(),
-        NoticeStatus.dday(n.applyEnd(), today),
+        dday(n.applyEnd(), today),
         status(n.applyStart(), n.applyEnd(), today),
         n.regionCodes(),
         j.judgment());
@@ -232,7 +231,7 @@ public class SpaceSearchService {
         c != null ? c.status() : status(m.applyStart(), m.applyEnd(), today),
         m.applyStart(),
         m.applyEnd(),
-        NoticeStatus.dday(m.applyEnd(), today),
+        dday(m.applyEnd(), today),
         m.status(),
         m.reason(),
         m.groups(),
@@ -241,14 +240,22 @@ public class SpaceSearchService {
         c == null ? List.of() : c.tags());
   }
 
+  /**
+   * 마감까지 남은 날 (마감일 당일 0). 마감일이 없거나 지났으면 null. 공고 목록의 dday와 같은 규칙이에요 (notice 모듈 안 타입이라 여기서 같게 셈해요).
+   */
+  static Integer dday(LocalDate applyEnd, LocalDate today) {
+    if (applyEnd == null || today.isAfter(applyEnd)) {
+      return null;
+    }
+    return (int) java.time.temporal.ChronoUnit.DAYS.between(today, applyEnd);
+  }
+
   /** 모집 정책은 접수 상태가 저장돼 있지 않아서 기간으로 정해요 (열린 것만 와요). */
   static String status(LocalDate applyStart, LocalDate applyEnd, LocalDate today) {
     if (applyEnd == null) {
-      return NoticeStatus.ALWAYS.name();
+      return "ALWAYS";
     }
-    return applyStart != null && today.isBefore(applyStart)
-        ? NoticeStatus.UPCOMING.name()
-        : NoticeStatus.APPLYING.name();
+    return applyStart != null && today.isBefore(applyStart) ? "UPCOMING" : "APPLYING";
   }
 
   /**
