@@ -33,8 +33,23 @@ public class BenefitRepository {
     this.jdbc = jdbc;
   }
 
-  /** 저장된 혜택의 ID와 반영한 수집 버전. */
-  public record Saved(UUID id, int version) {}
+  /** 저장된 혜택의 ID, 반영한 수집 버전, 범위 안(보이는 혜택)인지. */
+  public record Saved(UUID id, int version, boolean relevant) {}
+
+  /** 다른 모듈(알림)에 주는 혜택 요약 한 줄. */
+  public record SummaryRow(
+      UUID id,
+      String field,
+      int version,
+      String title,
+      String agency,
+      String status,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      boolean applyAlways,
+      String regionScope,
+      List<String> regionCodes,
+      String detailUrl) {}
 
   /** 혜택 한 줄 (지원 내용·조건 포함). */
   public record Row(
@@ -66,9 +81,15 @@ public class BenefitRepository {
       List<Condition> conditions) {}
 
   public Optional<Saved> findByRawPolicyId(UUID rawPolicyId) {
-    return jdbc.sql("select id, source_version from benefit.benefits where raw_policy_id = ?")
+    return jdbc.sql(
+            "select id, source_version, relevant from benefit.benefits where raw_policy_id = ?")
         .param(rawPolicyId)
-        .query((rs, i) -> new Saved(rs.getObject("id", UUID.class), rs.getInt("source_version")))
+        .query(
+            (rs, i) ->
+                new Saved(
+                    rs.getObject("id", UUID.class),
+                    rs.getInt("source_version"),
+                    rs.getBoolean("relevant")))
         .optional();
   }
 
@@ -238,6 +259,46 @@ public class BenefitRepository {
             .query(BenefitRepository::row)
             .list();
     return withLines(rows).stream().findFirst();
+  }
+
+  /** 혜택 하나의 요약 (숨김 포함). */
+  public Optional<SummaryRow> summary(UUID id) {
+    return jdbc.sql(SUMMARY + " where id = ?")
+        .param(id)
+        .query(BenefitRepository::summary)
+        .optional();
+  }
+
+  /** 마감일이 dates 중 하나이고 오늘 접수 중인 혜택 (숨김·상시·시작 전 제외). 상태 칸 대신 날짜로 골라요 (상태 재계산이 늦어도 같게) */
+  public List<SummaryRow> openClosingOn(Collection<LocalDate> dates, LocalDate today) {
+    if (dates.isEmpty()) return List.of();
+    return jdbc.sql(
+            SUMMARY
+                + " where relevant and not apply_always and apply_end = any(?)"
+                + " and (apply_start is null or apply_start <= ?) order by apply_end, id")
+        .params(dates.stream().map(Date::valueOf).toArray(Date[]::new), Date.valueOf(today))
+        .query(BenefitRepository::summary)
+        .list();
+  }
+
+  private static final String SUMMARY =
+      "select id, field, source_version, title, agency, status, apply_start, apply_end,"
+          + " apply_always, region_scope, region_codes, detail_url from benefit.benefits";
+
+  private static SummaryRow summary(ResultSet rs, int i) throws SQLException {
+    return new SummaryRow(
+        rs.getObject("id", UUID.class),
+        rs.getString("field"),
+        rs.getInt("source_version"),
+        rs.getString("title"),
+        rs.getString("agency"),
+        rs.getString("status"),
+        day(rs, "apply_start"),
+        day(rs, "apply_end"),
+        rs.getBoolean("apply_always"),
+        rs.getString("region_scope"),
+        strings(rs.getArray("region_codes")),
+        rs.getString("detail_url"));
   }
 
   /** 지원 내용·조건 줄을 한 번에 읽어 붙여요 (혜택 수만큼 질의하지 않게). */

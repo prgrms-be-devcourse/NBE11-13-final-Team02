@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.benefit.service;
 
+import java.time.LocalDate;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -8,7 +9,10 @@ import kr.mujuthaek.api.benefit.repository.BenefitRepository;
 import kr.mujuthaek.api.benefit.repository.BenefitRepository.Row;
 import org.springframework.stereotype.Service;
 
-/** 다른 모듈(eligibility)이 판정에 쓰는 혜택 조회. 숨김·마감 혜택은 주지 않아요. */
+/**
+ * 다른 모듈이 쓰는 혜택 조회. 판정용(eligibility: openForJudgment·forJudgment)은 숨김·마감 혜택을 주지 않고, 알림용
+ * (notification: findSummary·findOpenClosingOn)은 요약만 줘요.
+ */
 @Service
 public class BenefitQueryService {
 
@@ -31,6 +35,34 @@ public class BenefitQueryService {
   /** 혜택 하나 (숨김이면 없음). */
   public Optional<BenefitForJudgment> forJudgment(UUID id) {
     return benefits.find(id).map(BenefitQueryService::toJudgment);
+  }
+
+  /** 혜택 하나의 요약 (알림용). 숨김(HIDDEN)도 줘요. 없으면 빈 값 */
+  public Optional<BenefitSummary> findSummary(UUID id) {
+    return benefits.summary(id).map(BenefitQueryService::toSummary);
+  }
+
+  /** 마감일이 dates 중 하나이고 오늘 접수 중인 혜택 (마감 D-3·D-1 알림용). 숨김·상시·시작 전 제외, 마감일 순 */
+  public List<BenefitSummary> findOpenClosingOn(Collection<LocalDate> dates, LocalDate today) {
+    return benefits.openClosingOn(dates, today).stream()
+        .map(BenefitQueryService::toSummary)
+        .toList();
+  }
+
+  private static BenefitSummary toSummary(BenefitRepository.SummaryRow r) {
+    return new BenefitSummary(
+        r.id(),
+        r.field(),
+        r.version(),
+        r.title(),
+        r.agency(),
+        r.status(),
+        r.applyStart(),
+        r.applyEnd(),
+        r.applyAlways(),
+        r.regionScope(),
+        r.regionCodes(),
+        r.detailUrl());
   }
 
   static BenefitForJudgment toJudgment(Row r) {
