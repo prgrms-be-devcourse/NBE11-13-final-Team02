@@ -569,6 +569,25 @@ def test_unit_rows_without_count_column_are_one_offered_unit_each():
     assert all(g["counts"] == [] for g in st.build_part([table], housing, "pdf-text")["supplyGroups"])  # 주택형 행은 그대로
 
 
+def test_unit_floor_comes_from_unit_number_when_there_is_no_floor_column():
+    # 실측 2026-10-26 LH 청년 매입임대 주택목록: 층 열이 없고 호 칸(214·1005)만 있어 31호 모두 층이 비었어요
+    rows = (
+        ("동", "호", "면적", "보증금"),
+        ("A", "214", "21.6", "1,000,000"),
+        ("A", "1005호", "21.6", "1,000,000"),
+        ("A", "B01", "21.6", "1,000,000"),
+        ("A", "7", "21.6", "1,000,000"),
+    )
+    table = st.Table("3-2", 3, "", rows[0], rows, None)
+    columns = [column(1, "BUILDING"), column(2, "UNIT"), column(3, "AREA_EXCLUSIVE"), column(4, "PRICE", pk="DEPOSIT", unit="원")]
+    mapping = {"tables": [{"table": "3-2", "role": "SUPPLY", "rowUnit": "HOUSING_UNIT", "complex": "여기", "columns": columns}]}
+    groups = st.build_part([table], mapping, "pdf-text")["supplyGroups"]
+    assert [g["floor"] for g in groups] == ["2층", "10층", None, None]  # 지하·한 자리 호수는 층을 정하지 않아요
+    assert all("_unit" not in g for g in groups)
+    housing = {"tables": [{**mapping["tables"][0], "rowUnit": "HOUSING_TYPE"}]}
+    assert all(g["floor"] is None for g in st.build_part([table], housing, "pdf-text")["supplyGroups"])  # 주택형 행은 그대로
+
+
 def test_large_unit_list_spreadsheet_rows_are_all_copied_by_code():
     # 실측 2026-10-20 LH 실제 수집: 엑셀 공급주택목록 15건 중 8건(233~570행)이 200행 제한에 걸려 주택별로 쓰이지 않았고,
     # 쓰인 87행짜리도 AI가 행을 옮겨 적느라 이어받기 호출이 4번(11분) 돌았음 → 엑셀 시트를 공급표로 보고 코드가 모든 행을 옮김

@@ -317,3 +317,16 @@ def test_notice_channels_come_from_contract_schedules_when_there_is_no_applicati
     assert tools().application_channels({"schedules": schedules}) == ["ONSITE"]  # 선착순 계약 공고
     schedules.append({"kinds": ["APPLICATION"], "channels": ["MAIL"]})
     assert tools().application_channels({"schedules": schedules}) == ["MAIL"]  # 신청 일정이 있으면 그것만
+
+
+def test_documents_with_other_spelling_or_no_group_are_merged_into_the_grouped_one():
+    documents = [
+        document(),
+        document(id="spelled", name="주민등록표 등본", group=None, copies=None, issuer=None),  # 같은 서류의 다른 표기 + 묶음 없음
+        document(id="detail", name="가족관계증명서(상세)", group=None),  # 다른 서류는 그대로
+    ]
+    result, _ = assembled(documents=documents)
+    ids = {d["id"] for d in result.candidate["requiredDocuments"]}
+    assert "spelled" not in ids and {"resident", "detail"} <= ids
+    merged = next(d for d in result.candidate["requiredDocuments"] if d["id"] == "resident")
+    assert (merged["name"], merged["group"]) == ("주민등록등본", "COMMON")

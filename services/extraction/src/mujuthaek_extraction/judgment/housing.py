@@ -411,6 +411,7 @@ SPEC = Spec(
     covered=_covered,
     extra_reasons=_extra,
     merge=_merge,
+    copy_selection_notes=False,
 )
 
 

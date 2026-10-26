@@ -802,3 +802,47 @@ def test_list_lines_far_from_the_lead_or_in_another_scope_are_not_joined():
     made["eligibility"][1]["evidenceIds"] = ["ev-2"]  # 머리 문장에서 멀리 떨어진 줄
     frame = build_judgment(made)
     assert not any(str(c["id"]).endswith("one-of") for c in criteria(frame))
+
+
+def test_group_left_without_criteria_asks_membership_instead_of_passing_everyone():
+    # 실측 2026-10-26 LH 청년 매입임대: 「수급자 가구」를 가리킨 자격 문장이 모두 안내(순위·정의)로 빠져 조건 0개 →
+    # 판정이 공통 조건만 보고 누구나 「지원 가능」. 빈 대상군은 해당 여부를 묻고 검수 표시해요
+    youth = item("age", "AGE", "19세 이상 39세 이하인 사람", atom("AGE_YEARS", "GTE", 19, subject="APPLICANT", unit="YEAR"), groups=["청년"])
+    for text in ("수급자 가구는 1순위로 공급합니다", "수급자 가구란 생계급여 수급자를 말합니다"):
+        recipient = item("recipient", "OTHER", text, groups=["수급자 가구"])
+        frame = build_judgment(candidate([recipient, youth], target_groups=["청년"]))
+        [member] = next(g for g in frame["groups"] if g["name"] == "수급자 가구")["criteria"]
+        assert (member["kind"], member["question"], member["inReview"]) == ("ASK", "「수급자 가구」 대상에 해당하나요?", True)
+
+
+def test_outline_marks_are_dropped_and_same_groups_merge():
+    # 실측 홍성·대전 영구임대: 같은 대상이 「1순위 나목 국가유공자 등」·「일반공급 1순위 나목 국가유공자 등」, 「타. 장애인(2순위)」·「타목 장애인(2순위)」
+    from mujuthaek_extraction.judgment.frame import clean_group_name
+
+    assert clean_group_name("1순위 나목 국가유공자 등") == "1순위 국가유공자 등"
+    assert clean_group_name("타. 장애인(2순위)") == "장애인(2순위)"
+    assert clean_group_name("타목 장애인(2순위)") == "장애인(2순위)"
+    assert clean_group_name("「가」군 일본군위안부 피해자") == "일본군위안부 피해자"
+    assert clean_group_name("1순위 일반 장애인") == "1순위 일반 장애인"  # 목차 표기가 아닌 말은 그대로
+    assert clean_group_name("나목") == "나목"  # 다 빠지면 원래 이름
+
+    income = atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN)
+    merit = item("merit", "INCOME", "70% 이하", income, groups=["1순위 나목 국가유공자 등"])
+    merit2 = item("merit2", "INCOME", "70% 이하", income, groups=["일반공급 1순위 나목 국가유공자 등"])
+    disabled = item("disabled", "INCOME", "70% 이하", income, groups=["타. 장애인(2순위)"])
+    frame = build_judgment(candidate([merit, merit2, disabled], target_groups=["타목 장애인(2순위)"]))
+    names = [g["name"] for g in frame["groups"]]
+    assert names.count("장애인(2순위)") == 1 and "1순위 국가유공자 등" in names and len(names) == 2
+    assert frame_errors(frame) == []
+
+
+def test_housing_frame_does_not_copy_selection_rules_and_guidance_into_notes():
+    # 실측 2026-10-26 홍성 영구임대: 틀 안내 98개 중 선정 규칙 77·안내 19가 selectionRules·guidance 복사본. 상세 화면은 원래 칸을 쓰므로
+    # 주거 틀에는 옮기지 않아요(사업공간은 우대·안내로 계속 써요)
+    made = verified()
+    assert made["selectionRules"] and made["guidance"]
+    frame = build_judgment(made)
+    texts = {n["text"] for n in frame["notes"]}
+    assert not texts & {r["description"] for r in made["selectionRules"]}
+    assert not texts & {g["description"] for g in made["guidance"]}
+    assert all(n["kind"] != "SELECTION" for n in frame["notes"])

@@ -734,17 +734,28 @@ class _Checker:
 
     def merge_documents(self) -> None:
         documents = self.candidate.get("requiredDocuments") or []
+        # 묶음이 빈 서류(원문 표에 묶음 표시가 없는 줄)는 같은 이름 서류가 한 묶음에만 있으면 그 묶음 서류와 같은 것으로 봅니다
+        # (실측 2026-10-26 홍성·SH: 「본인(신청자) 신분증」이 공통 묶음과 묶음 없음으로 두 번)
+        named_groups: dict[str, set[str]] = {}
+        for document in documents:
+            if document.get("group"):
+                named_groups.setdefault(document_name_key(document.get("name")), set()).add(document["group"])
+
+        def group_of(document: dict[str, Any]) -> Any:
+            found = named_groups.get(document_name_key(document.get("name")), set())
+            return document.get("group") or (next(iter(found)) if len(found) == 1 else None)
+
         # 제출 시점이 빈 서류(재확인 답 등)는 같은 이름·묶음 서류의 제출 시점이 하나뿐이면 그 서류와 같은 것으로 봅니다(2026-10-25 33번:
         # 잘린 응답 두 개와 재확인 답이 같은 서류 표를 「…제출 시」「…제출」「(빈칸)」으로 적어 같은 서류가 세 번 보임)
         times: dict[tuple, set[str]] = {}
         for document in documents:
             if document.get("submissionTime"):
-                times.setdefault((normalize(str(document.get("name") or "")), document.get("group")), set()).add(_time_key(document["submissionTime"]))
+                times.setdefault((document_name_key(document.get("name")), group_of(document)), set()).add(_time_key(document["submissionTime"]))
         first: dict[tuple, int] = {}
         index = 0
         while index < len(documents):
             document = documents[index]
-            name_group = (normalize(str(document.get("name") or "")), document.get("group"))
+            name_group = (document_name_key(document.get("name")), group_of(document))
             time = _time_key(document.get("submissionTime"))
             if not time and len(times.get(name_group, ())) == 1:
                 time = next(iter(times[name_group]))
@@ -758,9 +769,22 @@ class _Checker:
             for key, what in (("copies", "부수를"), ("issuer", "발급 기관을")):
                 if documents[kept].get(key) is not None and document.get(key) is not None and merged[key] is None:
                     self.clear(f"/requiredDocuments/{kept}", str(merged.get("name")), f"같은 서류를 합치며 값이 달라 {what}")
+            merged["group"] = documents[kept].get("group") or document.get("group")
             documents[kept] = merged
             _remove_merged(self.candidate, "requiredDocuments", index, kept)
             self.notes.append(f"/requiredDocuments/{kept}: 같은 이름·묶음·제출 시점의 서류를 합쳤어요({merged['name']})")
+
+
+# 같은 서류의 다른 표기(비교용으로만 맞추고 표시 이름은 그대로): 「주민등록표 등본」 = 「주민등록등본」
+DOCUMENT_SPELLINGS = (("주민등록표등본", "주민등록등본"), ("주민등록표초본", "주민등록초본"), ("가족관계증명서(일반)", "가족관계증명서"))
+
+
+def document_name_key(name: Any) -> str:
+    """서류 이름 비교용 글: 띄어쓰기·괄호 종류를 맞추고 같은 서류의 다른 표기를 하나로."""
+    key = normalize(str(name or "")).replace("[", "(").replace("]", ")").replace("〔", "(").replace("〕", ")")
+    for spelled, same in DOCUMENT_SPELLINGS:
+        key = key.replace(spelled, same)
+    return key
 
 
 def _time_key(value: Any) -> str:

@@ -27,7 +27,7 @@ from datetime import datetime
 from typing import Any
 
 from mujuthaek_extraction.assemble.ai_output import SECTIONS
-from mujuthaek_extraction.assemble.details import CLEARED, KST, times_in
+from mujuthaek_extraction.assemble.details import CLEARED, KST, document_name_key, times_in
 from mujuthaek_extraction.assemble.quotes import normalize
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.extract import ExtractionRun, run_extraction, schema_errors
@@ -179,9 +179,9 @@ def _represented(section: str, item: dict[str, Any], candidate: dict[str, Any]) 
     """빠진 것처럼 보이는 서류가 같은 이름·제출 시점의 서류로 남아 있는지(같은 서류를 합쳐 id가 사라진 경우, details.merge_documents)."""
     if section != "requiredDocuments":
         return False
-    key = (normalize(str(item.get("name") or "")), normalize(str(item.get("submissionTime") or "")))
+    key = (document_name_key(item.get("name")), normalize(str(item.get("submissionTime") or "")))
     return bool(key[0]) and any(
-        (normalize(str(d.get("name") or "")), normalize(str(d.get("submissionTime") or ""))) == key for d in candidate.get("requiredDocuments") or []
+        (document_name_key(d.get("name")), normalize(str(d.get("submissionTime") or ""))) == key for d in candidate.get("requiredDocuments") or []
     )
 
 
