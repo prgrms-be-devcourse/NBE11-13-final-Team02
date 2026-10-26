@@ -86,8 +86,9 @@ public class DeadlineReminderService {
     String targetType = NotificationRequests.targetType(b.field());
     String kind = NotificationRequests.kind(b.field());
     String day = NotificationRequests.monthDay(b.applyEnd());
+    String type = threeDays ? "DEADLINE_D3" : "DEADLINE_D1";
     return requests.write(
-        threeDays ? "DEADLINE_D3" : "DEADLINE_D1",
+        type,
         targetType + ":" + b.benefitId() + (threeDays ? ":D3:" : ":D1:") + b.applyEnd(),
         targetType,
         b.benefitId(),
@@ -95,6 +96,6 @@ public class DeadlineReminderService {
         threeDays
             ? "관심 " + kind + " 접수가 " + day + "에 마감돼요."
             : "관심 " + kind + " 접수가 내일(" + day + ") 마감돼요.",
-        recipients.forFavorite(targetType, b.benefitId()));
+        recipients.forFavorite(targetType, b.benefitId(), type));
   }
 }

@@ -160,7 +160,9 @@ class DeadlineReminderTest {
     policy(p -> {});
     jdbc.sql("delete from common.outbox").update();
     clock.set("2026-11-27T09:00");
-    doThrow(new IllegalStateException("회원 조회 실패")).when(recipients).forFavorite(any(), any());
+    doThrow(new IllegalStateException("회원 조회 실패"))
+        .when(recipients)
+        .forFavorite(any(), any(), any());
 
     assertThatThrownBy(() -> reminders.runIfDue()).isInstanceOf(IllegalStateException.class);
     assertThat(
@@ -168,7 +170,7 @@ class DeadlineReminderTest {
         .as("실행 기록도 되돌려짐")
         .isZero();
 
-    doCallRealMethod().when(recipients).forFavorite(any(), any());
+    doCallRealMethod().when(recipients).forFavorite(any(), any(), any());
     clock.set("2026-11-27T09:10");
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
     assertThat(requests()).hasSize(1);

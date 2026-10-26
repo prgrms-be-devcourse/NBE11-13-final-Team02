@@ -101,7 +101,7 @@ public class BenefitNotificationService {
         b.benefitId(),
         "정정: " + b.title(),
         "관심 " + NotificationRequests.kind(b.field()) + "의 " + labels + " 내용이 바뀌었어요.",
-        recipients.forFavorite(type, b.benefitId()));
+        recipients.forFavorite(type, b.benefitId(), "CORRECTED"));
   }
 
   private Optional<BenefitSummary> visible(UUID id) {
