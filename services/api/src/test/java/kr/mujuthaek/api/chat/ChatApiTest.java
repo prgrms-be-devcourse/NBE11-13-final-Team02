@@ -269,10 +269,11 @@ class ChatApiTest {
   }
 
   @Test
-  void onlyAuthorDeletesAndContentIsErased() throws Exception {
+  void onlyAuthorDeletesSoftlyAndAdminStillSeesReportedContent() throws Exception {
     UUID room = UUID.randomUUID();
     LoginUser a = member();
-    String id = send(room, a, "제 번호는 010-0000-0000이에요");
+    String id = send(room, a, "욕설이 섞인 부적절한 글");
+    report(id, member(), "ABUSE").andExpect(status().isCreated());
 
     mvc.perform(delete("/api/v1/chat/messages/{id}", id).header("Authorization", bearer(member())))
         .andExpect(status().isForbidden())
@@ -282,13 +283,28 @@ class ChatApiTest {
     mvc.perform(delete("/api/v1/chat/messages/{id}", id).header("Authorization", bearer(a)))
         .andExpect(status().isNoContent());
 
+    // 화면에서는 내려가요
     mvc.perform(get("/api/v1/notices/{id}/chat/messages", room))
         .andExpect(jsonPath("$.items[0].status").value("DELETED"))
         .andExpect(jsonPath("$.items[0].content").doesNotExist());
+    // 소프트 삭제라 본문은 DB에 남고, 신고된 글이면 관리자가 지운 뒤에도 내용을 봐요
     assertThat(
             jdbc.queryForObject(
                 "select content from chat.messages where id = ?::uuid", String.class, id))
-        .isEmpty();
+        .isEqualTo("욕설이 섞인 부적절한 글");
+    LoginUser user = member();
+    MvcResult reports =
+        mvc.perform(
+                get("/api/admin/chat/reports")
+                    .param("size", "100")
+                    .header(
+                        "Authorization",
+                        bearer(new LoginUser(user.userId(), user.nickname(), "ADMIN"))))
+            .andExpect(status().isOk())
+            .andReturn();
+    List<String> seen =
+        JsonPath.read(body(reports), "$.items[?(@.messageId == '" + id + "')].message.content");
+    assertThat(seen).containsExactly("욕설이 섞인 부적절한 글");
   }
 
   @Test

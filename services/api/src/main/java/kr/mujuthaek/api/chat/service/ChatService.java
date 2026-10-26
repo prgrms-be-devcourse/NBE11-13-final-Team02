@@ -130,7 +130,7 @@ public class ChatService {
     return ChatMessageMapper.toResponse(saved, userId);
   }
 
-  /** 내 글 삭제 (읽기 전용 방에서도 돼요: 개인정보를 지울 수 있게). 이미 지운 글이면 그대로 둬요. */
+  /** 내 글 삭제 (읽기 전용 방에서도 돼요). 소프트 삭제라 화면에서는 내려가고 본문은 부적절한 글 신고 검토용으로 DB에 남아요. 이미 지운 글이면 그대로 둬요. */
   @Transactional
   public void delete(UUID messageId, UUID userId) {
     MessageRow row = messages.find(messageId, null).orElseThrow(messageNotFound());

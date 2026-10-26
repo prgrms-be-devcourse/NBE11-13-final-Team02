@@ -7,7 +7,7 @@ create table chat.messages (
     user_id          uuid,                                            -- 작성자. 탈퇴하면 null
     author_nickname  varchar(50),                                     -- 보낼 때의 닉네임. 탈퇴하면 null
     parent_id        uuid         references chat.messages (id),      -- 답장 대상 (한 단계만: 대상의 parent_id가 null)
-    content          varchar(500) not null,                           -- 삭제·탈퇴하면 빈 글자
+    content          varchar(500) not null,                           -- 탈퇴하면 빈 글자 (삭제는 신고 검토용으로 남김)
     like_count       integer      not null default 0,
     report_count     integer      not null default 0,                 -- 검토 전 신고 수 (관리자가 되돌리면 0)
     status           varchar(20)  not null

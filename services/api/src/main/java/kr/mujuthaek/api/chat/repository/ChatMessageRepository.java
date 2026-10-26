@@ -147,11 +147,11 @@ public class ChatMessageRepository {
         (rs, i) -> new RecentSends(rs.getInt(1), rs.getObject(2, OffsetDateTime.class)));
   }
 
-  /** 삭제: 본문도 지워요. 이미 지운 메시지면 false. */
+  /** 소프트 삭제: 상태와 지운 시각만 바꾸고 본문은 신고 검토용으로 남겨요 (응답에서는 숨김). 이미 지운 메시지면 false. */
   public boolean markDeleted(UUID id, OffsetDateTime at) {
     return jdbc.update(
             """
-            update chat.messages set status = 'DELETED', content = '', deleted_at = :at
+            update chat.messages set status = 'DELETED', deleted_at = :at
             where id = :id and status <> 'DELETED'
             """,
             new MapSqlParameterSource().addValue("id", id).addValue("at", at))
