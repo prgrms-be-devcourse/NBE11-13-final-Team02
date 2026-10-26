@@ -1,0 +1,16 @@
+{
+  "eventId": "__EVENT_ID__",
+  "eventType": "notification.requested",
+  "schemaVersion": 1,
+  "occurredAt": "__NOW__",
+  "producer": "api",
+  "payload": {
+    "type": "CORRECTED",
+    "dedupKey": "NOTICE:0192b6f0-1111-7000-8000-000000000001:CORRECTED:2:__RUN__",
+    "target": { "type": "NOTICE", "id": "0192b6f0-1111-7000-8000-000000000001" },
+    "title": "정정: 서울 강동구 행복주택 입주자 모집",
+    "body": "관심 공고의 일정, 자격 내용이 바뀌었어요.",
+    "linkPath": "/notices/0192b6f0-1111-7000-8000-000000000001",
+    "recipients": [{ "userId": "__USER_ID__", "email": "__EMAIL__", "quietEnabled": false }]
+  }
+}

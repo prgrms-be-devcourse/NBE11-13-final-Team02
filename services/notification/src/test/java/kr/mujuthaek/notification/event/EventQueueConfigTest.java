@@ -19,7 +19,7 @@ class EventQueueConfigTest {
         new ListenerExecutionFailedException(
             "listener", new DataAccessResourceFailureException("연결 끊김"));
 
-    assertThat(EventQueueConfig.rejected(broken)).isTrue();
-    assertThat(EventQueueConfig.rejected(dbDown)).isFalse();
+    assertThat(EventQueueConfig.retryable(broken)).isFalse();
+    assertThat(EventQueueConfig.retryable(dbDown)).isTrue();
   }
 }

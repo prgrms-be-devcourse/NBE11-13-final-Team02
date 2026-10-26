@@ -16,9 +16,8 @@ import org.springframework.context.annotation.Configuration;
 /**
  * 알림 서버가 받는 이벤트 큐. 다른 서비스와 같은 exchange(mujuthaek.events)에 이 서버 전용 큐를 묶어요.
  *
- * <p>처리하지 못한 메시지는 mujuthaek.dlx → {@link #DLQ}로 가요 (일시적인 오류는 몇 번 더 해 본 뒤, 깨진 메시지는 바로). 실패 큐 라우팅 키를
- * 따로 줘서(notification.dead) 다른 서비스의 실패 큐와 섞이지 않게 해요 (mujuthaek.dlx는 topic이라 원래 라우팅 키를 쓰면 같은 키로 묶인 다른
- * 실패 큐에도 들어가요).
+ * <p>처리하지 못한 메시지는 재시도 없이 mujuthaek.dlx → {@link #DLQ}로 가요. 실패 큐 라우팅 키를 따로 줘서(notification.dead) 다른
+ * 서비스의 실패 큐와 섞이지 않게 해요 (mujuthaek.dlx는 topic이라 원래 라우팅 키를 쓰면 같은 키로 묶인 다른 실패 큐에도 들어가요).
  */
 @Configuration
 public class EventQueueConfig {
@@ -29,7 +28,10 @@ public class EventQueueConfig {
   public static final String DLQ = QUEUE + ".dlq";
   static final String DEAD_ROUTING_KEY = "notification.dead";
 
-  /** 받는 이벤트. 모두 api가 보내요. 받을 사람·주소·문구는 api가 정해서 보내고, 알림 서버는 보내기만 해요. */
+  /**
+   * 받는 이벤트 (contracts/schemas/notification-events.draft.md). 모두 api가 보내요. 받을 사람·주소·문구는 api가 정해서
+   * 보내고, 알림 서버는 보내기만 해요.
+   */
   static final List<String> ROUTING_KEYS =
       List.of("notification.requested", "email.verification.requested", "user.withdrawn");
 
@@ -51,20 +53,21 @@ public class EventQueueConfig {
   }
 
   /**
-   * 다시 해도 결과가 같은 실패(깨진 봉투·모르는 종류·버전, {@link AmqpRejectAndDontRequeueException})는 재시도하지 않고 바로 실패 큐로
-   * 보내요. 재시도(application.yml)는 DB 연결 오류 같은 일시적인 예외에만 써요.
+   * 받기 재시도(application.yml spring.rabbitmq.listener.simple.retry)는 DB가 잠깐 끊기는 것 같은 오류에만 해요.
+   * 봉투·payload가 계약에 맞지 않아 던진 AmqpRejectAndDontRequeueException은 다시 해도 같아서 바로 실패 큐로 보내요 (재시도하면 그동안
+   * 큐가 막혀요).
    */
   @Bean
-  RabbitListenerRetrySettingsCustomizer skipRetryForRejected() {
-    return settings -> settings.setExceptionPredicate(e -> !rejected(e));
+  RabbitListenerRetrySettingsCustomizer doNotRetryPermanentFailures() {
+    return settings -> settings.setExceptionPredicate(EventQueueConfig::retryable);
   }
 
-  static boolean rejected(Throwable e) {
-    for (Throwable t = e; t != null; t = t.getCause()) {
-      if (t instanceof AmqpRejectAndDontRequeueException) {
-        return true;
+  static boolean retryable(Throwable error) {
+    for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+      if (cause instanceof AmqpRejectAndDontRequeueException) {
+        return false;
       }
     }
-    return false;
+    return true;
   }
 }
