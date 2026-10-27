@@ -220,7 +220,7 @@ class AdminUserServiceTest {
 
   @Test
   void 자기_자신과_최상위는_못_바꾼다() {
-    denied(() -> service.setPermissions(granter, Set.of(), granter), ErrorCode.CONFLICT, "내 단계");
+    denied(() -> service.setPermissions(granter, Set.of(), granter), ErrorCode.CONFLICT, "내 회원 구분");
     denied(() -> service.changeRole(top, "USER", granter), ErrorCode.FORBIDDEN, "최상위 관리자는");
     denied(() -> service.suspend(top, "사유", null, granter), ErrorCode.FORBIDDEN, "최상위 관리자는");
   }

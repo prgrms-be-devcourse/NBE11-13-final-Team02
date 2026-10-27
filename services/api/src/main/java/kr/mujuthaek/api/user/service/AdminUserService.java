@@ -391,7 +391,7 @@ public class AdminUserService {
 
   private static void notSelf(UUID userId, UUID actorId) {
     if (userId.equals(actorId)) {
-      throw conflict("내 단계·권한·정지는 바꿀 수 없어요. 다른 관리자에게 부탁해 주세요");
+      throw conflict("내 회원 구분·권한·정지는 바꿀 수 없어요. 다른 관리자에게 부탁해 주세요");
     }
   }
 
