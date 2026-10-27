@@ -15,7 +15,7 @@ spring:
     hibernate:
       ddl-auto: validate                # 테이블은 Flyway가 만들고 JPA는 확인만
   flyway:
-    schemas: common,notice,benefit,eligibility,area,account,notification
+    schemas: common,notice,benefit,eligibility,area,account,notification,traffic
     locations: classpath:db/migration
   rabbitmq:
     host: ${RABBITMQ_HOST:localhost}
@@ -100,6 +100,16 @@ mujuthaek:
       base-url: ${COLLECTOR_ADMIN_URL:http://localhost:8093}
       token: ${COLLECTOR_ADMIN_TOKEN:}  # 수집기와 같은 값. 비면 보내지 않아요
       timeout: 5s
+  traffic:                              # 관리자 트래픽 화면 (GA 숫자 + api 서버 요청 기록)
+    ip-salt: ${TRAFFIC_IP_SALT:local-dev-salt}  # IP 해시에 섞는 비밀 값. 운영은 꼭 따로 넣어요
+    raw-ip-days: 14                     # 원본 IP 보관 일수(보안 대응용). 지나면 지워요
+    keep-days: 90                       # 요청 기록 보관 일수
+    ingest-token: ${TRAFFIC_INGEST_TOKEN:}  # 프론트 서버가 화면 요청을 넘길 때 쓰는 비밀 값. 비면 화면 요청은 안 받아요
+    ga:
+      property-id: ${GA_PROPERTY_ID:}   # GA4 속성 ID(숫자). 비면 GA 숫자 없이 서버 숫자만
+      credentials-file: ${GA_CREDENTIALS_FILE:}  # 서비스 계정 키(JSON) 경로. 저장소 밖에 둬요
+      cache-ttl: 1h                     # 같은 기간 보고서를 다시 묻지 않는 시간(GA 호출 한도)
+      timeout: 10s
   area:
     score-version: "2026.1"             # area.score_rules의 생활권 점수 규칙 버전. 바꾸면 전체 다시 계산
     juso-search:                        # 도로명주소 검색 API. 키가 비면 부르지 않아요 (주소 사전으로만 찾음)
