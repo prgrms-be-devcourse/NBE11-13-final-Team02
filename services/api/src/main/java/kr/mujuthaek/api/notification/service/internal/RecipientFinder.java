@@ -28,4 +28,7 @@ public interface RecipientFinder {
    * @param type 보낼 알림 종류 (회원이 이 종류를 켰는지 볼 때 써요)
    */
   List<Recipient> forFavorite(String targetType, UUID targetId, String type);
+
+  /** 제보한 회원 한 명 (REPORT_ANSWERED). 본인 제보의 답장이라 테스트 회원은 덧붙이지 않아요 */
+  Recipient forReporter(UUID userId);
 }

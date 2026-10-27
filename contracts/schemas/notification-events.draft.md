@@ -72,7 +72,7 @@ PWA ──HTTP──▶ api
 
 | 칸 | 모양 | 필수 | 뜻 |
 | --- | --- | --- | --- |
-| `type` | enum | ✅ | `NEW_NOTICE` 새 주거·사업공간 공고 · `NEW_SUPPORT` 새 지원 정책·창업지원 · `DEADLINE_D3`·`DEADLINE_D1` 관심 공고 마감 · `CORRECTED` 관심 공고 정정 · `FOLLOW_UP` 관심 공고 후속 안내. 알림 서버는 묶음 여부(NEW_*만 묶음)에만 써요 |
+| `type` | enum | ✅ | `NEW_NOTICE` 새 주거·사업공간 공고 · `NEW_SUPPORT` 새 지원 정책·창업지원 · `DEADLINE_D3`·`DEADLINE_D1` 관심 공고 마감 · `CORRECTED` 관심 공고 정정 · `FOLLOW_UP` 관심 공고 후속 안내 · `REPORT_ANSWERED` 회원 제보에 관리자가 답함. 알림 서버는 묶음 여부(NEW_*만 묶음)에만 써요 |
 | `dedupKey` | string | ✅ | 같은 알림인지 가리는 열쇠 (회원 ID 빼고). 아래 표. 알림 서버는 `{userId}:{dedupKey}`·채널마다 한 번만 보내요 |
 | `target.type` | `NOTICE` \| `BENEFIT` \| `STARTUP_SUPPORT` \| `SPACE_RECRUITMENT` | ✅ | ID가 들어 있는 api 테이블 (`notices` / `benefits` / 창업지원 사업·사업공간 모집은 `notice.policy_judgments`, ID = rawPolicyId). 추적용이에요 |
 | `target.id` | uuid | ✅ | 그 테이블의 ID |
@@ -94,6 +94,7 @@ PWA ──HTTP──▶ api
 | DEADLINE_D3·D1 | `{target.type}:{target.id}:D3:{applyEnd}` | 정정으로 마감일이 바뀌면 새 날짜 기준으로 다시 1번 |
 | CORRECTED | `{target.type}:{target.id}:CORRECTED:{version}` | 정정 회차마다 1번 |
 | FOLLOW_UP | `{target.type}:{target.id}:FOLLOW_UP:{후속 글 ID}` | 후속 안내 글마다 1번 |
+| REPORT_ANSWERED | `{target.type}:{target.id}:ANSWERED:{제보 종류}:{제보 ID}` (제보 종류 `NOTICE`·`AREA`·`BENEFIT`·`PROGRAM`: 생활권 제보는 다른 표라 ID가 겹칠 수 있어서) | 제보마다 1번 |
 
 ### 예시
 
@@ -165,6 +166,7 @@ PWA ──HTTP──▶ api
 | `PolicyPublished` (reprocess = false, notice `policy_judgments`에 처음 저장) | 창업지원 사업(`STARTUP_SUPPORT`)·사업공간 모집(`SPACE_RECRUITMENT`)은 `business_interests`가 맞는 회원. 마감됐거나 마감일을 모르는데 상시도 아닌 정책은 보내지 않아요 | NEW_SUPPORT |
 | `NoticeUpdated`·`BenefitUpdated`·`PolicyUpdated` (reprocess = false), 알릴 항목이 바뀜 | 관심 공고로 둔 회원 | CORRECTED |
 | `NoticeUpdated`에 `followUps` | 관심 공고로 둔 회원 | FOLLOW_UP |
+| `ReportAnswered` (공고·혜택·창업 사업·생활권 제보 4종류, 답이 있을 때만) | 제보한 회원 한 명 (테스트 회원은 덧붙이지 않음). 알림 설정으로 끌 수 없고 조용한 시간은 따름. 대상: 공고·생활권 제보 → `NOTICE`(합쳐진 공고면 남은 공고), 혜택 제보 → `BENEFIT`(수집 정책 ID로 benefit `findSummaryByRawPolicyId`, 저장 안 된 혜택이면 보내지 않음), 창업 사업 제보 → `STARTUP_SUPPORT` | REPORT_ANSWERED |
 | 매일 09:00 스케줄러 | 마감일이 3일 뒤·1일 뒤인 열린 공고(notice `findOpenClosingOn`)·정책(benefit `findOpenClosingOn`)·창업지원 사업·사업공간 모집(notice `findOpenPoliciesClosingOn`)을 관심 공고로 둔 회원. 하루 한 번(`reminder_runs`), 09:00에 꺼져 있었으면 그날 따라잡기 | DEADLINE_D3·D1 |
 
 ### 요청 만들기 순서
@@ -189,6 +191,7 @@ PWA ──HTTP──▶ api
 | DEADLINE_D1 | `내일 마감: {제목}` | `관심 {종류} 접수가 내일({M월 d일}) 마감돼요.` |
 | CORRECTED | `정정: {제목}` | `관심 {종류}의 {일정, 자격} 내용이 바뀌었어요.` (아래 항목 이름) |
 | FOLLOW_UP | `후속 안내: {제목}` | `관심 {종류}에 '{후속 글 제목}' ({M월 d일}) 안내가 올라왔어요.` |
+| REPORT_ANSWERED | `제보 답변: {대상 제목}` (제목을 모르면 `제보 답변이 도착했어요`) | 고침: `제보하신 '{칸}' 내용을 확인하고 고쳤어요.` · 그대로 둠: `제보하신 '{칸}' 내용을 확인했어요. 원문과 같아 그대로 두었어요.` (생활권은 `생활권 '{칸}'`). **관리자 답변 원문(reply)은 개인정보가 들어갈 수 있어 넣지 않아요** |
 
 메일 앞머리(`[무주택자들]`), 상세 링크, 설정 링크, 묶음 제목("새 소식 3건")은 알림 서버 이메일 채널이 붙여요.
 

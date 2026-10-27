@@ -238,7 +238,7 @@ class PushChannel implements NotificationChannel {
       case DEADLINE_D1 -> Duration.ofHours(12);
       case DEADLINE_D3 -> Duration.ofHours(48);
       case NEW_NOTICE, NEW_SUPPORT -> Duration.ofHours(24);
-      case CORRECTED, FOLLOW_UP -> Duration.ofHours(72);
+      case CORRECTED, FOLLOW_UP, REPORT_ANSWERED -> Duration.ofHours(72);
     };
   }
 

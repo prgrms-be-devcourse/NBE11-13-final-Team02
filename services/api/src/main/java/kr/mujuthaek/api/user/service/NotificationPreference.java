@@ -25,6 +25,7 @@ public record NotificationPreference(
       case "DEADLINE_D3", "DEADLINE_D1" -> deadline;
       case "CORRECTED" -> correction;
       case "FOLLOW_UP" -> followUp;
+      case "REPORT_ANSWERED" -> true; // 본인이 보낸 제보의 답장이라 끄는 설정이 없어요 (조용한 시간은 따라요)
       default -> false;
     };
   }

@@ -63,6 +63,27 @@ class IncomingEventListenerTest {
   }
 
   @Test
+  void reportAnsweredIsAcceptedAndNotDigested() throws Exception {
+    // 제보 답변: 제보한 회원 한 명에게 묶지 않고 바로 (발송 줄의 type 제약도 확인)
+    UUID eventId = UUID.randomUUID();
+    publish(
+        "notification.requested",
+        event(eventId, "notification.requested")
+            .replace("\"type\":\"DEADLINE_D1\"", "\"type\":\"REPORT_ANSWERED\"")
+            .replace("\"email\":null", "\"email\":\"reporter@example.com\""));
+
+    await(() -> processed(eventId) == 1);
+    assertThat(rabbit.receive(EventQueueConfig.DLQ, 500)).isNull();
+    assertThat(
+            jdbc.sql("select count(*) from deliveries where type = 'REPORT_ANSWERED'")
+                .query(Long.class)
+                .single())
+        .isEqualTo(1L);
+    assertThat(kr.mujuthaek.notification.notification.NotificationType.REPORT_ANSWERED.digest())
+        .isFalse();
+  }
+
+  @Test
   void payloadOutsideContractGoesToDeadLetterQueue() throws Exception {
     UUID eventId = UUID.randomUUID();
     publish(
