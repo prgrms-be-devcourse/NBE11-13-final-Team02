@@ -119,16 +119,59 @@ class SecurityIntegrationTest {
   }
 
   @Test
-  void adminPathNeedsAdminRole() throws Exception {
+  void adminPathsCheckPermissionsInDatabaseNotToken() throws Exception {
     LoginUser user = login("2003");
-    var admin = new LoginUser(user.userId(), user.nickname(), "ADMIN");
+    // 토큰에 ADMIN이라고 적혀 있어도 DB에서 관리자가 아니면 막아요 (해제된 관리자의 남은 토큰)
+    var claimsAdmin = new LoginUser(user.userId(), user.nickname(), "ADMIN");
 
-    mvc.perform(get("/api/admin/anything")).andExpect(status().isUnauthorized());
-    mvc.perform(get("/api/admin/anything").header("Authorization", bearer(user)))
+    mvc.perform(get("/api/admin/reviews")).andExpect(status().isUnauthorized());
+    mvc.perform(get("/api/admin/reviews").header("Authorization", bearer(user)))
         .andExpect(status().isForbidden())
         .andExpect(jsonPath("$.code").value("FORBIDDEN"));
-    mvc.perform(get("/api/admin/anything").header("Authorization", bearer(admin)))
+    mvc.perform(get("/api/admin/reviews").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+
+    // 관리자로 지정만 하면 내 상태만 볼 수 있어요
+    jdbc.update("update account.users set role = 'ADMIN' where id = ?", user.userId());
+    mvc.perform(get("/api/admin/me").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.active").value(true))
+        .andExpect(jsonPath("$.permissions").isEmpty());
+    mvc.perform(get("/api/admin/reviews/counts").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+
+    // 받은 권한의 경로만 열려요. 권한을 정하지 않은 관리자 경로는 최상위만
+    jdbc.update(
+        "insert into account.admin_permissions (user_id, permission) values (?, 'TRAFFIC')",
+        user.userId());
+    mvc.perform(get("/api/admin/traffic/anything").header("Authorization", bearer(claimsAdmin)))
         .andExpect(status().isNotFound());
+    mvc.perform(get("/api/admin/reviews/counts").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+    mvc.perform(get("/api/admin/anything").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+
+    // 권한을 빼면 같은 토큰으로도 바로 막혀요
+    jdbc.update("delete from account.admin_permissions where user_id = ?", user.userId());
+    mvc.perform(get("/api/admin/traffic/anything").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+    jdbc.update("update account.users set role = 'USER' where id = ?", user.userId());
+  }
+
+  @Test
+  void suspendedUserCannotLoginOrWrite() throws Exception {
+    LoginUser user = login("2004");
+    String token = bearer(user);
+    jdbc.update(
+        "insert into account.suspensions (user_id, reason) values (?, '시험')", user.userId());
+
+    assertThatThrownBy(() -> tokens.issue(user))
+        .isInstanceOf(kr.mujuthaek.api.common.exception.CustomException.class)
+        .hasMessageContaining("이용이 정지된");
+    mvc.perform(post("/api/users/me/anything").header("Authorization", token))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.code").value("ACCOUNT_SUSPENDED"));
+    jdbc.update("delete from account.suspensions where user_id = ?", user.userId());
   }
 
   @Test

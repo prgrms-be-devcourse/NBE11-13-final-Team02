@@ -35,6 +35,7 @@ class AuthTokenServiceTest {
   @Autowired JwtProperties props;
   @Autowired RefreshTokenRepository refreshTokens;
   @Autowired UserRepository users;
+  @Autowired kr.mujuthaek.api.user.repository.AdminUserRepository admins;
   @Autowired JdbcTemplate jdbc;
   @Autowired EntityManager entityManager;
 
@@ -70,7 +71,7 @@ class AuthTokenServiceTest {
     org.mockito.Mockito.when(repo.findByTokenHash(AuthTokenService.hash("raw")))
         .thenReturn(java.util.Optional.of(saved));
     org.mockito.Mockito.when(repo.deleteByTokenHash(AuthTokenService.hash("raw"))).thenReturn(0);
-    var service = new AuthTokenService(jwtEncoder, props, repo, users, Clock.systemUTC());
+    var service = new AuthTokenService(jwtEncoder, props, repo, users, admins, Clock.systemUTC());
 
     assertThatThrownBy(() -> service.refresh("raw"))
         .isInstanceOf(CustomException.class)
@@ -114,7 +115,7 @@ class AuthTokenServiceTest {
   void expiredRefreshTokenIsRejectedAndDeleted() {
     LoginUser user = login("3004");
     Clock past = Clock.fixed(Instant.now().minus(Duration.ofDays(15)), ZoneOffset.UTC);
-    var oldService = new AuthTokenService(jwtEncoder, props, refreshTokens, users, past);
+    var oldService = new AuthTokenService(jwtEncoder, props, refreshTokens, users, admins, past);
     String raw = oldService.issue(user).refreshToken();
 
     assertThatThrownBy(() -> tokens.refresh(raw))
@@ -167,7 +168,7 @@ class AuthTokenServiceTest {
   void deleteExpired() {
     LoginUser user = login("3008");
     Clock past = Clock.fixed(Instant.now().minus(Duration.ofDays(30)), ZoneOffset.UTC);
-    new AuthTokenService(jwtEncoder, props, refreshTokens, users, past).issue(user);
+    new AuthTokenService(jwtEncoder, props, refreshTokens, users, admins, past).issue(user);
     String fresh = tokens.issue(user).refreshToken();
 
     assertThat(tokens.deleteExpired()).isGreaterThanOrEqualTo(1);

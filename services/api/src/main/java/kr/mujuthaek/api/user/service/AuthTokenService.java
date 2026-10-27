@@ -13,6 +13,7 @@ import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.user.domain.RefreshToken;
 import kr.mujuthaek.api.user.domain.User;
+import kr.mujuthaek.api.user.repository.AdminUserRepository;
 import kr.mujuthaek.api.user.repository.RefreshTokenRepository;
 import kr.mujuthaek.api.user.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,7 @@ public class AuthTokenService {
   private final JwtProperties props;
   private final RefreshTokenRepository refreshTokens;
   private final UserRepository users;
+  private final AdminUserRepository admins;
   private static final SecureRandom RANDOM = new SecureRandom();
 
   private final Clock clock;
@@ -51,8 +53,9 @@ public class AuthTokenService {
       JwtEncoder jwtEncoder,
       JwtProperties props,
       RefreshTokenRepository refreshTokens,
-      UserRepository users) {
-    this(jwtEncoder, props, refreshTokens, users, Clock.systemUTC());
+      UserRepository users,
+      AdminUserRepository admins) {
+    this(jwtEncoder, props, refreshTokens, users, admins, Clock.systemUTC());
   }
 
   AuthTokenService(
@@ -60,18 +63,21 @@ public class AuthTokenService {
       JwtProperties props,
       RefreshTokenRepository refreshTokens,
       UserRepository users,
+      AdminUserRepository admins,
       Clock clock) {
     this.jwtEncoder = jwtEncoder;
     this.props = props;
     this.refreshTokens = refreshTokens;
     this.users = users;
+    this.admins = admins;
     this.clock = clock;
   }
 
-  /** 소셜 로그인 성공 직후: access + refresh 발급. */
+  /** 소셜 로그인 성공 직후: access + refresh 발급. 이용 정지 중이면 ACCOUNT_SUSPENDED. */
   @Transactional
   public TokenPair issue(LoginUser user) {
     Instant now = clock.instant();
+    notSuspended(user.userId(), now);
     return new TokenPair(
         accessToken(user, now),
         props.accessTokenTtl(),
@@ -104,6 +110,7 @@ public class AuthTokenService {
         users
             .findById(saved.getUserId())
             .orElseThrow(() -> new CustomException(ErrorCode.INVALID_REFRESH_TOKEN));
+    notSuspended(user.getId(), now);
     var login = new LoginUser(user.getId(), user.getNickname(), user.getRole().name());
     return new TokenPair(
         accessToken(login, now),
@@ -128,6 +135,13 @@ public class AuthTokenService {
   @Transactional
   public int deleteExpired() {
     return refreshTokens.deleteExpired(clock.instant());
+  }
+
+  /** 이용 정지 중이면 로그인·재발급을 막아요 (정지할 때 로그인도 모두 끊어요). */
+  private void notSuspended(UUID userId, Instant now) {
+    if (admins.suspended(userId, now)) {
+      throw new CustomException(ErrorCode.ACCOUNT_SUSPENDED);
+    }
   }
 
   private String accessToken(LoginUser user, Instant now) {
