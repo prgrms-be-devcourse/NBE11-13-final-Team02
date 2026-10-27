@@ -87,6 +87,40 @@ public class NoticeRepository {
         == 1;
   }
 
+  /** 저장된 정책 판정 틀에서 사용자가 보는 값 (새 버전과 비교해 정정 알림을 보내려고). */
+  public record StoredPolicy(
+      int version,
+      String title,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      boolean applyAlways,
+      List<String> regionCodes,
+      String frameJson,
+      String detailUrl,
+      String infoJson) {}
+
+  /** 저장된 정책 판정 틀 (없으면 비어 있음). */
+  public Optional<StoredPolicy> storedPolicy(UUID rawPolicyId) {
+    return jdbc.sql(
+            "select raw_version, title, apply_start, apply_end, apply_always, region_codes,"
+                + " frame::text, detail_url, info::text from notice.policy_judgments"
+                + " where raw_policy_id = :id")
+        .param("id", rawPolicyId)
+        .query(
+            (rs, i) ->
+                new StoredPolicy(
+                    rs.getInt(1),
+                    rs.getString(2),
+                    rs.getObject(3, LocalDate.class),
+                    rs.getObject(4, LocalDate.class),
+                    rs.getBoolean(5),
+                    List.of((String[]) rs.getArray(6).getArray()),
+                    rs.getString(7),
+                    rs.getString(8),
+                    rs.getString(9)))
+        .optional();
+  }
+
   /** 저장된 정책 판정 틀의 버전과 검수 상태 (없으면 비어 있음). */
   public Optional<PolicyJudgmentState> policyJudgmentState(UUID rawPolicyId) {
     return jdbc.sql(

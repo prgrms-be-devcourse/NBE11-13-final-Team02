@@ -22,10 +22,11 @@ import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.NoticeSummary;
+import kr.mujuthaek.api.notice.service.PolicySummary;
 import kr.mujuthaek.api.user.repository.FavoriteRepository;
 import org.junit.jupiter.api.Test;
 
-/** 관심 공고 저장: 합쳐진 공고, 숨긴·종류가 다른 정책, 200개 상한 (DB 없이). */
+/** 관심 공고 저장: 합쳐진 공고, 숨긴 혜택, 창업지원 사업·사업공간 모집(notice 정책), 200개 상한 (DB 없이). */
 class FavoriteServiceTest {
 
   final FavoriteRepository repository = mock(FavoriteRepository.class);
@@ -50,17 +51,37 @@ class FavoriteServiceTest {
   }
 
   @Test
-  void hiddenOrWrongKindOfBenefitIsNotFound() {
+  void hiddenBenefitIsNotFound() {
     UUID hidden = UUID.randomUUID();
-    UUID space = UUID.randomUUID();
+    UUID open = UUID.randomUUID();
     when(benefits.findSummary(hidden))
         .thenReturn(Optional.of(benefit(hidden, "BENEFIT", "HIDDEN")));
-    when(benefits.findSummary(space))
-        .thenReturn(Optional.of(benefit(space, "SPACE_RECRUITMENT", "APPLYING")));
+    when(benefits.findSummary(open)).thenReturn(Optional.of(benefit(open, "BENEFIT", "OPEN")));
 
     assertThatThrownBy(() -> service.add(user, "BENEFIT", hidden)).satisfies(e -> notFound(e));
-    assertThatThrownBy(() -> service.add(user, "BENEFIT", space)).satisfies(e -> notFound(e));
+    assertThat(service.add(user, "BENEFIT", open)).isEqualTo(open);
+  }
+
+  @Test
+  void startupSupportAndSpaceRecruitmentAreNoticePolicies() {
+    // 창업지원 사업·사업공간 모집은 benefit이 아니라 notice.policy_judgments에 있어요 (정책 ID = rawPolicyId)
+    UUID startup = UUID.randomUUID();
+    UUID space = UUID.randomUUID();
+    when(notices.findPolicySummary(startup))
+        .thenReturn(Optional.of(policy(startup, "STARTUP_SUPPORT")));
+    when(notices.findPolicySummary(space))
+        .thenReturn(Optional.of(policy(space, "SPACE_RECRUITMENT")));
+
+    assertThat(service.add(user, "startup-support", startup)).isEqualTo(startup);
     assertThat(service.add(user, "space-recruitment", space)).isEqualTo(space);
+    verify(repository).add(eq(user), eq("STARTUP_SUPPORT"), eq(startup), any());
+    verify(repository).add(eq(user), eq("SPACE_RECRUITMENT"), eq(space), any());
+    assertThatThrownBy(() -> service.add(user, "SPACE_RECRUITMENT", startup))
+        .as("종류가 다르면 없는 것")
+        .satisfies(e -> notFound(e));
+    assertThatThrownBy(() -> service.add(user, "STARTUP_SUPPORT", UUID.randomUUID()))
+        .satisfies(e -> notFound(e));
+    verify(benefits, never()).findSummary(any());
   }
 
   @Test
@@ -85,6 +106,10 @@ class FavoriteServiceTest {
   private static NoticeSummary notice(UUID id) {
     return new NoticeSummary(
         id, 1, "HOUSING", "t", null, null, "APPLYING", null, null, List.of(), false, "/", null);
+  }
+
+  private static PolicySummary policy(UUID id, String field) {
+    return new PolicySummary(id, 2, field, "t", null, "APPLYING", null, null, List.of(), null);
   }
 
   private static BenefitSummary benefit(UUID id, String field, String status) {

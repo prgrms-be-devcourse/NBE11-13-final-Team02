@@ -259,6 +259,69 @@ public class NoticeQueries {
                 rs.getString(8)));
   }
 
+  /** 정책 요약 한 줄 (알림·관심 정책). organization은 출처 안내의 기관 이름(없으면 null). */
+  public record PolicySummaryRow(
+      UUID rawPolicyId,
+      int version,
+      String field,
+      String title,
+      String organization,
+      LocalDate applyStart,
+      LocalDate applyEnd,
+      boolean applyAlways,
+      List<String> regionCodes,
+      String detailUrl) {}
+
+  private static final String POLICY_SUMMARY_COLUMNS =
+      """
+      select raw_policy_id, raw_version, field, title, info ->> 'organization', apply_start,
+             apply_end, apply_always, region_codes, detail_url
+      from notice.policy_judgments
+      """;
+
+  /** 공개된 정책 하나 (검수 대기 틀은 빼요). 마감된 정책도 줘요. */
+  public java.util.Optional<PolicySummaryRow> policySummary(UUID rawPolicyId) {
+    return jdbc
+        .query(
+            POLICY_SUMMARY_COLUMNS + " where raw_policy_id = :id and review_status <> 'IN_REVIEW'",
+            new MapSqlParameterSource("id", rawPolicyId),
+            (rs, i) -> policySummaryRow(rs))
+        .stream()
+        .findFirst();
+  }
+
+  /** 마감일이 dates 중 하나이고 오늘 신청할 수 있는 정책 (검수 대기·아직 시작 전은 빼요). 마감일 순. */
+  public List<PolicySummaryRow> openPoliciesClosingOn(
+      java.util.Collection<LocalDate> dates, LocalDate today) {
+    if (dates.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.query(
+        POLICY_SUMMARY_COLUMNS
+            + """
+             where review_status <> 'IN_REVIEW' and apply_end in (:dates)
+               and (apply_start is null or apply_start <= :today)
+             order by apply_end, raw_policy_id
+            """,
+        new MapSqlParameterSource("dates", List.copyOf(dates)).addValue("today", today),
+        (rs, i) -> policySummaryRow(rs));
+  }
+
+  private static PolicySummaryRow policySummaryRow(java.sql.ResultSet rs)
+      throws java.sql.SQLException {
+    return new PolicySummaryRow(
+        rs.getObject(1, UUID.class),
+        rs.getInt(2),
+        rs.getString(3),
+        rs.getString(4),
+        rs.getString(5),
+        rs.getObject(6, LocalDate.class),
+        rs.getObject(7, LocalDate.class),
+        rs.getBoolean(8),
+        List.of((String[]) rs.getArray(9).getArray()),
+        rs.getString(10));
+  }
+
   /** 판정용 공고 한 줄 (맞춤 목록). payload는 현재 버전의 판정 틀·원문(notice) 부분만. */
   public record JudgingRow(UUID id, int version, String field, String noticeType, String payload) {}
 

@@ -24,7 +24,7 @@ public interface RecipientFinder {
   /**
    * 이 공고·지원 정책·사업공간 모집을 관심 공고로 둔 회원
    *
-   * @param targetType NOTICE · BENEFIT · SPACE_RECRUITMENT
+   * @param targetType NOTICE · BENEFIT · STARTUP_SUPPORT · SPACE_RECRUITMENT
    * @param type 보낼 알림 종류 (회원이 이 종류를 켰는지 볼 때 써요)
    */
   List<Recipient> forFavorite(String targetType, UUID targetId, String type);

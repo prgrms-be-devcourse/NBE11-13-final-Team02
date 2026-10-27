@@ -23,6 +23,8 @@ import kr.mujuthaek.api.common.event.NoticeClosed;
 import kr.mujuthaek.api.common.event.NoticeLocationsChanged;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
+import kr.mujuthaek.api.common.event.PolicyPublished;
+import kr.mujuthaek.api.common.event.PolicyUpdated;
 import kr.mujuthaek.api.notice.domain.DuplicateRule;
 import kr.mujuthaek.api.notice.domain.IngestionOutcome;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
@@ -33,6 +35,7 @@ import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.service.NoticeField;
 import kr.mujuthaek.api.notice.service.NoticeForJudgment;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
+import kr.mujuthaek.api.notice.service.PolicySummary;
 import kr.mujuthaek.api.notice.service.ProgramForJudgment;
 import kr.mujuthaek.api.notice.service.internal.NoticeAreaScoreService;
 import kr.mujuthaek.api.notice.service.internal.NoticeBackfillService;
@@ -545,6 +548,16 @@ class NoticeIngestionIntegrationTest {
     return event;
   }
 
+  /** 판정 틀 메모 하나 (AI가 쓴 글이라 다시 추출할 때마다 바뀔 수 있어요). */
+  private ObjectNode note(String text) {
+    return json.createObjectNode()
+        .put("kind", "OTHER")
+        .putNull("groupId")
+        .put("text", text)
+        .putNull("quote")
+        .putNull("page");
+  }
+
   /** 확인 필요(inReview) 조건 하나를 판정 틀 공통 조건에 넣어요. */
   private static ObjectNode withReviewCriterion(ObjectNode event) {
     ((ObjectNode) event.path("payload").path("judgment"))
@@ -622,6 +635,131 @@ class NoticeIngestionIntegrationTest {
         .extracting(ProgramForJudgment::title)
         .containsExactly("상시 모집 사업");
     assertThat(query.findOpenForJudgment(NoticeField.BUSINESS_SPACE)).isEmpty();
+  }
+
+  @Test
+  void 새_정책은_처음_저장할_때만_PolicyPublished를_보낸다() {
+    ObjectNode space = policyEvent("SPACE_RECRUITMENT", 2, "2026-10-27", "11000");
+    ((ObjectNode) space.path("payload")).put("title", "강남 창업공간 입주기업 모집");
+    UUID id = UUID.fromString(space.path("payload").path("rawPostId").asString());
+
+    assertThat(ingestion.apply(body(space))).isEqualTo(IngestionOutcome.POLICY_JUDGMENT_SAVED);
+    assertThat(events.stream(PolicyPublished.class))
+        .containsExactly(
+            new PolicyPublished(
+                id, "SPACE_RECRUITMENT", List.of("11000"), "강남 창업공간 입주기업 모집", false));
+
+    // 같은 버전의 승인본·내용이 같은 새 버전은 새 소식도 정정도 아니에요
+    ingestion.apply(body(samePolicy(space, 2, "APPROVED")));
+    ingestion.apply(body(samePolicy(space, 3, "AUTO_PASSED")));
+    assertThat(events.stream(PolicyPublished.class)).hasSize(1);
+    assertThat(events.stream(PolicyUpdated.class)).isEmpty();
+    assertThat(events.stream(NoticePublished.class)).isEmpty();
+  }
+
+  @Test
+  void 검수_대기라_저장하지_않던_정책은_승인되어_처음_저장될_때_새_정책이다() {
+    ObjectNode inReview =
+        samePolicy(policyEvent("STARTUP_SUPPORT", 2, "2026-11-02"), 2, "IN_REVIEW");
+
+    ingestion.apply(body(inReview));
+    assertThat(events.stream(PolicyPublished.class)).isEmpty();
+
+    ingestion.apply(body(samePolicy(inReview, 2, "APPROVED")));
+    assertThat(events.stream(PolicyPublished.class)).hasSize(1);
+  }
+
+  @Test
+  void 새_수집_버전에서_보이는_내용이_바뀌면_바뀐_부분과_함께_PolicyUpdated를_보낸다() {
+    ObjectNode v2 = policyEvent("STARTUP_SUPPORT", 2, "2026-11-02");
+    UUID id = UUID.fromString(v2.path("payload").path("rawPostId").asString());
+    ingestion.apply(body(v2));
+
+    // 마감일과 자격 조건이 바뀜 (판정 틀의 버전·메모도 바뀌지만 그것만으로는 정정이 아니에요)
+    ObjectNode v3 = withReviewCriterion(samePolicy(v2, 3, "PARTIALLY_PASSED"));
+    ((ObjectNode) v3.path("payload").path("schedule")).put("applyEndOn", "2026-11-09");
+    ((ObjectNode) v3.path("payload").path("judgment")).putArray("notes").add(note("AI 메모"));
+    ingestion.apply(body(v3));
+
+    assertThat(events.stream(PolicyUpdated.class))
+        .containsExactly(
+            new PolicyUpdated(id, "STARTUP_SUPPORT", 3, List.of("schedule", "conditions"), false));
+
+    ObjectNode v4 = samePolicy(v3, 4, "PARTIALLY_PASSED");
+    ((ObjectNode) v4.path("payload").path("judgment")).putArray("notes").add(note("다른 AI 메모"));
+    ((ObjectNode) v4.path("payload")).put("title", "바뀐 제목");
+    ((ObjectNode) v4.path("payload"))
+        .put("detailUrl", "https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do?pbancSn=2");
+    ingestion.apply(body(v4));
+
+    assertThat(events.stream(PolicyUpdated.class))
+        .last()
+        .isEqualTo(
+            new PolicyUpdated(id, "STARTUP_SUPPORT", 4, List.of("basic", "application"), false));
+  }
+
+  @Test
+  void 조건의_근거_문장만_바뀐_새_버전은_자격_정정이_아니다() {
+    ObjectNode v2 =
+        withReviewCriterion(
+            samePolicy(policyEvent("STARTUP_SUPPORT", 2, "2026-11-02"), 2, "PARTIALLY_PASSED"));
+    ingestion.apply(body(v2));
+
+    ObjectNode v3 = samePolicy(v2, 3, "PARTIALLY_PASSED");
+    ObjectNode criterion = (ObjectNode) v3.path("payload").path("judgment").path("common").get(0);
+    criterion.put("quote", "사업자 등록을 마친 사람").put("page", 2).put("reviewReason", "다시 확인");
+    ingestion.apply(body(v3));
+
+    assertThat(events.stream(PolicyUpdated.class)).isEmpty();
+
+    ObjectNode v4 = samePolicy(v3, 4, "PARTIALLY_PASSED");
+    ((ObjectNode) v4.path("payload").path("judgment").path("common").get(0))
+        .put("require", "NOT_REGISTERED");
+    ingestion.apply(body(v4));
+
+    assertThat(events.stream(PolicyUpdated.class))
+        .extracting(PolicyUpdated::changedFields)
+        .containsExactly(List.of("conditions"));
+  }
+
+  @Test
+  void 정책_요약과_마감_임박_정책을_조회한다() {
+    ObjectNode startup = policyEvent("STARTUP_SUPPORT", 2, "2026-10-22");
+    ((ObjectNode) startup.path("payload"))
+        .putObject("policyInfo")
+        .put("organization", "창업진흥원")
+        .putNull("supportArea")
+        .putNull("summary")
+        .putNull("contact")
+        .putNull("applyMethod")
+        .putNull("applyUrl")
+        .putNull("guideUrl")
+        .putNull("amountText");
+    UUID startupId = UUID.fromString(startup.path("payload").path("rawPostId").asString());
+    ObjectNode later = otherPolicy(policyEvent("SPACE_RECRUITMENT", 2, "2026-10-25", "11000"));
+    ObjectNode notStarted = otherPolicy(policyEvent("STARTUP_SUPPORT", 2, "2026-10-22"));
+    ((ObjectNode) notStarted.path("payload").path("schedule")).put("applyStartOn", "2026-10-20");
+    ingestion.apply(body(startup));
+    ingestion.apply(body(later));
+    ingestion.apply(body(notStarted));
+
+    var summary = query.findPolicySummary(startupId).orElseThrow();
+    assertThat(summary.field()).isEqualTo("STARTUP_SUPPORT");
+    assertThat(summary.organization()).isEqualTo("창업진흥원");
+    assertThat(summary.status()).isEqualTo("APPLYING");
+    assertThat(summary.applyEnd()).isEqualTo(LocalDate.of(2026, 10, 22));
+    assertThat(summary.regionCodes()).isEmpty();
+    assertThat(query.findPolicySummary(UUID.randomUUID())).isEmpty();
+
+    // 오늘 10/19: 10/22(D-3) 마감 중 이미 신청 중인 것만
+    LocalDate today = LocalDate.of(2026, 10, 19);
+    assertThat(
+            query.findOpenPoliciesClosingOn(List.of(today.plusDays(3), today.plusDays(1)), today))
+        .extracting(PolicySummary::policyId)
+        .containsExactly(startupId);
+
+    clock.set("2026-10-23T09:00");
+    assertThat(query.findPolicySummary(startupId).orElseThrow().status()).isEqualTo("CLOSED");
   }
 
   @Test

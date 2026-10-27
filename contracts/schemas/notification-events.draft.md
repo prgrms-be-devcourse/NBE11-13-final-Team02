@@ -74,11 +74,11 @@ PWA ──HTTP──▶ api
 | --- | --- | --- | --- |
 | `type` | enum | ✅ | `NEW_NOTICE` 새 주거·사업공간 공고 · `NEW_SUPPORT` 새 지원 정책·창업지원 · `DEADLINE_D3`·`DEADLINE_D1` 관심 공고 마감 · `CORRECTED` 관심 공고 정정 · `FOLLOW_UP` 관심 공고 후속 안내. 알림 서버는 묶음 여부(NEW_*만 묶음)에만 써요 |
 | `dedupKey` | string | ✅ | 같은 알림인지 가리는 열쇠 (회원 ID 빼고). 아래 표. 알림 서버는 `{userId}:{dedupKey}`·채널마다 한 번만 보내요 |
-| `target.type` | `NOTICE` \| `BENEFIT` \| `SPACE_RECRUITMENT` | ✅ | ID가 들어 있는 api 테이블 (`notices` / `benefits` / `space_recruitments`). 추적용이에요 |
+| `target.type` | `NOTICE` \| `BENEFIT` \| `STARTUP_SUPPORT` \| `SPACE_RECRUITMENT` | ✅ | ID가 들어 있는 api 테이블 (`notices` / `benefits` / 창업지원 사업·사업공간 모집은 `notice.policy_judgments`, ID = rawPolicyId). 추적용이에요 |
 | `target.id` | uuid | ✅ | 그 테이블의 ID |
 | `title` | string | ✅ | api가 만든 알림 제목. 메일 제목·알림함과 같아요 (3장 문구 예) |
 | `body` | string | ✅ | api가 만든 알림 본문 |
-| `linkPath` | string | ✅ | PWA 상세 화면 경로 (`/notices/{id}`, `/benefits/{id}`, `/space-recruitments/{id}`) |
+| `linkPath` | string | ✅ | PWA 화면 경로 (`/notices/{id}`, `/benefits/{id}`, 창업지원 사업 `/supports/{id}`, 사업공간 모집 `/spaces/{id}`. 정책 둘은 맞춤 목록 API 이름과 같아요) |
 | `recipients` | object[] | ✅ 1~500개 | 받을 회원 |
 | `recipients[].userId` | uuid | ✅ | |
 | `recipients[].email` | string \| null | ✅ | 이메일로 보낼 주소. api가 **이메일 켬 + 이 종류 켬 + 인증됐고 ACTIVE**일 때만 넣어요. null이면 이메일로 안 보내요 |
@@ -161,10 +161,11 @@ PWA ──HTTP──▶ api
 | 언제 | 대상자 | type |
 | --- | --- | --- |
 | `NoticePublished` (reprocess = false) | 주거(`HOUSING`)면 `housing_interests`, 사업공간(`BUSINESS_SPACE`)면 `business_interests`가 맞는 회원 + 그 공고를 관심 공고로 둔 회원 | NEW_NOTICE |
-| `BenefitPublished` (reprocess = false) | field `BENEFIT`면 `support_interests`, `STARTUP_SUPPORT`·`SPACE_RECRUITMENT`면 `business_interests`가 맞는 회원 | NEW_SUPPORT |
-| `NoticeUpdated`·`BenefitUpdated` (reprocess = false), 알릴 항목이 바뀜 | 관심 공고로 둔 회원 | CORRECTED |
+| `BenefitPublished` (reprocess = false) | field `BENEFIT`인 `support_interests`가 맞는 회원 | NEW_SUPPORT |
+| `PolicyPublished` (reprocess = false, notice `policy_judgments`에 처음 저장) | 창업지원 사업(`STARTUP_SUPPORT`)·사업공간 모집(`SPACE_RECRUITMENT`)은 `business_interests`가 맞는 회원. 마감됐거나 마감일을 모르는데 상시도 아닌 정책은 보내지 않아요 | NEW_SUPPORT |
+| `NoticeUpdated`·`BenefitUpdated`·`PolicyUpdated` (reprocess = false), 알릴 항목이 바뀜 | 관심 공고로 둔 회원 | CORRECTED |
 | `NoticeUpdated`에 `followUps` | 관심 공고로 둔 회원 | FOLLOW_UP |
-| 매일 09:00 스케줄러 | 마감일이 3일 뒤·1일 뒤인 열린 공고(notice `findOpenClosingOn`)·정책(benefit `findOpenClosingOn`)을 관심 공고로 둔 회원. 하루 한 번(`reminder_runs`), 09:00에 꺼져 있었으면 그날 따라잡기 | DEADLINE_D3·D1 |
+| 매일 09:00 스케줄러 | 마감일이 3일 뒤·1일 뒤인 열린 공고(notice `findOpenClosingOn`)·정책(benefit `findOpenClosingOn`)·창업지원 사업·사업공간 모집(notice `findOpenPoliciesClosingOn`)을 관심 공고로 둔 회원. 하루 한 번(`reminder_runs`), 09:00에 꺼져 있었으면 그날 따라잡기 | DEADLINE_D3·D1 |
 
 ### 요청 만들기 순서
 
@@ -179,7 +180,7 @@ PWA ──HTTP──▶ api
 
 ### 문구 (api `notification` 모듈이 만들어요)
 
-`{종류}`는 `NOTICE` 공고 · `BENEFIT` 지원 사업 · `SPACE_RECRUITMENT` 사업공간 모집이에요.
+`{종류}`는 `NOTICE` 공고 · `BENEFIT` 지원 정책 · `STARTUP_SUPPORT` 창업지원 · `SPACE_RECRUITMENT` 사업공간 모집이에요.
 
 | type | title | body |
 | --- | --- | --- |
@@ -207,6 +208,18 @@ PWA ──HTTP──▶ api
 | `guidance` | 안내 문구 | ❌ |
 | `followUps` | 후속 안내가 붙음 | CORRECTED가 아니라 FOLLOW_UP으로 |
 | `sources` | 다른 출처 공고와 합치기·되돌리기 | ❌ |
+
+### 알릴 정책 정정 항목 (창업지원 사업·사업공간 모집)
+
+`PolicyUpdated.changedFields`는 더 높은 수집 버전이 와서 보이는 값이 바뀐 때만 와요 (같은 버전 승인은 아님). 아래 ✅만 문구에 넣어요.
+
+| 값 | 뜻 (문구 이름) | 알림 |
+| --- | --- | --- |
+| `basic` | 제목 | ❌ |
+| `region` | 지원 지역 | ❌ |
+| `schedule` | 신청 기간·상시 여부 (일정) | ✅ |
+| `conditions` | 판정 틀의 자격·우대 조건 (자격). 메모(notes)·기준일만 바뀐 것은 넣지 않아요 | ✅ |
+| `application` | 원문 주소·문의처·접수 방법 (신청 방법) | ✅ |
 
 ### 지역 맞추기 규칙
 
@@ -240,7 +253,7 @@ SES 반송(없는 주소)·스팸 신고를 SNS로 받으면 알림 서버가 �
 | 대상자·설정·문구 | api가 정해서 `recipients`·`title`·`body`로 보내요 |
 | 인증 코드 메일 | api가 코드를 만들고 `email.verification.requested`로 요청, SES 발송은 알림 서버만 |
 | 설정을 바꾸면 | 다음 요청부터 반영해요 (이미 받은 묶음 메일은 그대로 나가요, 최대 10시간) |
-| `target.type` | `NOTICE`·`BENEFIT`·`SPACE_RECRUITMENT` 3개 |
+| `target.type` | `NOTICE`·`BENEFIT`·`STARTUP_SUPPORT`·`SPACE_RECRUITMENT` 4개 (2026-10-27: 창업지원 사업·사업공간 모집은 notice `policy_judgments`) |
 | api 아웃박스·릴레이 | 담당자3이 만들고 담당자1이 리뷰 |
 | 후속 안내 | 알려요 (FOLLOW_UP) |
 

@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -13,6 +14,8 @@ import kr.mujuthaek.api.common.event.NoticeClosed;
 import kr.mujuthaek.api.common.event.NoticeLocationsChanged;
 import kr.mujuthaek.api.common.event.NoticePublished;
 import kr.mujuthaek.api.common.event.NoticeUpdated;
+import kr.mujuthaek.api.common.event.PolicyPublished;
+import kr.mujuthaek.api.common.event.PolicyUpdated;
 import kr.mujuthaek.api.common.id.UuidV7;
 import kr.mujuthaek.api.notice.domain.ApplicationStatusCalculator;
 import kr.mujuthaek.api.notice.domain.BaseSource;
@@ -42,6 +45,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.JsonNodeFactory;
+import tools.jackson.databind.node.ObjectNode;
 
 /**
  * extraction.completed 한 건을 공고로 반영해요. 한 트랜잭션 안에서 수신 기록 → 공개 판단 → 버전 저장 → 이벤트 발행까지 하고, 어느 단계에서 실패해도
@@ -68,6 +74,12 @@ public class NoticeIngestionService {
 
   /** 검수 대기(IN_REVIEW) 정책 판정 틀을 공개하지 않고 수신 기록에만 둔 까닭 (extraction_results.reason). */
   static final String POLICY_IN_REVIEW = "POLICY_IN_REVIEW";
+
+  /** 판정 틀에서 정정으로 보는 부분 (메모·기준일·원본 ID·버전은 빼요). */
+  private static final List<String> FRAME_CONDITIONS = List.of("common", "groups", "preferences");
+
+  /** 조건을 비교할 때 빼는 칸: 근거 문장·쪽·확인 필요 까닭 (다시 추출하면 글자만 바뀔 수 있어요). */
+  private static final Set<String> FRAME_EVIDENCE = Set.of("quote", "page", "reviewReason");
 
   /** 후속 안내가 붙거나 바뀌었을 때 NoticeUpdated.changedFields에 넣는 이름. */
   static final String FOLLOW_UPS = "followUps";
@@ -165,26 +177,28 @@ public class NoticeIngestionService {
     List<String> regions = new java.util.ArrayList<>();
     event.payload().path("regionCodes").forEach(code -> regions.add(code.asString()));
     JsonNode detailUrl = event.payload().path("detailUrl");
-    boolean saved =
-        notices.savePolicyJudgment(
-            new NoticeRepository.PolicyJudgmentRow(
-                event.rawPostId(),
-                event.field(),
-                event.rawVersion(),
-                event.eventId(),
-                event.title(),
-                event.applyStartOn(),
-                event.applyEndOn(),
-                regions,
-                json.writeValueAsString(event.judgment()),
-                event.reviewStatus(),
-                detailUrl.isString() ? detailUrl.asString() : null,
-                event.payload().path("applyAlways").asBoolean(false),
-                event.payload().path("policyInfo").isObject()
-                    ? json.writeValueAsString(event.payload().path("policyInfo"))
-                    : null),
-            now);
-    if (saved) {
+    NoticeRepository.PolicyJudgmentRow row =
+        new NoticeRepository.PolicyJudgmentRow(
+            event.rawPostId(),
+            event.field(),
+            event.rawVersion(),
+            event.eventId(),
+            event.title(),
+            event.applyStartOn(),
+            event.applyEndOn(),
+            regions,
+            json.writeValueAsString(event.judgment()),
+            event.reviewStatus(),
+            detailUrl.isString() ? detailUrl.asString() : null,
+            event.payload().path("applyAlways").asBoolean(false),
+            event.payload().path("policyInfo").isObject()
+                ? json.writeValueAsString(event.payload().path("policyInfo"))
+                : null);
+    // 같은 정책을 동시에 받아도 이전 값 읽기·저장·알림이 엇갈리지 않게 줄 세워요
+    notices.lockRawPost(event.rawPostId());
+    Optional<NoticeRepository.StoredPolicy> before = notices.storedPolicy(event.rawPostId());
+    if (notices.savePolicyJudgment(row, now)) {
+      publishPolicy(before, row, event.reprocess());
       return new Decision(IngestionOutcome.POLICY_JUDGMENT_SAVED, event.field());
     }
     boolean sameVersion =
@@ -194,6 +208,89 @@ public class NoticeIngestionService {
             .orElse(false);
     return new Decision(
         sameVersion ? IngestionOutcome.KEPT_APPROVED : IngestionOutcome.STALE, event.field());
+  }
+
+  /**
+   * 처음 저장한 정책이면 PolicyPublished, 더 높은 수집 버전으로 바꿨고 보이는 내용이 달라졌으면 PolicyUpdated를 보내요. 같은 버전을 승인본으로 바꾼
+   * 것은 보내지 않아요 (출처 정정이 아니라 검수라서).
+   */
+  private void publishPolicy(
+      Optional<NoticeRepository.StoredPolicy> before,
+      NoticeRepository.PolicyJudgmentRow after,
+      boolean reprocess) {
+    if (before.isEmpty()) {
+      events.publishEvent(
+          new PolicyPublished(
+              after.rawPolicyId(),
+              after.field(),
+              List.copyOf(after.regionCodes()),
+              after.title(),
+              reprocess));
+      return;
+    }
+    if (after.rawVersion() <= before.get().version()) {
+      return;
+    }
+    List<String> changed = policyChanges(before.get(), after);
+    if (!changed.isEmpty()) {
+      events.publishEvent(
+          new PolicyUpdated(
+              after.rawPolicyId(), after.field(), after.rawVersion(), changed, reprocess));
+    }
+  }
+
+  /** PolicyUpdated.changedFields: basic · region · schedule · conditions · application (이 순서로). */
+  private List<String> policyChanges(
+      NoticeRepository.StoredPolicy before, NoticeRepository.PolicyJudgmentRow after) {
+    List<String> changed = new java.util.ArrayList<>();
+    if (!Objects.equals(before.title(), after.title())) {
+      changed.add("basic");
+    }
+    if (!Set.copyOf(before.regionCodes()).equals(Set.copyOf(after.regionCodes()))) {
+      changed.add("region");
+    }
+    if (!Objects.equals(before.applyStart(), after.applyStart())
+        || !Objects.equals(before.applyEnd(), after.applyEnd())
+        || before.applyAlways() != after.applyAlways()) {
+      changed.add("schedule");
+    }
+    JsonNode oldFrame = json.readTree(before.frameJson());
+    JsonNode newFrame = json.readTree(after.frameJson());
+    if (FRAME_CONDITIONS.stream()
+        .anyMatch(
+            k -> !withoutEvidence(oldFrame.path(k)).equals(withoutEvidence(newFrame.path(k))))) {
+      changed.add("conditions");
+    }
+    if (!Objects.equals(before.detailUrl(), after.detailUrl())
+        || !Objects.equals(tree(before.infoJson()), tree(after.infoJson()))) {
+      changed.add("application");
+    }
+    return changed;
+  }
+
+  /** 근거 칸(FRAME_EVIDENCE)을 모든 깊이에서 뺀 사본. */
+  private static JsonNode withoutEvidence(JsonNode node) {
+    if (node.isObject()) {
+      ObjectNode copy = JsonNodeFactory.instance.objectNode();
+      node.properties()
+          .forEach(
+              e -> {
+                if (!FRAME_EVIDENCE.contains(e.getKey())) {
+                  copy.set(e.getKey(), withoutEvidence(e.getValue()));
+                }
+              });
+      return copy;
+    }
+    if (node.isArray()) {
+      ArrayNode copy = JsonNodeFactory.instance.arrayNode();
+      node.forEach(item -> copy.add(withoutEvidence(item)));
+      return copy;
+    }
+    return node;
+  }
+
+  private JsonNode tree(String jsonText) {
+    return jsonText == null ? null : json.readTree(jsonText);
   }
 
   /**

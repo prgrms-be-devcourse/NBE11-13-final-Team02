@@ -98,6 +98,29 @@ class DeadlineReminderTest {
   }
 
   @Test
+  void closingStartupSupportAndSpaceRecruitmentAreRemindedToo() throws Exception {
+    // notice.policy_judgments의 창업지원 사업(10/30 마감)·사업공간 모집(10/28 마감), 신청은 10/7부터
+    UUID startup = noticePolicy("STARTUP_SUPPORT", "2026-10-30");
+    UUID space = noticePolicy("SPACE_RECRUITMENT", "2026-10-28");
+    jdbc.sql("delete from common.outbox").update();
+
+    clock.set("2026-10-27T09:00"); // D-3 = 10/30, D-1 = 10/28
+
+    assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(2));
+    JsonNode d3 = byType(requests(), "DEADLINE_D3");
+    assertThat(d3.path("dedupKey").asString())
+        .isEqualTo("STARTUP_SUPPORT:" + startup + ":D3:2026-10-30");
+    assertThat(d3.path("target").path("type").asString()).isEqualTo("STARTUP_SUPPORT");
+    assertThat(d3.path("linkPath").asString()).isEqualTo("/supports/" + startup);
+    assertThat(d3.path("body").asString()).isEqualTo("관심 창업지원 접수가 10월 30일에 마감돼요.");
+    JsonNode d1 = byType(requests(), "DEADLINE_D1");
+    assertThat(d1.path("dedupKey").asString())
+        .isEqualTo("SPACE_RECRUITMENT:" + space + ":D1:2026-10-28");
+    assertThat(d1.path("linkPath").asString()).isEqualTo("/spaces/" + space);
+    assertThat(d1.path("body").asString()).isEqualTo("관심 사업공간 모집 접수가 내일(10월 28일) 마감돼요.");
+  }
+
+  @Test
   void threeAndOneDayBeforeDeadlineAreRequestedOnceADay() {
     UUID policy = policy(p -> {}); // 마감 11/30
     UUID other =
@@ -233,6 +256,43 @@ class DeadlineReminderTest {
         .param("raw", raw)
         .query(UUID.class)
         .single();
+  }
+
+  /** notice 정책 판정 틀 하나를 저장하고 정책 ID를 돌려줘요 (서리풀 픽스처를 정책 결과로 바꿈, 신청 10/7부터) */
+  private UUID noticePolicy(String field, String applyEnd) throws Exception {
+    ObjectNode event;
+    try (var in = getClass().getResourceAsStream("/notice/extraction-completed-seoripul.json")) {
+      event = (ObjectNode) json.readTree(in);
+    }
+    UUID id = UUID.randomUUID();
+    event.put("eventId", UUID.randomUUID().toString());
+    ObjectNode payload = (ObjectNode) event.path("payload");
+    payload.put("rawPostId", id.toString());
+    payload.put("field", field);
+    payload.put("rawVersion", 1);
+    payload.put("reviewStatus", "AUTO_PASSED");
+    payload.remove("notice");
+    payload.remove("heldItems");
+    payload.putArray("conditions");
+    payload.putArray("applicationWindows");
+    payload.putNull("regionCode");
+    payload.putObject("schedule").put("applyStartOn", "2026-10-07").put("applyEndOn", applyEnd);
+    payload.putArray("regionCodes");
+    payload.put("detailUrl", "https://www.k-startup.go.kr/web/contents/bizpbanc-ongoing.do");
+    payload.put("applyAlways", false);
+    boolean startup = field.equals("STARTUP_SUPPORT");
+    ObjectNode frame = payload.putObject("judgment");
+    frame.put("schema", startup ? "startup-support-judgment.v1" : "business-space-judgment.v1");
+    frame.put(startup ? "rawPolicyId" : "rawPostId", id.toString());
+    frame.put("rawVersion", 1);
+    if (startup) frame.putNull("referenceDate");
+    else frame.put("referenceDate", "2026-10-07");
+    frame.putArray("common");
+    frame.putArray("groups").addObject().put("id", "all").put("name", "전체").putArray("criteria");
+    frame.putArray("preferences");
+    frame.putArray("notes");
+    noticeIngestion.apply(json.writeValueAsString(event));
+    return id;
   }
 
   private UUID onlyId(String table) {

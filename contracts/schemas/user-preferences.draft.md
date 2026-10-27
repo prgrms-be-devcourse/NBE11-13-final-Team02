@@ -41,7 +41,7 @@ account.users (있음)
 | 칸 | 모양 | 필수 | 뜻 |
 | --- | --- | --- | --- |
 | `user_id` | uuid | ✅ | `users.id` (cascade) |
-| `target_type` | text | ✅ | ID가 들어 있는 테이블. `NOTICE` 주거·사업공간 공고(notice `notices`) · `BENEFIT` 지원 정책·창업지원(benefit `benefits`) · `SPACE_RECRUITMENT` 사업공간 모집(benefit `space_recruitments`) |
+| `target_type` | text | ✅ | ID가 들어 있는 테이블. `NOTICE` 주거·사업공간 공고(notice `notices`) · `BENEFIT` 지원 정책(benefit `benefits`) · `STARTUP_SUPPORT` 창업지원 사업 · `SPACE_RECRUITMENT` 사업공간 모집(둘 다 notice `policy_judgments`, ID = rawPolicyId) |
 | `target_id` | uuid | ✅ | 그 테이블의 ID. **FK를 걸지 않아요** (다른 모듈 테이블). 저장할 때 그 모듈의 service 조회 메서드로 있는지 확인해요 |
 | `created_at` | timestamptz | ✅ | 저장한 시각. "최근 저장한 순" 목록 |
 
@@ -69,7 +69,7 @@ account.users (있음)
 
 ### 2-3. `business_interests` (사업공간·창업지원 관심 조건)
 
-새 사업공간 공고(`NoticePublished`, field = `BUSINESS_SPACE`)와 창업지원·사업공간 모집 정책(`BenefitPublished`, field = `STARTUP_SUPPORT`·`SPACE_RECRUITMENT`)에 써요.
+새 사업공간 공고(`NoticePublished`, field = `BUSINESS_SPACE`)와 창업지원 사업·사업공간 모집 정책(`PolicyPublished`, field = `STARTUP_SUPPORT`·`SPACE_RECRUITMENT`)에 써요.
 
 | 칸 | 모양 | 필수 | 뜻 |
 | --- | --- | --- | --- |
@@ -169,7 +169,7 @@ account.users (있음)
 
 create table account.favorites (
     user_id     uuid        not null references account.users (id) on delete cascade,
-    target_type varchar(20) not null check (target_type in ('NOTICE', 'BENEFIT', 'SPACE_RECRUITMENT')),  -- notices / benefits / space_recruitments
+    target_type varchar(20) not null check (target_type in ('NOTICE', 'BENEFIT', 'STARTUP_SUPPORT', 'SPACE_RECRUITMENT')),  -- notices / benefits / policy_judgments
     target_id   uuid        not null,                 -- 그 테이블의 ID (다른 모듈이라 FK 없음)
     created_at  timestamptz not null default now(),
     primary key (user_id, target_type, target_id)
