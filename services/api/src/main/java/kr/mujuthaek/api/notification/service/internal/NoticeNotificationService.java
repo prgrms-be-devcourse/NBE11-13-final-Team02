@@ -84,6 +84,7 @@ public class NoticeNotificationService {
         TARGET + ":" + n.noticeId() + ":NEW",
         TARGET,
         n.noticeId(),
+        NotificationRequests.noticeLink(n.noticeId(), n.field()),
         "새 " + KIND + ": " + n.title(),
         "관심 조건에 맞는 새 " + KIND + " 소식이에요." + summary(n),
         distinct(
@@ -125,6 +126,7 @@ public class NoticeNotificationService {
               TARGET + ":" + n.noticeId() + ":CORRECTED:" + n.version(),
               TARGET,
               n.noticeId(),
+              NotificationRequests.noticeLink(n.noticeId(), n.field()),
               "정정: " + n.title(),
               "관심 " + KIND + "의 " + labels + " 내용이 바뀌었어요.",
               recipients.forFavorite(TARGET, n.noticeId(), "CORRECTED"));
@@ -149,6 +151,7 @@ public class NoticeNotificationService {
         TARGET + ":" + n.noticeId() + ":FOLLOW_UP:" + f.followUpId(),
         TARGET,
         n.noticeId(),
+        NotificationRequests.noticeLink(n.noticeId(), n.field()),
         "후속 안내: " + n.title(),
         f.title() == null || f.title().isBlank()
             ? "관심 " + KIND + "에 새 후속 안내" + when + "가 올라왔어요."

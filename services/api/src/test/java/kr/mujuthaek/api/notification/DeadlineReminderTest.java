@@ -111,12 +111,12 @@ class DeadlineReminderTest {
     assertThat(d3.path("dedupKey").asString())
         .isEqualTo("STARTUP_SUPPORT:" + startup + ":D3:2026-10-30");
     assertThat(d3.path("target").path("type").asString()).isEqualTo("STARTUP_SUPPORT");
-    assertThat(d3.path("linkPath").asString()).isEqualTo("/supports/" + startup);
+    assertThat(d3.path("linkPath").asString()).isEqualTo("/business/support/" + startup);
     assertThat(d3.path("body").asString()).isEqualTo("관심 창업지원 접수가 10월 30일에 마감돼요.");
     JsonNode d1 = byType(requests(), "DEADLINE_D1");
     assertThat(d1.path("dedupKey").asString())
         .isEqualTo("SPACE_RECRUITMENT:" + space + ":D1:2026-10-28");
-    assertThat(d1.path("linkPath").asString()).isEqualTo("/spaces/" + space);
+    assertThat(d1.path("linkPath").asString()).isEqualTo("/business/spaces/" + space);
     assertThat(d1.path("body").asString()).isEqualTo("관심 사업공간 모집 접수가 내일(10월 28일) 마감돼요.");
   }
 

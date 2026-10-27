@@ -97,7 +97,7 @@ class PolicyNotificationRequestTest {
     assertThat(created.path("type").asString()).isEqualTo("NEW_SUPPORT");
     assertThat(created.path("target").path("type").asString()).isEqualTo("STARTUP_SUPPORT");
     assertThat(created.path("target").path("id").asString()).isEqualTo(id.toString());
-    assertThat(created.path("linkPath").asString()).isEqualTo("/supports/" + id);
+    assertThat(created.path("linkPath").asString()).isEqualTo("/business/support/" + id);
     assertThat(created.path("title").asString()).isEqualTo("새 창업지원: 청년 창업 지원사업");
     assertThat(created.path("body").asString())
         .isEqualTo("관심 조건에 맞는 새 창업지원 소식이에요. 창업진흥원 · 11월 2일 마감");
@@ -141,7 +141,7 @@ class PolicyNotificationRequestTest {
             .param("me", seoul)
             .query((rs, i) -> rs.getString(1) + " " + rs.getString(2))
             .single();
-    assertThat(row).isEqualTo("SPACE_RECRUITMENT /spaces/" + id);
+    assertThat(row).isEqualTo("SPACE_RECRUITMENT /business/spaces/" + id);
   }
 
   @Test

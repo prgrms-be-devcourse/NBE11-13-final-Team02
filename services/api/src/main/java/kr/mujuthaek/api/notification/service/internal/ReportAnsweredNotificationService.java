@@ -54,8 +54,9 @@ public class ReportAnsweredNotificationService {
     this.requests = requests;
   }
 
-  /** 알림이 가리킬 대상. kind는 제보 종류 (dedupKey에 넣어요: 생활권 제보는 다른 표라 ID가 겹칠 수 있어서) */
-  private record Target(String kind, String type, UUID id, String title, String subject) {}
+  /** 알림이 가리킬 대상. kind는 제보 종류 (dedupKey에 넣어요: 생활권 제보는 다른 표라 ID가 겹칠 수 있어서), linkPath는 누르면 갈 화면 */
+  private record Target(
+      String kind, String type, UUID id, String title, String subject, String linkPath) {}
 
   /** 보낸 요청 수를 돌려줘요 (대상을 찾을 수 없거나 기기가 없으면 0) */
   @Transactional(propagation = Propagation.MANDATORY)
@@ -75,6 +76,7 @@ public class ReportAnsweredNotificationService {
         t.type() + ":" + t.id() + ":ANSWERED:" + t.kind() + ":" + event.reportId(),
         t.type(),
         t.id(),
+        t.linkPath(),
         t.title() == null || t.title().isBlank() ? "제보 답변이 도착했어요" : "제보 답변: " + t.title(),
         "제보하신 " + t.subject() + "'" + event.field() + "' 내용을 " + outcome,
         List.of(recipients.forReporter(event.reporterId())));
@@ -95,7 +97,8 @@ public class ReportAnsweredNotificationService {
                           "BENEFIT",
                           id,
                           title(e.targetTitle(), () -> benefitTitle(e.policyId())),
-                          ""));
+                          "",
+                          NotificationRequests.linkPath("BENEFIT", id)));
       case ProgramReportAnswered e ->
           Optional.of(
               new Target(
@@ -109,20 +112,23 @@ public class ReportAnsweredNotificationService {
                               .findPolicySummary(e.programId())
                               .map(PolicySummary::title)
                               .orElse(null)),
-                  ""));
+                  "",
+                  NotificationRequests.linkPath("STARTUP_SUPPORT", e.programId())));
     };
   }
 
   /** 공고·생활권 제보: 다른 공고에 합쳐졌으면 남은 공고로 보내요. 공고가 숨겨졌거나 없어도 공고 ID로 보내요 (답은 받아야 해서) */
   private Optional<Target> notice(String kind, UUID noticeId, String title, String subject) {
     Optional<NoticeSummary> summary = notices.findSummary(noticeId);
+    UUID id = summary.map(NoticeSummary::noticeId).orElse(noticeId);
     return Optional.of(
         new Target(
             kind,
             "NOTICE",
-            summary.map(NoticeSummary::noticeId).orElse(noticeId),
+            id,
             title(title, () -> summary.map(NoticeSummary::title).orElse(null)),
-            subject));
+            subject,
+            NotificationRequests.noticeLink(id, summary.map(NoticeSummary::field).orElse(null))));
   }
 
   private String benefitTitle(UUID rawPolicyId) {

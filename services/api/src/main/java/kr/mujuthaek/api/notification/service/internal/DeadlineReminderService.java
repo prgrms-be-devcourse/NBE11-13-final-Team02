@@ -90,6 +90,7 @@ public class DeadlineReminderService {
               NoticeNotificationService.TARGET,
               NoticeNotificationService.KIND,
               n.noticeId(),
+              NotificationRequests.noticeLink(n.noticeId(), n.field()),
               n.title(),
               n.applyEnd(),
               today);
@@ -100,6 +101,8 @@ public class DeadlineReminderService {
               NotificationRequests.targetType(p.field()),
               NotificationRequests.kind(p.field()),
               p.policyId(),
+              NotificationRequests.linkPath(
+                  NotificationRequests.targetType(p.field()), p.policyId()),
               p.title(),
               p.applyEnd(),
               today);
@@ -120,6 +123,7 @@ public class DeadlineReminderService {
         NotificationRequests.targetType(b.field()),
         NotificationRequests.kind(b.field()),
         b.benefitId(),
+        NotificationRequests.linkPath(NotificationRequests.targetType(b.field()), b.benefitId()),
         b.title(),
         b.applyEnd(),
         today);
@@ -127,7 +131,13 @@ public class DeadlineReminderService {
 
   /** {@code kind}는 문구의 {종류} (공고 · 지원 정책 …) */
   private int remind(
-      String targetType, String kind, UUID id, String title, LocalDate applyEnd, LocalDate today) {
+      String targetType,
+      String kind,
+      UUID id,
+      String linkPath,
+      String title,
+      LocalDate applyEnd,
+      LocalDate today) {
     boolean threeDays = ChronoUnit.DAYS.between(today, applyEnd) == 3;
     String day = NotificationRequests.monthDay(applyEnd);
     String type = threeDays ? "DEADLINE_D3" : "DEADLINE_D1";
@@ -136,6 +146,7 @@ public class DeadlineReminderService {
         targetType + ":" + id + (threeDays ? ":D3:" : ":D1:") + applyEnd,
         targetType,
         id,
+        linkPath,
         (threeDays ? "마감 3일 전: " : "내일 마감: ") + title,
         threeDays
             ? "관심 " + kind + " 접수가 " + day + "에 마감돼요."

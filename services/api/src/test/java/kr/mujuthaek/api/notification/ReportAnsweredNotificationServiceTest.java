@@ -110,6 +110,18 @@ class ReportAnsweredNotificationServiceTest {
   }
 
   @Test
+  void businessSpaceNoticeLinksToTheSpaceScreen() {
+    UUID space = UUID.randomUUID();
+    when(notices.findSummary(space))
+        .thenReturn(Optional.of(notice(space, "BUSINESS_SPACE", "성수 창업 공간")));
+
+    service.onAnswered(
+        new NoticeReportAnswered(reportId, space, reporter, "임대료", "FIXED", SECRET_REPLY, null));
+
+    assertThat(onlyPayload().get("linkPath")).isEqualTo("/business/spaces/" + space);
+  }
+
+  @Test
   void benefitReportLinksToTheBenefitFoundByRawPolicyId() {
     UUID raw = UUID.randomUUID();
     UUID benefit = UUID.randomUUID();
@@ -146,7 +158,7 @@ class ReportAnsweredNotificationServiceTest {
         new ProgramReportAnswered(reportId, program, reporter, "지원 대상", "KEPT", "그대로", null));
 
     Map<String, Object> payload = onlyPayload();
-    assertThat(payload.get("linkPath")).isEqualTo("/supports/" + program);
+    assertThat(payload.get("linkPath")).isEqualTo("/business/support/" + program);
     assertThat(payload.get("target")).isEqualTo(Map.of("type", "STARTUP_SUPPORT", "id", program));
     assertThat(payload.get("title")).isEqualTo("제보 답변: 예비창업패키지");
   }
@@ -179,8 +191,12 @@ class ReportAnsweredNotificationServiceTest {
   }
 
   private static NoticeSummary notice(UUID id, String title) {
+    return notice(id, "HOUSING", title);
+  }
+
+  private static NoticeSummary notice(UUID id, String field, String title) {
     return new NoticeSummary(
-        id, 1, "HOUSING", title, null, null, "APPLYING", null, null, List.of(), false, "/", null);
+        id, 1, field, title, null, null, "APPLYING", null, null, List.of(), false, "/", null);
   }
 
   private static BenefitSummary benefit(UUID id) {
