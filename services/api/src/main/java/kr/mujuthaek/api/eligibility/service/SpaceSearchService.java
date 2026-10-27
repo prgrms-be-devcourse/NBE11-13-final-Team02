@@ -144,7 +144,7 @@ public class SpaceSearchService {
     return items.stream().filter(i -> best.containsValue(i)).toList();
   }
 
-  private static String titleKey(String title) {
+  static String titleKey(String title) {
     return title == null ? "" : title.replaceAll("[^\\p{IsHangul}\\p{Alnum}]", "").toLowerCase();
   }
 

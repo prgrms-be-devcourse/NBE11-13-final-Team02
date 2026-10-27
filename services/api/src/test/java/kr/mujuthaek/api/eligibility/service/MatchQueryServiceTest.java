@@ -200,6 +200,24 @@ class MatchQueryServiceTest {
   }
 
   @Test
+  void supportSearchKeepsIneligibleProgramsAndJudgesOneProgram() {
+    String tooOld = "{\"business\": {\"history\": [{\"openedOn\": \"2023-10-16\"}]}}";
+    assertThat(matches.judgeStartupSupportAll(applicant(tooOld)))
+        .singleElement()
+        .satisfies(
+            i -> {
+              assertThat(i.noticeId()).isEqualTo(GVC);
+              assertThat(i.status()).isEqualTo(Eligibility.INELIGIBLE);
+            });
+
+    var one = matches.judgeStartupSupport(GVC, applicant(tooOld)).orElseThrow();
+    assertThat(one.notice().detailUrl()).isEqualTo("https://example.org/programs/gvc");
+    assertThat(one.judgment().field()).isEqualTo("STARTUP_SUPPORT");
+    assertThat(one.judgment().result()).isEqualTo(Eligibility.INELIGIBLE);
+    assertThat(matches.judgeStartupSupport(SEONGDONG, null)).isEmpty();
+  }
+
+  @Test
   void startupSupportListUsesTheSameShape() {
     // K-Startup 정답 케이스: 2023-10-17 개업 → 지원 가능, 2023-10-16 개업 → 불가라 빠져요
     MatchResult eligible =
