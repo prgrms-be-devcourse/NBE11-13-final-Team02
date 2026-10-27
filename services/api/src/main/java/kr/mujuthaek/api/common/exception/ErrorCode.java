@@ -55,6 +55,16 @@ public enum ErrorCode {
   CRITERIA_NOT_FOUND(HttpStatus.NOT_FOUND, "그 연도의 판정 기준값이 아직 없어요"),
   ELIGIBILITY_FIELD_MISMATCH(HttpStatus.BAD_REQUEST, "판정하려는 분야와 판정 틀의 분야(schema)가 달라요"),
   ELIGIBILITY_INVALID_FRAME(HttpStatus.BAD_REQUEST, "판정 틀 형식이 올바르지 않아요"),
+
+  // chat
+  CHAT_MESSAGE_NOT_FOUND(HttpStatus.NOT_FOUND, "메시지를 찾을 수 없어요"),
+  CHAT_INVALID_CONTENT(HttpStatus.BAD_REQUEST, "메시지는 1~500자로 써 주세요"),
+  CHAT_PERSONAL_INFO(HttpStatus.BAD_REQUEST, "휴대폰 번호·주민등록번호는 채팅에 올릴 수 없어요"),
+  CHAT_REPLY_DEPTH(HttpStatus.BAD_REQUEST, "답장에는 답장할 수 없어요"),
+  CHAT_NOT_OWNER(HttpStatus.FORBIDDEN, "내가 쓴 메시지만 지울 수 있어요"),
+  CHAT_READ_ONLY(HttpStatus.CONFLICT, "접수 마감 30일이 지나 읽기만 할 수 있는 채팅방이에요"),
+  CHAT_ALREADY_REPORTED(HttpStatus.CONFLICT, "이미 신고한 메시지예요"),
+  CHAT_RATE_LIMITED(HttpStatus.TOO_MANY_REQUESTS, "메시지는 1분에 5개까지 보낼 수 있어요"),
   ;
 
   private static final String TYPE_BASE = "https://mujuthaek.kr/problems/";

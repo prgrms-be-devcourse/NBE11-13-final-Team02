@@ -115,14 +115,15 @@ class SecurityConfig {
 
   /**
    * 프론트(다른 포트·도메인)에서 쿠키(refresh token)와 Authorization 헤더를 실어 부를 수 있게 프론트 주소만 허용해요. frontendUrl과
-   * corsOrigins(쉼표로 여러 개)만 허용해요.
+   * corsOrigins(쉼표로 여러 개)만 허용해요. Last-Event-ID는 채팅 SSE가 끊겼다 다시 붙을 때 브라우저가 실어 보내는 헤더예요 (허용하지 않으면 다른
+   * 도메인에서 재연결이 막혀요).
    */
   @Bean
   CorsConfigurationSource corsConfigurationSource(LoginProperties props) {
     var config = new CorsConfiguration();
     config.setAllowedOrigins(props.allowedOrigins());
     config.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
-    config.setAllowedHeaders(List.of("Content-Type", "Authorization"));
+    config.setAllowedHeaders(List.of("Content-Type", "Authorization", "Last-Event-ID"));
     config.setAllowCredentials(true);
     var source = new UrlBasedCorsConfigurationSource();
     source.registerCorsConfiguration("/**", config);
