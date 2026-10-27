@@ -10,6 +10,14 @@ import java.util.UUID;
  * @param field 제보한 칸 이름 (보증금 등)
  * @param result FIXED 고침 · KEPT 원문대로 그대로 둠
  * @param reply 회원에게 보낼 답
+ * @param targetTitle 공고 제목
  */
 public record NoticeReportAnswered(
-    UUID reportId, UUID noticeId, UUID reporterId, String field, String result, String reply) {}
+    UUID reportId,
+    UUID noticeId,
+    UUID reporterId,
+    String field,
+    String result,
+    String reply,
+    String targetTitle)
+    implements ReportAnswered {}

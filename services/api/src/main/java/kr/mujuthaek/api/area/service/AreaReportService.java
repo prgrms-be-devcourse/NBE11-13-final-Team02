@@ -155,7 +155,13 @@ public class AreaReportService {
       for (Report done : finished) {
         events.publishEvent(
             new AreaReportAnswered(
-                done.id(), done.noticeId(), done.reporterId(), done.field(), done.result(), reply));
+                done.id(),
+                done.noticeId(),
+                done.reporterId(),
+                done.field(),
+                done.result(),
+                reply,
+                null)); // area는 공고 제목을 몰라요 (받는 쪽이 noticeId로 찾음)
       }
     }
     return detail(id);

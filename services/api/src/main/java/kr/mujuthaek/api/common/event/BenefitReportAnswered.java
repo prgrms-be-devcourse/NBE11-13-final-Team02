@@ -7,6 +7,14 @@ import java.util.UUID;
  *
  * @param policyId 혜택 정책 원본 ID (policy.extracted의 rawPolicyId)
  * @param result FIXED 고침 · KEPT 그대로 둠
+ * @param targetTitle 혜택 정책 제목 (제보 때 받아 둔 값)
  */
 public record BenefitReportAnswered(
-    UUID reportId, UUID policyId, UUID reporterId, String field, String result, String reply) {}
+    UUID reportId,
+    UUID policyId,
+    UUID reporterId,
+    String field,
+    String result,
+    String reply,
+    String targetTitle)
+    implements ReportAnswered {}
