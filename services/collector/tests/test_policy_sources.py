@@ -204,6 +204,12 @@ def test_kstartup_scope_is_space_and_funds(title, field, expected):
         ("2026 WEROUND 공유오피스 멤버십 모집", "SPACE_RECRUITMENT"),
         ("강진군 2026년 소상공인 창업 임대료 지원사업", "STARTUP_SUPPORT"),  # 임대료를 대신 내주는 사업은 지원 정책
         ("2026년 용산구 청년기업 융자지원사업", "STARTUP_SUPPORT"),
+        # 온라인몰·판매전 입점은 공간이 아니라 판로 지원이에요
+        ("[경남] 김해시 2026년 김해온몰 입점기업 모집 공고", "STARTUP_SUPPORT"),
+        ("[광주] 북구 2026년 온라인쇼핑몰(북소e몰) 입점 소상공인 모집 공고", "STARTUP_SUPPORT"),
+        ("2026년 하반기 온라인 K-SEAFOOD 판매 전용관 운영 사업 입점 제품 모집 공고", "STARTUP_SUPPORT"),
+        ("2026년 3차 인천국제공항 면세점 연계 수산식품 판매홍보관 입점업체 모집 공고", "STARTUP_SUPPORT"),
+        ("[경기] 김포시 2026년 우수제품 판매전 E-커머스 입점기업 모집 공고", "STARTUP_SUPPORT"),
     ],
 )
 def test_space_recruitment_is_split_from_startup_support(title, expected):

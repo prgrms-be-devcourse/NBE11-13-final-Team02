@@ -93,6 +93,17 @@ public class PushSubscriptionService implements PushDeviceFinder {
     }
   }
 
+  /**
+   * 푸시 서비스가 죽었다고 한 기기를 지워요 (알림 서버의 push.subscription.expired). 그 회원의 그 주소만 지워서, 그사이 다른 회원으로 옮겨진 기기는
+   * 남아요. 없으면 조용히 끝나요 (같은 이벤트가 두 번 와도 같아요).
+   */
+  @Transactional
+  public void removeExpired(UUID userId, String endpoint, Integer status) {
+    if (subscriptions.deleteByEndpoint(userId, endpoint) > 0) {
+      log.info("죽은 푸시 기기를 지움: userId={}, status={}", userId, status);
+    }
+  }
+
   /** 내 기기 모두 해제 (모든 기기 알림 끄기, 탈퇴). 지운 수를 돌려줘요 */
   @Transactional
   public int unsubscribeAll(UUID userId) {

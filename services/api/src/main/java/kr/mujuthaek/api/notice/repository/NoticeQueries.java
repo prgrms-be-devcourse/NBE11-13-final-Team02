@@ -365,6 +365,25 @@ public class NoticeQueries {
                 rs.getString(13)));
   }
 
+  /**
+   * 마감일이 dates 중 하나이고 오늘 접수 중인 공고 ID (마감 D-3·D-1 알림용). 숨김·공개 전·다른 공고에 합쳐진 공고·아직 시작 전인 공고는 빼요. 상태 칸
+   * 대신 날짜로 골라서 상태 재계산이 늦어도 결과가 같아요.
+   */
+  public List<UUID> openClosingOn(java.util.Collection<LocalDate> dates, LocalDate today) {
+    if (dates.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.queryForList(
+        """
+        select id from notice.notices
+        where merged_into is null and current_version > 0 and not hidden
+          and apply_end in (:dates) and (apply_start is null or apply_start <= :today)
+        order by apply_end, id
+        """,
+        new MapSqlParameterSource("dates", List.copyOf(dates)).addValue("today", today),
+        UUID.class);
+  }
+
   /** 공개 버전 하나 (정정 이력). 글 종류는 payload에서 읽어요. */
   public record VersionRow(
       int version, String reviewStatus, OffsetDateTime receivedAt, String payload) {}

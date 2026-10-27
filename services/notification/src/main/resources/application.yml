@@ -20,6 +20,10 @@ spring:
     host: ${RABBITMQ_HOST:localhost}
     username: ${RABBITMQ_USER:mujuthaek}
     password: ${RABBITMQ_PASSWORD:mq-pass}
+    publisher-confirm-type: correlated  # 아웃박스: 브로커가 받았다고 답해야 보낸 것으로 쳐요 (api와 같음)
+    publisher-returns: true             # 받을 큐가 없으면 버리지 말고 되돌려 받아요
+    template:
+      mandatory: true
     listener:
       simple:
         default-requeue-rejected: false # 실패 메시지는 무한 재시도 대신 실패 큐(mujuthaek.notification.dlq)로

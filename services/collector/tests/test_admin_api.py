@@ -15,6 +15,7 @@ from urllib.request import Request, urlopen
 import pytest
 
 from mujuthaek_collector import admin_api
+from mujuthaek_collector.core.locks import SourceLocks
 
 
 class FakeConn:
@@ -153,16 +154,19 @@ def make_runner(calls):
         calls.append(("policy", code))
         done.set()
 
-    return admin_api.Runner(threading.Lock(), collect, collect_policy, ["gov24"], settings=None), done
+    return admin_api.Runner(SourceLocks(), collect, collect_policy, ["gov24"], settings=None), done
 
 
-def test_run_now_uses_the_shared_lock_and_the_right_collector():
+def test_run_now_uses_the_source_lock_and_the_right_collector():
     calls = []
     runner, done = make_runner(calls)
     assert runner.start(RunConn(), "sh") == (202, {"code": "sh", "started": True})
     assert done.wait(5)
-    runner.lock.acquire()  # 끝나면 잠금을 돌려줘요
-    runner.lock.release()
+    for _ in range(50):  # 끝나면 그 출처 잠금을 돌려줘요
+        if not runner.locks.busy("sh"):
+            break
+        threading.Event().wait(0.02)
+    assert not runner.locks.busy("sh")
     done.clear()
     assert runner.start(RunConn(), "gov24")[0] == 202 and done.wait(5)
     assert calls == [("board", "sh"), ("policy", "gov24")]
@@ -173,12 +177,14 @@ def test_run_now_is_refused_when_busy_paused_running_or_unknown():
     assert runner.start(RunConn(), "nope")[0] == 404
     assert runner.start(RunConn(enabled=False), "sh")[0] == 409
     assert runner.start(RunConn(running=True), "sh")[0] == 409
-    runner.lock.acquire()  # 스케줄러 수집이 도는 중
+    runner.locks.acquire("sh")  # 스케줄러가 이 출처를 수집하는 중
     try:
         status, body = runner.start(RunConn(), "sh")
-        assert status == 409 and "다른 수집" in body["error"]
+        assert status == 409 and "수집 중" in body["error"]
+        # 다른 출처가 도는 건 막지 않아요
+        assert runner.start(RunConn(), "gov24")[0] == 202
     finally:
-        runner.lock.release()
+        runner.locks.release("sh")
 
 
 def test_run_route_without_runner_says_not_available(server):

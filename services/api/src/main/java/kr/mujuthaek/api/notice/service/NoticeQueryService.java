@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import kr.mujuthaek.api.area.service.NoticeAreaQueryService;
@@ -440,7 +441,7 @@ public class NoticeQueryService {
    * API처럼 합친(남은) 공고의 요약을 줘요(값의 noticeId가 물은 ID와 달라요). 숨김·공개 전·없는 공고는 빠져요. 마감된 공고도 줘요.
    */
   public java.util.Map<UUID, NoticeSummary> findSummaries(java.util.Collection<UUID> ids) {
-    List<UUID> distinct = ids.stream().filter(java.util.Objects::nonNull).distinct().toList();
+    List<UUID> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
     java.util.Map<UUID, NoticeSummary> found = new java.util.HashMap<>();
     // IN 목록이 너무 길어지지 않게 나눠 물어요 (보통은 한 번)
     for (int from = 0; from < distinct.size(); from += SUMMARY_CHUNK) {
@@ -456,6 +457,15 @@ public class NoticeQueryService {
       }
     }
     return ordered;
+  }
+
+  /**
+   * 마감일이 dates 중 하나이고 오늘 접수 중인 공고 (알림 담당 요청: 관심 공고 마감 D-3·D-1). 숨김·공개 전·합쳐진 공고·아직 시작 전인 공고는 빼요. 마감일
+   * 순이에요.
+   */
+  public List<NoticeSummary> findOpenClosingOn(
+      java.util.Collection<LocalDate> dates, LocalDate today) {
+    return List.copyOf(findSummaries(queries.openClosingOn(dates, today)).values());
   }
 
   /** 공고 요약 하나 (findSummaries와 같은 규칙). 숨김·공개 전·없는 공고면 빈 값. */
@@ -523,7 +533,7 @@ public class NoticeQueryService {
     return regions.displayNames(rows.stream().map(r -> regionLookup(r.regionCode())).toList());
   }
 
-  /** 목록 한 줄. 대표 위치 = area 좌표가 있는 첫 위치(notice 위치 ID 순). */
+  /** 목록 한 줄. 대표 위치 = area 좌표가 있는 첫 위치(notice 위치 ID 순), 생활권 점수 = 위치 중 가장 높은 점수(상세와 같은 기준). */
   private NoticeSummaryResponse summary(
       ListRow row, LocalDate today, List<NoticeSite> sites, Map<String, String> names) {
     NoticeSite main = sites.stream().filter(s -> s.lat() != null).findFirst().orElse(null);
@@ -544,8 +554,17 @@ public class NoticeQueryService {
         main == null ? null : main.lat(),
         main == null ? null : main.lng(),
         sites.size(),
-        main == null ? null : main.livingScore(),
+        bestLivingScore(sites),
         main == null ? List.of() : main.tags());
+  }
+
+  /** 단지가 여럿이면 그중 가장 높은 생활권 점수. 점수가 하나도 없으면 null. */
+  static Integer bestLivingScore(List<NoticeSite> sites) {
+    return sites.stream()
+        .map(NoticeSite::livingScore)
+        .filter(Objects::nonNull)
+        .max(Integer::compare)
+        .orElse(null);
   }
 
   /** 시도 단위 코드(11000)는 시도 이름으로 찾아요. */
