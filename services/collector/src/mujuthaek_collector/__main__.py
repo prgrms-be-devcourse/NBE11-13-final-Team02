@@ -16,7 +16,7 @@
                                                           이미 올린 파일 목록으로 적재 요청만 보내기
 
 스케줄 (서울 시간)
-  평일 9~18시 매시 5분   모든 출처 수집 (출처는 하나씩 순서대로)
+  평일 9~18시 매시 5분   모든 출처 수집 (출처마다 따로, 동시에 COLLECTOR_PARALLEL_SOURCES개까지. 앞 회차가 안 끝난 출처만 이번 차례를 건너뜀)
   매일 3시               정정 확인 (마감 전 공고를 다시 열어 바뀌었으면 새 버전)
   매일 4시               보관 기한이 지난 원본 파일 정리
   매일 6시 30분          정책 API 수집 (목록 전체 → 새 정책·바뀐 정책만 상세·첨부)
@@ -30,6 +30,7 @@ import argparse
 import json
 import logging
 import threading
+from concurrent.futures import Executor, ThreadPoolExecutor
 from datetime import date, datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -38,6 +39,7 @@ from mujuthaek_collector.area.sources import SOURCES as AREA_SOURCES
 from mujuthaek_collector.config import Settings
 from mujuthaek_collector.core.file_store import S3FileStore
 from mujuthaek_collector.core.http_client import PoliteClient
+from mujuthaek_collector.core.locks import SourceLocks
 from mujuthaek_collector.core.storage import PostgresStore
 from mujuthaek_collector.pipeline import RunResult, run_source
 from mujuthaek_collector.sources.base import Fetcher, Source
@@ -54,7 +56,7 @@ TIMEZONE = "Asia/Seoul"
 HEALTH_PORT = 8091
 FIXTURES = Path(__file__).resolve().parents[2] / "tests" / "fixtures"
 _last_results: dict[str, dict] = {}  # 상태 확인(/health)에 보여줄 출처별 마지막 결과
-_run_lock = threading.Lock()  # 수집 작업은 한 번에 하나만
+_locks = SourceLocks()  # 같은 출처만 겹치지 않게 (출처끼리는 서로 막지 않아요)
 
 
 def make_client(source: Source, settings: Settings) -> Fetcher:
@@ -92,18 +94,30 @@ def enabled_sources(settings: Settings, order: list[str] = ORDER) -> list[str]:
     return [code for code in order if code in enabled]
 
 
-def collect_all(settings: Settings, *, recheck: bool = False) -> None:
-    if not _run_lock.acquire(blocking=False):
-        log.warning("이전 수집이 아직 끝나지 않아 이번 차례는 건너뛰어요")
+def collect_locked(code: str, settings: Settings, *, recheck: bool = False, run=None) -> None:
+    """출처 하나를 그 출처 잠금 안에서. 앞 회차가 아직 돌고 있으면 이번 차례만 건너뛰어요(다른 출처는 그대로 돌아요)."""
+    if not _locks.acquire(code):
+        log.warning("이 출처의 이전 수집이 아직 끝나지 않아 이번 차례는 건너뛰어요", extra={"source": code})
         return
     try:
-        for code in enabled_sources(settings):
-            try:
-                collect(code, settings, recheck=recheck)
-            except Exception:  # noqa: BLE001 — 한 출처의 실패가 다른 출처를 막지 않게
-                log.exception("출처 수집 실패", extra={"source": code})
+        (run or collect)(code, settings, recheck=recheck)
+    except Exception:  # noqa: BLE001 — 한 출처의 실패가 다른 출처를 막지 않게
+        log.exception("출처 수집 실패", extra={"source": code})
     finally:
-        _run_lock.release()
+        _locks.release(code)
+
+
+def collect_all(settings: Settings, *, recheck: bool = False, pool: Executor | None = None) -> None:
+    """게시판 출처를 출처마다 따로 수집해요. pool을 주면(스케줄러) 거기에 맡기고 바로 돌아와서, 느린 출처가 다음 회차 전체를 막지 않아요.
+    없으면(run-all) 동시에 settings.parallel_sources개까지 돌리고 다 끝날 때까지 기다려요."""
+    codes = enabled_sources(settings)
+    if pool is not None:
+        for code in codes:
+            pool.submit(collect_locked, code, settings, recheck=recheck)
+        return
+    with ThreadPoolExecutor(max_workers=settings.parallel_sources, thread_name_prefix="collect") as own:
+        for code in codes:
+            own.submit(collect_locked, code, settings, recheck=recheck)
 
 
 def collect_policy(code: str, settings: Settings, *, recheck: bool = False) -> RunResult:
@@ -125,21 +139,13 @@ def collect_policy(code: str, settings: Settings, *, recheck: bool = False) -> R
 
 
 def collect_policies(settings: Settings, *, weekly_recheck: bool = False) -> None:
-    """정책 출처를 순서대로. weekly_recheck=True면 목록에 수정일이 없는 출처만 전부 다시 열어봐요."""
-    if not _run_lock.acquire(blocking=False):
-        log.warning("이전 수집이 아직 끝나지 않아 이번 정책 수집은 건너뛰어요")
-        return
-    try:
-        sources = build_policy_sources(PolicySettings.from_env())
-        for code in enabled_sources(settings, POLICY_ORDER):
-            if weekly_recheck and not sources[code].weekly_recheck:
-                continue
-            try:
-                collect_policy(code, settings, recheck=weekly_recheck)
-            except Exception:  # noqa: BLE001 — 한 출처의 실패가 다른 출처를 막지 않게
-                log.exception("정책 출처 수집 실패", extra={"source": code})
-    finally:
-        _run_lock.release()
+    """정책 출처를 순서대로(하루 한 번). 게시판 수집과는 서로 막지 않고, 같은 정책 출처만 겹치지 않게 출처 잠금을 잡아요.
+    weekly_recheck=True면 목록에 수정일이 없는 출처만 전부 다시 열어봐요."""
+    sources = build_policy_sources(PolicySettings.from_env())
+    for code in enabled_sources(settings, POLICY_ORDER):
+        if weekly_recheck and not sources[code].weekly_recheck:
+            continue
+        collect_locked(code, settings, recheck=weekly_recheck, run=collect_policy)
 
 
 class Relay:
@@ -293,11 +299,13 @@ def run_scheduler(settings: Settings) -> None:
     from mujuthaek_collector import admin_api
 
     serve_health()
-    admin_api.serve(settings.db_url, admin_api.Runner(_run_lock, collect, collect_policy, POLICY_ORDER, settings))  # 관리자 수집 현황 API (:8093)
+    admin_api.serve(settings.db_url, admin_api.Runner(_locks, collect, collect_policy, POLICY_ORDER, settings))  # 관리자 수집 현황 API (:8093)
     scheduler = BlockingScheduler(timezone=TIMEZONE)
     common = {"max_instances": 1, "coalesce": True, "misfire_grace_time": 600}
-    scheduler.add_job(collect_all, "cron", day_of_week="mon-fri", hour="9-18", minute=5, args=[settings], id="collect", **common)
-    scheduler.add_job(collect_all, "cron", hour=3, minute=0, args=[settings], kwargs={"recheck": True}, id="recheck", **common)
+    # 게시판 출처는 이 풀에서 동시에 돌아요. 회차 작업은 맡기고 바로 끝나서 다음 회차가 밀리지 않아요
+    pool = ThreadPoolExecutor(max_workers=settings.parallel_sources, thread_name_prefix="collect")
+    scheduler.add_job(collect_all, "cron", day_of_week="mon-fri", hour="9-18", minute=5, args=[settings], kwargs={"pool": pool}, id="collect", **common)
+    scheduler.add_job(collect_all, "cron", hour=3, minute=0, args=[settings], kwargs={"recheck": True, "pool": pool}, id="recheck", **common)
     scheduler.add_job(cleanup, "cron", hour=4, minute=0, args=[settings], id="cleanup", **common)
     scheduler.add_job(collect_policies, "cron", hour=6, minute=30, args=[settings], id="policies", **common)
     scheduler.add_job(
