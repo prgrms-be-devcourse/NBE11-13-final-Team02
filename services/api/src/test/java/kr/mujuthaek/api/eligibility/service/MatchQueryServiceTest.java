@@ -8,15 +8,18 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
+import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
+import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -190,13 +193,32 @@ class MatchQueryServiceTest {
             });
 
     // 공간 하나의 판정: 조건별 결과까지
-    var one = matches.judgeBusinessSpace(SEONGDONG, applicant(individual)).orElseThrow();
+    var one = matches.judgeBusinessSpace(SEONGDONG, applicant(individual), null).orElseThrow();
     assertThat(one.notice().title()).isEqualTo("성동 안심상가");
     assertThat(one.judgment().field()).isEqualTo("BUSINESS_SPACE");
     assertThat(one.judgment().result()).isEqualTo(Eligibility.INELIGIBLE);
 
+    // 질문(사회적 가치 정관)에 답하면 그 조건이 정해져요. 답은 판정 결과의 questions[].id로 줘요
+    String corp =
+        """
+        {"business": {"applicantType": "CORPORATION", "hasSite": true, "siteRegionCode": "1120011500"},
+         "statuses": ["SOCIAL_ENTERPRISE"]}""";
+    var asked = matches.judgeBusinessSpace(SEONGDONG, applicant(corp), null).orElseThrow();
+    assertThat(asked.judgment().questions())
+        .extracting(JudgmentResult.Question::id)
+        .contains("social-value-articles");
+    var answered =
+        matches
+            .judgeBusinessSpace(
+                SEONGDONG, applicant(corp), Map.of("social-value-articles", Answer.NO))
+            .orElseThrow();
+    assertThat(answered.judgment().questions())
+        .filteredOn(q -> q.id().equals("social-value-articles"))
+        .extracting(JudgmentResult.Question::answer)
+        .containsExactly(Answer.NO);
+
     // 열린 사업공간이 아니면(주거 공고 ID) 찾을 수 없어요
-    assertThat(matches.judgeBusinessSpace(JEONSE, null)).isEmpty();
+    assertThat(matches.judgeBusinessSpace(JEONSE, null, null)).isEmpty();
   }
 
   @Test
@@ -210,11 +232,11 @@ class MatchQueryServiceTest {
               assertThat(i.status()).isEqualTo(Eligibility.INELIGIBLE);
             });
 
-    var one = matches.judgeStartupSupport(GVC, applicant(tooOld)).orElseThrow();
+    var one = matches.judgeStartupSupport(GVC, applicant(tooOld), null).orElseThrow();
     assertThat(one.notice().detailUrl()).isEqualTo("https://example.org/programs/gvc");
     assertThat(one.judgment().field()).isEqualTo("STARTUP_SUPPORT");
     assertThat(one.judgment().result()).isEqualTo(Eligibility.INELIGIBLE);
-    assertThat(matches.judgeStartupSupport(SEONGDONG, null)).isEmpty();
+    assertThat(matches.judgeStartupSupport(SEONGDONG, null, null)).isEmpty();
   }
 
   @Test

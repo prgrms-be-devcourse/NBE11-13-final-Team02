@@ -38,6 +38,9 @@ class SupportController {
       @PathVariable UUID id, @Valid @RequestBody(required = false) SpaceEvaluateRequest request) {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())
-        .body(supports.evaluate(id, request == null ? null : request.applicant()));
+        .body(
+            request == null
+                ? supports.evaluate(id, null, null)
+                : supports.evaluate(id, request.applicant(), request.answers()));
   }
 }
