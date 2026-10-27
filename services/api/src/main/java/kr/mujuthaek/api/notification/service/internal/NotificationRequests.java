@@ -56,11 +56,24 @@ public class NotificationRequests {
       String title,
       String body,
       List<Recipient> to) {
+    return write(
+        type, dedupKey, targetType, targetId, linkPath(targetType, targetId), title, body, to);
+  }
+
+  /** 누르면 갈 화면({@code linkPath})을 따로 정할 때 (사업공간 공고처럼 대상 종류만으로 정할 수 없을 때) */
+  int write(
+      String type,
+      String dedupKey,
+      String targetType,
+      UUID targetId,
+      String linkPath,
+      String title,
+      String body,
+      List<Recipient> to) {
     if (to.isEmpty()) {
       log.debug("받을 회원이 없어 알림 요청을 만들지 않아요: type={}, targetId={}", type, targetId);
       return 0;
     }
-    String linkPath = linkPath(targetType, targetId);
     Instant now = clock.instant();
     int sent = 0;
     int withPush = 0;
@@ -150,15 +163,23 @@ public class NotificationRequests {
     };
   }
 
-  /** PWA 화면 경로. 창업지원 사업·사업공간 모집은 맞춤 목록 API(/supports, /spaces)와 같은 이름에 정책 ID */
+  /**
+   * 누르면 갈 PWA 화면. 창업지원 사업은 사업 지원 상세(/business/support/{id}), 사업공간 모집은 사업공간
+   * 상세(/business/spaces/{id}) — 맞춤 목록(/supports, /spaces)과 같은 정책 ID
+   */
   static String linkPath(String targetType, UUID id) {
     return switch (targetType) {
           case "NOTICE" -> "/notices/";
-          case "STARTUP_SUPPORT" -> "/supports/";
-          case "SPACE_RECRUITMENT" -> "/spaces/";
+          case "STARTUP_SUPPORT" -> "/business/support/";
+          case "SPACE_RECRUITMENT" -> "/business/spaces/";
           default -> "/benefits/";
         }
         + id;
+  }
+
+  /** 공고 화면: 사업공간 공고는 사업공간 상세(/business/spaces/{id}), 주거 공고는 공고 상세(/notices/{id}) */
+  static String noticeLink(UUID noticeId, String field) {
+    return ("BUSINESS_SPACE".equals(field) ? "/business/spaces/" : "/notices/") + noticeId;
   }
 
   /** 알림 문구의 {종류} */

@@ -78,7 +78,7 @@ PWA ──HTTP──▶ api
 | `target.id` | uuid | ✅ | 그 테이블의 ID |
 | `title` | string | ✅ | api가 만든 알림 제목. 메일 제목·알림함과 같아요 (3장 문구 예) |
 | `body` | string | ✅ | api가 만든 알림 본문 |
-| `linkPath` | string | ✅ | PWA 화면 경로 (`/notices/{id}`, `/benefits/{id}`, 창업지원 사업 `/supports/{id}`, 사업공간 모집 `/spaces/{id}`. 정책 둘은 맞춤 목록 API 이름과 같아요) |
+| `linkPath` | string | ✅ | PWA 화면 경로 (주거 공고 `/notices/{id}`, 사업공간 공고 `/business/spaces/{id}`, 혜택 `/benefits/{id}`, 창업지원 사업 `/business/support/{id}`, 사업공간 모집 `/business/spaces/{id}`. 정책 둘은 맞춤 목록과 같은 정책 ID) |
 | `recipients` | object[] | ✅ 1~500개 | 받을 회원 |
 | `recipients[].userId` | uuid | ✅ | |
 | `recipients[].email` | string \| null | ✅ | 이메일로 보낼 주소. api가 **이메일 켬 + 이 종류 켬 + 인증됐고 ACTIVE**일 때만 넣어요. null이면 이메일로 안 보내요 |
