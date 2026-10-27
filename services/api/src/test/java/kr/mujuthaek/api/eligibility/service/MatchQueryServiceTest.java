@@ -175,6 +175,31 @@ class MatchQueryServiceTest {
   }
 
   @Test
+  void spaceSearchKeepsIneligibleSpacesAndJudgesOneSpace() {
+    // 맞춤 목록(POST /spaces/search)은 지원 불가도 받아서 직접 걸러요
+    String individual =
+        """
+        {"business": {"applicantType": "INDIVIDUAL"}, "statuses": ["SOCIAL_ENTERPRISE"]}""";
+    assertThat(matches.judgeBusinessSpaceAll(applicant(individual)))
+        .singleElement()
+        .satisfies(
+            i -> {
+              assertThat(i.noticeId()).isEqualTo(SEONGDONG);
+              assertThat(i.status()).isEqualTo(Eligibility.INELIGIBLE);
+              assertThat(i.missingInputs()).isEmpty();
+            });
+
+    // 공간 하나의 판정: 조건별 결과까지
+    var one = matches.judgeBusinessSpace(SEONGDONG, applicant(individual)).orElseThrow();
+    assertThat(one.notice().title()).isEqualTo("성동 안심상가");
+    assertThat(one.judgment().field()).isEqualTo("BUSINESS_SPACE");
+    assertThat(one.judgment().result()).isEqualTo(Eligibility.INELIGIBLE);
+
+    // 열린 사업공간이 아니면(주거 공고 ID) 찾을 수 없어요
+    assertThat(matches.judgeBusinessSpace(JEONSE, null)).isEmpty();
+  }
+
+  @Test
   void startupSupportListUsesTheSameShape() {
     // K-Startup 정답 케이스: 2023-10-17 개업 → 지원 가능, 2023-10-16 개업 → 불가라 빠져요
     MatchResult eligible =

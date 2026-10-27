@@ -4,12 +4,15 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.mapper.ApplicantMapper;
 import kr.mujuthaek.api.eligibility.mapper.FrameReader;
 import kr.mujuthaek.api.eligibility.mapper.FrameSpec;
 import kr.mujuthaek.api.eligibility.mapper.MatchMapper;
+import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
@@ -70,7 +73,43 @@ public class MatchQueryService {
     return match(FrameSpec.STARTUP_SUPPORT, applicant);
   }
 
+  /** 사업공간 맞춤 목록(POST /spaces/search)용: 지원 불가까지 열린 사업공간 공고·모집 정책을 모두 판정해요. 정렬·걸러내기는 부르는 쪽이 해요. */
+  public List<MatchResult.Item> judgeBusinessSpaceAll(JudgmentApplicantRequest applicant) {
+    return judgeAll(FrameSpec.BUSINESS_SPACE, applicant, true);
+  }
+
+  /**
+   * 사업공간 하나의 판정 (POST /spaces/{id}/evaluate). 열린 공고·모집 정책에서 찾아요.
+   *
+   * @return 열린 사업공간이 아니면 empty. 판정 틀이 아직 없으면 결과가 null인 Ready(false)
+   */
+  public Optional<SpaceJudgment> judgeBusinessSpace(UUID id, JudgmentApplicantRequest applicant) {
+    return candidates.openNotices(FrameSpec.BUSINESS_SPACE.field()).stream()
+        .filter(n -> n.noticeId().equals(id))
+        .findFirst()
+        .map(
+            n ->
+                readFrame(n, FrameSpec.BUSINESS_SPACE) == null
+                    ? new SpaceJudgment(n, null)
+                    : new SpaceJudgment(
+                        n, judgments.judgeBusinessSpace(n.frame(), applicant, Map.of())));
+  }
+
+  /**
+   * 사업공간 하나의 판정 결과.
+   *
+   * @param judgment 판정 틀이 아직 없으면 null (화면은 "자격 조건 정리 중")
+   */
+  public record SpaceJudgment(NoticeCandidate notice, JudgmentResult judgment) {}
+
   private MatchResult match(FrameSpec spec, JudgmentApplicantRequest request) {
+    List<MatchResult.Item> items = new ArrayList<>(judgeAll(spec, request, false));
+    items.sort(ORDER);
+    return MatchMapper.toResult(spec.field(), items);
+  }
+
+  private List<MatchResult.Item> judgeAll(
+      FrameSpec spec, JudgmentApplicantRequest request, boolean includeIneligible) {
     Applicant applicant = ApplicantMapper.toApplicant(request, Map.of());
     List<MatchResult.Item> items = new ArrayList<>();
     for (NoticeCandidate notice : candidates.openNotices(spec.field())) {
@@ -80,12 +119,11 @@ public class MatchQueryService {
         continue;
       }
       FrameJudgment judgment = judgments.judge(frame, applicant);
-      if (judgment.result() != Eligibility.INELIGIBLE) {
+      if (includeIneligible || judgment.result() != Eligibility.INELIGIBLE) {
         items.add(MatchMapper.judged(notice, judgment));
       }
     }
-    items.sort(ORDER);
-    return MatchMapper.toResult(spec.field(), items);
+    return items;
   }
 
   /** 판정 틀이 없거나 형식이 틀리면 null. 사용자는 이 공고를 "자격 조건 정리 중"으로 보고, 틀 문제는 로그로 알려요 (사용자 입력은 넣지 않아요). */
