@@ -3,6 +3,7 @@ package kr.mujuthaek.api.user.service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -28,8 +29,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ol>
  *   <li>자기 자신의 단계·권한·정지는 바꿀 수 없어요
- *   <li>권한은 「권한 부여」가 있어야 주고 뺄 수 있고, 내가 가진 권한만 주고 뺄 수 있어요
- *   <li>「권한 부여」 자체를 주고 빼는 일, 「권한 부여」를 가진 관리자를 해제·정지하거나 권한을 바꾸는 일은 최상위만 해요 (권한을 주는 권한이 스스로 퍼지지 않게)
+ *   <li>권한 주기는 「권한 부여」, 빼기는 「권한 박탈」이 있어야 해요. 하나만 가졌으면 그것만 할 수 있고, 내가 가진 권한만 주고 뺄 수 있어요
+ *   <li>「권한 부여」·「권한 박탈」 자체를 주고 빼는 일, 그 권한을 가진 관리자를 해제·정지하거나 권한을 바꾸는 일은 최상위만 해요 (권한을 다루는 권한이 스스로 퍼지지
+ *       않게)
  *   <li>관리자를 해제·정지하면 그 사람의 권한이 모두 멈추니, 그 사람의 권한을 내가 모두 가지고 있어야 해요 (나보다 넓은 사람은 못 건드림)
  *   <li>최상위는 아무도 바꿀 수 없어요. 최상위가 직접 넘기기만 해요 (로그인한 지 10분 안에)
  *   <li>모든 변경은 기록하고, 해제·정지하면 그 회원의 로그인을 바로 끊어요. 관리자 화면 권한은 요청마다 DB로 확인해서 바로 반영돼요
@@ -55,8 +57,13 @@ public class AdminUserService {
           Map.entry(AdminPermission.USERS_SUSPEND, "이용 정지"),
           Map.entry(AdminPermission.ADMIN_APPOINT, "관리자 지정"),
           Map.entry(AdminPermission.PERMISSION_GRANT, "권한 부여"),
+          Map.entry(AdminPermission.PERMISSION_REVOKE, "권한 박탈"),
           Map.entry(AdminPermission.TRAFFIC, "트래픽 보기"),
           Map.entry(AdminPermission.ACTIVITY, "처리 기록 보기"));
+
+  /** 권한을 다루는 권한: 이 둘을 주고 빼는 일과 이 둘을 가진 관리자를 바꾸는 일은 최상위만 */
+  private static final Set<AdminPermission> MANAGING =
+      EnumSet.of(AdminPermission.PERMISSION_GRANT, AdminPermission.PERMISSION_REVOKE);
 
   private final AdminUserRepository users;
   private final Clock clock;
@@ -166,10 +173,14 @@ public class AdminUserService {
 
   // ---------- 권한 주고 빼기 ----------
 
-  /** 일반 관리자의 권한을 wanted로 맞춰요. 「권한 부여」 권한, 내가 가진 권한만. */
+  /** 일반 관리자의 권한을 wanted로 맞춰요. 주기는 「권한 부여」, 빼기는 「권한 박탈」, 내가 가진 권한만. */
   @Transactional
   public AdminUserResponse setPermissions(UUID userId, Set<AdminPermission> wanted, UUID actorId) {
-    AdminAccess actor = require(actorId, AdminPermission.PERMISSION_GRANT);
+    AdminAccess actor = access(actorId);
+    if (!actor.has(AdminPermission.PERMISSION_GRANT)
+        && !actor.has(AdminPermission.PERMISSION_REVOKE)) {
+      throw forbidden("「권한 부여」나 「권한 박탈」 권한이 없어요");
+    }
     notSelf(userId, actorId);
     String current =
         users.lockRole(userId).orElseThrow(() -> new CustomException(ErrorCode.NOT_FOUND));
@@ -187,13 +198,18 @@ public class AdminUserService {
     if (add.isEmpty() && remove.isEmpty()) {
       return find(userId);
     }
+    if (!add.isEmpty() && !actor.has(AdminPermission.PERMISSION_GRANT)) {
+      throw forbidden("권한을 주려면 「권한 부여」가 필요해요: " + labels(add));
+    }
+    if (!remove.isEmpty() && !actor.has(AdminPermission.PERMISSION_REVOKE)) {
+      throw forbidden("권한을 빼려면 「권한 박탈」이 필요해요: " + labels(remove));
+    }
     if (!actor.isSuper()) {
-      if (had.contains(AdminPermission.PERMISSION_GRANT)) {
-        throw forbidden("「권한 부여」를 가진 관리자의 권한은 최상위 관리자만 바꿀 수 있어요");
+      if (!Collections.disjoint(had, MANAGING)) {
+        throw forbidden("「권한 부여」·「권한 박탈」을 가진 관리자의 권한은 최상위 관리자만 바꿀 수 있어요");
       }
-      if (add.contains(AdminPermission.PERMISSION_GRANT)
-          || remove.contains(AdminPermission.PERMISSION_GRANT)) {
-        throw forbidden("「권한 부여」는 최상위 관리자만 주고 뺄 수 있어요");
+      if (!Collections.disjoint(add, MANAGING) || !Collections.disjoint(remove, MANAGING)) {
+        throw forbidden("「권한 부여」·「권한 박탈」은 최상위 관리자만 주고 뺄 수 있어요");
       }
       Set<AdminPermission> touched = EnumSet.noneOf(AdminPermission.class);
       touched.addAll(add);
@@ -357,13 +373,13 @@ public class AdminUserService {
     }
   }
 
-  /** 해제·정지처럼 그 사람의 권한을 모두 멈추는 일: 그 권한을 내가 모두 가져야 하고, 「권한 부여」를 가진 사람은 최상위만. */
+  /** 해제·정지처럼 그 사람의 권한을 모두 멈추는 일: 그 권한을 내가 모두 가져야 하고, 「권한 부여」·「권한 박탈」을 가진 사람은 최상위만. */
   private static void canTouchWhole(AdminAccess actor, Set<AdminPermission> had, String what) {
     if (actor.isSuper()) {
       return;
     }
-    if (had.contains(AdminPermission.PERMISSION_GRANT)) {
-      throw forbidden("「권한 부여」를 가진 관리자는 최상위 관리자만 " + what + "할 수 있어요");
+    if (!Collections.disjoint(had, MANAGING)) {
+      throw forbidden("「권한 부여」·「권한 박탈」을 가진 관리자는 최상위 관리자만 " + what + "할 수 있어요");
     }
     Set<AdminPermission> missing = EnumSet.noneOf(AdminPermission.class);
     missing.addAll(had);

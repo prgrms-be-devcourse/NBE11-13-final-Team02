@@ -30,7 +30,7 @@ import org.springframework.web.bind.annotation.RestController;
  * GET    /api/admin/users?query=&filter=&page=0  회원 찾기 (filter: USER·ADMIN·SUSPENDED, 한 쪽 30명)
  * GET    /api/admin/users/names?ids=a,b          이름만 (관리자 누구나, 최대 100명)
  * PATCH  /api/admin/users/{id}/role              관리자 지정·해제 {"role": "ADMIN" | "USER"}     「관리자 지정」
- * PUT    /api/admin/users/{id}/permissions       권한 맞추기 {"permissions": [...]}            「권한 부여」
+ * PUT    /api/admin/users/{id}/permissions       권한 맞추기 {"permissions": [...]}  주기 「권한 부여」·빼기 「권한 박탈」
  * PUT    /api/admin/users/{id}/suspension        이용 정지 {"reason", "until"?}                「이용 정지」
  * DELETE /api/admin/users/{id}/suspension        이용 정지 해제                                 「이용 정지」
  * GET    /api/admin/users/changes?days=30        관리자 변경 기록

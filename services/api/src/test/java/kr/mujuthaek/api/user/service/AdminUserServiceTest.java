@@ -5,6 +5,7 @@ import static kr.mujuthaek.api.user.domain.AdminPermission.ADMIN_APPOINT;
 import static kr.mujuthaek.api.user.domain.AdminPermission.CHAT;
 import static kr.mujuthaek.api.user.domain.AdminPermission.NOTICE_REVIEW;
 import static kr.mujuthaek.api.user.domain.AdminPermission.PERMISSION_GRANT;
+import static kr.mujuthaek.api.user.domain.AdminPermission.PERMISSION_REVOKE;
 import static kr.mujuthaek.api.user.domain.AdminPermission.REPORTS;
 import static kr.mujuthaek.api.user.domain.AdminPermission.USERS_SUSPEND;
 import static kr.mujuthaek.api.user.domain.AdminPermission.USERS_VIEW;
@@ -54,7 +55,7 @@ class AdminUserServiceTest {
     user(reports, "신고관리", "ADMIN", "2026-10-04T00:00:00Z");
     user(kim, "김_무주택", "USER", "2026-10-05T00:00:00Z");
     user(lee, "이청년", "USER", "2026-10-06T00:00:00Z");
-    give(granter, PERMISSION_GRANT, USERS_VIEW, USERS_SUSPEND, ADMIN_APPOINT);
+    give(granter, PERMISSION_GRANT, PERMISSION_REVOKE, USERS_VIEW, USERS_SUSPEND, ADMIN_APPOINT);
     give(notices, NOTICE_REVIEW);
     give(reports, REPORTS, CHAT);
     jdbc.sql(
@@ -141,7 +142,11 @@ class AdminUserServiceTest {
     assertThat(service.access(kim).active()).isFalse();
     assertThat(service.me(granter).permissions())
         .containsExactlyInAnyOrder(
-            "PERMISSION_GRANT", "USERS_VIEW", "USERS_SUSPEND", "ADMIN_APPOINT");
+            "PERMISSION_GRANT",
+            "PERMISSION_REVOKE",
+            "USERS_VIEW",
+            "USERS_SUSPEND",
+            "ADMIN_APPOINT");
   }
 
   @Test
@@ -150,7 +155,7 @@ class AdminUserServiceTest {
     denied(
         () -> service.setPermissions(reports, Set.of(REPORTS, CHAT, NOTICE_REVIEW), notices),
         ErrorCode.FORBIDDEN,
-        "「권한 부여」 권한이 없어요");
+        "「권한 부여」나 「권한 박탈」 권한이 없어요");
     // 회원관리는 가진 「회원 보기」는 줄 수 있어요 (신고관리의 다른 권한은 그대로)
     var r = service.setPermissions(reports, Set.of(REPORTS, CHAT, USERS_VIEW), granter);
     assertThat(r.permissions()).containsExactlyInAnyOrder("REPORTS", "CHAT", "USERS_VIEW");
@@ -186,6 +191,31 @@ class AdminUserServiceTest {
         () -> service.setPermissions(reports, Set.of(REPORTS, CHAT, PERMISSION_GRANT), notices),
         ErrorCode.FORBIDDEN,
         "최상위 관리자만");
+    // 「권한 박탈」도 마찬가지예요
+    denied(
+        () -> service.setPermissions(reports, Set.of(REPORTS, CHAT, PERMISSION_REVOKE), granter),
+        ErrorCode.FORBIDDEN,
+        "최상위 관리자만 주고 뺄 수 있어요");
+  }
+
+  @Test
+  void 부여만_있으면_주기만_박탈만_있으면_빼기만() {
+    service.changeRole(kim, "ADMIN", top);
+    service.setPermissions(kim, Set.of(NOTICE_REVIEW), top);
+    service.changeRole(lee, "ADMIN", top);
+    give(notices, PERMISSION_REVOKE); // 공고관리: 공고 검수 + 권한 박탈
+    give(reports, PERMISSION_GRANT, NOTICE_REVIEW); // 신고관리: 제보·채팅 + 권한 부여 + 공고 검수
+
+    denied(
+        () -> service.setPermissions(lee, Set.of(NOTICE_REVIEW), notices),
+        ErrorCode.FORBIDDEN,
+        "「권한 부여」가 필요해요");
+    assertThat(service.setPermissions(kim, Set.of(), notices).permissions()).isEmpty();
+
+    assertThat(service.setPermissions(lee, Set.of(NOTICE_REVIEW), reports).permissions())
+        .containsExactly("NOTICE_REVIEW");
+    denied(
+        () -> service.setPermissions(lee, Set.of(), reports), ErrorCode.FORBIDDEN, "「권한 박탈」이 필요해요");
   }
 
   @Test

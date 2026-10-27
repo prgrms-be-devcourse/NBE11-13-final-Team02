@@ -7,6 +7,7 @@ import static kr.mujuthaek.api.user.domain.AdminPermission.CHAT;
 import static kr.mujuthaek.api.user.domain.AdminPermission.CRITERIA;
 import static kr.mujuthaek.api.user.domain.AdminPermission.NOTICE_REVIEW;
 import static kr.mujuthaek.api.user.domain.AdminPermission.PERMISSION_GRANT;
+import static kr.mujuthaek.api.user.domain.AdminPermission.PERMISSION_REVOKE;
 import static kr.mujuthaek.api.user.domain.AdminPermission.REPORTS;
 import static kr.mujuthaek.api.user.domain.AdminPermission.SOURCES;
 import static kr.mujuthaek.api.user.domain.AdminPermission.TRAFFIC;
@@ -133,13 +134,17 @@ class SecurityConfig {
         .requestMatchers("/api/admin/users/*/role")
         .access(admin.anyOf(ADMIN_APPOINT))
         .requestMatchers("/api/admin/users/*/permissions")
-        .access(admin.anyOf(PERMISSION_GRANT))
+        .access(admin.anyOf(PERMISSION_GRANT, PERMISSION_REVOKE))
         .requestMatchers("/api/admin/users/*/suspension")
         .access(admin.anyOf(USERS_SUSPEND))
         .requestMatchers(HttpMethod.GET, "/api/admin/users/changes")
-        .access(admin.anyOf(ACTIVITY, ADMIN_APPOINT, PERMISSION_GRANT, USERS_SUSPEND))
+        .access(
+            admin.anyOf(
+                ACTIVITY, ADMIN_APPOINT, PERMISSION_GRANT, PERMISSION_REVOKE, USERS_SUSPEND))
         .requestMatchers(HttpMethod.GET, "/api/admin/users")
-        .access(admin.anyOf(USERS_VIEW, ADMIN_APPOINT, PERMISSION_GRANT, USERS_SUSPEND))
+        .access(
+            admin.anyOf(
+                USERS_VIEW, ADMIN_APPOINT, PERMISSION_GRANT, PERMISSION_REVOKE, USERS_SUSPEND))
         .requestMatchers("/api/admin/reviews/**")
         .access(admin.anyOf(NOTICE_REVIEW))
         .requestMatchers("/api/admin/benefit-reviews/**")

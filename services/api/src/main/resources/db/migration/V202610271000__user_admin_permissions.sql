@@ -11,7 +11,8 @@ create table account.admin_permissions (
     user_id     uuid        not null references account.users (id) on delete cascade,
     permission  varchar(30) not null check (permission in (
                     'NOTICE_REVIEW', 'BENEFIT_REVIEW', 'SOURCES', 'CRITERIA', 'REPORTS', 'CHAT',
-                    'USERS_VIEW', 'USERS_SUSPEND', 'ADMIN_APPOINT', 'PERMISSION_GRANT', 'TRAFFIC', 'ACTIVITY')),
+                    'USERS_VIEW', 'USERS_SUSPEND', 'ADMIN_APPOINT', 'PERMISSION_GRANT', 'PERMISSION_REVOKE',
+                    'TRAFFIC', 'ACTIVITY')),
     granted_by  uuid        references account.users (id) on delete set null,
     granted_at  timestamptz not null default now(),
     primary key (user_id, permission)
