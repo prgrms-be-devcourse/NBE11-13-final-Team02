@@ -7,7 +7,7 @@
 
 인증: COLLECTOR_ADMIN_TOKEN이 있으면 'Authorization: Bearer <토큰>'이 필요해요. 없으면 같은 컴퓨터(127.0.0.1·::1)에서 온 요청만 받아요.
 오류 글(crawl_runs.error)은 앞부분만 내보내요(키는 수집 단계에서 이미 가려요).
-「지금 다시 수집」은 스케줄러가 쓰는 수집 함수와 잠금(_run_lock)을 그대로 받아 써요(Runner). 잠금을 잡은 동안 정해진 수집 차례는 기존대로 건너뛰어요.
+「지금 다시 수집」은 스케줄러가 쓰는 수집 함수와 출처 잠금(SourceLocks)을 그대로 받아 써요(Runner). 그 출처를 수집하는 동안 그 출처의 정해진 차례만 건너뛰어요.
 """
 
 from __future__ import annotations
@@ -109,10 +109,11 @@ def set_enabled(conn: Any, code: str, enabled: bool) -> bool:
 
 
 class Runner:
-    """출처 하나를 지금 한 번 수집해요. 스케줄러와 같은 잠금·수집 함수를 받아요(__main__.run_scheduler에서 만듦)."""
+    """출처 하나를 지금 한 번 수집해요. 스케줄러와 같은 출처 잠금(SourceLocks)·수집 함수를 받아요(__main__.run_scheduler에서 만듦).
+    다른 출처가 돌고 있어도 이 출처만 비어 있으면 바로 시작해요."""
 
-    def __init__(self, lock: Any, collect: Callable[..., Any], collect_policy: Callable[..., Any], policy_codes: list[str], settings: Any):
-        self.lock = lock
+    def __init__(self, locks: Any, collect: Callable[..., Any], collect_policy: Callable[..., Any], policy_codes: list[str], settings: Any):
+        self.locks = locks
         self.collect = collect
         self.collect_policy = collect_policy
         self.policy_codes = set(policy_codes)
@@ -130,8 +131,8 @@ class Runner:
         ).fetchone()
         if running:
             return 409, {"error": "이 출처는 지금 수집 중이에요."}
-        if not self.lock.acquire(blocking=False):
-            return 409, {"error": "다른 수집이 돌고 있어요. 끝난 뒤 다시 해 주세요."}
+        if not self.locks.acquire(code):
+            return 409, {"error": "이 출처는 지금 수집 중이에요."}
         run = self.collect_policy if code in self.policy_codes else self.collect
 
         def work() -> None:
@@ -140,7 +141,7 @@ class Runner:
             except Exception:  # noqa: BLE001 — 실패는 crawl_runs와 로그에 남아요
                 log.exception("관리자 요청 수집 실패", extra={"source": code})
             finally:
-                self.lock.release()
+                self.locks.release(code)
 
         threading.Thread(target=work, daemon=True, name=f"admin-run-{code}").start()
         log.info("관리자 요청으로 수집 시작", extra={"source": code})

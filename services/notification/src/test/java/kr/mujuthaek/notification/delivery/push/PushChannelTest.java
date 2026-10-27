@@ -1,6 +1,9 @@
 package kr.mujuthaek.notification.delivery.push;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -23,6 +26,7 @@ class PushChannelTest {
 
   final JsonMapper json = JsonMapper.builder().build();
   final Scripted sender = new Scripted();
+  final ExpiredSubscriptions expired = mock(ExpiredSubscriptions.class);
   final PushChannel channel =
       new PushChannel(
           sender,
@@ -33,7 +37,8 @@ class PushChannelTest {
               "mailto:a@b.c",
               List.of("fcm.googleapis.com", "push.apple.com"),
               Duration.ofSeconds(5)),
-          json);
+          json,
+          expired);
   final UUID user = UUID.randomUUID();
 
   @Test
@@ -83,6 +88,8 @@ class PushChannelTest {
                 "https://fcm.googleapis.com/d"));
 
     assertThat(e.permanent()).isFalse();
+    verify(expired).report(user, "https://web.push.apple.com/c", 410); // 죽은 기기는 api에 알려요
+    verifyNoMoreInteractions(expired);
     assertThat(e.remainingAddress().orElseThrow())
         .contains("/b")
         .contains("/d")
@@ -96,10 +103,12 @@ class PushChannelTest {
     sender.plan("https://fcm.googleapis.com/b", 404);
 
     channel.send(
+        user,
         address("https://fcm.googleapis.com/a", "https://fcm.googleapis.com/b"),
         one(NotificationType.CORRECTED));
 
     assertThat(sender.sent).hasSize(2);
+    verify(expired).report(user, "https://fcm.googleapis.com/b", 404);
   }
 
   @Test
@@ -120,7 +129,41 @@ class PushChannelTest {
             address("https://fcm.googleapis.com/key", "https://fcm.googleapis.com/never"));
     assertThat(key.code()).isEqualTo("PUSH_403");
     assertThat(key.permanent()).isTrue();
-    assertThat(sender.endpoints()).doesNotContain("https://fcm.googleapis.com/never"); // 키 문제면 멈춰요
+    assertThat(sender.endpoints())
+        .as("기기는 동시에 보내서 다른 기기에도 보내 봐요")
+        .contains("https://fcm.googleapis.com/never");
+  }
+
+  @Test
+  void devicesAreSentToAtTheSameTime() throws Exception {
+    // 두 기기가 동시에 보내져야만 둘 다 이 지점을 지나요 (차례로 보내면 첫 기기가 기다리다 시간 초과)
+    var together = new java.util.concurrent.CyclicBarrier(2);
+    PushChannel concurrent =
+        new PushChannel(
+            message -> {
+              try {
+                together.await(5, java.util.concurrent.TimeUnit.SECONDS);
+              } catch (Exception e) {
+                throw new java.io.IOException("동시에 보내지 않았어요");
+              }
+              return new PushResponse(201, null);
+            },
+            new PushProperties(
+                "log",
+                "",
+                "",
+                "mailto:a@b.c",
+                List.of("fcm.googleapis.com"),
+                Duration.ofSeconds(5)),
+            json,
+            expired);
+
+    assertThat(
+            concurrent.send(
+                user,
+                address("https://fcm.googleapis.com/a", "https://fcm.googleapis.com/b"),
+                one(NotificationType.CORRECTED)))
+        .isNull();
   }
 
   @Test
@@ -195,7 +238,7 @@ class PushChannelTest {
     assertThat(PushChannel.ttl(NotificationType.FOLLOW_UP, false)).hasHours(72);
     assertThat(PushChannel.ttl(NotificationType.CORRECTED, true)).hasHours(24);
 
-    channel.send(address("https://fcm.googleapis.com/a"), one(NotificationType.DEADLINE_D3));
+    channel.send(user, address("https://fcm.googleapis.com/a"), one(NotificationType.DEADLINE_D3));
     assertThat(sender.sent.getFirst().urgency()).isEqualTo("normal");
   }
 
@@ -220,7 +263,7 @@ class PushChannelTest {
   private DeliveryException catchDelivery(
       String address, List<OutgoingNotification> notifications) {
     try {
-      channel.send(address, notifications);
+      channel.send(user, address, notifications);
     } catch (DeliveryException e) {
       return e;
     }
@@ -245,7 +288,7 @@ class PushChannelTest {
   }
 
   static class Scripted implements PushSender {
-    final List<PushMessage> sent = new ArrayList<>();
+    final List<PushMessage> sent = new java.util.concurrent.CopyOnWriteArrayList<>();
     final Map<String, Integer> statuses = new HashMap<>();
     final Map<String, Duration> retryAfter = new HashMap<>();
     final List<String> io = new ArrayList<>();

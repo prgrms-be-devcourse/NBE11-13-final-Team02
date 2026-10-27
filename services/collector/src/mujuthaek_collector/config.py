@@ -30,6 +30,7 @@ class Settings:
     detail_limit: int = 20  # 한 회차에 상세를 여는 최대 글 수 (나머지는 다음 회차)
     max_file_bytes: int = 30 * 1024 * 1024
     empty_alert: int = 3  # 목록 0건이 이만큼 연속이면 구조 변경 경고
+    parallel_sources: int = 4  # 게시판 출처를 동시에 몇 개까지 수집할지 (출처마다 도메인이 달라 요청 간격은 그대로)
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -47,4 +48,5 @@ class Settings:
             max_pages=int(os.getenv("COLLECTOR_MAX_PAGES", "5")),
             since_days=int(os.getenv("COLLECTOR_SINCE_DAYS", "365")),
             detail_limit=int(os.getenv("COLLECTOR_DETAIL_LIMIT", "20")),
+            parallel_sources=max(1, int(os.getenv("COLLECTOR_PARALLEL_SOURCES", "4"))),
         )
