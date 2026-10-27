@@ -74,6 +74,9 @@ app:
     relay-interval-ms: 1000             # 아웃박스 → RabbitMQ 발송 주기
   frontend-url: ${FRONTEND_URL:http://localhost:3000}  # 로그인 뒤 돌아갈 화면, CORS 허용 주소
   cors-origins: ${CORS_ORIGINS:}        # 더 허용할 프론트 주소, 쉼표로 여러 개 (예: http://localhost:3200,https://preview.mujuthaek.kr)
+  admin:
+    # 처음 최상위 관리자로 정할 회원 ID. 가입한 뒤 넣고 서버를 다시 띄워요. 최상위가 이미 있으면 무시 (SuperAdminBootstrap)
+    bootstrap-user-id: ${ADMIN_BOOTSTRAP_USER_ID:}
   jwt:
     # HS256 서명 키 (32바이트 이상). 운영은 반드시 JWT_SECRET으로 바꿔요 (README)
     secret: ${JWT_SECRET:local-dev-only-jwt-secret-change-me-0123456789}

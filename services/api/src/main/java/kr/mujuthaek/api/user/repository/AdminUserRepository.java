@@ -197,6 +197,13 @@ public class AdminUserRepository {
         .single();
   }
 
+  /** 최상위 관리자가 이미 있는지 (한 명뿐이에요). */
+  public boolean hasSuper() {
+    return jdbc.sql("select exists (select 1 from account.users where role = 'SUPER_ADMIN')")
+        .query(Boolean.class)
+        .single();
+  }
+
   /** 단계를 읽으면서 그 회원 줄을 잠가요 (같은 회원을 동시에 바꾸지 않게). */
   public Optional<String> lockRole(UUID userId) {
     return jdbc.sql("select role from account.users where id = :id for update")

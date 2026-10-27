@@ -303,6 +303,39 @@ class AdminUserServiceTest {
   }
 
   @Test
+  void 처음_최상위_지정은_최상위가_없을_때_정한_회원만() {
+    // 최상위가 이미 있으면 아무것도 안 해요
+    assertThat(service.bootstrapSuper(kim)).isFalse();
+    assertThat(service.access(kim).isSuper()).isFalse();
+
+    jdbc.sql("update account.users set role = 'ADMIN' where id = :id").param("id", top).update();
+    // 없는 회원·이용 정지 중인 회원은 지정하지 않아요
+    assertThat(service.bootstrapSuper(UUID.randomUUID())).isFalse();
+    service.suspend(lee, "도배", null, granter);
+    assertThat(service.bootstrapSuper(lee)).isFalse();
+
+    // 일반 관리자였어도 받은 권한 줄은 지우고 최상위로 (최상위는 전부 가진 것으로 봐요)
+    assertThat(service.bootstrapSuper(notices)).isTrue();
+    assertThat(service.access(notices).isSuper()).isTrue();
+    assertThat(
+            jdbc.sql("select count(*) from account.admin_permissions where user_id = :u")
+                .param("u", notices)
+                .query(Long.class)
+                .single())
+        .isZero();
+    assertThat(service.changes(30))
+        .first()
+        .satisfies(
+            c -> {
+              assertThat(c.kind()).isEqualTo("APPOINT");
+              assertThat(c.userId()).isEqualTo(notices);
+              assertThat(c.changedBy()).isNull();
+            });
+    // 한 번 정해지면 값을 그대로 둬도 다시 바뀌지 않아요
+    assertThat(service.bootstrapSuper(kim)).isFalse();
+  }
+
+  @Test
   void 모든_변경을_최근_순으로_기록한다() {
     service.changeRole(kim, "ADMIN", granter);
     service.setPermissions(kim, Set.of(USERS_VIEW), granter);

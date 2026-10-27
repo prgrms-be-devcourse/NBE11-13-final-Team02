@@ -57,6 +57,7 @@ src/main/java/kr/mujuthaek/api/
 - 같은 사람이어도 제공자가 다르면 다른 회원이에요 (이메일을 받지 않아 같은 사람인지 알 수 없어요). 계정 합치기는 로그인한 상태에서 다른 소셜 계정을 연결하는 기능으로 따로 만들어야 해요 (`social_accounts`는 한 회원에 여러 개를 붙일 수 있어요).
 - 실패하면 `FRONTEND_URL/login?error=social&reason=<OAuth2 오류 코드>`로 돌아가고 서버 로그에 원인이 남아요 (`LoginFailureHandler`).
 - 환경 변수: `KAKAO_CLIENT_ID`·`KAKAO_CLIENT_SECRET`, `NAVER_CLIENT_ID`·`NAVER_CLIENT_SECRET`, `GOOGLE_CLIENT_ID`·`GOOGLE_CLIENT_SECRET`, `FRONTEND_URL`, `JWT_SECRET`(32바이트 이상, 운영 필수) (`infra/.env.example`). 키가 없으면 그 제공자 로그인만 실패하고 서버는 떠요.
+- 처음 최상위 관리자: 최상위는 화면에서 만들 수 없어요. 배포 뒤 관리자로 쓸 계정으로 가입하고, 그 회원 ID(`/api/users/me`의 `id`)를 `ADMIN_BOOTSTRAP_USER_ID`에 넣어 api를 다시 띄우면 최상위가 돼요 (`SuperAdminBootstrap`, 변경 기록에 남아요). 최상위가 이미 있으면 무시하고, 그 뒤로는 관리자 화면 「회원」의 넘기기로만 바꿔요. 처음 가입한 사람을 자동으로 올리지는 않아요.
 
 ## 웹 푸시 구독 (notification 모듈)
 
