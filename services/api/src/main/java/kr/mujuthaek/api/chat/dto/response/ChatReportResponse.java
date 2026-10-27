@@ -11,6 +11,8 @@ import kr.mujuthaek.api.chat.domain.ReviewStatus;
  *
  * @param noticeId 메시지가 있는 채팅방 (공고 ID)
  * @param message 신고된 메시지. 가려지거나 작성자가 지운 메시지도 검토하려고 본문을 보여줘요
+ * @param reviewedBy 처리한 관리자 회원 ID (검토 전이면 null)
+ * @param reviewedAt 처리한 시각 (검토 전이면 null)
  */
 public record ChatReportResponse(
     UUID reportId,
@@ -20,7 +22,9 @@ public record ChatReportResponse(
     String detail,
     ReviewStatus reviewStatus,
     OffsetDateTime reportedAt,
-    Message message) {
+    Message message,
+    UUID reviewedBy,
+    OffsetDateTime reviewedAt) {
 
   /**
    * @param reportCount 검토 전 신고 수

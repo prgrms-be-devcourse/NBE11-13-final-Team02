@@ -316,6 +316,13 @@ class ChatApiTest {
                 String.class,
                 id))
         .containsOnly("KEPT_HIDDEN");
+    // 누가 처리했는지 남아요 (관리자 처리 기록)
+    assertThat(
+            jdbc.queryForList(
+                "select reviewed_by from chat.message_reports where message_id = ?::uuid",
+                UUID.class,
+                id))
+        .containsOnly(admin.userId());
     review(id, admin, "RESTORE");
     assertThat(
             jdbc.queryForObject(
