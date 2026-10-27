@@ -148,6 +148,7 @@ class Gov24Source(PolicySource):
     key_env = "DATA_GO_KR_SERVICE_KEY"
     attachments = "NEVER"  # 원문(www.gov.kr)은 robots.txt 금지, API에는 첨부가 없어요
     volatile_keys = frozenset({"조회수", "수정일시"})
+    listed_keys = ("등록일시",)  # 등록일 (처음 수집 개수 제한)
     # 지원조건(체크 목록)은 규칙으로 옮기고, 구비서류·문의처·주소·법령은 화면에 원본 그대로 써서 AI 입력에서 빼요
     ai_keys = ("서비스명", "서비스분야", "서비스목적요약", "지원유형", "사용자구분", "지원대상", "선정기준", "지원내용", "신청기한", "신청방법")
 

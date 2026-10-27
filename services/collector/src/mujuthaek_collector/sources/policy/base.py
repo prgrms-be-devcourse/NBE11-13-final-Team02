@@ -190,6 +190,8 @@ class PolicySource(ABC):
     # 첨부·원문 화면: ALWAYS 항상 찾아요, WHEN_THIN API 설명 칸이 짧거나 '공고문 참조'일 때만, NEVER 보지 않아요 (AI 비용·수집 시간)
     attachments = "ALWAYS"
     origin_files = True  # 원문 화면의 첨부 링크도 받을지. False면 본문 글자만 읽어요 (K-Startup: 첨부 경로가 robots.txt 금지)
+    # 목록 항목의 등록일 칸 (앞에 있는 칸부터). 처음 수집 개수 제한에서 최신 순서와 기준일에 써요 (core/intake.py)
+    listed_keys: tuple[str, ...] = ()
 
     def __init__(self, api_key: str | None):
         self.api_key = normalize_key(api_key)
@@ -279,6 +281,17 @@ class PolicySource(ABC):
             text = self.ai_text(record)
             return len(text) < THIN_CHARS or bool(SEE_NOTICE.search(text))
         return True
+
+    def listed_on(self, record: dict[str, Any]) -> date | None:
+        """목록 항목의 등록일. '2026-10-16 14:04:07'·'20261016'·'20220822150443' 모두 앞 8자리 숫자로 읽어요. 없거나 틀리면 None."""
+        for key in self.listed_keys:
+            digits = re.sub(r"\D", "", str(record.get(key) or ""))[:8]
+            if len(digits) == 8:
+                try:
+                    return date(int(digits[:4]), int(digits[4:6]), int(digits[6:]))
+                except ValueError:
+                    continue
+        return None
 
     def record_marker(self, record: dict[str, Any]) -> str:
         """수정일이 없는 출처는 목록 항목 해시로 바뀌었는지 봐요."""

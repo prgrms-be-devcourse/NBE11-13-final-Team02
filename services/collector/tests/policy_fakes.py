@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mujuthaek_collector.core.storage import MAX_ATTEMPTS
+from mujuthaek_collector.core.storage import MAX_ATTEMPTS, Intake
 from mujuthaek_collector.sources.policy.base import PolicySource
 from mujuthaek_collector.sources.policy.store import KnownPolicy
 from mujuthaek_platform.ids import uuid7
@@ -25,6 +25,7 @@ class PolicyMemoryStore:
     runs: dict = field(default_factory=dict)
     policies: dict = field(default_factory=dict)
     versions: list = field(default_factory=list)
+    intakes: dict = field(default_factory=dict)  # 처음 수집 개수 제한 (fakes.MemoryStore와 같아요)
 
     @property
     def events(self):
@@ -32,6 +33,9 @@ class PolicyMemoryStore:
 
     def by_key(self, policy_id):
         return next(p for p in self.policies.values() if p.policy_id == policy_id)
+
+    def intake(self, group):
+        return self.intakes.get(group, Intake())
 
     def start_run(self, source_code):
         run_id = uuid7()
@@ -51,8 +55,8 @@ class PolicyMemoryStore:
         p = self.policies[policy_id]
         p.title, p.marker, p.list_raw, p.status, p.field, p.attempts, p.last_error = title, marker, list_raw, status, kind, 0, None
 
-    def requeue_policy(self, policy_id, title, marker, list_raw, field):
-        self._set(policy_id, title, marker, list_raw, "PENDING", field)
+    def requeue_policy(self, policy_id, title, marker, list_raw, field, status="PENDING"):
+        self._set(policy_id, title, marker, list_raw, status, field)
 
     def skip_policy(self, policy_id, title, marker, list_raw, field):
         self._set(policy_id, title, marker, list_raw, "SKIPPED", field)

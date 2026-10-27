@@ -136,6 +136,7 @@ class YouthSource(PolicySource):
     key_env = "YOUTHCENTER_API_KEY"
     labels = LABELS
     volatile_keys = frozenset({"inqCnt", "lastMdfcnDt"})
+    listed_keys = ("frstRegDt",)  # 등록일 (처음 수집 개수 제한)
     # 결혼·취업·학력·특화·지역 코드(zipCd는 시군구 코드 수백 개)는 규칙으로 옮겨서 AI 입력에서 빼요. 나이·소득 숫자는 짧아서 둬요
     ai_keys = (
         "plcyNm", "lclsfNm", "mclsfNm", "plcyKywdNm", "plcyExplnCn", "plcySprtCn", "sprtTrgtMinAge", "sprtTrgtMaxAge",

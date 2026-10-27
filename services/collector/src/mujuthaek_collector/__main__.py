@@ -10,6 +10,8 @@
   python -m mujuthaek_collector cleanup                   보관 기한이 지난 원본 파일 지우기
   python -m mujuthaek_collector save-fixtures dcco        테스트용 화면 저장 (tests/fixtures/dcco/)
   python -m mujuthaek_collector status                    최근 수집 회차 보기
+  python -m mujuthaek_collector intake                    처음 수집 개수 제한: 묶음마다 고른 결과·기다리는 글 보기
+  python -m mujuthaek_collector intake --decide           기다리는(HELD) 글에서 지금 고르기 (보통은 수집기가 알아서 해요)
   python -m mujuthaek_collector area-upload --source BUS_STOP --data-date 2025-10-31 --file … [--scope 강원]
                                                           생활권·상권 원천 파일을 S3 area/에 올리고 적재 요청 보내기
   python -m mujuthaek_collector area-upload --manifest area/area_manifest.csv --skip-upload
@@ -21,6 +23,11 @@
   매일 4시               보관 기한이 지난 원본 파일 정리
   매일 6시 30분          정책 API 수집 (목록 전체 → 새 정책·바뀐 정책만 상세·첨부)
   일요일 5시             정책 다시 확인 (목록에 수정일이 없는 복지로 중앙만)
+  매일 7시 30분          처음 수집 고르기 (아직 고르지 않은 묶음만. 다 골랐으면 아무것도 안 해요)
+
+처음 수집 개수 제한 (core/intake.py)
+  배포 뒤 처음 뜰 때 모든 출처 목록을 읽어 새 글을 HELD로 두고, 묶음마다 최신 N개만 골라 AI 추출로 보내요
+  (LH 주거 10 · 다른 주거 10 · 사업공간 10 · 지원 정책 500, COLLECTOR_INTAKE_*). 나머지는 IGNORED로 쓰지 않아요
   5초마다                아웃박스 이벤트 발행
 """
 
@@ -37,6 +44,7 @@ from pathlib import Path
 
 from mujuthaek_collector.area.sources import SOURCES as AREA_SOURCES
 from mujuthaek_collector.config import Settings
+from mujuthaek_collector.core import intake
 from mujuthaek_collector.core.file_store import S3FileStore
 from mujuthaek_collector.core.http_client import PoliteClient
 from mujuthaek_collector.core.locks import SourceLocks
@@ -231,6 +239,49 @@ def save_fixtures(code: str, settings: Settings, details: int) -> None:
         client.close()
 
 
+def decide_intake(settings: Settings) -> list[intake.Decision]:
+    """아직 고르지 않은 묶음을 HELD 글에서 골라요."""
+    store = PostgresStore(settings.db_url)
+    try:
+        return intake.decide(store.conn, settings.intake_limits)
+    finally:
+        store.close()
+
+
+def first_intake(settings: Settings) -> None:
+    """수집기가 뜰 때: 아직 고르지 않은 묶음이 있으면 모든 출처 목록을 읽고(새 글은 HELD) 골라서, 고른 글을 바로 수집해요.
+    다 골랐으면 아무것도 안 해요. 출처 잠금을 같이 써서 스케줄 회차와 겹치지 않아요."""
+    store = PostgresStore(settings.db_url)
+    try:
+        waiting = intake.undecided(store.conn)
+    finally:
+        store.close()
+    if not waiting:
+        return
+    log.info("처음 수집: 목록을 읽고 묶음마다 최신 글만 골라요", extra={"groups": waiting})
+    collect_all(settings)
+    collect_policies(settings)
+    decisions = decide_intake(settings)
+    left = [g for g in waiting if g not in {d.group for d in decisions}]
+    if left:
+        log.warning("처음 수집에서 아직 읽은 글이 없어 고르지 못한 묶음이 있어요. 매일 7시 30분에 다시 골라요", extra={"groups": left})
+    if decisions:
+        collect_all(settings)  # 고른 글(PENDING)을 바로 열어요. 남은 건 다음 회차에
+        collect_policies(settings)
+
+
+def print_intake(settings: Settings, decide: bool) -> None:
+    if decide:
+        for d in decide_intake(settings):
+            print(f"골랐어요: {d.group} 남김 {d.kept}/{d.limit}, 안 씀 {d.ignored}, 기준일 {d.cutoff_on or '-'}")
+    store = PostgresStore(settings.db_url)
+    try:
+        for line in intake.summary(store.conn):
+            print(line)
+    finally:
+        store.close()
+
+
 def print_status(settings: Settings) -> None:
     store = PostgresStore(settings.db_url)
     try:
@@ -311,7 +362,10 @@ def run_scheduler(settings: Settings) -> None:
     scheduler.add_job(
         collect_policies, "cron", day_of_week="sun", hour=5, minute=0, args=[settings], kwargs={"weekly_recheck": True}, id="policies-recheck", **common
     )
+    scheduler.add_job(decide_intake, "cron", hour=7, minute=30, args=[settings], id="intake", **common)
     scheduler.add_job(Relay(settings).quietly, "interval", seconds=5, id="relay", **common)
+    # 처음 수집 고르기는 오래 걸릴 수 있어(모든 출처 목록) 따로 돌려요. 다 골랐으면 바로 끝나요
+    threading.Thread(target=first_intake, args=[settings], daemon=True, name="first-intake").start()
     log.info("스케줄러 시작", extra={"sources": ORDER, "policies": POLICY_ORDER})
     scheduler.start()
 
@@ -332,6 +386,8 @@ def main(argv: list[str] | None = None) -> None:
     fixtures.add_argument("source", choices=ORDER)
     fixtures.add_argument("--details", type=int, default=3, help="게시판마다 저장할 상세 수")
     commands.add_parser("status", help="최근 수집 회차 보기")
+    intake_cmd = commands.add_parser("intake", help="처음 수집 개수 제한: 묶음마다 고른 결과·기다리는 글 보기")
+    intake_cmd.add_argument("--decide", action="store_true", help="기다리는(HELD) 글에서 지금 고르기")
     area = commands.add_parser("area-upload", help="생활권·상권 원천 파일을 S3 area/에 올리고 적재 요청(area.source.ready) 보내기")
     area.add_argument("--source", choices=AREA_SOURCES)
     area.add_argument("--data-date", help="원천 기준일 (YYYY-MM-DD)")
@@ -371,6 +427,8 @@ def main(argv: list[str] | None = None) -> None:
         save_fixtures(args.source, settings, args.details)
     elif args.command == "status":
         print_status(settings)
+    elif args.command == "intake":
+        print_intake(settings, args.decide)
     elif args.command == "area-upload":
         raise SystemExit(area_upload(args, settings))
 

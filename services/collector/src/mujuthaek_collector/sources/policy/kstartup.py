@@ -138,6 +138,7 @@ class KStartupSource(PolicySource):
     code = "kstartup"
     name = "K-Startup 창업지원사업 공고"
     provider = "KSTARTUP"
+    listed_keys = ("pbanc_rcpt_bgng_dt",)  # 등록일 (처음 수집 개수 제한)
     field = "STARTUP_SUPPORT"
     page_size = 1000
     origin_files = False  # 상세 화면의 첨부(/afile/)는 robots.txt 금지라 본문 글자만 읽어요
