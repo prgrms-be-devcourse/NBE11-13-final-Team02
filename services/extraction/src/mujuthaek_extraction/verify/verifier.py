@@ -80,6 +80,8 @@ DROPPED_VALUE_CODES = {
     "DETAIL_UNVERIFIED_CLEARED",
     "AI_OUTPUT_FIELD_CLEARED",
     "AI_OUTPUT_VALUE_CHANGED",
+    # 원문 안에서 같은 자격의 판단 기준일이 엇갈림(check_basis_date_conflict). 어느 쪽이 맞는지 원문만으로 못 정해 사람이 봅니다
+    "SOURCE_BASIS_DATE_CONFLICT",
 }
 # 비교를 못 했을 뿐 불일치가 아닌 API 대조 결과: 섹션과 상관없이 표시만 (불일치 API_MISMATCH는 사람 확인)
 # API_VALUE_NOT_EXTRACTED: API에는 값이 있는데 추출값이 비어 있음(누락). 틀린 값이 아니라 빠진 값이라 공고를 막지 않습니다(2026-10-20)
@@ -96,6 +98,7 @@ ALWAYS_NOTE_CODES = {
     # AI가 준 값을 프로그램이 더 안전한 쪽으로 바꾸거나 비움(수량 묶음 풀기·참조 정리·재확인 교체로 사라진 값 등, 2026-10-26).
     # 바꾼 값을 숨기지(보류) 않고 메모로 두되, DROPPED_VALUE_CODES라 공고는 검수 대기열에 오릅니다
     "AI_OUTPUT_VALUE_CHANGED",
+    "SOURCE_BASIS_DATE_CONFLICT",
 }
 # INCOME_CRITERION_UNUSED: 소득 기준 일부 누락 의심. 실측 정밀도가 낮아(재계약·완화 표 등) 검수자 화면 메모로만 둡니다(2026-10-16)
 
@@ -167,6 +170,54 @@ def check_foreign_script(result: dict[str, Any], sources: SourceBundle) -> list[
     return findings
 
 
+# 자격 판단 기준일(「공고일 현재 무주택」, 「신청일 현재 소득」). 같은 자격에 기준일이 둘 이상이면 원문 안 충돌입니다
+# (2026-10-26 원문 대조: 「입주자 모집공고일이 입주자격 판단 기준일」과 「신청일 현재 무주택세대구성원」이 한 공고에 같이 있음).
+# 서로 다른 자격·항목에 다른 기준일을 쓰는 것(임대조건은 공고일, 중소기업 요건은 신청일)은 충돌이 아닙니다
+BASIS_DAY = r"(입주자\s*모집\s*공고일|모집\s*공고일|공고일|청약\s*신청일|신청일|서류\s*접수일|접수일|계약\s*체결일|계약일)"
+BASIS_ANCHOR = re.compile(BASIS_DAY + r"\s*(?:\([^)]{0,20}\))?\s*(?:현재|기준)")
+BASIS_DAY_WORD = re.compile(BASIS_DAY)
+BASIS_CRITERIA = ("무주택", "소득", "자산", "혼인", "거주")
+BASIS_ALL = re.compile(r"(입주\s*자격|신청\s*자격)[^.\n]{0,15}(판단|판정)\s*기준일")
+BASIS_SENTENCE = re.compile(r"(?<=[.。])\s|\n|•|※|·\s")  # 문장·항목 나누기
+
+
+def _basis_name(anchor: str) -> str:
+    name = re.sub(r"\s", "", anchor)
+    for long, short in (("입주자모집공고일", "공고일"), ("모집공고일", "공고일"), ("청약신청일", "신청일"), ("서류접수일", "접수일"), ("계약체결일", "계약일")):
+        name = name.replace(long, short)
+    return name
+
+
+def check_basis_date_conflict(result: dict[str, Any], sources: SourceBundle) -> list[Finding]:
+    """원문 문장마다 자격(무주택·소득·자산·혼인·거주)과 판단 기준일을 모아, 한 자격에 기준일이 둘 이상이면 메모 하나를 냅니다.
+    「입주자격 판단 기준일은 공고일」처럼 자격 전체에 거는 문장은 모든 자격에 셉니다. 자격 조건이 없는 공고는 보지 않습니다."""
+    if not result.get("eligibility"):
+        return []
+    found: dict[str, set[str]] = {}
+    for text in sources.texts.values():
+        for sentence in BASIS_SENTENCE.split(text):
+            whole = BASIS_ALL.search(sentence)
+            # 「입주자격 판단 기준일은 모집공고일」처럼 자격 전체를 정하는 문장은 「현재·기준」 없이 날짜 이름만 써요
+            anchors = {_basis_name(m.group(1)) for m in (BASIS_DAY_WORD if whole else BASIS_ANCHOR).finditer(sentence)}
+            if not anchors:
+                continue
+            names = list(BASIS_CRITERIA) if whole else [n for n in BASIS_CRITERIA if n in sentence]
+            for name in names:
+                found.setdefault(name, set()).update(anchors)
+    conflicts = {name: sorted(dates) for name, dates in found.items() if len(dates) > 1}
+    if not conflicts:
+        return []
+    text = ", ".join(f"{name}: {'·'.join(dates)}" for name, dates in conflicts.items())
+    return [
+        Finding(
+            "V7",
+            "SOURCE_BASIS_DATE_CONFLICT",
+            "/eligibility",
+            f"원문에서 같은 자격의 판단 기준일이 엇갈립니다({text}). 어느 날짜 기준인지 원문을 확인해 주세요",
+        )
+    ]
+
+
 def _dicts(node: Any):
     if isinstance(node, dict):
         yield node
@@ -236,7 +287,9 @@ def verify_extraction(
         api_matched = frozenset(f["target"] for f in comparison["fields"] if f["status"] == "MATCH")
         source_findings = check_evidence(result, sources, pdf_text) + check_numbers(result, sources) + check_missing_exceptions(result, sources)
         source_findings += check_consistency(result, sources) + check_claims(result, sources, api_matched=api_matched)
-        source_findings += check_directions(result) + check_reported_partial(result) + check_foreign_script(result, sources)
+        source_findings += (
+            check_directions(result) + check_reported_partial(result) + check_foreign_script(result, sources) + check_basis_date_conflict(result, sources)
+        )
         findings += source_findings + api_findings + _gate_findings(result, contract, contract_errors, clock().isoformat())
         quality["verification"]["apiComparison"] = comparison
         blocking = [f for f in source_findings if not is_note(f.issue())]

@@ -11,7 +11,9 @@ from mujuthaek_extraction.intake.pdf_reader import _without_secrets, read_pdf
 BODY = "Rental notice for test housing. Applicants must be homeless households. " * 4
 
 
-def make_pdf(cells: list[list[str]], body: str = BODY, frame: bool = False, bold_title: str = "", side: str = "", open_edge: bool = False) -> bytes:
+def make_pdf(
+    cells: list[list[str]], body: str = BODY, frame: bool = False, bold_title: str = "", side: str = "", open_edge: bool = False, shadow_title: str = ""
+) -> bytes:
     """본문 + 아래쪽 격자 표가 있는 1쪽 PDF (Helvetica, ASCII만). frame: 쪽 전체 테두리, bold_title: 같은 글자를 겹쳐 찍은 제목,
     open_edge: 왼쪽 바깥 세로선을 머리 행에만 그어 데이터 행 첫 열 글자가 어느 칸에도 안 들게 함."""
     lines = [body[i : i + 80] for i in range(0, len(body), 80)]
@@ -22,6 +24,9 @@ def make_pdf(cells: list[list[str]], body: str = BODY, frame: bool = False, bold
         ops.append(f"BT /F1 9 Tf 420 585 Td ({side}) Tj ET")
     for dx in (0, 0.2, 0.4) if bold_title else ():
         ops.append(f"BT /F1 14 Tf {40 + dx} 782 Td ({bold_title}) Tj ET")
+    if shadow_title:  # 회색 그림자 위에 검은 글자를 1.08pt 어긋나게 (실측 부산도시공사 공고 제목, 23pt)
+        ops.append(f"0.75 g BT /F1 23 Tf 41.08 700 Td ({shadow_title}) Tj ET 0 g")
+        ops.append(f"BT /F1 23 Tf 40 701.08 Td ({shadow_title}) Tj ET")
     left, top, width, height = 40, 600, 120, 20
     rows, cols = len(cells), len(cells[0])
     for r in range(rows + 1):
@@ -375,3 +380,11 @@ def test_amounts_stacked_in_one_cell_are_spread_only_when_the_count_matches():
     rows = [["55B", "212,620 215,690 221,830"], ["", "9,000"], ["", ""]]  # 아래 칸에 값이 있으면 그대로
     _spread_stacked(rows, [list(r) for r in rows], [[0, 1]] * 3)
     assert rows[0][1] == "212,620 215,690 221,830"
+
+
+def test_shadowed_title_is_read_once_but_real_double_letters_stay():
+    """그림자 글씨(같은 글자를 1.08pt 어긋나게 회색으로 한 번 더): 글자 크기에 비례한 거리로 하나로 읽어요. 실제로 이어 쓴 같은 글자는 그대로."""
+    document = read_pdf(make_pdf(CELLS, shadow_title="2026 Rental 11 Book"))
+    text = document.render()
+    assert "2026 Rental 11 Book" in text
+    assert "22002266" not in text and "RReennttaall" not in text
