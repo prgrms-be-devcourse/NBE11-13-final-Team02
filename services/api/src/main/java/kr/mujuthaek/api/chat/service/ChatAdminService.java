@@ -1,5 +1,7 @@
 package kr.mujuthaek.api.chat.service;
 
+import java.time.Clock;
+import java.time.OffsetDateTime;
 import java.util.UUID;
 import kr.mujuthaek.api.chat.domain.MessageStatus;
 import kr.mujuthaek.api.chat.domain.ReviewAction;
@@ -28,14 +30,17 @@ public class ChatAdminService {
   private final ChatMessageRepository messages;
   private final ChatReportRepository reports;
   private final ApplicationEventPublisher events;
+  private final Clock clock;
 
   public ChatAdminService(
       ChatMessageRepository messages,
       ChatReportRepository reports,
-      ApplicationEventPublisher events) {
+      ApplicationEventPublisher events,
+      Clock clock) {
     this.messages = messages;
     this.reports = reports;
     this.events = events;
+    this.clock = clock;
   }
 
   /** 검토 상태별 신고 (최신순). */
@@ -59,10 +64,13 @@ public class ChatAdminService {
    * </ul>
    *
    * 작성자가 지운 메시지는 신고만 처리 결과로 닫고 상태는 DELETED 그대로 둬요 (지운 글을 다시 보이게 하지 않아요). 신고된 뒤 지운 글도 검토 목록에서 닫을 수
-   * 있게요.
+   * 있게요. 처리한 관리자와 시각을 신고 줄에 남겨요 (관리자 「처리 기록」).
+   *
+   * @param reviewer 처리한 관리자 회원 ID
    */
   @Transactional
-  public void review(UUID messageId, ReviewAction action) {
+  public void review(UUID messageId, ReviewAction action, UUID reviewer) {
+    OffsetDateTime now = OffsetDateTime.now(clock);
     MessageRow row =
         messages
             .find(messageId, null)
@@ -70,20 +78,22 @@ public class ChatAdminService {
     if (row.status() == MessageStatus.DELETED) {
       reports.review(
           messageId,
-          action == ReviewAction.KEEP_HIDDEN ? ReviewStatus.KEPT_HIDDEN : ReviewStatus.RESTORED);
+          action == ReviewAction.KEEP_HIDDEN ? ReviewStatus.KEPT_HIDDEN : ReviewStatus.RESTORED,
+          reviewer,
+          now);
       return;
     }
     switch (action) {
       case KEEP_HIDDEN -> {
         messages.review(messageId, MessageStatus.HIDDEN_ADMIN, false);
-        reports.review(messageId, ReviewStatus.KEPT_HIDDEN);
+        reports.review(messageId, ReviewStatus.KEPT_HIDDEN, reviewer, now);
         if (row.status() == MessageStatus.VISIBLE) {
           events.publishEvent(ChatEvent.hidden(row.noticeId(), messageId));
         }
       }
       case RESTORE -> {
         messages.review(messageId, MessageStatus.VISIBLE, true);
-        reports.review(messageId, ReviewStatus.RESTORED);
+        reports.review(messageId, ReviewStatus.RESTORED, reviewer, now);
         if (row.status().hidden()) {
           MessageRow restored = messages.find(messageId, null).orElseThrow();
           events.publishEvent(ChatEvent.restored(ChatMessageMapper.toResponse(restored, null)));

@@ -7,7 +7,9 @@ import kr.mujuthaek.api.chat.dto.request.ReviewRequest;
 import kr.mujuthaek.api.chat.dto.response.ChatReportResponse;
 import kr.mujuthaek.api.chat.service.ChatAdminService;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
+import kr.mujuthaek.api.user.service.LoginUser;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -38,8 +40,11 @@ class ChatAdminController {
 
   /** 가림 유지(KEEP_HIDDEN) 또는 다시 보이기(RESTORE). */
   @PatchMapping("/messages/{id}")
-  ResponseEntity<Void> review(@PathVariable UUID id, @Valid @RequestBody ReviewRequest request) {
-    admin.review(id, request.action());
+  ResponseEntity<Void> review(
+      @PathVariable UUID id,
+      @Valid @RequestBody ReviewRequest request,
+      @AuthenticationPrincipal LoginUser user) {
+    admin.review(id, request.action(), user.userId());
     return ResponseEntity.noContent().build();
   }
 }

@@ -58,7 +58,9 @@ public final class ChatMessageMapper {
         row.reviewStatus(),
         seoul(row.createdAt()),
         new ChatReportResponse.Message(
-            row.authorNickname(), row.content(), row.messageStatus(), row.reportCount()));
+            row.authorNickname(), row.content(), row.messageStatus(), row.reportCount()),
+        row.reviewedBy(),
+        row.reviewedAt() == null ? null : seoul(row.reviewedAt()));
   }
 
   private static String preview(String content) {

@@ -33,7 +33,9 @@ public class ChatReportRepository {
       String authorNickname,
       String content,
       MessageStatus messageStatus,
-      int reportCount) {}
+      int reportCount,
+      UUID reviewedBy,
+      OffsetDateTime reviewedAt) {}
 
   /** 신고를 저장했으면 true. 같은 회원이 이미 신고한 메시지면 false. */
   public boolean insert(
@@ -60,16 +62,19 @@ public class ChatReportRepository {
         > 0;
   }
 
-  /** 메시지의 검토 전 신고를 모두 검토 결과로 바꿔요. */
-  public void review(UUID messageId, ReviewStatus result) {
+  /** 메시지의 검토 전 신고를 모두 검토 결과로 바꾸고 처리한 관리자·시각을 남겨요. */
+  public void review(UUID messageId, ReviewStatus result, UUID reviewer, OffsetDateTime at) {
     jdbc.update(
         """
-        update chat.message_reports set review_status = :result
+        update chat.message_reports set review_status = :result, reviewed_by = :reviewer,
+                                        reviewed_at = :at
         where message_id = :message and review_status = 'PENDING'
         """,
         new MapSqlParameterSource()
             .addValue("message", messageId)
-            .addValue("result", result.name()));
+            .addValue("result", result.name())
+            .addValue("reviewer", reviewer)
+            .addValue("at", at));
   }
 
   /** 검토 상태별 신고를 최신순으로. before가 있으면 그 신고보다 오래된 것만 (커서). */
@@ -77,7 +82,8 @@ public class ChatReportRepository {
     return jdbc.query(
         """
         select r.id, r.message_id, r.reason, r.detail, r.review_status, r.created_at,
-               m.notice_id, m.author_nickname, m.content, m.status, m.report_count
+               m.notice_id, m.author_nickname, m.content, m.status, m.report_count,
+               r.reviewed_by, r.reviewed_at
         from chat.message_reports r
         join chat.messages m on m.id = r.message_id
         where r.review_status = :status and (cast(:before as uuid) is null or r.id < :before)
@@ -100,6 +106,8 @@ public class ChatReportRepository {
                 rs.getString(8),
                 rs.getString(9),
                 MessageStatus.valueOf(rs.getString(10)),
-                rs.getInt(11)));
+                rs.getInt(11),
+                rs.getObject(12, UUID.class),
+                rs.getObject(13, OffsetDateTime.class)));
   }
 }
