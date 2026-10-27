@@ -309,6 +309,33 @@ public class AdminUserService {
     return find(userId);
   }
 
+  /**
+   * 처음 최상위 지정 (서버가 뜰 때 ADMIN_BOOTSTRAP_USER_ID로). 최상위가 이미 있으면 아무것도 안 해요. 그 뒤로 바꾸는 건 화면의 넘기기로만.
+   *
+   * @return 이번에 지정했으면 true
+   */
+  @Transactional
+  public boolean bootstrapSuper(UUID userId) {
+    if (users.hasSuper()) {
+      log.info("최상위 관리자가 이미 있어 처음 지정을 건너뛰어요: user={}", userId);
+      return false;
+    }
+    if (users.lockRole(userId).isEmpty()) {
+      log.warn("처음 최상위로 지정할 회원이 없어요. 먼저 가입한 뒤 그 회원 ID를 넣어 주세요: user={}", userId);
+      return false;
+    }
+    Instant now = clock.instant();
+    if (users.suspended(userId, now)) {
+      log.warn("이용 정지 중인 회원은 처음 최상위로 지정하지 않아요: user={}", userId);
+      return false;
+    }
+    users.revokeAll(userId); // 최상위는 권한 줄 없이 전부 가진 것으로 봐요
+    users.setRole(userId, "SUPER_ADMIN", now);
+    users.record(userId, "APPOINT", null, "환경 변수로 처음 최상위 지정", null, now);
+    log.info("처음 최상위 관리자 지정: user={}", userId);
+    return true;
+  }
+
   /** 관리자 긴급 정지: 최상위를 뺀 모든 관리자의 관리자 화면을 멈춰요. 이미 정지 중이면 그대로. */
   @Transactional
   public AdminMeResponse freeze(String reason, UUID actorId) {
