@@ -87,3 +87,16 @@ src/main/java/kr/mujuthaek/api/
 | 안 읽은 수 | `GET /api/users/me/notifications/unread-count` | `{count}` |
 | 읽음 | `POST /api/users/me/notifications/{id}/read` | 204. 이미 읽었어도 204, 내 알림이 아니면 404 `NOTIFICATION_NOT_FOUND` |
 | 모두 읽음 | `POST /api/users/me/notifications/read-all` | 204 |
+
+## 관심 공고·관심 조건·알림 설정 (user 모듈)
+
+설계: `contracts/schemas/user-preferences.draft.md` 2장. 알림 대상자는 이 값으로 골라요 (`UserNotificationQueryService`, notification 모듈이 불러요).
+
+| 하는 일 | 요청 | 비고 |
+| --- | --- | --- |
+| 관심 공고·정책 저장·지우기 | `PUT`·`DELETE /api/users/me/favorites/{notice\|benefit\|space-recruitment}/{id}` | 204. 없는 대상 404 `FAVORITE_TARGET_NOT_FOUND`, 200개 넘으면 409 `FAVORITE_LIMIT_EXCEEDED`. 합쳐진 공고는 남은 공고로 저장 |
+| 내 관심 목록 | `GET /api/users/me/favorites[?targetType=&cursor=&size=]` | 최근 저장한 것부터 `{targetType, targetId, createdAt}` |
+| 관심 조건 | `GET`·`PUT`·`DELETE /api/users/me/interests/{housing\|business\|support}` | 지역은 시군구 5자리·시도 전체 xx000 (common.regions의 유효한 코드, 30개까지). `saved: false`면 저장 전이라 새 소식 알림을 받지 않아요 |
+| 알림 설정 | `GET`·`PUT /api/users/me/notification-settings` | `{newNotice, newSupport, deadline, correction, followUp, quietEnabled}`. 저장 전에는 모두 켬·조용한 시간 끔. 끈 종류도 알림함에는 남아요 |
+
+새 소식 대상자 지역 맞추기: 회원 지역과 공고·정책 지역이 같은 시도이고, 같은 시군구이거나 둘 중 하나가 시도 전체면 맞아요 (서울 전체를 고른 회원 ← 마포구 공고, 마포구 회원 ← 서울시 정책). 전국 대상은 "전국도 받기"를 켠 회원에게. 주거 공고는 공고 유형으로도 거르고(모르면 거르지 않음), 업종·창업 단계·지원 종류는 v1에서 저장만 해요. 지역을 모르는 정책은 새 소식으로 보내지 않아요.

@@ -43,6 +43,8 @@ public enum ErrorCode {
   WITHDRAWAL_PROVIDER_NOT_LINKED(HttpStatus.BAD_REQUEST, "연결되지 않은 소셜 계정이에요"),
   WITHDRAWAL_TICKET_INVALID(HttpStatus.BAD_REQUEST, "탈퇴 요청이 만료됐어요. 다시 시도해 주세요"),
   WITHDRAWAL_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "탈퇴하려는 계정과 다시 로그인한 계정이 달라요"),
+  FAVORITE_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "관심으로 저장할 공고·정책을 찾을 수 없어요"),
+  FAVORITE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "관심 공고는 200개까지 저장할 수 있어요"),
 
   // notification
   PUSH_NOT_CONFIGURED(HttpStatus.SERVICE_UNAVAILABLE, "웹 푸시 알림을 아직 쓸 수 없어요"),

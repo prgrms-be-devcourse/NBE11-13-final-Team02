@@ -5,7 +5,10 @@
 - 저장하는 곳: api DB, 스키마 `account`, 모듈 `user` (담당자3)
 - 보내는 이벤트: `user.withdrawn`, `email.verification.requested` ([notification-events.draft.md](notification-events.draft.md) 3·4장). 관심 조건·관심 공고·알림 설정이 바뀌어도 이벤트를 보내지 않아요 (다음 알림 요청에 반영돼요)
 - PWA는 이메일 등록·인증, 알림 설정도 api로 불러요. 알림 서버는 화면과 만나지 않아요
-- 상태: **초안**이에요. 확정하면 api 마이그레이션 `V<yyyyMMddHHmm>__user_preferences.sql`로 옮겨요
+- 상태: 2-1~2-4·2-7은 **구현함** (`V202610261540__user_preferences.sql`, API는 services/api README). 2-5 약관 동의·2-6 알림 이메일은 이메일 정리(운영 채널은 웹 푸시) 뒤에 정해요
+  - `notification_settings`에 `email_enabled`는 아직 없어요 (이메일 테이블과 같이 더해요)
+  - 업종·창업 단계·지원 종류는 저장만 하고, v1 대상자 고르기는 지역·전국 여부·주거 공고 유형만 써요
+  - 관심 공고 자동 정리(마감 후 30일)는 아직 없어요 (200개 상한만)
 
 ## 1. 지금 있는 테이블 (#54 소셜 로그인, 바꾸지 않아요)
 

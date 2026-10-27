@@ -9,6 +9,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.regex.Pattern;
 import kr.mujuthaek.notification.delivery.Channel;
 import kr.mujuthaek.notification.delivery.DeliveryException;
@@ -32,8 +37,10 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <ul>
  *   <li>새 공고·새 정책은 30분마다 모아서, 2건 이상이면 "새 소식 N건" 한 번으로 보내요
- *   <li>받았거나 죽은 기기(404·410)는 빼고, 일시적으로 못 보낸 기기만 남겨 다시 보내요 (이미 받은 기기가 두 번 받지 않게)
+ *   <li>받았거나 죽은 기기(404·410)는 빼고, 일시적으로 못 보낸 기기만 남겨 다시 보내요 (이미 받은 기기가 두 번 받지 않게). 죽은 기기는
+ *       push.subscription.expired로 api에 알려요
  *   <li>모든 기기가 죽었으면 FAILED {@code ALL_EXPIRED}. VAPID 키 문제(401·403)는 모든 발송이 실패하는 설정 오류라 경고 로그
+ *   <li>기기가 여러 대면 동시에 보내요 (느린 푸시 서비스 하나가 다른 기기를 늦추지 않게)
  * </ul>
  *
  * <p>기기 주소·키·내용은 로그·오류에 넣지 않아요. 로그에는 푸시 서비스 도메인과 응답 코드만 남겨요.
@@ -61,11 +68,14 @@ class PushChannel implements NotificationChannel {
   private final PushSender sender;
   private final PushProperties properties;
   private final JsonMapper json;
+  private final ExpiredSubscriptions expired;
 
-  PushChannel(PushSender sender, PushProperties properties, JsonMapper json) {
+  PushChannel(
+      PushSender sender, PushProperties properties, JsonMapper json, ExpiredSubscriptions expired) {
     this.sender = sender;
     this.properties = properties;
     this.json = json;
+    this.expired = expired;
   }
 
   @Override
@@ -93,7 +103,7 @@ class PushChannel implements NotificationChannel {
   }
 
   @Override
-  public String send(String address, List<OutgoingNotification> notifications)
+  public String send(UUID userId, String address, List<OutgoingNotification> notifications)
       throws DeliveryException {
     List<PushDevice> devices = read(address);
     OutgoingNotification first = notifications.getFirst();
@@ -106,34 +116,40 @@ class PushChannel implements NotificationChannel {
 
     List<PushDevice> remaining = new ArrayList<>();
     int delivered = 0;
-    int expired = 0;
+    int dead = 0;
     String retryCode = null;
     String failCode = null;
+    String authCode = null;
     Duration retryAfter = null;
+    List<PushDevice> usable = new ArrayList<>();
     for (PushDevice device : devices) {
-      String host = host(device.endpoint());
-      if (!usable(device)) {
+      if (usable(device)) {
+        usable.add(device);
+      } else {
         failCode = "PUSH_ENDPOINT_NOT_ALLOWED";
-        continue;
       }
-      PushResponse response;
-      try {
-        response = sender.send(new PushMessage(device, payload, ttl, urgency));
-      } catch (IOException e) {
+    }
+    List<Sent> results = sendAll(usable, payload, ttl, urgency);
+    for (Sent sent : results) {
+      PushDevice device = sent.device();
+      String host = host(device.endpoint());
+      if (sent.response() == null) {
         remaining.add(device);
         retryCode = "PUSH_IO";
-        log.debug("푸시 서비스에 닿지 않음: host={}, error={}", host, e.getClass().getSimpleName());
+        log.debug("푸시 서비스에 닿지 않음: host={}, error={}", host, sent.error());
         continue;
       }
+      PushResponse response = sent.response();
       int status = response.status();
       if (status >= 200 && status < 300) {
         delivered++;
       } else if (status == 404 || status == 410) {
-        expired++; // 앱 삭제·권한 끔·만료. 다음 단계에서 api에 알려 구독을 지워요 (push.subscription.expired)
-        log.info("죽은 푸시 구독이라 뺐어요: host={}, status={}", host, status);
+        dead++; // 앱 삭제·권한 끔·만료. api에 알려 구독을 지워요
+        this.expired.report(userId, device.endpoint(), status);
+        log.info("죽은 푸시 구독이라 뺐어요 (api에 알림): userId={}, host={}, status={}", userId, host, status);
       } else if (status == 401 || status == 403) {
         log.warn("푸시 서비스가 VAPID 서명을 거절했어요 (키 설정 확인): host={}, status={}", host, status);
-        throw new DeliveryException("PUSH_" + status, true);
+        authCode = "PUSH_" + status;
       } else if (status == 429 || status >= 500) {
         remaining.add(device);
         retryCode = "PUSH_" + status;
@@ -143,6 +159,9 @@ class PushChannel implements NotificationChannel {
         log.warn("푸시 서비스가 요청을 거절했어요: host={}, status={}", host, status);
       }
     }
+    if (authCode != null) {
+      throw new DeliveryException(authCode, true); // 키 설정 오류: 다시 보내도 모두 실패해요
+    }
     if (!remaining.isEmpty()) {
       throw new DeliveryException(retryCode, write(remaining), retryAfter);
     }
@@ -150,6 +169,41 @@ class PushChannel implements NotificationChannel {
       return null; // 푸시 서비스는 메시지 ID를 따로 주지 않아요 (Location 헤더뿐)
     }
     throw new DeliveryException(failCode != null ? failCode : "ALL_EXPIRED", true);
+  }
+
+  /** 기기 한 대에 보낸 결과. 연결 실패면 response가 null */
+  private record Sent(PushDevice device, PushResponse response, String error) {}
+
+  /** 기기마다 동시에 보내요 (가상 스레드). 결과는 기기 순서대로예요 */
+  private List<Sent> sendAll(
+      List<PushDevice> devices, byte[] payload, Duration ttl, String urgency) {
+    if (devices.size() == 1) {
+      return List.of(sendOne(devices.getFirst(), payload, ttl, urgency));
+    }
+    try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
+      List<Future<Sent>> futures =
+          devices.stream().map(d -> pool.submit(() -> sendOne(d, payload, ttl, urgency))).toList();
+      List<Sent> results = new ArrayList<>();
+      for (int i = 0; i < futures.size(); i++) {
+        try {
+          results.add(futures.get(i).get());
+        } catch (ExecutionException e) {
+          results.add(new Sent(devices.get(i), null, e.getCause().getClass().getSimpleName()));
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+          results.add(new Sent(devices.get(i), null, "InterruptedException"));
+        }
+      }
+      return results;
+    }
+  }
+
+  private Sent sendOne(PushDevice device, byte[] payload, Duration ttl, String urgency) {
+    try {
+      return new Sent(device, sender.send(new PushMessage(device, payload, ttl, urgency)), null);
+    } catch (IOException e) {
+      return new Sent(device, null, e.getClass().getSimpleName());
+    }
   }
 
   /** 서비스 워커가 받을 내용 (event.data.json()) */
