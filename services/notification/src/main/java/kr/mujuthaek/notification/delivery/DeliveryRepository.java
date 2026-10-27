@@ -25,9 +25,9 @@ public class DeliveryRepository {
     return jdbc.sql(
                 """
                 insert into deliveries (id, user_id, channel, address, type, dedup_key, title, body,
-                                        link_path, digest, quiet, scheduled_at)
+                                        link_path, inbox_id, digest, quiet, scheduled_at)
                 values (:id, :userId, :channel, :address, :type, :dedupKey, :title, :body,
-                        :linkPath, :digest, :quiet, :at)
+                        :linkPath, :inboxId, :digest, :quiet, :at)
                 on conflict (dedup_key, channel) do nothing
                 """)
             .param("id", d.id())
@@ -39,6 +39,7 @@ public class DeliveryRepository {
             .param("title", d.title())
             .param("body", d.body())
             .param("linkPath", d.linkPath())
+            .param("inboxId", d.inboxId(), Types.OTHER)
             .param("digest", d.digest())
             .param("quiet", d.quiet())
             .param("at", at(d.scheduledAt()))
@@ -61,8 +62,8 @@ public class DeliveryRepository {
                            order by scheduled_at, user_id
                            limit :limit
                              for update skip locked)
-            returning id, user_id, channel, address, type, title, body, link_path, digest, quiet,
-                      scheduled_at, attempts
+            returning id, user_id, channel, address, type, title, body, link_path, inbox_id, digest,
+                      quiet, scheduled_at, attempts
             """)
         .param("now", at(now))
         .param("limit", limit)
@@ -131,8 +132,8 @@ public class DeliveryRepository {
                              and scheduled_at = :at
                              and (locked_until is null or locked_until <= :now)
                              for update)
-            returning id, user_id, channel, address, type, title, body, link_path, digest, quiet,
-                      scheduled_at, attempts
+            returning id, user_id, channel, address, type, title, body, link_path, inbox_id, digest,
+                      quiet, scheduled_at, attempts
             """)
         .param("userId", key.userId())
         .param("channel", key.channel().name())
@@ -213,7 +214,8 @@ public class DeliveryRepository {
             NotificationType.valueOf(rs.getString("type")),
             rs.getString("title"),
             rs.getString("body"),
-            rs.getString("link_path")));
+            rs.getString("link_path"),
+            rs.getObject("inbox_id", UUID.class)));
   }
 
   private static OffsetDateTime at(Instant instant) {
@@ -231,6 +233,7 @@ public class DeliveryRepository {
       String title,
       String body,
       String linkPath,
+      UUID inboxId,
       boolean digest,
       boolean quiet,
       Instant scheduledAt) {}

@@ -103,6 +103,11 @@ mujuthaek:
       base-url: ${COLLECTOR_ADMIN_URL:http://localhost:8093}
       token: ${COLLECTOR_ADMIN_TOKEN:}  # 수집기와 같은 값. 비면 보내지 않아요
       timeout: 5s
+  notification:
+    server:                             # 알림 서버 내부 API. 관리자 알림 화면의 발송 결과를 이 서버를 거쳐 받아요
+      base-url: ${NOTIFICATION_SERVER_URL:http://localhost:8081}
+      token: ${NOTIFICATION_INTERNAL_TOKEN:}  # 알림 서버와 같은 값. 비면 보내지 않아요(로컬은 같은 컴퓨터 요청만 받음)
+      timeout: 5s
   traffic:                              # 관리자 트래픽 화면 (GA 숫자 + api 서버 요청 기록)
     ip-salt: ${TRAFFIC_IP_SALT:local-dev-salt}  # IP 해시에 섞는 비밀 값. 운영은 꼭 따로 넣어요
     raw-ip-days: 14                     # 원본 IP 보관 일수(보안 대응용). 지나면 지워요

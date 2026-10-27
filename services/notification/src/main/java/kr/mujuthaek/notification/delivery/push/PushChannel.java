@@ -226,6 +226,13 @@ class PushChannel implements NotificationChannel {
       body.put("linkPath", INBOX_PATH);
       body.put("tag", INBOX_PATH);
     }
+    // 기기가 「떴어요·눌렀어요」를 api에 알릴 알림함 줄 ID (묶음이면 묶인 알림 모두)
+    body.put(
+        "ids",
+        notifications.stream()
+            .map(OutgoingNotification::inboxId)
+            .filter(java.util.Objects::nonNull)
+            .toList());
     return json.writeValueAsString(body).getBytes(StandardCharsets.UTF_8);
   }
 

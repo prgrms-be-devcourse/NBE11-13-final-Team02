@@ -83,6 +83,7 @@ PWA ──HTTP──▶ api
 | `recipients[].userId` | uuid | ✅ | |
 | `recipients[].email` | string \| null | ✅ | 이메일로 보낼 주소. api가 **이메일 켬 + 이 종류 켬 + 인증됐고 ACTIVE**일 때만 넣어요. null이면 이메일로 안 보내요 |
 | `recipients[].quietEnabled` | boolean | ✅ | 22:00~08:00 알림을 08:00에 보내기 |
+| `recipients[].inboxId` | uuid | | 이 회원의 알림함 줄 ID. 알림 서버가 웹 푸시에 `ids`로 실어 보내면 기기가 「떴어요·눌렀어요」를 api에 알려요 |
 
 웹 푸시: `recipients[].push`(구독 기기 목록, 없으면 null)를 더해요. api가 "이 종류 켬 + 기기 있음"일 때만 넣어요 (따로 `push_enabled`는 없어요). 모양·보내는 방법은 [web-push.draft.md](web-push.draft.md)
 

@@ -166,6 +166,65 @@ public class InboxRepository {
         .update();
   }
 
+  /** 웹 푸시가 기기에 떴어요. 처음 한 번만 적고, 없는 줄이면 아무것도 하지 않아요 */
+  public boolean markShown(UUID id, Instant now) {
+    return jdbc.sql(
+                """
+                update notification.notifications set shown_at = :now
+                 where id = :id and shown_at is null
+                """)
+            .param("id", id)
+            .param("now", at(now))
+            .update()
+        == 1;
+  }
+
+  /** 눌러서 그 화면으로 갔어요. 처음 한 번만 적고, 읽음도 함께 남겨요 */
+  public boolean markClicked(UUID id, Instant now) {
+    return jdbc.sql(
+                """
+                update notification.notifications
+                   set clicked_at = :now, read_at = coalesce(read_at, :now)
+                 where id = :id and clicked_at is null
+                """)
+            .param("id", id)
+            .param("now", at(now))
+            .update()
+        == 1;
+  }
+
+  /**
+   * 알림 종류별 합계 ({@code since} 뒤에 만든 줄). 관리자 알림 화면의 「봤는지·눌렀는지」 지표예요
+   *
+   * @param created 알림함에 남긴 수
+   * @param shown 웹 푸시가 기기에 뜬 수
+   * @param read 읽은 수 (알림 목록에서 읽거나 눌러 들어감)
+   * @param clicked 눌러서 그 화면으로 간 수
+   */
+  public record Engagement(String type, long created, long shown, long read, long clicked) {}
+
+  public List<Engagement> engagement(Instant since) {
+    return jdbc.sql(
+            """
+            select type, count(*) as created, count(shown_at) as shown, count(read_at) as read,
+                   count(clicked_at) as clicked
+              from notification.notifications
+             where created_at >= :since
+             group by type
+             order by created desc, type
+            """)
+        .param("since", at(since))
+        .query(
+            (rs, i) ->
+                new Engagement(
+                    rs.getString("type"),
+                    rs.getLong("created"),
+                    rs.getLong("shown"),
+                    rs.getLong("read"),
+                    rs.getLong("clicked")))
+        .list();
+  }
+
   private static OffsetDateTime at(Instant instant) {
     return instant.atOffset(ZoneOffset.UTC);
   }

@@ -90,6 +90,9 @@ class ReportAnsweredNotificationServiceTest {
     InboxRepository.NewEntry entry = onlyInboxEntry();
     assertThat(entry.userId()).isEqualTo(reporter);
     assertThat(entry.body()).doesNotContain("010-1234");
+    // 기기가 「떴어요·눌렀어요」를 알릴 수 있게 알림함 줄 ID를 요청에도 실어요
+    assertThat(((Map<?, ?>) ((List<?>) payload.get("recipients")).getFirst()).get("inboxId"))
+        .isEqualTo(entry.id());
   }
 
   @Test
