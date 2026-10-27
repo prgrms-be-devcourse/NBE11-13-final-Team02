@@ -3984,6 +3984,7 @@
           "noticeId",
           "programId",
           "benefitPolicyId",
+          "benefitId",
           "noticeTitle",
           "field",
           "currentValue",
@@ -4092,6 +4093,14 @@
             ],
             "format": "uuid",
             "description": "혜택 정책 제보면 정책 원본 ID (그 밖이면 null). 「고치기」는 혜택 검수로 이어져요"
+          },
+          "benefitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "혜택 화면(/benefits/{id})에 쓰는 혜택 ID. 원본 정책 ID와 달라요. 혜택 제보가 아니거나 아직 저장 전이면 null"
           }
         }
       },

@@ -42,7 +42,8 @@ class NoticeReportServiceTest {
           new NoticeReportRepository(JdbcClient.create(fixture.jdbc)),
           reviewClient(),
           events::add,
-          Clock.fixed(Instant.parse("2026-10-25T03:00:00Z"), ZoneId.of("Asia/Seoul")));
+          Clock.fixed(Instant.parse("2026-10-25T03:00:00Z"), ZoneId.of("Asia/Seoul")),
+          org.mockito.Mockito.mock(kr.mujuthaek.api.benefit.service.BenefitQueryService.class));
 
   private MockRestServiceServer reviewServer;
 

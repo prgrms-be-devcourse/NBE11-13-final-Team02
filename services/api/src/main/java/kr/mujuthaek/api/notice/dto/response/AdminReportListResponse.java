@@ -20,6 +20,7 @@ public record AdminReportListResponse(Counts counts, List<Item> items) {
    * @param programId 사업 제보면 창업지원 사업 ID(rawPolicyId) (공고면 null)
    * @param benefitPolicyId 혜택 정책 제보면 정책 원본 ID (그 밖이면 null). 「고치기」는 혜택
    *     검수(/api/admin/benefit-reviews)로 이어져요
+   * @param benefitId 혜택 화면(/benefits/{id})에 쓰는 혜택 ID. 원본 정책 ID와 달라요. 혜택 제보가 아니거나 아직 저장 전이면 null
    * @param field 칸 이름
    * @param summary 설명 앞부분
    * @param groupCount 같은 공고·칸의 처리 전 제보 수 (이 제보 포함, 끝난 제보면 0)
@@ -33,6 +34,7 @@ public record AdminReportListResponse(Counts counts, List<Item> items) {
       UUID noticeId,
       UUID programId,
       UUID benefitPolicyId,
+      UUID benefitId,
       String noticeTitle,
       String field,
       String currentValue,

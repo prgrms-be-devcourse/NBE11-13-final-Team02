@@ -7,6 +7,8 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import kr.mujuthaek.api.benefit.service.BenefitQueryService;
+import kr.mujuthaek.api.benefit.service.BenefitSummary;
 import kr.mujuthaek.api.common.event.BenefitReportAnswered;
 import kr.mujuthaek.api.common.event.NoticeReportAnswered;
 import kr.mujuthaek.api.common.event.ProgramReportAnswered;
@@ -47,16 +49,19 @@ public class NoticeReportService {
   private final ExtractionReviewClient extraction;
   private final ApplicationEventPublisher events;
   private final Clock clock;
+  private final BenefitQueryService benefits;
 
   public NoticeReportService(
       NoticeReportRepository reports,
       ExtractionReviewClient extraction,
       ApplicationEventPublisher events,
-      Clock clock) {
+      Clock clock,
+      BenefitQueryService benefits) {
     this.reports = reports;
     this.extraction = extraction;
     this.events = events;
     this.clock = clock;
+    this.benefits = benefits;
   }
 
   /**
@@ -243,7 +248,7 @@ public class NoticeReportService {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "status는 NEW·DOING·DONE 중 하나예요");
     }
     List<AdminReportListResponse.Item> items =
-        reports.list(status, LIST_LIMIT).stream().map(NoticeReportService::item).toList();
+        reports.list(status, LIST_LIMIT).stream().map(this::item).toList();
     return new AdminReportListResponse(counts(), items);
   }
 
@@ -349,7 +354,7 @@ public class NoticeReportService {
         .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_REPORT_NOT_FOUND));
   }
 
-  private static AdminReportListResponse.Item item(Report r) {
+  private AdminReportListResponse.Item item(Report r) {
     return new AdminReportListResponse.Item(
         r.id(),
         r.status(),
@@ -358,6 +363,13 @@ public class NoticeReportService {
         r.noticeId(),
         r.rawPolicyId(),
         r.benefitPolicyId(),
+        // 제보는 원본 정책 ID로 받지만 혜택 화면은 혜택 ID를 써요
+        r.benefitPolicyId() == null
+            ? null
+            : benefits
+                .findSummaryByRawPolicyId(r.benefitPolicyId())
+                .map(BenefitSummary::benefitId)
+                .orElse(null),
         r.noticeTitle(),
         r.field(),
         r.currentValue(),
