@@ -492,6 +492,54 @@ public class NoticeQueryService {
     return List.copyOf(findSummaries(queries.openClosingOn(dates, today)).values());
   }
 
+  /**
+   * 창업지원 사업·사업공간 모집 요약 하나 (알림 담당 요청: PolicyPublished·PolicyUpdated를 받았을 때, 관심 정책 저장). 검수 대기·없는 정책이면
+   * 빈 값. 마감된 정책도 줘요.
+   */
+  public java.util.Optional<PolicySummary> findPolicySummary(UUID policyId) {
+    LocalDate today = LocalDate.now(clock);
+    return queries.policySummary(policyId).map(row -> policySummary(row, today));
+  }
+
+  /**
+   * 마감일이 dates 중 하나이고 오늘 신청할 수 있는 창업지원 사업·사업공간 모집 (알림 담당 요청: 관심 정책 마감 D-3·D-1). 검수 대기·아직 시작 전인 정책은
+   * 빼요. 마감일 순이에요.
+   */
+  public List<PolicySummary> findOpenPoliciesClosingOn(
+      java.util.Collection<LocalDate> dates, LocalDate today) {
+    return queries.openPoliciesClosingOn(dates, today).stream()
+        .map(row -> policySummary(row, today))
+        .toList();
+  }
+
+  private static PolicySummary policySummary(NoticeQueries.PolicySummaryRow row, LocalDate today) {
+    return new PolicySummary(
+        row.rawPolicyId(),
+        row.version(),
+        row.field(),
+        row.title(),
+        row.organization(),
+        policyStatus(row, today),
+        row.applyStart(),
+        row.applyEnd(),
+        row.regionCodes(),
+        row.detailUrl());
+  }
+
+  /** 정책 신청 상태 (판정 목록 openPolicies와 같은 규칙: 마감일을 모르면 상시일 때만 열림). */
+  private static String policyStatus(NoticeQueries.PolicySummaryRow row, LocalDate today) {
+    if (row.applyEnd() != null && row.applyEnd().isBefore(today)) {
+      return "CLOSED";
+    }
+    if (row.applyStart() != null && row.applyStart().isAfter(today)) {
+      return "UPCOMING";
+    }
+    if (row.applyEnd() == null) {
+      return row.applyAlways() ? "ALWAYS" : "UNKNOWN";
+    }
+    return "APPLYING";
+  }
+
   /** 공고 요약 하나 (findSummaries와 같은 규칙). 숨김·공개 전·없는 공고면 빈 값. */
   public java.util.Optional<NoticeSummary> findSummary(UUID noticeId) {
     return java.util.Optional.ofNullable(findSummaries(List.of(noticeId)).get(noticeId));

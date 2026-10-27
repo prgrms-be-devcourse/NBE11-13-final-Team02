@@ -21,7 +21,7 @@ public record NotificationItemResponse(
     Instant readAt) {
 
   /**
-   * @param type NOTICE · BENEFIT · SPACE_RECRUITMENT
+   * @param type NOTICE · BENEFIT · STARTUP_SUPPORT · SPACE_RECRUITMENT
    */
   public record Target(String type, UUID id) {}
 }

@@ -13,6 +13,7 @@ import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.NoticeSummary;
+import kr.mujuthaek.api.notice.service.PolicySummary;
 import kr.mujuthaek.api.user.dto.response.FavoriteResponse;
 import kr.mujuthaek.api.user.repository.FavoriteRepository;
 import org.springframework.stereotype.Service;
@@ -98,26 +99,33 @@ public class FavoriteService {
               .findSummary(id)
               .map(NoticeSummary::noticeId)
               .orElseThrow(FavoriteService::notFound);
-      case "BENEFIT", "SPACE_RECRUITMENT" -> {
+      case "BENEFIT" -> {
         BenefitSummary b = benefits.findSummary(id).orElseThrow(FavoriteService::notFound);
-        boolean space = "SPACE_RECRUITMENT".equals(b.field());
-        if ("HIDDEN".equals(b.status()) || space != type.equals("SPACE_RECRUITMENT")) {
+        if ("HIDDEN".equals(b.status())) {
           throw notFound();
         }
         yield b.benefitId();
       }
+      // 창업지원 사업·사업공간 모집은 notice.policy_judgments에 있어요 (정책 ID = rawPolicyId)
+      case "STARTUP_SUPPORT", "SPACE_RECRUITMENT" ->
+          notices
+              .findPolicySummary(id)
+              .filter(p -> p.field().equals(type))
+              .map(PolicySummary::policyId)
+              .orElseThrow(FavoriteService::notFound);
       default -> throw notFound();
     };
   }
 
-  /** NOTICE · BENEFIT · SPACE_RECRUITMENT (대소문자 상관없이) */
+  /** NOTICE · BENEFIT · STARTUP_SUPPORT · SPACE_RECRUITMENT (대소문자 상관없이) */
   static String targetType(String value) {
     String type = value == null ? "" : value.strip().toUpperCase(Locale.ROOT).replace('-', '_');
     return switch (type) {
-      case "NOTICE", "BENEFIT", "SPACE_RECRUITMENT" -> type;
+      case "NOTICE", "BENEFIT", "STARTUP_SUPPORT", "SPACE_RECRUITMENT" -> type;
       default ->
           throw new CustomException(
-              ErrorCode.VALIDATION_FAILED, "targetType: NOTICE·BENEFIT·SPACE_RECRUITMENT 중 하나예요");
+              ErrorCode.VALIDATION_FAILED,
+              "targetType: NOTICE·BENEFIT·STARTUP_SUPPORT·SPACE_RECRUITMENT 중 하나예요");
     };
   }
 

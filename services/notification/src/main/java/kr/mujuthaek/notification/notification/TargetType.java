@@ -4,5 +4,6 @@ package kr.mujuthaek.notification.notification;
 public enum TargetType {
   NOTICE, // notices
   BENEFIT, // benefits
-  SPACE_RECRUITMENT // space_recruitments
+  STARTUP_SUPPORT, // notice.policy_judgments (창업지원 사업)
+  SPACE_RECRUITMENT // notice.policy_judgments (사업공간 모집)
 }

@@ -79,7 +79,7 @@ public class UserNotificationQueryService {
     return interests.audience(table, codes, nationwide, null);
   }
 
-  /** 이 공고·정책을 관심으로 둔 회원 (targetType NOTICE · BENEFIT · SPACE_RECRUITMENT) */
+  /** 이 공고·정책을 관심으로 둔 회원 (targetType NOTICE · BENEFIT · STARTUP_SUPPORT · SPACE_RECRUITMENT) */
   @Transactional(readOnly = true)
   public List<UUID> favoriteAudience(String targetType, UUID targetId) {
     return favorites.userIds(targetType, targetId);

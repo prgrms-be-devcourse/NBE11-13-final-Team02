@@ -48,12 +48,11 @@ class BenefitNotificationServiceTest {
 
   @Test
   void moreThan500RecipientsAreSplit() {
-    summary("OPEN", "STARTUP_SUPPORT");
+    summary("OPEN", "BENEFIT");
     when(finder.forNewBenefit(any(), any(), any())).thenReturn(people(1_001));
 
     int sent =
-        service.onPublished(
-            new BenefitPublished(id, "STARTUP_SUPPORT", "SIDO", List.of("11"), "t", false));
+        service.onPublished(new BenefitPublished(id, "BENEFIT", "SIDO", List.of("11"), "t", false));
 
     assertThat(sent).isEqualTo(3); // 500 + 500 + 1
     verify(outbox, times(3)).add(eq("notification.requested"), anyInt(), any());

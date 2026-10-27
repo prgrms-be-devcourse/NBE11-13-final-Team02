@@ -139,15 +139,23 @@ public class NotificationRequests {
     return m;
   }
 
-  /** 계약의 target.type: 사업공간 모집은 space_recruitments, 나머지는 benefits */
+  /**
+   * 계약의 target.type: 창업지원 사업·사업공간 모집은 분야 이름 그대로(notice.policy_judgments, ID = rawPolicyId), 지원 정책은
+   * BENEFIT (benefits)
+   */
   static String targetType(String field) {
-    return "SPACE_RECRUITMENT".equals(field) ? "SPACE_RECRUITMENT" : "BENEFIT";
+    return switch (field) {
+      case "STARTUP_SUPPORT", "SPACE_RECRUITMENT" -> field;
+      default -> "BENEFIT";
+    };
   }
 
+  /** PWA 화면 경로. 창업지원 사업·사업공간 모집은 맞춤 목록 API(/supports, /spaces)와 같은 이름에 정책 ID */
   static String linkPath(String targetType, UUID id) {
     return switch (targetType) {
           case "NOTICE" -> "/notices/";
-          case "SPACE_RECRUITMENT" -> "/space-recruitments/";
+          case "STARTUP_SUPPORT" -> "/supports/";
+          case "SPACE_RECRUITMENT" -> "/spaces/";
           default -> "/benefits/";
         }
         + id;

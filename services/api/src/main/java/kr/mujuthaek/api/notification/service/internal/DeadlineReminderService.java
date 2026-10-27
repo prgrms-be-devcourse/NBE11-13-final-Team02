@@ -14,6 +14,7 @@ import kr.mujuthaek.api.benefit.service.BenefitQueryService;
 import kr.mujuthaek.api.benefit.service.BenefitSummary;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.NoticeSummary;
+import kr.mujuthaek.api.notice.service.PolicySummary;
 import kr.mujuthaek.api.notification.repository.ReminderRunRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,8 +23,8 @@ import org.springframework.transaction.annotation.Transactional;
 
 /**
  * 마감 D-3·D-1 알림 (contracts/schemas/notification-events.draft.md). 매일 한국 시간 09:00 이후 처음 확인할 때 한 번,
- * 마감일이 3일 뒤·1일 뒤인 접수 중인 주거·사업공간 공고와 지원 정책·창업지원·사업공간 모집을 관심 공고로 둔 회원에게 DEADLINE_D3·DEADLINE_D1을 남기고
- * 보내요.
+ * 마감일이 3일 뒤·1일 뒤인 접수 중인 주거·사업공간 공고, 지원 정책, 창업지원 사업·사업공간 모집(notice 정책)을 관심 공고로 둔 회원에게
+ * DEADLINE_D3·DEADLINE_D1을 남기고 보내요.
  *
  * <ul>
  *   <li>하루 한 번: 실행 기록(reminder_runs)에 그날 줄을 먼저 넣은 서버만 해요. 서버가 여러 대여도 같은 요청이 두 번 생기지 않아요
@@ -78,6 +79,7 @@ public class DeadlineReminderService {
     List<LocalDate> dates = List.of(today.plusDays(3), today.plusDays(1));
     List<BenefitSummary> closing = benefits.findOpenClosingOn(dates, today);
     List<NoticeSummary> closingNotices = notices.findOpenClosingOn(dates, today);
+    List<PolicySummary> closingPolicies = notices.findOpenPoliciesClosingOn(dates, today);
     int requested = 0;
     for (BenefitSummary b : closing) {
       requested += remind(b, today);
@@ -92,12 +94,23 @@ public class DeadlineReminderService {
               n.applyEnd(),
               today);
     }
+    for (PolicySummary p : closingPolicies) {
+      requested +=
+          remind(
+              NotificationRequests.targetType(p.field()),
+              NotificationRequests.kind(p.field()),
+              p.policyId(),
+              p.title(),
+              p.applyEnd(),
+              today);
+    }
     runs.finish(today, KIND, requested);
     log.info(
-        "마감 알림 작업: 날짜={}, 마감 임박 정책={}건·공고={}건, 요청={}",
+        "마감 알림 작업: 날짜={}, 마감 임박 정책={}건·공고={}건·창업지원·사업공간 모집={}건, 요청={}",
         today,
         closing.size(),
         closingNotices.size(),
+        closingPolicies.size(),
         requested);
     return OptionalInt.of(requested);
   }

@@ -48,6 +48,21 @@ class IncomingEventListenerTest {
   }
 
   @Test
+  void policyTargetsAreAccepted() throws Exception {
+    // 창업지원 사업·사업공간 모집 알림 (api notice.policy_judgments, ID = rawPolicyId)
+    for (String type : new String[] {"STARTUP_SUPPORT", "SPACE_RECRUITMENT"}) {
+      UUID eventId = UUID.randomUUID();
+      publish(
+          "notification.requested",
+          event(eventId, "notification.requested")
+              .replace("\"type\":\"NOTICE\"", "\"type\":\"" + type + "\""));
+
+      await(() -> processed(eventId) == 1);
+    }
+    assertThat(rabbit.receive(EventQueueConfig.DLQ, 500)).isNull();
+  }
+
+  @Test
   void payloadOutsideContractGoesToDeadLetterQueue() throws Exception {
     UUID eventId = UUID.randomUUID();
     publish(
