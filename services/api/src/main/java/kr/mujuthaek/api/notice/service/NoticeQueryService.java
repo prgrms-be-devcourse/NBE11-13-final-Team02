@@ -279,6 +279,30 @@ public class NoticeQueryService {
    * 확인 필요(UNKNOWN)는 지원할 수 있다고 보여 주지 않게 빼요. 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요. 사업공간이면 사업공간 모집
    * 정책도 policy=true로 붙여요(마감일을 모르는데 상시도 아닌 정책·검수 대기 틀은 빼요, openPolicies).
    */
+  /**
+   * 정책의 출처 안내 (K-Startup · 기업마당 API 칸을 옮긴 것, AI 값 아님). 판정 틀에 없는 지원 분야 · 요약 · 문의처 · 접수 방법을 화면에 보여줘요.
+   *
+   * @param amountText 요약 글의 「최대 · 한도 N원」 구절 (없으면 null)
+   */
+  public record PolicyInfo(
+      String supportArea,
+      String summary,
+      String organization,
+      String contact,
+      String applyMethod,
+      String applyUrl,
+      String guideUrl,
+      String amountText) {}
+
+  /** 정책 ID → 출처 안내. 안내가 없는 정책은 빠져요. */
+  public Map<UUID, PolicyInfo> policyInfos(java.util.Collection<UUID> rawPolicyIds) {
+    Map<UUID, PolicyInfo> out = new java.util.HashMap<>();
+    queries
+        .policyInfos(rawPolicyIds)
+        .forEach((id, info) -> out.put(id, json.readValue(info, PolicyInfo.class)));
+    return out;
+  }
+
   public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
     List<NoticeForJudgment> notices =
         queries.openForJudgment(field.name()).stream()

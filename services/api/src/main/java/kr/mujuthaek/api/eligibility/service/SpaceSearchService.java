@@ -59,11 +59,20 @@ public class SpaceSearchService {
             .searchCandidates("BUSINESS_SPACE", null, null, null, null, null, MAX_NOTICES)
             .stream()
             .collect(Collectors.toMap(NoticeQueryService.Candidate::id, Function.identity()));
+    List<MatchResult.Item> matched =
+        matches.judgeBusinessSpaceAll(request.applicant(), request.answers()).stream()
+            .filter(m -> inRegions(m.regionCodes(), f.regionCodes()))
+            .toList();
+    Map<UUID, NoticeQueryService.PolicyInfo> infos =
+        notices.policyInfos(
+            matched.stream()
+                .filter(MatchResult.Item::policy)
+                .map(MatchResult.Item::noticeId)
+                .toList());
     List<SpaceSearchResponse.Item> inRegion =
         withoutDuplicates(
-            matches.judgeBusinessSpaceAll(request.applicant(), request.answers()).stream()
-                .filter(m -> inRegions(m.regionCodes(), f.regionCodes()))
-                .map(m -> item(m, info.get(m.noticeId()), today))
+            matched.stream()
+                .map(m -> item(m, info.get(m.noticeId()), infos.get(m.noticeId()), today))
                 .toList());
     Map<String, Integer> typeCounts = new LinkedHashMap<>();
     SPACE_TYPES.forEach(t -> typeCounts.put(t, 0));
@@ -120,6 +129,7 @@ public class SpaceSearchService {
         dday(n.applyEnd(), today),
         status(n.applyStart(), n.applyEnd(), today),
         n.regionCodes(),
+        n.policy() ? notices.policyInfos(List.of(id)).get(id) : null,
         j.judgment());
   }
 
@@ -218,7 +228,10 @@ public class SpaceSearchService {
   }
 
   private static SpaceSearchResponse.Item item(
-      MatchResult.Item m, NoticeQueryService.Candidate c, LocalDate today) {
+      MatchResult.Item m,
+      NoticeQueryService.Candidate c,
+      NoticeQueryService.PolicyInfo policyInfo,
+      LocalDate today) {
     return new SpaceSearchResponse.Item(
         m.noticeId(),
         m.policy(),
@@ -226,6 +239,7 @@ public class SpaceSearchService {
         c != null && c.noticeType() != null ? c.noticeType() : STARTUP_SPACE,
         m.title(),
         c == null ? null : c.provider(),
+        policyInfo == null ? null : policyInfo.organization(),
         c == null ? null : c.regionName(),
         m.regionCodes(),
         c != null ? c.status() : status(m.applyStart(), m.applyEnd(), today),
