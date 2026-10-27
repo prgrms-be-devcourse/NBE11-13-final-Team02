@@ -34,12 +34,13 @@ public record TrafficResponse(
       List<Item> devices,
       List<Item> browsers,
       List<Item> regions,
-      List<FunnelStep> funnel) {
+      List<FunnelStep> funnel,
+      List<NoticeView> popularNotices) {
 
     public static Ga off(String error) {
       return new Ga(
           false, error, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
-          List.of(), List.of(), List.of(), List.of());
+          List.of(), List.of(), List.of(), List.of(), List.of());
     }
   }
 
@@ -64,4 +65,13 @@ public record TrafficResponse(
    * @param users 그 이벤트를 한 사용자 수
    */
   public record FunnelStep(String event, String label, long count, long users) {}
+
+  /**
+   * 많이 본 공고 한 줄. 공고 제목은 화면이 공고 ID로 찾아요(traffic 모듈은 notice를 부르지 않아요).
+   *
+   * @param noticeId 공고 상세 주소(/notices/{id})의 ID
+   * @param views 페이지뷰
+   * @param users 본 사람(경로별 활성 사용자를 더한 값이라 겹친 사람이 있으면 조금 많아요)
+   */
+  public record NoticeView(String noticeId, long views, long users) {}
 }

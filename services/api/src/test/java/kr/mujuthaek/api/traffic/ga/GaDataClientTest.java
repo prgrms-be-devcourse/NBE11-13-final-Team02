@@ -81,7 +81,8 @@ class GaDataClientTest {
         .andExpect(header("Authorization", "Bearer t1")) // 토큰을 다시 받지 않아요
         .andRespond(withSuccess("{\"reports\":[{}]}", MediaType.APPLICATION_JSON));
 
-    var spec = new ReportSpec(List.of("date"), List.of("activeUsers", "sessions"), null, 0, null);
+    var spec =
+        new ReportSpec(List.of("date"), List.of("activeUsers", "sessions"), null, 0, null, null);
     var rows = client.run(List.of(spec, spec, spec, spec, spec, spec), 7);
 
     server.verify();
@@ -105,7 +106,8 @@ class GaDataClientTest {
                 List.of("eventCount"),
                 "eventCount",
                 0,
-                List.of("judgment_run")),
+                List.of("judgment_run"),
+                null),
             28);
     assertThat(request.toString()).contains("27daysAgo", "judgment_run", "desc=true");
   }
