@@ -18,7 +18,7 @@ from datetime import date
 from typing import Any, Protocol
 from uuid import UUID
 
-from mujuthaek_collector.core.storage import MAX_ATTEMPTS, PostgresStore, SavedFile
+from mujuthaek_collector.core.storage import MAX_ATTEMPTS, Intake, PostgresStore, SavedFile
 from mujuthaek_platform import outbox
 from mujuthaek_platform.ids import uuid7
 
@@ -40,11 +40,12 @@ class PolicyRow:
     title: str
     marker: str  # 바뀌었는지 보는 값: 수정일, 없으면 목록 항목 해시
     list_raw: dict[str, Any]  # 목록 응답 한 건 그대로
-    status: str  # SKIPPED, PENDING, DONE, FAILED
+    status: str  # SKIPPED, PENDING, DONE, FAILED, 처음 수집 개수 제한의 HELD·IGNORED
     attempts: int = 0
     last_error: str | None = None
     latest_version: int = 0
     field: str = "BENEFIT"  # 분류 (BENEFIT, STARTUP_SUPPORT, SPACE_RECRUITMENT). 목록 단계에서 정해 저장만 해요 (queued_policies는 읽지 않음)
+    listed_on: date | None = None  # 목록의 등록일 (처음 수집 개수 제한, 저장만 해요)
 
 
 @dataclass
@@ -109,7 +110,7 @@ class PolicyStore(Protocol):
     def finish_run(self, run_id: UUID, status: str, new_count: int, warnings: list[str]) -> None: ...
     def known_policies(self, source_code: str) -> dict[str, KnownPolicy]: ...
     def insert_policy(self, policy: PolicyRow) -> None: ...
-    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None: ...
+    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str, status: str = "PENDING") -> None: ...
     def skip_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None: ...
     def queued_policies(self, source_code: str, limit: int) -> list[PolicyRow]: ...
     def latest_hash(self, policy_id: UUID) -> tuple[int, str, str] | None: ...
@@ -118,6 +119,7 @@ class PolicyStore(Protocol):
     def save_version(self, new: NewPolicyVersion) -> None: ...
     def expired_files(self, today: date, limit: int = 500) -> list[tuple[UUID, str]]: ...
     def mark_file_deleted(self, file_id: UUID) -> None: ...
+    def intake(self, group: str) -> Intake | None: ...
 
 
 POLICY_COLUMNS = "id, source_code, policy_id, title, marker, list_raw, status, attempts, last_error, latest_version"
@@ -133,9 +135,20 @@ class PostgresPolicyStore(PostgresStore):
 
     def insert_policy(self, policy: PolicyRow) -> None:
         self.conn.execute(
-            "insert into raw_policies (id, source_code, policy_id, title, marker, list_raw, status, field) values (%s, %s, %s, %s, %s, %s, %s, %s) "
-            "on conflict (source_code, policy_id) do nothing",
-            (policy.id, policy.source_code, policy.policy_id, policy.title, policy.marker, self._json(policy.list_raw), policy.status, policy.field),
+            "insert into raw_policies (id, source_code, policy_id, title, marker, list_raw, status, field, listed_on, last_error) "
+            "values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) on conflict (source_code, policy_id) do nothing",
+            (
+                policy.id,
+                policy.source_code,
+                policy.policy_id,
+                policy.title,
+                policy.marker,
+                self._json(policy.list_raw),
+                policy.status,
+                policy.field,
+                policy.listed_on,
+                policy.last_error,
+            ),
         )
 
     def _set_list(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], status: str, field: str) -> None:
@@ -145,9 +158,9 @@ class PostgresPolicyStore(PostgresStore):
             (title, marker, self._json(list_raw), status, field, policy_id),
         )
 
-    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None:
-        """목록에서 바뀐 정책(수정일·항목이 달라짐)을 다시 열도록 PENDING으로 돌려요."""
-        self._set_list(policy_id, title, marker, list_raw, "PENDING", field)
+    def requeue_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str, status: str = "PENDING") -> None:
+        """목록에서 바뀐 정책(수정일·항목이 달라짐)을 다시 열도록 PENDING으로 돌려요. 처음 수집을 고르기 전이면 HELD로 둬요."""
+        self._set_list(policy_id, title, marker, list_raw, status, field)
 
     def skip_policy(self, policy_id: UUID, title: str, marker: str, list_raw: dict[str, Any], field: str) -> None:
         """1차 거름에 걸리지 않은 정책을 SKIPPED로 둬요. 목록 항목은 새 값으로 바꿔서 다음 판단에 써요."""

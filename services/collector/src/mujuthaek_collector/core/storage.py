@@ -1,6 +1,6 @@
 """수집 DB 저장. 파이프라인은 Store 규격만 알고, 운영은 PostgresStore, 테스트는 MemoryStore(tests/fakes.py)를 써요.
 
-- 글(raw_posts)은 목록에서 본 순간 한 번 저장하고, 상태(SKIPPED·PENDING·DONE·FAILED)만 바꿔요
+- 글(raw_posts)은 목록에서 본 순간 한 번 저장하고, 상태(SKIPPED·PENDING·DONE·FAILED, 처음 수집 개수 제한의 HELD·IGNORED)만 바꿔요
 - 새 버전은 save_version 한 번의 트랜잭션으로 저장해요: 버전 + 첨부 + 추출 글자 + 글 상태 + 아웃박스 이벤트
 """
 
@@ -19,6 +19,15 @@ from mujuthaek_platform.ids import uuid7
 MAX_ATTEMPTS = 3  # FAILED 글은 3번까지 다시 시도
 
 SKIPPED, PENDING, DONE, FAILED = "SKIPPED", "PENDING", "DONE", "FAILED"
+# 처음 수집 개수 제한 (core/intake.py): 고르기 전까지 기다리는 글, 고를 때 빠져 쓰지 않는 글 (다시 큐에 넣지 않아요)
+HELD, IGNORED = "HELD", "IGNORED"
+
+
+@dataclass
+class Intake:
+    """묶음의 처음 수집 고르기 결과. cutoff_on보다 오래된 새 글은 쓰지 않아요 (비어 있으면 기준일 없음)."""
+
+    cutoff_on: date | None = None
 
 
 @dataclass
@@ -104,6 +113,8 @@ class Store(Protocol):
     def mark_done(self, post_id: UUID) -> None: ...
     def mark_failed(self, post_id: UUID, error: str) -> None: ...
     def save_version(self, new: NewVersion) -> None: ...
+    # 처음 수집 개수 제한: 고르기 전이면 None
+    def intake(self, group: str) -> Intake | None: ...
     # 보관 기한 정리
     def expired_files(self, today: date, limit: int = 500) -> list[tuple[UUID, str]]: ...
     def mark_file_deleted(self, file_id: UUID) -> None: ...
@@ -151,6 +162,11 @@ class PostgresStore:
             "update crawl_runs set finished_at = now(), status = %s, new_count = %s, error = %s where id = %s",
             (status, new_count, "\n".join(warnings)[:10000] or None, run_id),
         )
+
+    # ── 처음 수집 개수 제한 ────────────────────────────────────
+    def intake(self, group: str) -> Intake | None:
+        row = self.conn.execute("select cutoff_on from intake_decisions where group_code = %s", (group,)).fetchone()
+        return Intake(row[0]) if row else None
 
     # ── 게시판 상태 ────────────────────────────────────────────
     def board_state(self, source_code: str, board_key: str) -> BoardState:

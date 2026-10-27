@@ -3,6 +3,7 @@
 run_policy_source
   ├─ 목록 전체 읽기 (sync_list, 구간이 있으면 구간마다) → source.fetch_list
   │    처음 본 정책 → 1차 거름(source.wanted)에 걸리고 신청이 끝나지 않았으면(source.closed) PENDING, 아니면 SKIPPED
+  │    (처음 수집 개수 제한: 고르기 전이면 PENDING 대신 HELD, 고른 뒤 기준일보다 오래되면 IGNORED. core/intake.py)
   │    분류(source.classify)도 여기서 정해 raw_policies.field에 둬요: 지원 정책(BENEFIT·STARTUP_SUPPORT) / 사업공간 모집(SPACE_RECRUITMENT)
   │    이미 본 정책 → 수정일(또는 목록 항목 해시)이 바뀌면 다시 PENDING. 거름은 회차마다 다시 판단해요
   └─ 밀린 정책(PENDING·FAILED)을 한 번에 detail_limit건까지 처리 (process_policy)
@@ -27,11 +28,12 @@ from uuid import UUID
 
 import httpx
 
+from mujuthaek_collector.core import intake
 from mujuthaek_collector.core.documents.text import extract_text
 from mujuthaek_collector.core.file_store import FileStore, add_months, content_type, object_key, text_key
 from mujuthaek_collector.core.files import DOC_EXTS, FileRef
 from mujuthaek_collector.core.publisher import MAX_TEXT_CHARS
-from mujuthaek_collector.core.storage import DONE, FAILED, PENDING, SKIPPED
+from mujuthaek_collector.core.storage import DONE, FAILED, HELD, IGNORED, PENDING, SKIPPED
 from mujuthaek_collector.core.versioning import content_hash, sha256_hex
 from mujuthaek_collector.errors import BlockedError, FileRejected, ParseError
 from mujuthaek_collector.pipeline import RunResult
@@ -155,17 +157,21 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
                 wanted = source.wanted(item) and not shop_recruitment(item.title) and not source.closed(item, ctx.today)
                 kind = source.classify(item.title, item.record)  # 지원 정책(BENEFIT·STARTUP_SUPPORT) / 사업공간 모집(SPACE_RECRUITMENT)
                 if entry is None:
-                    register(ctx, item, PENDING if wanted else SKIPPED, kind)
+                    register(ctx, item, opened(ctx, item, kind) if wanted else SKIPPED, kind)
                     added += wanted
                     skipped += not wanted
+                elif entry.status == IGNORED or (entry.status == HELD and wanted):
+                    continue  # 처음 수집 개수 제한에서 빠진 정책은 다시 보지 않고, 고르기 전인 정책은 그대로 기다려요
                 elif not wanted:
                     # 기다리던 정책과 바뀐 정책은 SKIPPED로. 이미 수집한(DONE) 정책은 목록이 바뀔 때까지 그대로 둬요
-                    if entry.status in (PENDING, FAILED) or entry.marker != item.marker:
+                    if entry.status in (PENDING, FAILED, HELD) or entry.marker != item.marker:
                         store.skip_policy(entry.id, item.title, item.marker, item.record, kind)
                         skipped += 1
                 elif entry.status == SKIPPED or entry.marker != item.marker or (recheck and entry.status == DONE):
-                    store.requeue_policy(entry.id, item.title, item.marker, item.record, kind)
-                    changed += 1
+                    # 걸러졌던 정책이 다시 열 정책이 되면 새로 본 정책처럼 처음 수집 개수 제한을 따라요
+                    status = opened(ctx, item, kind) if entry.status == SKIPPED else PENDING
+                    store.requeue_policy(entry.id, item.title, item.marker, item.record, kind, status)
+                    changed += status == PENDING
             # 페이지 넘김은 응답에 온 항목 수로 판단해요 (ID가 없어 버린 항목 포함)
             fetched += result.count
             if not result.count or result.count < source.page_size or (result.total is not None and fetched >= result.total):
@@ -177,9 +183,17 @@ def sync_list(ctx: PolicyContext, *, recheck: bool = False) -> None:
     log.info("정책 목록", extra={"source": source.code, "listed": len(seen), "new": added, "changed": changed, "skipped": skipped})
 
 
+def opened(ctx: PolicyContext, item: PolicyItem, kind: str) -> str:
+    """열 정책의 상태: 처음 수집을 고르기 전이면 HELD, 기준일보다 오래되면 IGNORED, 아니면 PENDING (core/intake.py)."""
+    return intake.open_status(ctx.store, intake.policy_group(kind), ctx.source.listed_on(item.record))
+
+
 def register(ctx: PolicyContext, item: PolicyItem, status: str = PENDING, kind: str | None = None) -> None:
     kind = kind or ctx.source.classify(item.title, item.record)
-    ctx.store.insert_policy(PolicyRow(uuid7(), ctx.source.code, item.policy_id, item.title, item.marker, item.record, status, field=kind))
+    row = PolicyRow(uuid7(), ctx.source.code, item.policy_id, item.title, item.marker, item.record, status, field=kind)
+    row.listed_on = ctx.source.listed_on(item.record)
+    row.last_error = intake.IGNORED_REASON if status == IGNORED else None
+    ctx.store.insert_policy(row)
 
 
 def prefetch(ctx: PolicyContext, queue: list[PolicyRow]) -> None:

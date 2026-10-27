@@ -136,6 +136,7 @@ class BokjiroSource(PolicySource):
     key_env = "DATA_GO_KR_SERVICE_KEY"
     labels = LABELS
     volatile_keys = frozenset({"inqNum", "lastModYmd"})
+    listed_keys = ("svcfrstRegTs", "lastModYmd")  # 등록일 (처음 수집 개수 제한)
     list_path = ""
     detail_path = ""
     list_params: dict[str, str] = {}

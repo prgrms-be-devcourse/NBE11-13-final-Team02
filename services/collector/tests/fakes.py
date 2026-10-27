@@ -6,7 +6,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date
 from uuid import UUID
 
-from mujuthaek_collector.core.storage import MAX_ATTEMPTS, BoardState, NewVersion, PostRow
+from mujuthaek_collector.core.storage import MAX_ATTEMPTS, BoardState, Intake, NewVersion, PostRow
 from mujuthaek_collector.errors import FileRejected
 from mujuthaek_platform.ids import uuid7
 
@@ -20,6 +20,8 @@ class MemoryStore:
     posts: dict[UUID, PostRow] = field(default_factory=dict)
     versions: list[NewVersion] = field(default_factory=list)
     deleted_files: list[UUID] = field(default_factory=list)
+    # 처음 수집 개수 제한: 묶음별 고른 결과. 기본은 모두 고른 것(기준일 없음)이라 지금처럼 동작해요. None이면 고르기 전
+    intakes: dict[str, Intake | None] = field(default_factory=dict)
 
     @property
     def events(self) -> list[dict]:
@@ -27,6 +29,9 @@ class MemoryStore:
 
     def by_key(self, post_key: str) -> PostRow:
         return next(p for p in self.posts.values() if p.post_key == post_key)
+
+    def intake(self, group):
+        return self.intakes.get(group, Intake())
 
     def start_run(self, source_code):
         run_id = uuid7()

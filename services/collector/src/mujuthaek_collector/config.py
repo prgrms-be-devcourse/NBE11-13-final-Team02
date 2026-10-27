@@ -31,6 +31,20 @@ class Settings:
     max_file_bytes: int = 30 * 1024 * 1024
     empty_alert: int = 3  # 목록 0건이 이만큼 연속이면 구조 변경 경고
     parallel_sources: int = 4  # 게시판 출처를 동시에 몇 개까지 수집할지 (출처마다 도메인이 달라 요청 간격은 그대로)
+    # 처음 수집 개수 제한 (core/intake.py): 처음 한 번 묶음마다 최신 몇 개만 AI 추출로 보낼지 (2026-10-27 결정)
+    intake_housing_lh: int = 10  # LH 주거 공고
+    intake_housing_other: int = 10  # LH 말고 다른 게시판 주거 공고 (합쳐서)
+    intake_space: int = 10  # 사업공간 모집
+    intake_policy: int = 500  # 지원 정책 (혜택·창업 지원, 출처 합쳐서)
+
+    @property
+    def intake_limits(self) -> dict[str, int]:
+        return {
+            "HOUSING_LH": self.intake_housing_lh,
+            "HOUSING_OTHER": self.intake_housing_other,
+            "SPACE": self.intake_space,
+            "POLICY": self.intake_policy,
+        }
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -49,4 +63,8 @@ class Settings:
             since_days=int(os.getenv("COLLECTOR_SINCE_DAYS", "365")),
             detail_limit=int(os.getenv("COLLECTOR_DETAIL_LIMIT", "20")),
             parallel_sources=max(1, int(os.getenv("COLLECTOR_PARALLEL_SOURCES", "4"))),
+            intake_housing_lh=int(os.getenv("COLLECTOR_INTAKE_HOUSING_LH", "10")),
+            intake_housing_other=int(os.getenv("COLLECTOR_INTAKE_HOUSING_OTHER", "10")),
+            intake_space=int(os.getenv("COLLECTOR_INTAKE_SPACE", "10")),
+            intake_policy=int(os.getenv("COLLECTOR_INTAKE_POLICY", "500")),
         )

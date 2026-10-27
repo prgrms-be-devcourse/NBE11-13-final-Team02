@@ -20,11 +20,12 @@ import httpx
 
 from mujuthaek_collector.config import Settings
 from mujuthaek_collector.core import classify as cls
+from mujuthaek_collector.core import intake
 from mujuthaek_collector.core.documents.text import extract_text
 from mujuthaek_collector.core.file_store import FileStore, content_type, object_key, stored_until, text_key
 from mujuthaek_collector.core.files import FileRef, pick_notice_files, pick_unit_lists, unclear_notice
 from mujuthaek_collector.core.publisher import MAX_TEXT_CHARS, build_collected_event
-from mujuthaek_collector.core.storage import PENDING, SKIPPED, BoardState, NewVersion, PostRow, SavedFile, Store
+from mujuthaek_collector.core.storage import IGNORED, PENDING, SKIPPED, BoardState, NewVersion, PostRow, SavedFile, Store
 from mujuthaek_collector.core.versioning import content_hash, list_hash, sha256_hex
 from mujuthaek_collector.errors import BlockedError, FileRejected, ParseError
 from mujuthaek_collector.sources.base import Board, Detail, Fetcher, ListItem, Source
@@ -133,7 +134,7 @@ def run_board(ctx: Context, board: Board, *, recheck: bool = False) -> None:
 
 
 def register(ctx: Context, item: ListItem, cutoff: date) -> None:
-    """목록에서 처음 본 글을 분류해서 저장해요. 열 글은 PENDING, 안 열 글은 SKIPPED."""
+    """목록에서 처음 본 글을 분류해서 저장해요. 열 글은 PENDING(처음 수집을 고르기 전이면 HELD), 안 열 글은 SKIPPED."""
     source, store = ctx.source, ctx.store
     kind = source.pre_classify(item) or cls.classify(item.title)
     status, parent, reason = SKIPPED, None, None
@@ -151,6 +152,12 @@ def register(ctx: Context, item: ListItem, cutoff: date) -> None:
             reason = "원래 모집공고를 찾지 못한 후속 안내"
     else:
         reason = "모집공고가 아닌 글"
+    if status == PENDING:
+        # 처음 수집 개수 제한: 고르기 전이면 HELD, 기준일보다 오래된 글이면 IGNORED (core/intake.py).
+        # 쓰지 않는 원래 공고의 정정·후속 안내도 쓰지 않아요
+        status = IGNORED if parent and parent.status == IGNORED else intake.open_status(store, intake.post_group(source.code), item.posted_on)
+        if status == IGNORED:
+            reason = intake.IGNORED_REASON
     store.insert_post(
         PostRow(
             id=uuid7(),

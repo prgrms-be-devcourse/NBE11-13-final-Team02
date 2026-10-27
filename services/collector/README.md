@@ -28,12 +28,28 @@ uv run python -m mujuthaek_collector run-once dcco   # 대전 한 번 수집 (�
 | `cleanup` | 보관 기한이 지난 원본 파일만 S3에서 지우기 |
 | `save-fixtures <출처> [--details 3]` | 실제 목록·상세 화면을 `tests/fixtures/<출처>/`에 저장 (실제 사이트에 요청해요) |
 | `status` | 최근 수집 회차 20개 |
+| `intake [--decide]` | 처음 수집 개수 제한: 묶음마다 고른 결과·기다리는(HELD) 글. `--decide`면 지금 고르기 ([처음 수집 개수 제한](#처음-수집-개수-제한)) |
 | `area-upload --source <원천> --data-date <기준일> --file <파일> [--scope <시도>]` | 생활권·상권 원천 파일을 S3 `area/{원천}/{기준일}/{영문 이름}.csv`로 올리고 `area.source.ready` 발행 (api가 받아 적재). 지하철 엑셀은 UTF-8 CSV로 바꿔 올려요. 같은 파일은 다시 올리거나 보내지 않아요 |
 | `area-upload --manifest area/area_manifest.csv --skip-upload` | 이미 S3에 올린 파일 목록으로 적재 요청만 보내기 (S3 sha256 메타데이터를 확인해요). 2026-10-22에 올린 21개가 `area/area_manifest.csv`예요 |
 
 출처: `sh`, `gh`, `bmc`, `ih`, `dcco`, `dudc`, `umca`, `gbdc`, `gndc`, `soco`, `lh` (LH는 API로 받고 `LH_API_KEY`가 필요해요 — `sources/lh/README.md`) / 정책: `gov24`, `bokjiro_central`, `bokjiro_local`, `youth`, `kstartup`, `bizinfo`
 
 대구(`dudc`)는 robots.txt가 사이트 전체 수집을 막아서 꺼 두었어요(`sources.enabled = false`). 기관 허락을 받으면 다시 켜요.
+
+## 처음 수집 개수 제한
+배포 뒤 처음 한 번은 묶음마다 **최신 N개만** AI 추출로 보내고, 그 이전 글은 쓰지 않아요 (2026-10-27 결정, `core/intake.py`). 그 뒤로는 새로 올라온 글만 보내요.
+
+| 묶음 | 무엇 | 개수 (환경 변수) |
+| --- | --- | --- |
+| `HOUSING_LH` | LH 주거 공고 | 10 (`COLLECTOR_INTAKE_HOUSING_LH`) |
+| `HOUSING_OTHER` | LH 말고 다른 게시판 주거 공고 (합쳐서) | 10 (`COLLECTOR_INTAKE_HOUSING_OTHER`) |
+| `SPACE` | 사업공간 모집 (`SPACE_RECRUITMENT`) | 10 (`COLLECTOR_INTAKE_SPACE`) |
+| `POLICY` | 지원 정책 (혜택·창업 지원, 출처 합쳐서) | 500 (`COLLECTOR_INTAKE_POLICY`) |
+
+- 고르기 전(`intake_decisions`에 그 묶음 줄이 없음): 새로 본 열 글은 상세를 열지 않고 `HELD`로 둬요
+- 고르기: `run`이 뜰 때 모든 출처 목록을 읽고 `HELD` 중 날짜(게시판 게시일, 정책은 목록의 등록일)가 최신인 N개를 `PENDING`으로, 나머지를 `IGNORED`로 바꾼 뒤 고른 글을 바로 수집해요. 고른 글 중 가장 오래된 날짜가 기준일이에요. 그때 읽은 글이 없던 묶음은 매일 7시 30분에 다시 골라요
+- 고른 뒤: 새 글은 바로 `PENDING`, 기준일보다 오래된 글과 쓰지 않는 공고의 정정·후속 안내는 `IGNORED`. `IGNORED`는 목록이 바뀌어도 다시 큐에 넣지 않아요
+- 이미 수집해 발행한 데이터가 있던 DB(로컬·개발)는 마이그레이션이 고른 것으로 표시해서 지금처럼 동작해요 (`intake` → 「제한 없음」)
 
 ## 확인
 | 무엇 | 어떻게 |

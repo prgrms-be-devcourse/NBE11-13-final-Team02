@@ -116,6 +116,7 @@ class BizinfoSource(PolicySource):
     key_env = "BIZINFO_API_KEY"
     labels = LABELS
     volatile_keys = frozenset({"inqireCo", "updtPnttm", "totCnt"})
+    listed_keys = ("creatPnttm",)  # 등록일 (처음 수집 개수 제한)
     # 해시태그·파일 이름과 경로·주소·문의처는 AI 입력에서 빼요. 개요의 절반이 '공고문 참조'라 본문 출력 파일(공고문)은 꼭 봐요
     ai_keys = (
         "pblancNm", "pldirSportRealmLclasCodeNm", "pldirSportRealmMlsfcCodeNm", "jrsdInsttNm", "excInsttNm",
