@@ -90,8 +90,9 @@ public class NoticeNotificationService {
             recipients.forNewNotice(
                 n.field(),
                 event.regionCodes() == null ? List.of() : event.regionCodes(),
-                n.nationwide()),
-            recipients.forFavorite(TARGET, n.noticeId())));
+                n.nationwide(),
+                n.noticeType()),
+            recipients.forFavorite(TARGET, n.noticeId(), "NEW_NOTICE")));
   }
 
   /** 바뀐 공고 → CORRECTED 또는 FOLLOW_UP. 알릴 것이 없으면 보내지 않아요 */
@@ -126,7 +127,7 @@ public class NoticeNotificationService {
               n.noticeId(),
               "정정: " + n.title(),
               "관심 " + KIND + "의 " + labels + " 내용이 바뀌었어요.",
-              recipients.forFavorite(TARGET, n.noticeId()));
+              recipients.forFavorite(TARGET, n.noticeId(), "CORRECTED"));
     }
     if (followUp) {
       sent += followUp(n);
@@ -152,7 +153,7 @@ public class NoticeNotificationService {
         f.title() == null || f.title().isBlank()
             ? "관심 " + KIND + "에 새 후속 안내" + when + "가 올라왔어요."
             : "관심 " + KIND + "에 '" + f.title() + "'" + when + " 안내가 올라왔어요.",
-        recipients.forFavorite(TARGET, n.noticeId()));
+        recipients.forFavorite(TARGET, n.noticeId(), "FOLLOW_UP"));
   }
 
   private String summary(NoticeSummary n) {

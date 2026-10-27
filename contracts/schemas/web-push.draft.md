@@ -214,8 +214,9 @@
 | `status` | int | ✅ | `404` 또는 `410` |
 
 - api `notification` 모듈이 받아 `user_id`·`endpoint`가 모두 같은 줄만 지워요 (그 사이 다른 회원으로 옮겨진 기기는 안 지움)
-- 봉투 `producer`는 `notification`. **알림 서버에도 아웃박스가 필요**해요 (`email.bounced`와 같이, 발송 줄 결과와 같은 트랜잭션에 적기)
-- 아웃박스가 생기기 전까지는 알림 서버가 그 기기를 그 줄에서 빼기만 하고, 다음 요청에 또 들어오면 또 410을 받아요 (불필요한 호출일 뿐 사용자 문제는 없음)
+- 봉투 `producer`는 `notification`, 라우팅 키는 `push.subscription.expired`. 알림 서버 아웃박스(`outbox`)에 발송 결과와 같은 트랜잭션으로 적고, 릴레이가 1초마다 `mujuthaek.events`로 보내요 (보낸 줄은 하루 뒤 삭제)
+- api 받는 큐: `mujuthaek.api.push-subscription-expired` (+ `.dlq`). 같은 eventId는 한 번만, `userId`·`endpoint`가 없으면 실패 큐로
+- 묶음·재시도 중이던 다른 기기는 영향이 없어요. 이 이벤트가 api에 닿기 전에 만든 요청에는 그 기기가 또 들어 있을 수 있어서, 그때는 다시 410을 받고 또 알려요 (같은 결과, 문제없음)
 
 ## 6. 탈퇴·로그아웃
 

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -51,7 +52,7 @@ class NoticeNotificationServiceTest {
 
   @BeforeEach
   void favorites() {
-    when(finder.forFavorite("NOTICE", id)).thenReturn(List.of(me));
+    when(finder.forFavorite(eq("NOTICE"), eq(id), anyString())).thenReturn(List.of(me));
   }
 
   @Test
@@ -174,7 +175,7 @@ class NoticeNotificationServiceTest {
   void newNoticeCountsAPersonInBothListsOnceAndSaysAlwaysOpen() {
     when(notices.findSummary(id)).thenReturn(Optional.of(notice(id, "ALWAYS", 1, null)));
     Recipient other = new Recipient(UUID.randomUUID(), "other@example.com", true, true);
-    when(finder.forNewNotice(eq("HOUSING"), eq(List.of("11650")), anyBoolean()))
+    when(finder.forNewNotice(eq("HOUSING"), eq(List.of("11650")), anyBoolean(), any()))
         .thenReturn(List.of(me, other));
 
     assertThat(service.onPublished(published(false))).isEqualTo(1);
@@ -194,8 +195,8 @@ class NoticeNotificationServiceTest {
     when(notices.findSummary(id)).thenReturn(Optional.of(notice(id, "APPLYING", 1, null)));
     Recipient silent = Recipient.push(UUID.randomUUID(), false); // 기기 없음
     Recipient off = new Recipient(UUID.randomUUID(), null, false, false); // 이 종류를 끔
-    when(finder.forNewNotice(any(), any(), anyBoolean())).thenReturn(List.of(silent, off));
-    when(finder.forFavorite("NOTICE", id)).thenReturn(List.of());
+    when(finder.forNewNotice(any(), any(), anyBoolean(), any())).thenReturn(List.of(silent, off));
+    when(finder.forFavorite(eq("NOTICE"), eq(id), anyString())).thenReturn(List.of());
 
     assertThat(service.onPublished(published(false))).isZero();
 
@@ -213,7 +214,7 @@ class NoticeNotificationServiceTest {
   void pastDeadlineIsLeftOutOfTheNewNoticeBody() {
     when(notices.findSummary(id))
         .thenReturn(Optional.of(notice(id, "UNKNOWN", 1, LocalDate.of(2026, 10, 24))));
-    when(finder.forNewNotice(any(), any(), anyBoolean())).thenReturn(List.of(me));
+    when(finder.forNewNotice(any(), any(), anyBoolean(), any())).thenReturn(List.of(me));
 
     service.onPublished(published(false));
 

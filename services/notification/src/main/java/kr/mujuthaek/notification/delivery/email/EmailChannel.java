@@ -2,6 +2,7 @@ package kr.mujuthaek.notification.delivery.email;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import kr.mujuthaek.notification.delivery.Channel;
 import kr.mujuthaek.notification.delivery.DeliveryException;
 import kr.mujuthaek.notification.delivery.DigestCadence;
@@ -38,7 +39,7 @@ class EmailChannel implements NotificationChannel {
   }
 
   @Override
-  public String send(String address, List<OutgoingNotification> notifications)
+  public String send(UUID userId, String address, List<OutgoingNotification> notifications)
       throws DeliveryException {
     return sender.send(new EmailMessage(address, subject(notifications), text(notifications)));
   }
