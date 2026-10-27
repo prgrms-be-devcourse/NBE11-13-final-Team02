@@ -295,8 +295,7 @@ class ChatApiTest {
             jdbc.queryForObject(
                 "select content from chat.messages where id = ?::uuid", String.class, id))
         .isEqualTo("욕설이 섞인 부적절한 글");
-    LoginUser user = member();
-    LoginUser admin = new LoginUser(user.userId(), user.nickname(), "ADMIN");
+    LoginUser admin = chatAdmin();
     MvcResult reports =
         mvc.perform(
                 get("/api/admin/chat/reports")
@@ -373,7 +372,7 @@ class ChatApiTest {
 
     // 관리자만 신고 목록을 봐요
     LoginUser user = member();
-    LoginUser admin = new LoginUser(user.userId(), user.nickname(), "ADMIN");
+    LoginUser admin = chatAdmin();
     mvc.perform(get("/api/admin/chat/reports").header("Authorization", bearer(user)))
         .andExpect(status().isForbidden());
     MvcResult pending =
@@ -539,6 +538,16 @@ class ChatApiTest {
   private LoginUser member() {
     String id = UUID.randomUUID().toString();
     return logins.login(new SocialProfile(SocialProvider.KAKAO, id, "회원" + id.substring(0, 6)));
+  }
+
+  /** 채팅 신고를 검토할 수 있는 관리자 (관리자 화면 권한은 요청마다 DB로 확인해서 DB에 관리자·「채팅 제재」를 넣어요) */
+  private LoginUser chatAdmin() {
+    LoginUser m = member();
+    jdbc.update("update account.users set role = 'ADMIN' where id = ?", m.userId());
+    jdbc.update(
+        "insert into account.admin_permissions (user_id, permission) values (?, 'CHAT')",
+        m.userId());
+    return new LoginUser(m.userId(), m.nickname(), "ADMIN");
   }
 
   private String bearer(LoginUser user) {
