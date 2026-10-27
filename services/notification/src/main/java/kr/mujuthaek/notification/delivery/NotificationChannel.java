@@ -2,6 +2,7 @@ package kr.mujuthaek.notification.delivery;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import kr.mujuthaek.notification.notification.NotificationRequest;
 
 /**
@@ -31,7 +32,9 @@ public interface NotificationChannel {
    * <p>받을 곳이 여러 개(푸시 기기)인데 일부만 보냈으면 {@link DeliveryException#remainingAddress()}에 못 보낸 곳만 담아 던져요.
    * 다시 보낼 때는 그곳에만 보내요.
    *
+   * @param userId 받는 회원 (웹 푸시는 죽은 구독을 api에 알릴 때 써요)
    * @return 발송 서비스가 준 ID (SES MessageId 등). 반송 알림과 맞출 때 써요. 없으면 null
    */
-  String send(String address, List<OutgoingNotification> notifications) throws DeliveryException;
+  String send(UUID userId, String address, List<OutgoingNotification> notifications)
+      throws DeliveryException;
 }

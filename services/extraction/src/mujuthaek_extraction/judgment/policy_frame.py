@@ -903,10 +903,14 @@ class _Builder:
         def convert(item: dict[str, Any]) -> dict[str, Any]:
             return self.criterion(item, reference, exception=id(item) not in unexcepted)
 
+        # 제외 사유끼리 묶은 anyOf는 「또는」을 길로 잘못 읽은 것: 「A 또는 B인 자 제외」는 A도 B도 아니어야 해요(실측 2026-10-26
+        # 관광기업지원센터: 「채무불이행으로 규제 중인 자 또는 휴/폐업 중인 사업자」가 「셋 중 하나만 아니면 됨」이 되어 채무불이행이어도 충족).
+        # 길이 모두 제외 조건이면 묶지 않고 하나하나 공통으로 둡니다
+        exclusion_only = {key for key in {i["anyOf"] for i in items if i["anyOf"]} if all(_exclusion(i) for i in items if i["anyOf"] == key)}
         for item in items:
             if _nationwide(item) and not item["anyOf"]:
                 continue  # 「전국 소재」 지역 조건은 제한이 아님(실측 2026-10-22 서초: 지역 코드로 못 바꿔 의미 없는 확인 필요 질문이 됨)
-            if item["anyOf"]:
+            if item["anyOf"] and item["anyOf"] not in exclusion_only:
                 if item["anyOf"] not in bundles:
                     bundles[item["anyOf"]] = []
                     made.append({"_bundle": item["anyOf"]})
@@ -1343,6 +1347,11 @@ def _path_label(path: list[dict[str, Any]], number: int) -> str:
         else:
             parts.append(KIND_NAMES.get(kind, "조건"))
     return f"{number}번째 길: " + " + ".join(dict.fromkeys(parts))
+
+
+def _exclusion(item: dict[str, Any]) -> bool:
+    """제외 조건인지: 신청 제외 사유(EXCLUDED_STATUS) 또는 「예」면 신청 불가인 질문(OTHER, metWhen NO)."""
+    return item["kind"] == "EXCLUDED_STATUS" or (item["kind"] == "OTHER" and item.get("metWhen") == "NO")
 
 
 def _without_echo(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
