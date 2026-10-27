@@ -269,6 +269,14 @@ public class BenefitRepository {
         .optional();
   }
 
+  /** 수집 정책 ID로 혜택 하나의 요약 (숨김 포함). */
+  public Optional<SummaryRow> summaryByRawPolicyId(UUID rawPolicyId) {
+    return jdbc.sql(SUMMARY + " where raw_policy_id = ?")
+        .param(rawPolicyId)
+        .query(BenefitRepository::summary)
+        .optional();
+  }
+
   /** 마감일이 dates 중 하나이고 오늘 접수 중인 혜택 (숨김·상시·시작 전 제외). 상태 칸 대신 날짜로 골라요 (상태 재계산이 늦어도 같게) */
   public List<SummaryRow> openClosingOn(Collection<LocalDate> dates, LocalDate today) {
     if (dates.isEmpty()) return List.of();

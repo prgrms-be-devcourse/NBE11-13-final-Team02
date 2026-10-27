@@ -48,6 +48,13 @@ class UserRecipientFinder implements RecipientFinder {
     return recipients(users.favoriteAudience(targetType, targetId), type);
   }
 
+  @Override
+  public Recipient forReporter(UUID userId) {
+    NotificationPreference p =
+        users.preferences(List.of(userId)).getOrDefault(userId, NotificationPreference.DEFAULT);
+    return new Recipient(userId, null, p.quietEnabled(), p.enabled("REPORT_ANSWERED"));
+  }
+
   private List<Recipient> recipients(List<UUID> audience, String type) {
     Map<UUID, NotificationPreference> prefs = users.preferences(audience);
     List<Recipient> out = new ArrayList<>();

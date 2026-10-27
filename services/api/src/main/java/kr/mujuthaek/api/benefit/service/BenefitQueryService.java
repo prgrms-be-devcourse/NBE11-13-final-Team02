@@ -42,6 +42,14 @@ public class BenefitQueryService {
     return benefits.summary(id).map(BenefitQueryService::toSummary);
   }
 
+  /**
+   * 수집 정책 ID(rawPolicyId)로 혜택 하나의 요약 (알림 담당: BenefitReportAnswered의 policyId가 이 ID라서). 숨김도 줘요. 없으면
+   * 빈 값
+   */
+  public Optional<BenefitSummary> findSummaryByRawPolicyId(UUID rawPolicyId) {
+    return benefits.summaryByRawPolicyId(rawPolicyId).map(BenefitQueryService::toSummary);
+  }
+
   /** 마감일이 dates 중 하나이고 오늘 접수 중인 혜택 (마감 D-3·D-1 알림용). 숨김·상시·시작 전 제외, 마감일 순 */
   public List<BenefitSummary> findOpenClosingOn(Collection<LocalDate> dates, LocalDate today) {
     return benefits.openClosingOn(dates, today).stream()

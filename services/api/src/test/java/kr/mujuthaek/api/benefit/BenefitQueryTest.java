@@ -31,6 +31,17 @@ class BenefitQueryTest {
   }
 
   @Test
+  void 수집_정책_ID로도_요약을_찾는다() {
+    // 혜택 제보 답변 이벤트(BenefitReportAnswered)의 policyId는 수집 정책 ID라서
+    UUID raw = UUID.randomUUID();
+    f.ingest.apply(BenefitFixture.event(raw, 1, p -> {}));
+    UUID id = f.repository.findByRawPolicyId(raw).orElseThrow().id();
+
+    assertThat(f.queries.findSummaryByRawPolicyId(raw).orElseThrow().benefitId()).isEqualTo(id);
+    assertThat(f.queries.findSummaryByRawPolicyId(UUID.randomUUID())).isEmpty();
+  }
+
+  @Test
   void 마감_임박은_그날_마감이고_접수_중인_혜택만_준다() {
     UUID d3 = f.benefit(p -> p.withObject("schedule").put("applyEnd", "2026-10-25"));
     UUID d1 = f.benefit(p -> p.withObject("schedule").put("applyEnd", "2026-10-23"));

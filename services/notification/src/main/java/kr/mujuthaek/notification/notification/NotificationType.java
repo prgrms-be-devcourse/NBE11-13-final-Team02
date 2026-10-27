@@ -11,7 +11,8 @@ public enum NotificationType {
   DEADLINE_D3(false),
   DEADLINE_D1(false),
   CORRECTED(false),
-  FOLLOW_UP(false);
+  FOLLOW_UP(false),
+  REPORT_ANSWERED(false); // 회원이 보낸 제보에 관리자가 답함 (제보한 회원 한 명)
 
   private final boolean digest;
 
