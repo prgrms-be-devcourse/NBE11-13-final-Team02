@@ -11,6 +11,8 @@
   POST /reviews/{jobId}/reject       반려 (발행 없음). 본문(선택): {"note": "메모", "reviewer": "검수자"}
   POST /reviews/reopen               이미 발행한 결과를 검수 대기로 다시 열기 {"rawPostId": "…", "reviewer": "…", "note": "공고 제보"}
                                      (그 원본의 가장 새로 발행한 작업. 앞선 처리 기록은 상세의 history로)
+  GET  /reviews/activity?days=30&limit=300  처리 기록(관리자 「처리 기록」): 공고·혜택 검수 승인·고쳐서 승인·반려·다시 열기를 최근 순으로
+                                     (kind NOTICE·BENEFIT, action APPROVED·EDITED_APPROVED·REJECTED·REOPENED, by 처리한 관리자, note)
   GET  /reviews/stats?days=7         처리 통계(최근 days일·오늘): 그대로 승인·고쳐서 승인·반려 수, 처리까지 걸린 시간 중앙값(분)
   GET  /costs?month=2026-10          분야별 유료 AI 호출 수·비용과 월 상한 대비 비율(한국 시간 달, month 없으면 이번 달, cost_alert.py)
 
@@ -156,6 +158,20 @@ class ReviewService:
             return 400, {"error": "month는 YYYY-MM 형식입니다."}
         with self.store_session() as store:
             return 200, store.monthly_costs(month, self.monthly_budget_usd)
+
+    def activity(self, days: str | None, limit: str | None) -> tuple[int, Any]:
+        """처리 기록. days는 1~90(기본 30), limit은 1~1000(기본 300)."""
+        try:
+            value = 30 if days is None else int(days)
+        except ValueError:
+            value = 0
+        if not 1 <= value <= 90:
+            return 400, {"error": "days는 1~90 사이 정수입니다."}
+        size = 300 if limit is None else _list_limit(limit)
+        if size is None:
+            return 400, {"error": f"limit은 1~{MAX_LIST_LIMIT} 사이 정수입니다."}
+        with self.store_session() as store:
+            return 200, {"items": store.review_activity(value, size)}
 
     def stats(self, days: str | None) -> tuple[int, Any]:
         """처리 통계. days는 1~90(기본 7)."""
@@ -407,6 +423,9 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
             if url.path == "/reviews":
                 query = parse_qs(url.query)
                 return self._send(*service.list(query.get("status", ["PENDING"])[0], query.get("limit", [None])[0]))
+            if url.path == "/reviews/activity":
+                query = parse_qs(url.query)
+                return self._send(*service.activity(query.get("days", [None])[0], query.get("limit", [None])[0]))
             if url.path == "/reviews/stats":
                 return self._send(*service.stats(parse_qs(url.query).get("days", [None])[0]))
             if url.path == "/costs":

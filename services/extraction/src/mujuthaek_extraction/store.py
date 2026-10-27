@@ -602,6 +602,44 @@ class JobStore:
         today = counts("(date_trunc('day', now() at time zone 'Asia/Seoul') at time zone 'Asia/Seoul')", ())
         return {"days": days, "recent": recent, "today": today}
 
+    def review_activity(self, days: int = 30, limit: int = 300) -> list[dict[str, Any]]:
+        """관리자 「처리 기록」: 최근 days일 검수 처리(승인·고쳐서 승인·반려)와 다시 열기를 최근 순으로.
+        공고 검수(review_queue, 제보로 다시 열어 review_history로 옮긴 앞선 처리 포함)와 혜택 검수(benefit_reviews)를 같이 봐요.
+        대체(SUPERSEDED)는 사람이 처리한 게 아니라 뺍니다. who는 api 서버가 보낸 처리한 관리자(로그인 계정 ID)."""
+        rows = self.conn.execute(
+            "select kind, id, title, action, at, who, note from ("
+            # 공고 검수 처리 (지금 상태)
+            " select 'NOTICE' kind, j.id::text id, coalesce(j.candidate->'notice'->>'title', j.raw_event->'payload'->>'title') title,"
+            " case when r.status = 'REJECTED' then 'REJECTED' when r.edited then 'EDITED_APPROVED' else 'APPROVED' end action,"
+            " r.decided_at at, r.decided_by who, r.note note"
+            " from review_queue r join extraction_jobs j on j.id = r.job_id"
+            " where r.status in ('APPROVED', 'REJECTED') and r.decided_at is not null"
+            # 다시 열기 전에 했던 처리
+            " union all select 'NOTICE', j.id::text, coalesce(j.candidate->'notice'->>'title', j.raw_event->'payload'->>'title'),"
+            " case when h.status = 'REJECTED' then 'REJECTED' when h.edited then 'EDITED_APPROVED' else 'APPROVED' end,"
+            " h.decided_at, h.decided_by, h.note"
+            " from review_history h join extraction_jobs j on j.id = h.job_id"
+            " where h.status in ('APPROVED', 'REJECTED') and h.decided_at is not null"
+            # 다시 열기
+            " union all select 'NOTICE', j.id::text, coalesce(j.candidate->'notice'->>'title', j.raw_event->'payload'->>'title'),"
+            " 'REOPENED', h.archived_at, h.reopened_by, h.reopen_note"
+            " from review_history h join extraction_jobs j on j.id = h.job_id where h.reopened_by is not null"
+            # 혜택 검수 처리
+            " union all select 'BENEFIT', v.id::text, r.title,"
+            " case when v.status = 'REJECTED' then 'REJECTED'"
+            " when jsonb_typeof(v.edits) = 'array' and jsonb_array_length(v.edits) > 0 then 'EDITED_APPROVED' else 'APPROVED' end,"
+            " v.decided_at, v.decided_by, v.note"
+            " from benefit_reviews v join benefit_results r on r.id = v.result_id"
+            " where v.status in ('APPROVED', 'REJECTED') and v.decided_at is not null"
+            # 혜택 검수 다시 열기 (정책 제보)
+            " union all select 'BENEFIT', v.id::text, r.title, 'REOPENED', v.created_at, v.opened_by, null"
+            " from benefit_reviews v join benefit_results r on r.id = v.result_id where v.opened_by is not null"
+            ") a where at >= now() - make_interval(days => %s) order by at desc, id limit %s",
+            (days, limit),
+        ).fetchall()
+        keys = ("kind", "id", "title", "action", "at", "by", "note")
+        return [dict(zip(keys, row, strict=True)) for row in rows]
+
     # ---- 비용 ----
     def monthly_costs(self, month: str | None = None, budget_usd: float | None = None) -> dict[str, Any]:
         """그 달의 분야별 유료 AI 호출 수·비용(cost_alert.monthly_costs)."""

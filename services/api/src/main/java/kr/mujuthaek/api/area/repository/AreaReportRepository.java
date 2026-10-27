@@ -67,6 +67,19 @@ public class AreaReportRepository {
         == 1;
   }
 
+  /** 최근 처리 끝낸 제보 (관리자 「처리 기록」, 처리한 시각 최근 순). */
+  public List<Report> handledSince(java.time.Instant since, int limit) {
+    return jdbc.sql(
+            "select "
+                + COLUMNS
+                + " from area.area_reports r where r.status = 'DONE' and r.handled_at >= :since"
+                + " order by r.handled_at desc limit :limit")
+        .param("since", java.sql.Timestamp.from(since))
+        .param("limit", limit)
+        .query(AreaReportRepository::report)
+        .list();
+  }
+
   public List<Report> list(String status, int limit) {
     return jdbc.sql(
             "select "

@@ -622,6 +622,9 @@ def test_published_result_can_be_reopened_for_review_and_fixed_again(store):
     assert store.review_stats(7)["recent"]["approved"] == approved_before
     detail = store.review(job_id)
     assert detail["reviewStatus"] == "PENDING" and "USER_REPORT" in detail["reasons"]
+    # 처리 기록: 다시 열기 전 승인과 다시 열기가 최근 순으로, 처리한 관리자와 함께
+    activity = [(x["kind"], x["action"], x["by"]) for x in store.review_activity(30, 10) if x["id"] == job_id]
+    assert activity == [("NOTICE", "REOPENED", "admin:2"), ("NOTICE", "APPROVED", "admin:1")]
     assert [(h["reviewStatus"], h["decidedBy"], h["reopenedBy"], h["reopenNote"]) for h in detail["history"]] == [
         ("APPROVED", "admin:1", "admin:2", "공고 제보: 보증금")
     ]

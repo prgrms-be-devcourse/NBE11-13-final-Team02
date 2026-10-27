@@ -136,6 +136,9 @@ class FakeStore:
     def review_stats(self, days):
         return {"days": days}
 
+    def review_activity(self, days, limit):
+        return [{"days": days, "limit": limit}]
+
     def reopen(self, raw_post_id, reviewer=None, note=None):
         self.reopened = (raw_post_id, reviewer, note)
         return None if raw_post_id.endswith("0000") else {"jobId": "job", "reviewStatus": "PENDING", "reopened": True}
@@ -876,6 +879,14 @@ def test_stats_days_are_checked():
     assert service.stats(None) == (200, {"days": 7})
     assert service.stats("30") == (200, {"days": 30})
     assert service.stats("0")[0] == 400 and service.stats("x")[0] == 400 and service.stats("91")[0] == 400
+
+
+def test_activity_days_and_limit_are_checked():
+    service, _ = service_with(pending_item())
+    assert service.activity(None, None) == (200, {"items": [{"days": 30, "limit": 300}]})
+    assert service.activity("7", "50") == (200, {"items": [{"days": 7, "limit": 50}]})
+    assert service.activity("0", None)[0] == 400 and service.activity("91", None)[0] == 400 and service.activity("x", None)[0] == 400
+    assert service.activity(None, "0")[0] == 400 and service.activity(None, "1001")[0] == 400
 
 
 def test_reopen_checks_the_raw_post_id_and_reports_missing_results():

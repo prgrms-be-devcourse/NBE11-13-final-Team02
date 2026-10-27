@@ -89,6 +89,20 @@ public class NoticeReportRepository {
         == 1;
   }
 
+  /** 최근 처리 끝낸 제보 (관리자 「처리 기록」, 처리한 시각 최근 순). */
+  public List<Report> handledSince(java.time.Instant since, int limit) {
+    return jdbc.sql(
+            "select "
+                + COLUMNS
+                + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
+                + " where r.status = 'DONE' and r.handled_at >= :since"
+                + " order by r.handled_at desc limit :limit")
+        .param("since", OffsetDateTime.ofInstant(since, ZoneOffset.UTC))
+        .param("limit", limit)
+        .query(NoticeReportRepository::report)
+        .list();
+  }
+
   public List<Report> list(String status, int limit) {
     return jdbc.sql(
             "select "

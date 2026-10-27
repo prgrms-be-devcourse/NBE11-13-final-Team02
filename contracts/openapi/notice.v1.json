@@ -30,6 +30,10 @@
     {
       "name": "admin-benefit-review",
       "description": "관리자 혜택(주거·이주 정책) 검수 (ADMIN)"
+    },
+    {
+      "name": "admin-activity",
+      "description": "관리자 처리 기록 (검수·제보를 누가 언제 처리했는지)"
     }
   ],
   "paths": {
@@ -709,6 +713,47 @@
           },
           "429": {
             "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
+    },
+    "/api/admin/activity": {
+      "get": {
+        "tags": [
+          "admin-activity"
+        ],
+        "operationId": "listAdminActivity",
+        "summary": "처리 기록: 관리자가 처리한 공고·혜택 검수와 공고·혜택·창업 사업·생활권 제보를 최근 순으로 (최대 300줄)",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "최근 며칠 (1~90, 기본 30)",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "처리 기록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminActivity"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
           }
         }
       }
@@ -4913,6 +4958,90 @@
                 ]
               }
             }
+          }
+        }
+      },
+      "AdminActivity": {
+        "type": "object",
+        "required": [
+          "days",
+          "items"
+        ],
+        "properties": {
+          "days": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 300,
+            "items": {
+              "$ref": "#/components/schemas/AdminActivityItem"
+            }
+          },
+          "reviewsError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "추출 서비스(검수 기록)를 부르지 못했으면 그 이유. 그때는 제보 처리만 들어 있어요"
+          }
+        }
+      },
+      "AdminActivityItem": {
+        "type": "object",
+        "required": [
+          "at",
+          "kind",
+          "action"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "처리한 시각"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "NOTICE_REVIEW",
+              "BENEFIT_REVIEW",
+              "NOTICE_REPORT",
+              "BENEFIT_REPORT",
+              "PROGRAM_REPORT",
+              "AREA_REPORT"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "description": "검수 APPROVED·EDITED_APPROVED·REJECTED·REOPENED, 제보 FIXED·KEPT"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "대상 제목"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "검수 메모 또는 제보한 칸 이름"
+          },
+          "by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "처리한 관리자 (회원 ID 또는 검수자 이름)"
+          },
+          "targetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "검수 ID 또는 제보 ID"
           }
         }
       }

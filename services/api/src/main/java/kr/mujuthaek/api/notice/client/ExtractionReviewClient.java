@@ -95,6 +95,16 @@ public class ExtractionReviewClient {
   }
 
   /** 처리 통계(최근 days일·오늘). */
+  /** 처리 기록 (추출 GET /reviews/activity): 공고·혜택 검수 승인·반려·다시 열기, 최근 순. */
+  public JsonNode activity(int days) {
+    return call(
+        () ->
+            http.get()
+                .uri("/reviews/activity?days={d}&limit=300", days)
+                .retrieve()
+                .body(JsonNode.class));
+  }
+
   public JsonNode stats(int days) {
     return call(
         () -> http.get().uri("/reviews/stats?days={d}", days).retrieve().body(JsonNode.class));
