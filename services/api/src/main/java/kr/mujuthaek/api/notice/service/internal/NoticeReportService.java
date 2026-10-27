@@ -313,7 +313,8 @@ public class NoticeReportService {
                     done.reporterId(),
                     done.field(),
                     done.result(),
-                    reply)
+                    reply,
+                    done.noticeTitle())
                 : done.benefitPolicyId() != null
                     ? new BenefitReportAnswered(
                         done.id(),
@@ -321,14 +322,16 @@ public class NoticeReportService {
                         done.reporterId(),
                         done.field(),
                         done.result(),
-                        reply)
+                        reply,
+                        done.noticeTitle())
                     : new ProgramReportAnswered(
                         done.id(),
                         done.rawPolicyId(),
                         done.reporterId(),
                         done.field(),
                         done.result(),
-                        reply));
+                        reply,
+                        done.noticeTitle()));
       }
     }
     return detail(id);

@@ -39,7 +39,8 @@ public class NoticeRepository {
       String frameJson,
       ReviewStatus reviewStatus,
       String detailUrl,
-      boolean applyAlways) {}
+      boolean applyAlways,
+      String infoJson) {}
 
   /** 저장된(공개 중인) 정책 판정 틀의 버전과 검수 상태. */
   public record PolicyJudgmentState(int version, ReviewStatus reviewStatus) {}
@@ -52,15 +53,17 @@ public class NoticeRepository {
     return jdbc.sql(
                 "insert into notice.policy_judgments (raw_policy_id, field, raw_version, source_event_id,"
                     + " title, apply_start, apply_end, region_codes, frame, review_status, detail_url,"
-                    + " apply_always, created_at, updated_at) values (:id, :field, :version, :eventId,"
-                    + " :title, :applyStart, :applyEnd, cast(:regions as text[]), cast(:frame as jsonb),"
-                    + " :reviewStatus, :detailUrl, :applyAlways, :now, :now)"
+                    + " apply_always, info, created_at, updated_at) values (:id, :field, :version,"
+                    + " :eventId, :title, :applyStart, :applyEnd, cast(:regions as text[]),"
+                    + " cast(:frame as jsonb), :reviewStatus, :detailUrl, :applyAlways,"
+                    + " cast(:info as jsonb), :now, :now)"
                     + " on conflict (raw_policy_id) do update set field = excluded.field,"
                     + " raw_version = excluded.raw_version, source_event_id = excluded.source_event_id,"
                     + " title = excluded.title, apply_start = excluded.apply_start,"
                     + " apply_end = excluded.apply_end, region_codes = excluded.region_codes,"
                     + " frame = excluded.frame, review_status = excluded.review_status,"
                     + " detail_url = excluded.detail_url, apply_always = excluded.apply_always,"
+                    + " info = excluded.info,"
                     + " updated_at = excluded.updated_at"
                     + " where notice.policy_judgments.raw_version < excluded.raw_version"
                     + " or (notice.policy_judgments.raw_version = excluded.raw_version"
@@ -78,6 +81,7 @@ public class NoticeRepository {
             .param("reviewStatus", row.reviewStatus().name())
             .param("detailUrl", row.detailUrl())
             .param("applyAlways", row.applyAlways())
+            .param("info", row.infoJson())
             .param("now", now.atOffset(ZoneOffset.UTC))
             .update()
         == 1;

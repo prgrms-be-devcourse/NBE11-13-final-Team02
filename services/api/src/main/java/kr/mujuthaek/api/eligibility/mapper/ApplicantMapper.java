@@ -48,7 +48,8 @@ public final class ApplicantMapper {
         business(request.business()),
         codes(request.statuses(), Codes::isStatus, "profile.statuses", "유형"),
         codes(request.restrictions(), Codes::isRestriction, "profile.restrictions", "신청 제한 사유"),
-        answers);
+        answers,
+        request.birthMonth());
   }
 
   private static Applicant.Household household(JudgmentApplicantRequest.HouseholdRequest h) {

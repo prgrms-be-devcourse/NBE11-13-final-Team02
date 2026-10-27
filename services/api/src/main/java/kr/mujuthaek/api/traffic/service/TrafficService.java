@@ -1,0 +1,179 @@
+package kr.mujuthaek.api.traffic.service;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import kr.mujuthaek.api.traffic.TrafficProperties;
+import kr.mujuthaek.api.traffic.dto.BotTrafficResponse;
+import kr.mujuthaek.api.traffic.dto.TrafficResponse;
+import kr.mujuthaek.api.traffic.dto.TrafficResponse.Daily;
+import kr.mujuthaek.api.traffic.dto.TrafficResponse.FunnelStep;
+import kr.mujuthaek.api.traffic.dto.TrafficResponse.Item;
+import kr.mujuthaek.api.traffic.ga.GaDataClient;
+import kr.mujuthaek.api.traffic.ga.GaDataClient.ReportSpec;
+import kr.mujuthaek.api.traffic.ga.GaDataClient.Row;
+import kr.mujuthaek.api.traffic.log.RequestLogStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+/** 관리자 트래픽 화면: GA 보고서(기간별로 한 시간쯤 다시 씀)와 api 서버 요청 기록을 모아요. */
+@Service
+public class TrafficService {
+
+  private static final Logger log = LoggerFactory.getLogger(TrafficService.class);
+
+  /** 이용 흐름 단계(프론트가 보내는 GA 이벤트, 판정 입력값 같은 개인 정보는 싣지 않음). session_start는 GA 기본 이벤트. */
+  static final List<String[]> FUNNEL =
+      List.of(
+          new String[] {"session_start", "방문"},
+          new String[] {"conditions_complete", "조건 입력 완료"},
+          new String[] {"judgment_run", "판정 실행"},
+          new String[] {"notice_source_open", "원문 보기"},
+          new String[] {"notice_bookmark", "관심 등록"});
+
+  static final List<ReportSpec> REPORTS =
+      List.of(
+          new ReportSpec(
+              List.of("date"),
+              List.of("activeUsers", "newUsers", "sessions", "screenPageViews"),
+              null,
+              0,
+              null),
+          item("sessionDefaultChannelGroup", "sessions"),
+          item("sessionSource", "sessions"),
+          item("sessionCampaignName", "sessions"),
+          item("landingPage", "sessions"),
+          item("pagePath", "screenPageViews"),
+          item("deviceCategory", "activeUsers"),
+          item("browser", "activeUsers"),
+          item("region", "activeUsers"),
+          new ReportSpec(
+              List.of("eventName"),
+              List.of("eventCount", "totalUsers"),
+              "eventCount",
+              0,
+              FUNNEL.stream().map(f -> f[0]).toList()));
+
+  private record Cached(Instant at, TrafficResponse.Ga ga) {}
+
+  private final GaDataClient ga;
+  private final RequestLogStore logs;
+  private final TrafficProperties props;
+  private final Clock clock;
+  private final Map<Integer, Cached> cache = new ConcurrentHashMap<>();
+
+  public TrafficService(
+      GaDataClient ga, RequestLogStore logs, TrafficProperties props, Clock clock) {
+    this.ga = ga;
+    this.logs = logs;
+    this.props = props;
+    this.clock = clock;
+  }
+
+  private static ReportSpec item(String dimension, String metric) {
+    // 주 값이 활성 사용자면 사용자 수도 그 값이에요(측정항목 하나만 물어요)
+    List<String> metrics =
+        "activeUsers".equals(metric) ? List.of(metric) : List.of(metric, "activeUsers");
+    return new ReportSpec(List.of(dimension), metrics, metric, 10, null);
+  }
+
+  /** 개요·유입·이용 흐름(GA)과 서버 숫자. */
+  public TrafficResponse traffic(int days) {
+    Instant now = clock.instant();
+    LocalDate today = LocalDate.ofInstant(now, RequestLogStore.KST);
+    Instant from = today.minusDays(days - 1L).atStartOfDay(RequestLogStore.KST).toInstant();
+    return new TrafficResponse(
+        now, days, gaReport(days, now), logs.daily(from, now.plusSeconds(1)));
+  }
+
+  /** 봇·보안. */
+  public BotTrafficResponse bots(int days) {
+    Instant now = clock.instant();
+    LocalDate today = LocalDate.ofInstant(now, RequestLogStore.KST);
+    Instant from = today.minusDays(days - 1L).atStartOfDay(RequestLogStore.KST).toInstant();
+    Instant to = now.plusSeconds(1);
+    return new BotTrafficResponse(
+        now,
+        days,
+        logs.clientsDaily(from, to),
+        logs.topSources(from, to, 20),
+        logs.topBotPaths(from, to, 15),
+        logs.statuses(from, to),
+        logs.adminAccess(from, to, 50),
+        logs.loginFailures(from, to, 30));
+  }
+
+  private TrafficResponse.Ga gaReport(int days, Instant now) {
+    if (!ga.configured()) {
+      return TrafficResponse.Ga.off("GA가 연결되지 않았어요(속성 ID·서비스 계정 키 설정 필요)");
+    }
+    Cached hit = cache.get(days);
+    if (hit != null && hit.at().plus(props.ga().cacheTtl()).isAfter(now)) {
+      return hit.ga();
+    }
+    try {
+      List<List<Row>> r = ga.run(REPORTS, days);
+      var result =
+          new TrafficResponse.Ga(
+              true,
+              null,
+              now,
+              r.get(0).stream().map(TrafficService::daily).toList(),
+              items(r.get(1)),
+              items(r.get(2)),
+              items(r.get(3)),
+              items(r.get(4)),
+              items(r.get(5)),
+              items(r.get(6)),
+              items(r.get(7)),
+              items(r.get(8)),
+              funnel(r.get(9)));
+      cache.put(days, new Cached(now, result));
+      return result;
+    } catch (RuntimeException failure) {
+      log.warn("GA 보고서를 가져오지 못했어요: {}", failure.getMessage());
+      // 실패해도 지난번 값이 있으면 그걸 보여 줘요
+      return hit != null ? hit.ga() : TrafficResponse.Ga.off("GA 숫자를 가져오지 못했어요. 잠시 뒤 다시 열어 주세요");
+    }
+  }
+
+  private static Daily daily(Row row) {
+    LocalDate date = LocalDate.parse(row.dimensions().getFirst(), DateTimeFormatter.BASIC_ISO_DATE);
+    List<Long> m = row.metrics();
+    return new Daily(date, m.get(0), m.get(1), m.get(2), m.get(3));
+  }
+
+  private static List<Item> items(List<Row> rows) {
+    return rows.stream()
+        .map(
+            r ->
+                new Item(
+                    r.dimensions().getFirst(),
+                    r.metrics().get(0),
+                    r.metrics().get(r.metrics().size() > 1 ? 1 : 0)))
+        .toList();
+  }
+
+  private static List<FunnelStep> funnel(List<Row> rows) {
+    return FUNNEL.stream()
+        .map(
+            f -> {
+              Row row =
+                  rows.stream()
+                      .filter(r -> f[0].equals(r.dimensions().getFirst()))
+                      .findFirst()
+                      .orElse(null);
+              return new FunnelStep(
+                  f[0],
+                  f[1],
+                  row == null ? 0 : row.metrics().get(0),
+                  row == null ? 0 : row.metrics().get(1));
+            })
+        .toList();
+  }
+}

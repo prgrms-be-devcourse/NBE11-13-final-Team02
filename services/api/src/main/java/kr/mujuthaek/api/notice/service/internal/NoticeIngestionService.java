@@ -179,7 +179,10 @@ public class NoticeIngestionService {
                 json.writeValueAsString(event.judgment()),
                 event.reviewStatus(),
                 detailUrl.isString() ? detailUrl.asString() : null,
-                event.payload().path("applyAlways").asBoolean(false)),
+                event.payload().path("applyAlways").asBoolean(false),
+                event.payload().path("policyInfo").isObject()
+                    ? json.writeValueAsString(event.payload().path("policyInfo"))
+                    : null),
             now);
     if (saved) {
       return new Decision(IngestionOutcome.POLICY_JUDGMENT_SAVED, event.field());

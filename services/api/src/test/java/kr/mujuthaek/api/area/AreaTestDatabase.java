@@ -19,7 +19,15 @@ public final class AreaTestDatabase {
   private static final DockerImageName POSTGIS =
       DockerImageName.parse("postgis/postgis:17-3.5").asCompatibleSubstituteFor("postgres");
   private static final String[] SCHEMAS = {
-    "common", "notice", "benefit", "eligibility", "area", "account", "notification", "chat"
+    "common",
+    "notice",
+    "benefit",
+    "eligibility",
+    "area",
+    "account",
+    "notification",
+    "traffic",
+    "chat"
   };
 
   private static PGSimpleDataSource dataSource;

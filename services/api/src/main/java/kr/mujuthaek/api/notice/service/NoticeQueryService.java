@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import kr.mujuthaek.api.area.service.NoticeAreaQueryService;
@@ -278,6 +279,30 @@ public class NoticeQueryService {
    * 확인 필요(UNKNOWN)는 지원할 수 있다고 보여 주지 않게 빼요. 판정 틀이 아직 없는 공고도 빼지 않고 frame을 null로 줘요. 사업공간이면 사업공간 모집
    * 정책도 policy=true로 붙여요(마감일을 모르는데 상시도 아닌 정책·검수 대기 틀은 빼요, openPolicies).
    */
+  /**
+   * 정책의 출처 안내 (K-Startup · 기업마당 API 칸을 옮긴 것, AI 값 아님). 판정 틀에 없는 지원 분야 · 요약 · 문의처 · 접수 방법을 화면에 보여줘요.
+   *
+   * @param amountText 요약 글의 「최대 · 한도 N원」 구절 (없으면 null)
+   */
+  public record PolicyInfo(
+      String supportArea,
+      String summary,
+      String organization,
+      String contact,
+      String applyMethod,
+      String applyUrl,
+      String guideUrl,
+      String amountText) {}
+
+  /** 정책 ID → 출처 안내. 안내가 없는 정책은 빠져요. */
+  public Map<UUID, PolicyInfo> policyInfos(java.util.Collection<UUID> rawPolicyIds) {
+    Map<UUID, PolicyInfo> out = new java.util.HashMap<>();
+    queries
+        .policyInfos(rawPolicyIds)
+        .forEach((id, info) -> out.put(id, json.readValue(info, PolicyInfo.class)));
+    return out;
+  }
+
   public List<NoticeForJudgment> findOpenForJudgment(NoticeField field) {
     List<NoticeForJudgment> notices =
         queries.openForJudgment(field.name()).stream()
@@ -440,7 +465,7 @@ public class NoticeQueryService {
    * API처럼 합친(남은) 공고의 요약을 줘요(값의 noticeId가 물은 ID와 달라요). 숨김·공개 전·없는 공고는 빠져요. 마감된 공고도 줘요.
    */
   public java.util.Map<UUID, NoticeSummary> findSummaries(java.util.Collection<UUID> ids) {
-    List<UUID> distinct = ids.stream().filter(java.util.Objects::nonNull).distinct().toList();
+    List<UUID> distinct = ids.stream().filter(Objects::nonNull).distinct().toList();
     java.util.Map<UUID, NoticeSummary> found = new java.util.HashMap<>();
     // IN 목록이 너무 길어지지 않게 나눠 물어요 (보통은 한 번)
     for (int from = 0; from < distinct.size(); from += SUMMARY_CHUNK) {
@@ -532,7 +557,7 @@ public class NoticeQueryService {
     return regions.displayNames(rows.stream().map(r -> regionLookup(r.regionCode())).toList());
   }
 
-  /** 목록 한 줄. 대표 위치 = area 좌표가 있는 첫 위치(notice 위치 ID 순). */
+  /** 목록 한 줄. 대표 위치 = area 좌표가 있는 첫 위치(notice 위치 ID 순), 생활권 점수 = 위치 중 가장 높은 점수(상세와 같은 기준). */
   private NoticeSummaryResponse summary(
       ListRow row, LocalDate today, List<NoticeSite> sites, Map<String, String> names) {
     NoticeSite main = sites.stream().filter(s -> s.lat() != null).findFirst().orElse(null);
@@ -553,8 +578,17 @@ public class NoticeQueryService {
         main == null ? null : main.lat(),
         main == null ? null : main.lng(),
         sites.size(),
-        main == null ? null : main.livingScore(),
+        bestLivingScore(sites),
         main == null ? List.of() : main.tags());
+  }
+
+  /** 단지가 여럿이면 그중 가장 높은 생활권 점수. 점수가 하나도 없으면 null. */
+  static Integer bestLivingScore(List<NoticeSite> sites) {
+    return sites.stream()
+        .map(NoticeSite::livingScore)
+        .filter(Objects::nonNull)
+        .max(Integer::compare)
+        .orElse(null);
   }
 
   /** 시도 단위 코드(11000)는 시도 이름으로 찾아요. */

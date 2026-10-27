@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
+import kr.mujuthaek.api.eligibility.rule.Bands;
 import kr.mujuthaek.api.eligibility.rule.Verdict;
 import kr.mujuthaek.api.eligibility.rule.frame.Applicant.MaritalStatus;
 import kr.mujuthaek.api.eligibility.rule.frame.Criterion.Age;
@@ -27,6 +28,13 @@ final class PersonRules {
 
   static Evaluation age(Age c, Applicant a, LocalDate on) {
     String summary = Texts.ageRange(c.minAge(), c.maxAge());
+    if (a.birthDate() == null && a.birthMonth() != null) {
+      // 출생 연월만 알면 그 달의 첫날·마지막 날 둘 다 같은 결과일 때만 정해요 (기준일이 생일 달이면 확인 필요)
+      var status = Bands.ageWithin(Bands.ages(a.birthMonth(), on), c.minAge(), c.maxAge());
+      return status == kr.mujuthaek.api.eligibility.rule.Status.UNKNOWN
+          ? Evaluation.unknown(c, summary, "생일이 기준일과 같은 달이라 생년월일이 필요해요", Input.BIRTH_DATE)
+          : Evaluation.decided(c, status == kr.mujuthaek.api.eligibility.rule.Status.MET, summary);
+    }
     if (a.birthDate() == null) {
       return Evaluation.unknown(c, summary, "생년월일이 없어요", Input.BIRTH_DATE);
     }

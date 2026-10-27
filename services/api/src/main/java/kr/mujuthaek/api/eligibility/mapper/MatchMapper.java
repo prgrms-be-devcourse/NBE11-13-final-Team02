@@ -32,7 +32,7 @@ public final class MatchMapper {
     return item(n, Eligibility.NEEDS_INPUT, null, CONDITIONS_NOT_READY, List.of(), List.of(), 0);
   }
 
-  /** 판정한 공고 (지원 가능·확인 필요만 불러요). */
+  /** 판정한 공고. 지원 불가면 대상군·빠진 입력 없이 넣어요 (사업공간 맞춤 목록만 지원 불가도 불러요). */
   public static MatchResult.Item judged(NoticeCandidate n, FrameJudgment j) {
     boolean needsInput = j.result() == Eligibility.NEEDS_INPUT;
     return item(
