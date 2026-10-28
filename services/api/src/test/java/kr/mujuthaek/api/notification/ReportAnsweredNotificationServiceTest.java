@@ -190,6 +190,32 @@ class ReportAnsweredNotificationServiceTest {
   }
 
   @Test
+  void spaceRecruitmentReportLinksToTheSpace() {
+    UUID space = UUID.randomUUID();
+    when(notices.findPolicySummary(space))
+        .thenReturn(
+            Optional.of(
+                new PolicySummary(
+                    space,
+                    1,
+                    "SPACE_RECRUITMENT",
+                    "창업센터 입주 모집",
+                    null,
+                    "APPLYING",
+                    null,
+                    null,
+                    List.of(),
+                    null)));
+
+    service.onAnswered(
+        new ProgramReportAnswered(reportId, space, reporter, "모집 기간", "FIXED", "고쳤어요", null));
+
+    Map<String, Object> payload = onlyPayload();
+    assertThat(payload.get("linkPath")).isEqualTo("/business/spaces/" + space);
+    assertThat(payload.get("target")).isEqualTo(Map.of("type", "SPACE_RECRUITMENT", "id", space));
+  }
+
+  @Test
   void benefitThatIsNotStoredIsNotAlerted() {
     when(benefits.findSummaryByRawPolicyId(any())).thenReturn(Optional.empty());
 

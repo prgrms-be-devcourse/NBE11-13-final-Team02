@@ -108,21 +108,19 @@ public class ReportAnsweredNotificationService {
                           title(e.targetTitle(), () -> benefitTitle(e.policyId())),
                           "",
                           NotificationRequests.linkPath("BENEFIT", id)));
-      case ProgramReportAnswered e ->
-          Optional.of(
-              new Target(
-                  "PROGRAM",
-                  "STARTUP_SUPPORT",
-                  e.programId(),
-                  title(
-                      e.targetTitle(),
-                      () ->
-                          notices
-                              .findPolicySummary(e.programId())
-                              .map(PolicySummary::title)
-                              .orElse(null)),
-                  "",
-                  NotificationRequests.linkPath("STARTUP_SUPPORT", e.programId())));
+      case ProgramReportAnswered e -> {
+        // 창업지원 사업은 사업 지원 상세, 사업공간 모집은 사업공간 상세로
+        Optional<PolicySummary> summary = notices.findPolicySummary(e.programId());
+        String type = summary.map(PolicySummary::field).orElse("STARTUP_SUPPORT");
+        yield Optional.of(
+            new Target(
+                "PROGRAM",
+                type,
+                e.programId(),
+                title(e.targetTitle(), () -> summary.map(PolicySummary::title).orElse(null)),
+                "",
+                NotificationRequests.linkPath(type, e.programId())));
+      }
     };
   }
 

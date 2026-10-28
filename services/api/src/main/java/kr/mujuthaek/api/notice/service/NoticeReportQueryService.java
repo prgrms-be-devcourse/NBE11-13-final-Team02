@@ -59,7 +59,10 @@ public class NoticeReportQueryService {
     } else if (r.rawPolicyId() != null) {
       kind = "PROGRAM";
       targetId = r.rawPolicyId();
-      linkPath = ScreenPaths.of("STARTUP_SUPPORT", targetId);
+      // 창업지원 사업은 사업 지원 상세, 사업공간 모집은 사업공간 상세
+      String field =
+          notices.findPolicySummary(targetId).map(PolicySummary::field).orElse("STARTUP_SUPPORT");
+      linkPath = ScreenPaths.of(field, targetId);
     } else {
       kind = "GENERAL";
       targetId = null;
