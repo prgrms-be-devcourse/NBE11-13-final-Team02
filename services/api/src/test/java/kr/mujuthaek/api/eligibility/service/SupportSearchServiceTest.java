@@ -52,6 +52,7 @@ class SupportSearchServiceTest {
         null,
         List.of(),
         List.of(),
+        null,
         null);
   }
 }

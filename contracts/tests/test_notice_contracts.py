@@ -825,6 +825,18 @@ class NoticeContractTest(unittest.TestCase):
             housing["payload"][key] = value
             self.assert_error("EVENT_POLICY_FRAME_SHAPE", f"/payload/{key}", value=housing, schema=EVENT)
 
+    def test_policy_event_may_carry_apply_note_but_housing_may_not(self):
+        # 2026-10-28 사용자 결정: 신청 기간이 「예산 소진 시까지」인 사업은 마감일이 없어도 그 글을 달아 목록에 보여 줌
+        event = self.policy_event()
+        self.assert_valid(event, EVENT)  # 없어도 됨
+        event["payload"]["applyNote"] = "예산 소진 시까지"
+        self.assert_valid(event, EVENT)
+        event["payload"]["applyNote"] = None
+        self.assert_valid(event, EVENT)
+        housing = copy.deepcopy(self.event)
+        housing["payload"]["applyNote"] = "예산 소진 시까지"
+        self.assert_error("EVENT_POLICY_FRAME_SHAPE", "/payload/applyNote", value=housing, schema=EVENT)
+
     def test_policy_review_status_is_decided_by_the_whole_frame_without_held_items(self):
         # 사용자 결정 2026-10-23: 일부 조건만 확인 필요면 PARTIALLY_PASSED(보류 목록 없이 조건마다 inReview), 틀 전체를 못 믿으면 IN_REVIEW
         criterion = {"kind": "BUSINESS_REGISTRATION", "id": "c1", "quote": "사업자등록을 한 자", "page": None, "inReview": True,

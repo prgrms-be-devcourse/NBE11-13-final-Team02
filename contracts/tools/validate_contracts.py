@@ -351,7 +351,7 @@ def judgment_errors(payload):
         or payload["conditions"]
     ):
         return ["EVENT_POLICY_FRAME_SHAPE /payload"]
-    if not policy and (extra := [key for key in POLICY_ONLY_KEYS if key in payload]):
+    if not policy and (extra := [key for key in (*POLICY_ONLY_KEYS, "applyNote") if key in payload]):
         return [f"EVENT_POLICY_FRAME_SHAPE /payload/{extra[0]}"]
     if judgment is None:
         return []

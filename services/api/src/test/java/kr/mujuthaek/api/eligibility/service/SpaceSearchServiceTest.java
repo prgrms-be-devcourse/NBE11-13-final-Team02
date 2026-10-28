@@ -112,7 +112,8 @@ class SpaceSearchServiceTest {
         List.of(),
         List.of(),
         null,
-        List.of());
+        List.of(),
+        null);
   }
 
   private static SpaceSearchResponse.Item item(String id, Eligibility overall, String applyEnd) {
@@ -135,6 +136,7 @@ class SpaceSearchServiceTest {
         List.of(),
         List.of(),
         null,
-        List.of());
+        List.of(),
+        null);
   }
 }
