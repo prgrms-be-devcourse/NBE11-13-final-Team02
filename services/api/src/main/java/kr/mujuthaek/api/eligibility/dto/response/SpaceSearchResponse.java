@@ -52,5 +52,6 @@ public record SpaceSearchResponse(
       List<String> groups,
       List<MissingInput> missingInputs,
       String detailUrl,
-      List<String> tags) {}
+      List<String> tags,
+      String applyNote) {}
 }

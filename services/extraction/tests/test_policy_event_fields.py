@@ -10,6 +10,7 @@ from mujuthaek_extraction.judgment.policy_frame import JUDGING_DATE_NOTE
 from mujuthaek_extraction.model import ModelError, RecordedModel
 from mujuthaek_extraction.publish import (
     policy_apply_always,
+    policy_apply_note,
     policy_apply_period,
     policy_completed_payload,
     policy_detail_url,
@@ -73,6 +74,17 @@ def test_apply_always_only_when_the_source_says_so_in_its_period_fields():
     assert not policy_apply_always(youth(aplyYmd="상시 모집 후 20261130 마감"))
     # 제목의 「상시 모집」은 쓰지 않음(일부 모집·지난 안내일 수 있음)
     assert not policy_apply_always(youth() | {"title": "2026년 공유형 공간 신규 입주기업 상시 모집"})
+
+
+def test_apply_note_only_when_the_whole_period_field_says_until_budget_runs_out():
+    # 실측(2026-10-28 기업마당 연천군 중소기업 육성자금): 신청 기간 칸이 「예산 소진시까지」라 마감일이 없고 상시도 아니어서 목록에서 빠졌음
+    for text in ("예산 소진시까지", "예산 소진 시까지", "(자금 소진 시 마감)", "예산 소진 시까지 접수"):
+        assert policy_apply_note(youth(reqstBeginEndDe=text)) == "예산 소진 시까지", text
+    assert policy_apply_note(youth(aplyYmd="예산 소진 시까지")) == "예산 소진 시까지"
+    assert not policy_apply_always(youth(aplyYmd="예산 소진 시까지"))  # 상시 모집은 아님(언제든 끝날 수 있음)
+    for text in ("20261012 ~ 20261130", "상시", "예산 소진 시까지, 20261130 마감", ""):
+        assert policy_apply_note(youth(aplyYmd=text)) is None, text
+    assert policy_apply_note(youth(aplyPrdSeCd="0057002", aplyYmd="예산 소진 시까지")) is None  # 상시면 상시로
 
 
 def test_review_status_follows_the_whole_frame():

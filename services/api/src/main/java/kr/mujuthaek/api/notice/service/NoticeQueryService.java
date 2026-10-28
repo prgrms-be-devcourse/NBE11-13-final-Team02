@@ -283,6 +283,7 @@ public class NoticeQueryService {
    * 정책의 출처 안내 (K-Startup · 기업마당 API 칸을 옮긴 것, AI 값 아님). 판정 틀에 없는 지원 분야 · 요약 · 문의처 · 접수 방법을 화면에 보여줘요.
    *
    * @param amountText 요약 글의 「최대 · 한도 N원」 구절 (없으면 null)
+   * @param applyNote 마감일 대신 쓰는 신청 기간 안내 (「예산 소진 시까지」, 없으면 null). 추출 이벤트의 applyNote를 안내에 함께 저장해요
    */
   public record PolicyInfo(
       String supportArea,
@@ -292,7 +293,8 @@ public class NoticeQueryService {
       String applyMethod,
       String applyUrl,
       String guideUrl,
-      String amountText) {}
+      String amountText,
+      String applyNote) {}
 
   /** 정책 ID → 출처 안내. 안내가 없는 정책은 빠져요. */
   public Map<UUID, PolicyInfo> policyInfos(java.util.Collection<UUID> rawPolicyIds) {

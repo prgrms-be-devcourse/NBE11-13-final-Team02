@@ -218,7 +218,8 @@ public class NoticeQueries {
   /**
    * 이 분야(STARTUP_SUPPORT·SPACE_RECRUITMENT)의 열린 정책 판정 틀 전부 (마감일 순). 마감일이 오늘보다 앞이면 빼요. 마감일이 없으면 상시
    * 모집(apply_always)일 때만 넣고, 상시가 아닌데 마감일을 모르면 빼요 (공고가 UNKNOWN을 빼는 것과 같은 규칙, 리뷰 2026-10-23: 마감된 사업이
-   * 열려 보였음). 검수 대기(IN_REVIEW) 틀은 공개하지 않아요 (이전 규칙으로 저장된 줄 포함).
+   * 열려 보였음). 마감일 대신 「예산 소진 시까지」(info.applyNote)라고 적힌 사업은 지금 열려 있어 넣어요. 검수 대기(IN_REVIEW) 틀은 공개하지 않아요
+   * (이전 규칙으로 저장된 줄 포함).
    */
   /** 정책 출처 안내 JSON (policy_judgments.info). 없으면 그 정책은 빠져요. */
   public java.util.Map<UUID, String> policyInfos(java.util.Collection<UUID> rawPolicyIds) {
@@ -243,7 +244,8 @@ public class NoticeQueries {
                detail_url
         from notice.policy_judgments
         where field = :field and review_status <> 'IN_REVIEW'
-          and (apply_end >= :today or (apply_end is null and apply_always))
+          and (apply_end >= :today
+               or (apply_end is null and (apply_always or info->>'applyNote' is not null)))
         order by apply_end nulls last, raw_policy_id
         """,
         new MapSqlParameterSource("field", field).addValue("today", today),

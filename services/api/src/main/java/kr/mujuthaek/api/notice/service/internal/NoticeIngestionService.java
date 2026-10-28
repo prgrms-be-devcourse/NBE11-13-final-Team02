@@ -191,9 +191,7 @@ public class NoticeIngestionService {
             event.reviewStatus(),
             detailUrl.isString() ? detailUrl.asString() : null,
             event.payload().path("applyAlways").asBoolean(false),
-            event.payload().path("policyInfo").isObject()
-                ? json.writeValueAsString(event.payload().path("policyInfo"))
-                : null);
+            policyInfoJson(event.payload()));
     // 같은 정책을 동시에 받아도 이전 값 읽기·저장·알림이 엇갈리지 않게 줄 세워요
     notices.lockRawPost(event.rawPostId());
     Optional<NoticeRepository.StoredPolicy> before = notices.storedPolicy(event.rawPostId());
@@ -855,6 +853,21 @@ public class NoticeIngestionService {
         applied.decision().reason(),
         applied.noticeId());
     return applied;
+  }
+
+  /**
+   * 정책 출처 안내(policyInfo)에 마감일 대신 쓰는 신청 기간 안내(applyNote, 「예산 소진 시까지」)를 함께 담아 저장해요. 열린 사업 목록과 화면이
+   * 안내에서 읽어요. 둘 다 없으면 null.
+   */
+  private String policyInfoJson(JsonNode payload) {
+    JsonNode info = payload.path("policyInfo");
+    JsonNode note = payload.path("applyNote");
+    if (!note.isString() || note.asString().isBlank()) {
+      return info.isObject() ? json.writeValueAsString(info) : null;
+    }
+    ObjectNode merged = info.isObject() ? ((ObjectNode) info).deepCopy() : json.createObjectNode();
+    merged.put("applyNote", note.asString());
+    return json.writeValueAsString(merged);
   }
 
   private JsonNode parse(String body) {

@@ -251,7 +251,8 @@ public class SpaceSearchService {
         m.groups(),
         m.missingInputs(),
         m.detailUrl(),
-        c == null ? List.of() : c.tags());
+        c == null ? List.of() : c.tags(),
+        policyInfo == null ? null : policyInfo.applyNote());
   }
 
   /**

@@ -154,7 +154,8 @@ public class SupportSearchService {
         m.reason(),
         m.groups(),
         m.missingInputs(),
-        m.detailUrl());
+        m.detailUrl(),
+        info == null ? null : info.applyNote());
   }
 
   /**

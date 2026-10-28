@@ -48,5 +48,6 @@ public record SupportSearchResponse(
       String reason,
       List<String> groups,
       List<MissingInput> missingInputs,
-      String detailUrl) {}
+      String detailUrl,
+      String applyNote) {}
 }
