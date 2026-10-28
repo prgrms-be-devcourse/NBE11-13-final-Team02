@@ -72,3 +72,11 @@ $C area-upload --skip-upload --manifest area/area_manifest_address.csv
 - 파이썬 워커의 RabbitMQ 주소는 `amqp://RABBITMQ_USER:RABBITMQ_PASSWORD@rabbitmq:5672/`로 만들어요. 암호에 `@ : / ? #`가 있으면 안 돼요
 - Flyway 계정은 기본 `collector_app`·`extraction_app`이에요. 다르면 ENV_FILE에 `COLLECTOR_DB_USER`·`EXTRACTION_DB_USER`를 넣어요
 - 관리 화면(15672)·api(8080)·notification(8081)은 서버 안(127.0.0.1)에서만 열려요. 밖에서는 nginx(:80)만
+
+## 문제 해결
+| 로그 | 원인 · 할 일 |
+| --- | --- |
+| scp·ssh 단계 `dial tcp …:22: i/o timeout` | 서버가 꺼진 시간이에요(자동 중지). 켜진 뒤 그 실행을 Re-run 하거나 Run workflow |
+| Flyway `password authentication failed for user "…_app"` | Flyway 계정·암호가 DB와 달라요. ENV_FILE의 `EXTRACTION_DB_USER`·`COLLECTOR_DB_USER`(기본 `extraction_app`·`collector_app`)와 `…_DB_PASSWORD`를 `…_DB_URL` 안의 값과 같게. deploy.sh는 그 서비스만 이전 태그로 되돌려요 |
+| 헬스체크 3분 초과 → 「이전 태그로 되돌려요」 | `docker compose -f compose.<env>.yml --env-file .env --env-file versions.env logs --tail 200 <서비스>`로 원인 확인 |
+| 예전 실행을 Re-run 했더니 서비스가 옛 버전으로 | Re-run은 그 실행의 커밋(`dev-<7자리>`)으로 배포해요. 최신으로 맞추려면 Run workflow(세 서비스 전부) |
