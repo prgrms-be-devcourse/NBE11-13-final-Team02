@@ -80,6 +80,19 @@ public class AreaReportRepository {
         .list();
   }
 
+  /** 한 회원이 보낸 생활권 제보 (최근 것부터) */
+  public List<Report> byReporter(UUID reporterId, int limit) {
+    return jdbc.sql(
+            "select "
+                + COLUMNS
+                + " from area.area_reports r where r.reporter_id = :r order by r.created_at desc"
+                + " limit :limit")
+        .param("r", reporterId)
+        .param("limit", limit)
+        .query(AreaReportRepository::report)
+        .list();
+  }
+
   public List<Report> list(String status, int limit) {
     return jdbc.sql(
             "select "

@@ -106,6 +106,19 @@ public class NoticeReportRepository {
         .list();
   }
 
+  /** 한 회원이 보낸 제보 (최근 것부터) */
+  public List<Report> byReporter(UUID reporterId, int limit) {
+    return jdbc.sql(
+            "select "
+                + COLUMNS
+                + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
+                + " where r.reporter_id = :r order by r.created_at desc limit :limit")
+        .param("r", reporterId)
+        .param("limit", limit)
+        .query(NoticeReportRepository::report)
+        .list();
+  }
+
   public List<Report> list(String status, int limit) {
     return jdbc.sql(
             "select "
