@@ -111,6 +111,26 @@ def _refresh_reported_review(cur, result_id: str, payload: dict[str, Any]) -> bo
     return True
 
 
+# 같은 출처에 같은 정책이 또 있음(중복 의심, 2026-10-28 사용자 결정 A안). 출처에 같은 사업이 두 번 올라오는 일이 있어 검수에 올려요(지우지 않음)
+DUPLICATE_SUSPECTED = "DUPLICATE_SUSPECTED"
+_NORMALIZED = "regexp_replace(lower({}), '[[:space:][:punct:]·ㆍ「」『』]', '', 'g')"
+
+
+def _duplicate_benefit(cur, payload: dict[str, Any]) -> bool:
+    """같은 출처 · 다른 정책 번호 · 같은 제목(띄어쓰기·기호 무시) · 같은 기관 · 같은 지역 코드인 결과가 이미 있는지.
+    지자체마다 같은 이름(「청년 월세 지원」)을 쓰는 일이 많아 기관과 지역까지 같아야 중복으로 봅니다."""
+    source = payload.get("source") or {}
+    row = cur.execute(
+        "select 1 from benefit_results where source_code = %s and policy_id <> %s"
+        f" and {_NORMALIZED.format('title')} = {_NORMALIZED.format('%s')}"
+        " and coalesce(payload->'source'->>'agency', '') = %s"
+        " and array(select jsonb_array_elements_text(coalesce(payload->'source'->'regionCodes', '[]')) order by 1) = %s::text[]"
+        " limit 1",
+        (payload["sourceCode"], payload["policyId"], source.get("title") or "", source.get("agency") or "", sorted(source.get("regionCodes") or [])),
+    ).fetchone()
+    return row is not None
+
+
 def _open_benefit_review(cur, result_id: str, payload: dict[str, Any], reasons: list[str], opened_by: str | None, note: str | None) -> str:
     """같은 정책의 앞선 대기 건을 대체(SUPERSEDED)하고 새 대기 건을 엽니다."""
     cur.execute(
@@ -324,8 +344,10 @@ class JobStore:
             result_id = _insert_benefit_result(cur, event, "EXTRACTED", raw_event.get("payload"))
             if _refresh_reported_review(cur, result_id, payload):
                 pass  # 제보로 연 검수는 대체하지 않고 새 결과로 갱신해 제보와의 연결을 지켜요
-            elif payload["quality"]["needsReview"]:
-                _open_benefit_review(cur, result_id, payload, list(payload["quality"]["reviewReasons"]), None, None)
+            elif payload["quality"]["needsReview"] or _duplicate_benefit(cur, payload):
+                # 중복 의심이면 확인 필요 사유에 더해 검수에 올려요(검수 없이 나갈 결과도 올림)
+                duplicate = [DUPLICATE_SUSPECTED] if _duplicate_benefit(cur, payload) else []
+                _open_benefit_review(cur, result_id, payload, [*payload["quality"]["reviewReasons"], *duplicate], None, None)
             else:  # 새 결과가 검수 없이 나갔으면 같은 정책의 앞선 대기 건은 쓸모가 없음
                 cur.execute(
                     "update benefit_reviews set status = 'SUPERSEDED', decided_at = now() where raw_policy_id = %s and status = 'PENDING'",

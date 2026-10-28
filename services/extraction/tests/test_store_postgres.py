@@ -635,7 +635,7 @@ def test_published_result_can_be_reopened_for_review_and_fixed_again(store):
     assert store.review(job_id)["candidate"]["eligibility"][0]["description"] == "제보로 고친 설명"
 
 
-def benefit_event(policy, version, *, needs_review, title="가상 청년 월세"):
+def benefit_event(policy, version, *, needs_review, title="가상 청년 월세", **changes):
     """혜택 정제 결과 이벤트(policy.extracted). needs_review면 근거가 원문에 없는 조건을 넣어 확인 필요로 만듭니다."""
     from test_benefit import REGIONS, answer, condition, payload
 
@@ -644,7 +644,7 @@ def benefit_event(policy, version, *, needs_review, title="가상 청년 월세"
     from mujuthaek_extraction.benefit.reading import BenefitReading
 
     conditions = [condition("HOMELESS", "원문에 없는 문장입니다", basis="PERSON")] if needs_review else []
-    data = payload(rawPolicyId=policy, version=version, title=title)
+    data = payload(rawPolicyId=policy, version=version, title=title, **changes)
     built = build_payload(data, BenefitReading(answer(conditions), False, "recorded"), rules_for("youth", data["record"], data["text"]), REGIONS)
     raw = {"eventId": str(uuid.uuid4()), "payload": data}
     return raw, {**new_event("policy.extracted", "extraction", built), "eventId": str(uuid.uuid4())}
@@ -682,6 +682,21 @@ def test_benefit_needing_review_is_saved_listed_and_approved_with_edits(store):
     assert store.review_stats(7)["recent"]["editedApproved"] == 1
     assert service.benefit_decide(item["reviewId"], "APPROVED", {})[0] == 409
     assert service.benefit_decide(str(uuid.uuid4()), "APPROVED", {})[0] == 404
+
+
+def test_same_benefit_posted_twice_by_the_source_goes_to_review_as_duplicate(store):
+    # 2026-10-28 사용자 결정 A안: 출처에 같은 정책이 번호만 달리 두 번 올라오면(실측 온통청년) 지우지 않고 검수에 「중복 의심」으로 올려요
+    first = str(uuid.uuid4())
+    store.save_benefit(*benefit_event(first, 1, needs_review=False))
+    assert store.benefit_reviews() == []
+    second = str(uuid.uuid4())
+    store.save_benefit(*benefit_event(second, 1, needs_review=False, title="가상 청년  월세!", policyId="20261021000000000002"))
+    [item] = store.benefit_reviews()
+    assert item["rawPolicyId"] == second and item["reasons"][-1] == "DUPLICATE_SUSPECTED"
+    # 다른 지자체가 같은 이름을 쓰면 중복이 아니에요(기관·지역이 달라야 다른 정책)
+    third = str(uuid.uuid4())
+    store.save_benefit(*benefit_event(third, 1, needs_review=False, policyId="20261021000000000003", agency="다른군 청년팀", regionCodes=["47250"]))
+    assert [i["rawPolicyId"] for i in store.benefit_reviews()] == [second]
 
 
 def test_benefit_edit_cannot_touch_the_source_or_quality(store):

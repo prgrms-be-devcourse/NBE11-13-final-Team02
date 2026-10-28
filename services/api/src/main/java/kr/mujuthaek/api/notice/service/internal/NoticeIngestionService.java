@@ -100,6 +100,7 @@ public class NoticeIngestionService {
   private final ExtractionResultRepository results;
   private final FollowUpRepository followUps;
   private final NoticeMergeService merges;
+  private final PolicyDuplicateService policyDuplicates;
   private final ApplicationEventPublisher events;
   private final JsonMapper json;
   private final Clock clock;
@@ -109,6 +110,7 @@ public class NoticeIngestionService {
       ExtractionResultRepository results,
       FollowUpRepository followUps,
       NoticeMergeService merges,
+      PolicyDuplicateService policyDuplicates,
       ApplicationEventPublisher events,
       JsonMapper json,
       Clock clock) {
@@ -116,6 +118,7 @@ public class NoticeIngestionService {
     this.results = results;
     this.followUps = followUps;
     this.merges = merges;
+    this.policyDuplicates = policyDuplicates;
     this.events = events;
     this.json = json;
     this.clock = clock;
@@ -196,6 +199,10 @@ public class NoticeIngestionService {
     notices.lockRawPost(event.rawPostId());
     Optional<NoticeRepository.StoredPolicy> before = notices.storedPolicy(event.rawPostId());
     if (notices.savePolicyJudgment(row, now)) {
+      if (before.isEmpty()) {
+        // 처음 받은 사업이면 출처에 두 번 올라온 같은 사업인지 견줘 관리자 「중복 의심」에 올려요 (자동으로 지우지 않음)
+        policyDuplicates.flag(row.rawPolicyId());
+      }
       publishPolicy(before, row, event.reprocess());
       return new Decision(IngestionOutcome.POLICY_JUDGMENT_SAVED, event.field());
     }
