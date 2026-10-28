@@ -116,6 +116,8 @@ jobs:
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
           envs: ENV_FILE,GHCR_USER,GHCR_TOKEN,SERVICES,VERSION
+          # 서비스 여러 개를 한 번에 배포하면 기본 10분을 넘어요 (이미지 받기·헬스체크 최대 3분씩)
+          command_timeout: 30m
           script: |
             set -eu
             cd /opt/mujuthaek
