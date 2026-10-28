@@ -26,7 +26,10 @@ public class NoticeReportRepository {
           + " r.started_at, r.handled_at, r.review_job_id, (select count(*) from notice.notice_reports g where"
           + " g.notice_id is not distinct from r.notice_id and g.raw_policy_id is not distinct from"
           + " r.raw_policy_id and g.benefit_policy_id is not distinct from r.benefit_policy_id"
-          + " and g.field = r.field and g.status <> 'DONE') as open_in_group";
+          + " and g.field = r.field and g.status <> 'DONE'"
+          // 일반 제보(대상 없음)는 묶지 않아요: 같은 종류라도 내용이 매번 달라요
+          + " and num_nonnulls(r.notice_id, r.raw_policy_id, r.benefit_policy_id) = 1) as"
+          + " open_in_group";
 
   private final JdbcClient jdbc;
 
@@ -127,8 +130,13 @@ public class NoticeReportRepository {
         .optional();
   }
 
-  /** 같은 대상(공고·사업·혜택 정책)·칸의 다른 제보 (오래된 것부터). */
+  /** 같은 대상(공고·사업·혜택 정책)·칸의 다른 제보 (오래된 것부터). 일반 제보(대상 없음)는 묶지 않아요. */
   public List<Report> sameGroup(Report target, UUID except) {
+    if (target.noticeId() == null
+        && target.rawPolicyId() == null
+        && target.benefitPolicyId() == null) {
+      return List.of();
+    }
     return sameGroup(
         target.noticeId(), target.rawPolicyId(), target.benefitPolicyId(), target.field(), except);
   }

@@ -80,6 +80,68 @@ class NoticeReportServiceTest {
   }
 
   @Test
+  void generalReportsAreNotGroupedAndAnsweredWithoutTarget() {
+    UUID a = UUID.randomUUID();
+    UUID b = UUID.randomUUID();
+    var first =
+        service.reportGeneral(
+            new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+                "MISSING_NOTICE", "마포구 청년주택 공고가 없어요", "검색", null),
+            a.toString());
+    service.reportGeneral(
+        new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+            "MISSING_NOTICE", "다른 공고도 빠졌어요", "검색", null),
+        b.toString());
+    // 같은 사람이 같은 종류를 또 보내도 돼요 (내용이 매번 달라요)
+    service.reportGeneral(
+        new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+            "MISSING_NOTICE", "하나 더", null, null),
+        a.toString());
+
+    var detail = service.detail(first.id());
+    assertThat(detail.report().targetType()).isEqualTo("GENERAL");
+    assertThat(detail.report().groupCount()).isEqualTo(1); // 같은 종류끼리 묶지 않아요
+    assertThat(detail.notes()).isEmpty();
+    assertThatThrownBy(() -> service.openReview(first.id(), "admin-1"))
+        .isInstanceOfSatisfying(
+            CustomException.class, e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+    service.resolve(
+        first.id(), new AdminReportResolveRequest(Result.FIXED, "공고를 더했어요", null), "admin-1");
+    // 묶음 처리(group 기본값)여도 다른 사람의 일반 제보는 그대로예요
+    assertThat(events)
+        .singleElement()
+        .isInstanceOfSatisfying(
+            kr.mujuthaek.api.common.event.GeneralReportAnswered.class,
+            e -> assertThat(e.reporterId()).isEqualTo(a));
+    assertThat(service.list("NEW").items())
+        .filteredOn(i -> "GENERAL".equals(i.targetType()))
+        .hasSize(2);
+  }
+
+  @Test
+  void generalReportNeedsKnownKindNoteAndLogin() {
+    assertThatThrownBy(
+            () ->
+                service.reportGeneral(
+                    new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+                        "HELLO", "내용", null, null),
+                    UUID.randomUUID().toString()))
+        .isInstanceOfSatisfying(
+            CustomException.class,
+            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+    assertThatThrownBy(
+            () ->
+                service.reportGeneral(
+                    new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+                        "ETC", "내용", null, null),
+                    null))
+        .isInstanceOfSatisfying(
+            CustomException.class,
+            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.UNAUTHENTICATED));
+  }
+
+  @Test
   void sameMemberCannotReportSameFieldTwiceWhileOpen() {
     UUID notice = notice();
     String a = UUID.randomUUID().toString();
