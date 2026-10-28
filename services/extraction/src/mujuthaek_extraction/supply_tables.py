@@ -1194,10 +1194,14 @@ def _merge_payment_parts(group: dict[str, Any]) -> bool:
 
 
 def _type_names(group: dict[str, Any]) -> set[str]:
-    """주택형 이름들: 코드가 칸 둘을 이어 쓴 것(「24 24ABC」 = 공급형 + 청약 구분)이면 글자가 든 낱말(「24ABC」)도 따로 봅니다."""
+    """주택형 이름들: 코드가 칸 둘을 이어 쓴 것(「24 24ABC」 = 공급형 + 청약 구분)이면 글자가 든 낱말(「24ABC」)도 따로 봅니다.
+    앞의 공급형 숫자를 뗀 나머지도 공백·쉼표를 빼고 봅니다. 공급표 「35 35A1,B1」과 가격표 「35A1, B1」은 같은 주택형인데
+    낱말로만 나누면 「35A1,B1」과 「35A1,」·「B1」이 되어 짝이 안 맞았음(2026-10-28 GH 행복주택 파주 병원 복합)."""
     raw = str(group.get("housingTypeCode") or "")
-    lettered = {w.upper() for w in raw.split() if re.search(r"[A-Za-z]", w)}
-    return {_norm(raw).upper(), *lettered} - {""}
+    words = raw.split()
+    lettered = {w.upper() for w in words if re.search(r"[A-Za-z]", w)}
+    rest = _norm(" ".join(words[1:])).upper() if len(words) > 1 and re.fullmatch(r"\d+", words[0]) else ""
+    return {_norm(raw).upper(), *lettered, rest} - {""}
 
 
 def _same_type(a: dict[str, Any], b: dict[str, Any]) -> bool:

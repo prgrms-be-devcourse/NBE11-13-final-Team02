@@ -51,6 +51,23 @@ def test_price_row_of_a_different_complex_is_not_joined_and_is_kept():
     assert summary(groups) == [("가람마을 A단지", [45], []), ("하늘마을 B단지", [], ["41,000,000"])]
 
 
+def test_price_row_joins_the_supply_type_written_with_its_number_and_different_spacing():
+    # 실측(2026-10-28 GH 행복주택): 공급표 「35 35A1,B1」(공급형 + 청약 구분)과 가격표 「35A1, B1」이 짝이 안 맞아 주택 표가 두 줄로 갈라짐
+    groups = two_tables(
+        (("단지", "주택형", "모집"), ("파주 병원 복합", "35 35A1,B1", "10")),
+        (("단지", "주택형", "보증금"), ("파주 병원 복합", "35A1, B1", "30,940,000")),
+    )
+    assert summary(groups) == [("파주 병원 복합", [10], ["30,940,000"])]
+
+
+def test_price_row_of_another_lettered_type_with_the_same_number_is_not_joined():
+    groups = two_tables(
+        (("단지", "주택형", "모집"), ("파주 병원 복합", "35 35A1,B1", "10")),
+        (("단지", "주택형", "보증금"), ("파주 병원 복합", "35A2", "30,940,000")),
+    )
+    assert summary(groups) == [("파주 병원 복합", [10], []), ("파주 병원 복합", [], ["30,940,000"])]
+
+
 def test_price_row_with_the_exact_same_complex_name_is_joined():
     groups = two_tables(
         (("단지", "주택형", "모집"), ("가람마을 A단지", "59A", "45")),
