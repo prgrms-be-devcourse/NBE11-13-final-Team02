@@ -227,6 +227,7 @@ public class NoticeQueryService {
    * 맞춤 목록(POST /notices/search)의 후보: 필터에 맞는 공개 공고를 마감 임박순으로 최대 limit개. 판정은 계산값이라 먼저 필터로 줄여요.
    *
    * @param statuses 비우면 공개 목록과 같은 기본값 (마감 CLOSED를 뺀 전부)
+   * @param keyword 검색어. 낱말이 모두 제목에 들어 있는 공고만. 비우면 전부
    */
   public List<Candidate> searchCandidates(
       String field,
@@ -235,6 +236,7 @@ public class NoticeQueryService {
       List<String> noticeTypes,
       List<String> providers,
       List<String> statuses,
+      String keyword,
       int limit) {
     var filter =
         new NoticeListFilter(
@@ -244,7 +246,10 @@ public class NoticeQueryService {
             noticeTypes,
             providers,
             statuses, // 비우면 공개 목록(GET /notices)과 같은 기본값 (상시 ALWAYS·확인 필요 UNKNOWN 포함)
-            "DEADLINE");
+            "DEADLINE",
+            null,
+            null,
+            keyword);
     LocalDate today = LocalDate.now(clock);
     var rows = queries.list(filter, null, limit);
     var sites = areas.sitesOf(rows.stream().map(ListRow::id).toList());

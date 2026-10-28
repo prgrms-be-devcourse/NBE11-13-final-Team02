@@ -104,6 +104,14 @@ public class NoticeQueries {
       sql.append(" and provider in (:providers)");
       params.addValue("providers", f.providers());
     }
+    // 검색어: 낱말마다 제목에 들어 있어야 해요 (공백을 빼고 소문자로 비교, Keywords)
+    List<String> patterns = f.keywords().likePatterns();
+    for (int i = 0; i < patterns.size(); i++) {
+      sql.append(" and lower(regexp_replace(title, '\\s+', '', 'g')) like :kw")
+          .append(i)
+          .append(" escape '\\'");
+      params.addValue("kw" + i, patterns.get(i));
+    }
     if ("LATEST".equals(f.sort())) {
       String key = "coalesce(posted_on, date '" + NO_POSTED + "')";
       if (after != null) {

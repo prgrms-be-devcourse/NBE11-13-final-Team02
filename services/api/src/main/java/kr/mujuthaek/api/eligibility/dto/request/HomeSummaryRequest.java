@@ -8,7 +8,7 @@ public record HomeSummaryRequest(
 
   public NoticeSearchRequest.Filters filtersOrEmpty() {
     return filters == null
-        ? new NoticeSearchRequest.Filters(null, null, null, null, null, null)
+        ? new NoticeSearchRequest.Filters(null, null, null, null, null, null, null)
         : filters;
   }
 }
