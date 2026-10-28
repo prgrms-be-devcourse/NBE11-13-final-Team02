@@ -1787,8 +1787,15 @@
           }
         },
         "responses": {
-          "204": {
-            "description": "처리함"
+          "200": {
+            "description": "처리함 · 상태별 건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateCounts"
+                }
+              }
+            }
           },
           "400": {
             "$ref": "#/components/responses/BadRequest"

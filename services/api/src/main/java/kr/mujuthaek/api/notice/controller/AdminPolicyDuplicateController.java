@@ -6,7 +6,6 @@ import java.security.Principal;
 import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.response.AdminPolicyDuplicateResponse;
 import kr.mujuthaek.api.notice.service.internal.PolicyDuplicateService;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <pre>
  * GET  /api/admin/policy-duplicates?status=PENDING|KEPT_BOTH|HIDDEN   목록 · 상태별 건수
  * GET  /api/admin/policy-duplicates/counts                           상태별 건수 (사이드바)
- * POST /api/admin/policy-duplicates/{laterId}/{earlierId}/decide      { "action": "KEEP_BOTH" | "HIDE_LATER" }
+ * POST /api/admin/policy-duplicates/{laterId}/{earlierId}/decide      { "action": "KEEP_BOTH" | "HIDE_LATER" } → 상태별 건수
  * </pre>
  */
 @RestController
@@ -49,14 +48,15 @@ class AdminPolicyDuplicateController {
    */
   record DecideRequest(@NotBlank String action) {}
 
+  /** 처리하고 상태별 건수를 돌려줘요 (사이드바 숫자). */
   @PostMapping("/{later}/{earlier}/decide")
-  ResponseEntity<Void> decide(
+  AdminPolicyDuplicateResponse.Counts decide(
       @PathVariable UUID later,
       @PathVariable UUID earlier,
       @Valid @RequestBody DecideRequest request,
       Principal principal) {
     duplicates.decide(
         later, earlier, request.action(), principal == null ? null : principal.getName());
-    return ResponseEntity.noContent().build();
+    return duplicates.counts();
   }
 }
