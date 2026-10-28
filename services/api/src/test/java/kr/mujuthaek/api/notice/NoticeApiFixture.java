@@ -16,9 +16,11 @@ import kr.mujuthaek.api.notice.repository.ExtractionResultRepository;
 import kr.mujuthaek.api.notice.repository.FollowUpRepository;
 import kr.mujuthaek.api.notice.repository.NoticeQueries;
 import kr.mujuthaek.api.notice.repository.NoticeRepository;
+import kr.mujuthaek.api.notice.repository.PolicyDuplicateRepository;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
 import kr.mujuthaek.api.notice.service.internal.NoticeMergeService;
+import kr.mujuthaek.api.notice.service.internal.PolicyDuplicateService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.test.web.servlet.MockMvc;
@@ -42,6 +44,7 @@ public class NoticeApiFixture {
           new ExtractionResultRepository(client),
           followUps,
           new NoticeMergeService(notices, followUps, event -> {}, clock),
+          new PolicyDuplicateService(new PolicyDuplicateRepository(client), clock),
           event -> {},
           NoticeFixtures.JSON,
           clock);

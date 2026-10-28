@@ -323,6 +323,21 @@ def policy_apply_always(policy: dict[str, Any]) -> bool:
     return any(_ALWAYS_TEXT.fullmatch(text) for key in PERIOD_TEXT_FIELDS if (text := str(record.get(key) or "")).strip())
 
 
+# 신청 기간 칸 글자 전체가 「예산(자금) 소진 시까지」뿐일 때. 상시 모집은 아니지만(언제든 끝날 수 있음) 지금 열려 있어 목록에 보여 줘요
+_UNTIL_BUDGET_TEXT = re.compile(r"[\s(]*(?:예산|자금|재원|사업비)\s*(?:소진|소요)\s*시\s*(?:까지|마감)\s*(?:모집|접수|신청)?[\s)]*")
+UNTIL_BUDGET = "예산 소진 시까지"
+
+
+def policy_apply_note(policy: dict[str, Any]) -> str | None:
+    """마감일 대신 쓰는 신청 기간 안내. 출처의 신청 기간 칸 글자 전체가 「예산 소진 시까지」류일 때만 「예산 소진 시까지」, 아니면 None.
+    날짜가 있거나 상시 모집이면 None(그 칸으로 충분해요)."""
+    if policy_apply_always(policy) or any(policy_apply_period(policy)):
+        return None
+    record = policy.get("record") or {}
+    texts = [str(record.get(key) or "") for key in PERIOD_TEXT_FIELDS]
+    return UNTIL_BUDGET if any(_UNTIL_BUDGET_TEXT.fullmatch(t) for t in texts if t.strip()) else None
+
+
 def policy_detail_url(policy: dict[str, Any]) -> str | None:
     """사람이 열어볼 원문 주소(raw.policy.collected의 detailUrl). http(s) 주소가 아니거나, URI 글자가 아닌 글자가 있거나,
     인증 값·사용자 정보가 든 주소(계약 PRIVATE_URL)면 None."""
@@ -434,7 +449,7 @@ def policy_completed_payload(
     상세(notice)·자격 조건(conditions)은 주거 공고용이라 없습니다. 틀이 없거나 지역(policy_region_codes: 창업지원은 지원 지역,
     사업공간은 공간 소재지)을 정하지 못하면 None(보내지 않음).
     검수 상태는 policy_review_status(by_rules: 구간 칸 규칙 틀이면 IN_REVIEW). 접수 기간은 policy_apply_period,
-    원문 주소는 policy_detail_url, 상시 모집 여부는 policy_apply_always."""
+    원문 주소는 policy_detail_url, 상시 모집 여부는 policy_apply_always, 「예산 소진 시까지」는 policy_apply_note."""
     codes = policy_region_codes(policy, regions, reading)
     if frame is None or codes is None or policy.get("field") not in POLICY_FIELDS:
         return None
@@ -455,6 +470,7 @@ def policy_completed_payload(
         "reprocess": bool(policy.get("reprocess")),
         "detailUrl": policy_detail_url(policy),
         "applyAlways": policy_apply_always(policy),
+        "applyNote": policy_apply_note(policy),
         "policyInfo": policy_info(policy),
         "judgment": frame,
     }

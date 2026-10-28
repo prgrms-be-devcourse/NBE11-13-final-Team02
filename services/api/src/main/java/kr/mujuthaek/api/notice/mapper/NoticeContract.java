@@ -194,9 +194,12 @@ public final class NoticeContract {
             || payload.has("notice")
             || payload.has("heldItems")
             || !payload.path("conditions").isEmpty())) fail("EVENT_POLICY_FRAME_SHAPE", "/payload");
-    if (!policy)
+    if (!policy) {
       for (String key : POLICY_ONLY_KEYS)
         if (payload.has(key)) fail("EVENT_POLICY_FRAME_SHAPE", "/payload/" + key);
+      // 마감일 대신 쓰는 신청 기간 안내도 정책에만 있어요 (없어도 되는 칸이라 POLICY_ONLY_KEYS와 따로 봐요)
+      if (payload.has("applyNote")) fail("EVENT_POLICY_FRAME_SHAPE", "/payload/applyNote");
+    }
     if (!judgment.isObject()) return;
     // 정책 틀의 검수 상태는 틀 전체로 정해요(heldItems 없음): 확인 필요 조건이 있는 틀은 자동 통과가 아니에요
     if (policy
