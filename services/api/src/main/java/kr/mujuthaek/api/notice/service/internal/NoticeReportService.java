@@ -125,12 +125,13 @@ public class NoticeReportService {
   /**
    * 회원의 주거·복지 정책(혜택) 제보. 추출 서비스에 정제 결과가 있는 정책에만 받고, 제목은 그때 받아 둬요(api에 혜택 표가 아직 없어요).
    *
-   * @param policyId 정책 원본 ID (policy.extracted의 rawPolicyId)
+   * @param targetId 정책 원본 ID (policy.extracted의 rawPolicyId) 또는 혜택 ID (혜택 화면이 쓰는 ID, 원본 ID로 바꿔요)
    *     <p>추출 서비스에서 제목을 받는 동안 DB 연결을 잡지 않도록 트랜잭션 없이 처리해요(넣기는 한 문장).
    */
   public NoticeReportCreatedResponse reportBenefit(
-      UUID policyId, NoticeReportRequest request, String reporter) {
+      UUID targetId, NoticeReportRequest request, String reporter) {
     UUID reporterId = reporterId(reporter);
+    UUID policyId = benefits.findRawPolicyId(targetId).orElse(targetId);
     if (blank(request.reportedValue()) && blank(request.note())) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "맞는 값이나 설명 중 하나는 적어 주세요");
     }

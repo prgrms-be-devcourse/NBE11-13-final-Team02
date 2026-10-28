@@ -37,13 +37,15 @@ class NoticeReportServiceTest {
 
   private final NoticeApiFixture fixture = new NoticeApiFixture();
   private final List<Object> events = new ArrayList<>();
+  private final kr.mujuthaek.api.benefit.service.BenefitQueryService benefits =
+      org.mockito.Mockito.mock(kr.mujuthaek.api.benefit.service.BenefitQueryService.class);
   private final NoticeReportService service =
       new NoticeReportService(
           new NoticeReportRepository(JdbcClient.create(fixture.jdbc)),
           reviewClient(),
           events::add,
           Clock.fixed(Instant.parse("2026-10-25T03:00:00Z"), ZoneId.of("Asia/Seoul")),
-          org.mockito.Mockito.mock(kr.mujuthaek.api.benefit.service.BenefitQueryService.class));
+          benefits);
 
   private MockRestServiceServer reviewServer;
 
@@ -313,7 +315,11 @@ class NoticeReportServiceTest {
         .andRespond(withStatus(HttpStatus.NOT_FOUND));
 
     UUID reporter = UUID.randomUUID();
-    UUID id = service.reportBenefit(policy, deposit("공고문 3쪽"), reporter.toString()).id();
+    // 혜택 화면은 혜택 ID를 써요: 원본 정책 ID로 바꿔 받아요
+    UUID benefitId = UUID.randomUUID();
+    org.mockito.Mockito.when(benefits.findRawPolicyId(benefitId))
+        .thenReturn(java.util.Optional.of(policy));
+    UUID id = service.reportBenefit(benefitId, deposit("공고문 3쪽"), reporter.toString()).id();
 
     var detail = service.detail(id);
     assertThat(detail.report().targetType()).isEqualTo("BENEFIT");

@@ -262,6 +262,14 @@ public class BenefitRepository {
   }
 
   /** 혜택 하나의 요약 (숨김 포함). */
+  /** 혜택 ID → 정책 원본 ID (rawPolicyId) */
+  public Optional<UUID> rawPolicyId(UUID id) {
+    return jdbc.sql("select raw_policy_id from benefit.benefits where id = ?")
+        .param(id)
+        .query(UUID.class)
+        .optional();
+  }
+
   public Optional<SummaryRow> summary(UUID id) {
     return jdbc.sql(SUMMARY + " where id = ?")
         .param(id)
