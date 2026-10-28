@@ -45,6 +45,7 @@ public enum ErrorCode {
   WITHDRAWAL_ACCOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "탈퇴하려는 계정과 다시 로그인한 계정이 달라요"),
   FAVORITE_TARGET_NOT_FOUND(HttpStatus.NOT_FOUND, "관심으로 저장할 공고·정책을 찾을 수 없어요"),
   FAVORITE_LIMIT_EXCEEDED(HttpStatus.CONFLICT, "관심 공고는 200개까지 저장할 수 있어요"),
+  EMAIL_ALREADY_USED(HttpStatus.CONFLICT, "이미 다른 계정에서 쓰고 있는 이메일이에요"),
   ACCOUNT_SUSPENDED(HttpStatus.FORBIDDEN, "이용이 정지된 계정이에요"),
 
   // notification

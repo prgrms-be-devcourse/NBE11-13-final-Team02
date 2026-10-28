@@ -113,6 +113,8 @@ account.users (있음)
 
 ### 2-6. `notification_emails` (알림 받을 이메일)
 
+> **2026-10-28 결정**: 지금은 알림 메일을 보내지 않고, 이메일은 **계정 연락용(선택)**으로만 받아요 (약관·개인정보처리방침 변경, 이용 제한, 계정 안내). `account.users`의 `email`·`email_consent_version`·`email_consented_at`에 두고 인증 코드는 받지 않아요 (`V202610281400__user_contact_email.sql`, `PUT`·`DELETE /api/users/me/email`). 한 주소는 한 회원만 써요 (대소문자 무시 유니크 인덱스 `users_email_uk`, `V202610281410`, 겹치면 409 `EMAIL_ALREADY_USED`). 아래 `notification_emails`는 알림 메일을 다시 정할 때의 초안이에요.
+
 소셜 로그인 이메일과 따로 받아요 (카카오는 이메일을 안 줄 수 있고, 알림은 다른 주소로 받고 싶을 수 있어요). SES는 반송이 많으면 계정을 정지해서 **인증한 주소에만** 보내요.
 
 | 칸 | 모양 | 필수 | 뜻 |
