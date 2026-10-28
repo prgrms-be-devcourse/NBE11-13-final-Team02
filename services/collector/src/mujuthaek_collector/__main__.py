@@ -17,17 +17,18 @@
   python -m mujuthaek_collector area-upload --manifest area/area_manifest.csv --skip-upload
                                                           이미 올린 파일 목록으로 적재 요청만 보내기
 
-스케줄 (서울 시간)
-  평일 9~18시 매시 5분   모든 출처 수집 (출처마다 따로, 동시에 COLLECTOR_PARALLEL_SOURCES개까지. 앞 회차가 안 끝난 출처만 이번 차례를 건너뜀)
-  매일 3시               정정 확인 (마감 전 공고를 다시 열어 바뀌었으면 새 버전)
-  매일 4시               보관 기한이 지난 원본 파일 정리
-  매일 6시 30분          정책 API 수집 (목록 전체 → 새 정책·바뀐 정책만 상세·첨부)
-  일요일 5시             정책 다시 확인 (목록에 수정일이 없는 복지로 중앙만)
-  매일 7시 30분          처음 수집 고르기 (아직 고르지 않은 묶음만. 다 골랐으면 아무것도 안 해요)
+스케줄 (서울 시간). 운영 서버는 낮(09~18시, 11/7부터 10~19시)에만 켜져 있어서 하루 한 번 작업은 모두 11시대예요
+  평일 9~19시 매시 5분   모든 출처 수집 (출처마다 따로, 동시에 COLLECTOR_PARALLEL_SOURCES개까지. 앞 회차가 안 끝난 출처만 이번 차례를 건너뜀)
+  매일 11시              정책 API 수집 (목록 전체 → 새 정책·바뀐 정책만 상세·첨부)
+  매일 11시 30분         정정 확인 (마감 전 공고를 다시 열어 바뀌었으면 새 버전)
+  매일 11시 50분         보관 기한이 지난 원본 파일 정리
+  매일 12시 30분         처음 수집 고르기 (아직 고르지 않은 묶음만. 다 골랐으면 아무것도 안 해요)
+  금요일 13시            정책 다시 확인 (목록에 수정일이 없는 복지로 중앙만. 주말엔 서버가 꺼져 있을 수 있어요)
 
 처음 수집 개수 제한 (core/intake.py)
   배포 뒤 처음 뜰 때 모든 출처 목록을 읽어 새 글을 HELD로 두고, 묶음마다 최신 N개만 골라 AI 추출로 보내요
   (LH 주거 10 · 다른 주거 10 · 사업공간 10 · 지원 정책 500, COLLECTOR_INTAKE_*). 나머지는 IGNORED로 쓰지 않아요
+  꺼져 있던 동안 지난 시각의 작업은 건너뛰어요(misfire_grace_time 10분). 매시 수집·다음 날 같은 작업이 이어받아요
   5초마다                아웃박스 이벤트 발행
 """
 
@@ -264,7 +265,7 @@ def first_intake(settings: Settings) -> None:
     decisions = decide_intake(settings)
     left = [g for g in waiting if g not in {d.group for d in decisions}]
     if left:
-        log.warning("처음 수집에서 아직 읽은 글이 없어 고르지 못한 묶음이 있어요. 매일 7시 30분에 다시 골라요", extra={"groups": left})
+        log.warning("처음 수집에서 아직 읽은 글이 없어 고르지 못한 묶음이 있어요. 매일 12시 30분에 다시 골라요", extra={"groups": left})
     if decisions:
         collect_all(settings)  # 고른 글(PENDING)을 바로 열어요. 남은 건 다음 회차에
         collect_policies(settings)
@@ -355,14 +356,15 @@ def run_scheduler(settings: Settings) -> None:
     common = {"max_instances": 1, "coalesce": True, "misfire_grace_time": 600}
     # 게시판 출처는 이 풀에서 동시에 돌아요. 회차 작업은 맡기고 바로 끝나서 다음 회차가 밀리지 않아요
     pool = ThreadPoolExecutor(max_workers=settings.parallel_sources, thread_name_prefix="collect")
-    scheduler.add_job(collect_all, "cron", day_of_week="mon-fri", hour="9-18", minute=5, args=[settings], kwargs={"pool": pool}, id="collect", **common)
-    scheduler.add_job(collect_all, "cron", hour=3, minute=0, args=[settings], kwargs={"recheck": True, "pool": pool}, id="recheck", **common)
-    scheduler.add_job(cleanup, "cron", hour=4, minute=0, args=[settings], id="cleanup", **common)
-    scheduler.add_job(collect_policies, "cron", hour=6, minute=30, args=[settings], id="policies", **common)
+    # 운영 서버가 켜져 있는 낮 시간에 맞춰요 (09~18시, 11/7부터 10~19시)
+    scheduler.add_job(collect_all, "cron", day_of_week="mon-fri", hour="9-19", minute=5, args=[settings], kwargs={"pool": pool}, id="collect", **common)
+    scheduler.add_job(collect_policies, "cron", hour=11, minute=0, args=[settings], id="policies", **common)
+    scheduler.add_job(collect_all, "cron", hour=11, minute=30, args=[settings], kwargs={"recheck": True, "pool": pool}, id="recheck", **common)
+    scheduler.add_job(cleanup, "cron", hour=11, minute=50, args=[settings], id="cleanup", **common)
+    scheduler.add_job(decide_intake, "cron", hour=12, minute=30, args=[settings], id="intake", **common)
     scheduler.add_job(
-        collect_policies, "cron", day_of_week="sun", hour=5, minute=0, args=[settings], kwargs={"weekly_recheck": True}, id="policies-recheck", **common
+        collect_policies, "cron", day_of_week="fri", hour=13, minute=0, args=[settings], kwargs={"weekly_recheck": True}, id="policies-recheck", **common
     )
-    scheduler.add_job(decide_intake, "cron", hour=7, minute=30, args=[settings], id="intake", **common)
     scheduler.add_job(Relay(settings).quietly, "interval", seconds=5, id="relay", **common)
     # 처음 수집 고르기는 오래 걸릴 수 있어(모든 출처 목록) 따로 돌려요. 다 골랐으면 바로 끝나요
     threading.Thread(target=first_intake, args=[settings], daemon=True, name="first-intake").start()

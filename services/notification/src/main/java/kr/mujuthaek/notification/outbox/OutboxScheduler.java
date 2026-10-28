@@ -7,7 +7,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 아웃박스 발송(1초마다)과 정리(매일 04:20). 테스트에서는 꺼 두고(notification.outbox.scheduling-enabled=false) 직접 불러요.
+ * 아웃박스 발송(1초마다)과 정리(매일 11:20, 운영 서버가 낮에만 켜져 있어서). 테스트에서는 꺼
+ * 두고(notification.outbox.scheduling-enabled=false) 직접 불러요.
  */
 @Component
 @ConditionalOnProperty(
@@ -36,7 +37,7 @@ class OutboxScheduler {
     }
   }
 
-  @Scheduled(cron = "0 20 4 * * *", zone = "Asia/Seoul")
+  @Scheduled(cron = "0 20 11 * * *", zone = "Asia/Seoul") // 서버가 켜져 있는 시간(10시~)
   void cleanup() {
     int deleted = relay.deletePublished();
     if (deleted > 0) {

@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
 
-/** 알림함 지우기: 탈퇴(UserWithdrawn)하면 그 회원 알림을 모두 (회원 삭제와 같은 트랜잭션), 매일 04:40(한국 시각)에 90일 지난 알림을. */
+/** 알림함 지우기: 탈퇴(UserWithdrawn)하면 그 회원 알림을 모두 (회원 삭제와 같은 트랜잭션), 매일 11:40(한국 시각)에 90일 지난 알림을. */
 @Component
 class InboxCleanup {
 
@@ -37,7 +37,7 @@ class InboxCleanup {
       this.inbox = inbox;
     }
 
-    @Scheduled(cron = "0 40 4 * * *", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 40 11 * * *", zone = "Asia/Seoul") // 서버가 켜져 있는 시간(10시~)
     void run() {
       inbox.purgeExpired();
     }

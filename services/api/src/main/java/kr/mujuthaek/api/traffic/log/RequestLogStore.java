@@ -26,7 +26,7 @@ import org.springframework.stereotype.Component;
 
 /**
  * 요청 기록 저장·조회. 요청마다 DB에 쓰지 않고 메모리에 모았다가 몇 초마다 한 번에 넣어요(요청 응답 시간에 영향 없게). 너무 많이 쌓이면(공격 등) 넘치는 기록은
- * 버려요. 매일 새벽 원본 IP를 지우고 오래된 기록을 지워요.
+ * 버려요. 매일 11:30에 원본 IP를 지우고 오래된 기록을 지워요.
  */
 @Component
 public class RequestLogStore {
@@ -110,8 +110,8 @@ public class RequestLogStore {
     flush();
   }
 
-  /** 원본 IP를 보관 기간이 지나면 지우고, 보관 일수가 지난 기록을 지워요. */
-  @Scheduled(cron = "0 30 3 * * *", zone = "Asia/Seoul")
+  /** 원본 IP를 보관 기간이 지나면 지우고, 보관 일수가 지난 기록을 지워요. 서버가 켜져 있는 시간(10시~)에 돌아요. */
+  @Scheduled(cron = "0 30 11 * * *", zone = "Asia/Seoul")
   public void cleanup() {
     Instant now = clock.instant();
     int cleared =

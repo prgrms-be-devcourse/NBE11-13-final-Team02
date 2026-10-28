@@ -168,7 +168,7 @@ PWA ──HTTP──▶ api
 | `NoticeUpdated`·`BenefitUpdated`·`PolicyUpdated` (reprocess = false), 알릴 항목이 바뀜 | 관심 공고로 둔 회원 | CORRECTED |
 | `NoticeUpdated`에 `followUps` | 관심 공고로 둔 회원 | FOLLOW_UP |
 | `ReportAnswered` (공고·혜택·창업 사업·생활권 제보 4종류, 답이 있을 때만) | 제보한 회원 한 명 (테스트 회원은 덧붙이지 않음). 알림 설정으로 끌 수 없고 조용한 시간은 따름. 대상: 공고·생활권 제보 → `NOTICE`(합쳐진 공고면 남은 공고), 혜택 제보 → `BENEFIT`(수집 정책 ID로 benefit `findSummaryByRawPolicyId`, 저장 안 된 혜택이면 보내지 않음), 창업 사업 제보 → `STARTUP_SUPPORT` | REPORT_ANSWERED |
-| 매일 09:00 스케줄러 | 마감일이 3일 뒤·1일 뒤인 열린 공고(notice `findOpenClosingOn`)·정책(benefit `findOpenClosingOn`)·창업지원 사업·사업공간 모집(notice `findOpenPoliciesClosingOn`)을 관심 공고로 둔 회원. 하루 한 번(`reminder_runs`), 09:00에 꺼져 있었으면 그날 따라잡기 | DEADLINE_D3·D1 |
+| 매일 11:00 스케줄러 (운영 서버가 낮에만 켜져 있어서) | 마감일이 3일 뒤·1일 뒤인 열린 공고(notice `findOpenClosingOn`)·정책(benefit `findOpenClosingOn`)·창업지원 사업·사업공간 모집(notice `findOpenPoliciesClosingOn`)을 관심 공고로 둔 회원. 하루 한 번(`reminder_runs`), 11:00에 꺼져 있었으면 그날 따라잡기 | DEADLINE_D3·D1 |
 
 ### 요청 만들기 순서
 
