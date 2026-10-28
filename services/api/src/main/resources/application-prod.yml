@@ -2,6 +2,20 @@
 server:
   forward-headers-strategy: framework
 
+# 소셜 로그인 콜백 주소를 프론트 주소(FRONTEND_URL) 기준으로 고정해요. Vercel rewrites는 원래 주소(X-Forwarded-Host)를 넘기지 않아서
+# 요청으로 만들면(baseUrl) http://<서버 IP>/…가 돼요. 콜백은 Vercel이 /login/oauth2/**를 이 서버로 넘겨요 (state만 비교하고 주소는 비교하지 않아요)
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          kakao:
+            redirect-uri: "${app.frontend-url}/login/oauth2/code/{registrationId}"
+          naver:
+            redirect-uri: "${app.frontend-url}/login/oauth2/code/{registrationId}"
+          google:
+            redirect-uri: "${app.frontend-url}/login/oauth2/code/{registrationId}"
+
 # 운영은 health만 열어요 (nginx도 /actuator/health 말고는 막아요)
 management:
   endpoints:
