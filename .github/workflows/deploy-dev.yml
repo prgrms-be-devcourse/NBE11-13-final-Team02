@@ -124,7 +124,7 @@ jobs:
             umask 077
             printf '%s\n' "$ENV_FILE" > .env
             chmod 600 .env
-            chmod +x deploy.sh shovel.sh
+            chmod +x deploy.sh shovel.sh copy-prod-to-dev.sh
             if [ -z "$SERVICES" ]; then
               echo "설정만 바뀌어 보냈어요"
               exit 0

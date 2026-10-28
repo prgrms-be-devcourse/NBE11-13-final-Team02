@@ -171,7 +171,7 @@ jobs:
             umask 077
             printf '%s\n' "$ENV_FILE" > .env
             chmod 600 .env
-            chmod +x deploy.sh shovel.sh
+            chmod +x deploy.sh shovel.sh copy-prod-to-dev.sh
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             trap 'docker logout ghcr.io >/dev/null' EXIT
             ./deploy.sh prod "$DEPLOY_SERVICE" "$VERSION"
