@@ -63,7 +63,10 @@ $C area-upload --skip-upload --manifest area/area_manifest_address.csv
   - `https://mujuthaek-fe.vercel.app/login/oauth2/code/kakao`, `…/naver`, `…/google`
   - dev 프론트 주소(Vercel Preview 고정 주소)의 같은 경로 `/login/oauth2/code/{kakao,naver,google}`
 - Vercel rewrites: `/api/**`·`/oauth2/**`·`/login/oauth2/**` → `http://<탄력적 IP>:80` (프론트 저장소 작업, 환경 변수 `API_ORIGIN`)
-- ENV_FILE: `FRONTEND_URL=https://mujuthaek-fe.vercel.app`(로그인 뒤 돌아갈 주소), `CORS_ORIGINS`에 dev 프론트 주소
+- ENV_FILE: `FRONTEND_URL`(로그인 뒤 돌아갈 프론트 주소), `OAUTH_REDIRECT_BASE_URL`(소셜 로그인 콜백 주소의 앞부분), `CORS_ORIGINS`에 dev 프론트 주소
+  - 운영: `FRONTEND_URL=https://mujuthaek-fe.vercel.app`, `OAUTH_REDIRECT_BASE_URL=https://mujuthaek-fe.vercel.app`
+  - 개발: 두 값 모두 dev 프론트 주소 (Vercel Preview 고정 주소)
+  - `OAUTH_REDIRECT_BASE_URL`이 없으면 콜백 주소를 요청 주소로 만들어요. Vercel → nginx → api를 거치면 http·서버 IP가 될 수 있어서 Google이 거절해요
 - 브라우저는 Vercel 주소만 불러요. api는 nginx가 넘긴 X-Forwarded-Host·Proto로 OAuth redirect-uri를 `https://<Vercel 주소>` 기준으로 만들고,
   refresh 토큰 쿠키(`Path=/api/auth; Secure; HttpOnly; SameSite=Lax`, Domain 없음)도 Vercel 주소에 저장돼요
 
