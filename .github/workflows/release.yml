@@ -1,0 +1,185 @@
+name: Release
+
+# 운영 배포. 서비스마다 태그로 올려요: api-v1.2.0, notification-v1.2.0, collector-v1.2.0, extraction-v1.2.0
+#   태그 → 테스트 → 이미지(ghcr.io/<저장소>/<서비스>:v1.2.0) → 운영 서버 배포(infra/deploy/deploy.sh) → 릴리즈 노트
+# 손으로 실행(workflow_dispatch):
+#   롤백   이미 있는 버전으로 되돌리기 (build 끔)
+#   첫 배포 서비스 all + build 켬: 고른 브랜치로 네 서비스를 테스트·빌드해서 같은 버전으로 한 번에 배포
+on:
+  push:
+    tags: ["api-v*", "notification-v*", "collector-v*", "extraction-v*"]
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 서비스
+        required: true
+        type: choice
+        options: [api, notification, collector, extraction, all]
+      version:
+        description: "버전 (예: v1.2.0)"
+        required: true
+        type: string
+      build:
+        description: 이 브랜치로 테스트·빌드해서 그 버전 이미지를 만들기 (첫 배포). 끄면 이미 있는 이미지로 배포(롤백)
+        type: boolean
+        default: false
+
+concurrency:
+  group: release-production
+  cancel-in-progress: false
+
+permissions:
+  contents: write # 릴리즈 노트
+  packages: write
+
+jobs:
+  meta:
+    name: 서비스·버전
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.meta.outputs.services }}
+      target: ${{ steps.meta.outputs.target }}
+      version: ${{ steps.meta.outputs.version }}
+      build: ${{ steps.meta.outputs.build }}
+    steps:
+      - id: meta
+        env:
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ github.ref_name }}
+          INPUT_SERVICE: ${{ inputs.service }}
+          INPUT_VERSION: ${{ inputs.version }}
+          INPUT_BUILD: ${{ inputs.build }}
+        run: |
+          if [ "$EVENT" = push ]; then
+            target="${TAG%%-v*}"            # api-v1.2.0 → api
+            version="v${TAG#*-v}"           # api-v1.2.0 → v1.2.0
+            build=true
+          else
+            target="$INPUT_SERVICE"
+            version="$INPUT_VERSION"
+            build="$INPUT_BUILD"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^v[0-9A-Za-z.+_-]+$'; then
+            echo "버전은 v로 시작해요 (예: v1.2.0): $version" >&2
+            exit 1
+          fi
+          if [ "$target" = all ]; then
+            services='["api","notification","collector","extraction"]'
+          else
+            services="[\"$target\"]"
+          fi
+          {
+            echo "target=$target"
+            echo "version=$version"
+            echo "build=$build"
+            echo "services=$services"
+          } >> "$GITHUB_OUTPUT"
+
+  test:
+    name: 테스트 (${{ matrix.service }})
+    needs: meta
+    if: needs.meta.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.meta.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v5
+      - if: matrix.service == 'api' || matrix.service == 'notification'
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+      - if: matrix.service == 'api' || matrix.service == 'notification'
+        uses: gradle/actions/setup-gradle@v5
+      - if: matrix.service == 'api' || matrix.service == 'notification'
+        working-directory: services/${{ matrix.service }}
+        run: ./gradlew check --console=plain
+      - if: matrix.service == 'collector' || matrix.service == 'extraction'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - if: matrix.service == 'collector' || matrix.service == 'extraction'
+        working-directory: services/${{ matrix.service }}
+        run: uv run --frozen pytest -q
+
+  build:
+    name: 이미지 (${{ matrix.service }})
+    needs: [meta, test]
+    if: needs.meta.outputs.build == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        service: ${{ fromJSON(needs.meta.outputs.services) }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/${{ matrix.service }}" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: services/${{ matrix.service }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.image.outputs.name }}:${{ needs.meta.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.service }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  deploy:
+    name: 운영 서버 배포
+    needs: [meta, build]
+    # 롤백(build 끔)이면 빌드를 건너뛰고 바로 배포해요
+    if: always() && needs.meta.result == 'success' && (needs.build.result == 'success' || needs.build.result == 'skipped')
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+      - name: 배포 설정 보내기 (infra/deploy → /opt/mujuthaek)
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          source: infra/deploy/*
+          target: /opt/mujuthaek
+          strip_components: 2
+      - name: .env 쓰기 · 배포
+        uses: appleboy/ssh-action@v1
+        env:
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARGET: ${{ needs.meta.outputs.target }}
+          VERSION: ${{ needs.meta.outputs.version }}
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          envs: ENV_FILE,GHCR_USER,GHCR_TOKEN,TARGET,VERSION
+          script: |
+            set -eu
+            cd /opt/mujuthaek
+            umask 077
+            printf '%s\n' "$ENV_FILE" > .env
+            chmod 600 .env
+            chmod +x deploy.sh shovel.sh
+            printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+            trap 'docker logout ghcr.io >/dev/null' EXIT
+            ./deploy.sh prod "$TARGET" "$VERSION"
+
+  notes:
+    name: 릴리즈 노트
+    needs: deploy
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
