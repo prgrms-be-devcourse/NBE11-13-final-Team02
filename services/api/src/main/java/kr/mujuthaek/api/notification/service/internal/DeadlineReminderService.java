@@ -22,13 +22,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 /**
- * 마감 D-3·D-1 알림 (contracts/schemas/notification-events.draft.md). 매일 한국 시간 09:00 이후 처음 확인할 때 한 번,
+ * 마감 D-3·D-1 알림 (contracts/schemas/notification-events.draft.md). 매일 한국 시간 11:00 이후 처음 확인할 때 한 번,
  * 마감일이 3일 뒤·1일 뒤인 접수 중인 주거·사업공간 공고, 지원 정책, 창업지원 사업·사업공간 모집(notice 정책)을 관심 공고로 둔 회원에게
  * DEADLINE_D3·DEADLINE_D1을 남기고 보내요.
  *
  * <ul>
  *   <li>하루 한 번: 실행 기록(reminder_runs)에 그날 줄을 먼저 넣은 서버만 해요. 서버가 여러 대여도 같은 요청이 두 번 생기지 않아요
- *   <li>따라잡기: 09:00에 서버가 꺼져 있었어도 그날 다음 확인 때 해요. 지난 날짜는 다시 하지 않아요(어제의 D-1은 이미 마감일이라)
+ *   <li>따라잡기: 11:00에 서버가 꺼져 있었어도 그날 다음 확인 때 해요. 지난 날짜는 다시 하지 않아요(어제의 D-1은 이미 마감일이라)
  *   <li>한 트랜잭션: 실행 기록과 알림 요청이 함께 커밋돼요. 중간에 실패하면 둘 다 되돌려지고 다음 확인 때 다시 해요
  *   <li>정정으로 마감일이 바뀌면 dedupKey에 새 마감일이 들어가 새 날짜 기준으로 다시 알려요
  * </ul>
@@ -40,7 +40,7 @@ public class DeadlineReminderService {
 
   static final String KIND = "DEADLINE";
   static final ZoneId KOREA = ZoneId.of("Asia/Seoul");
-  static final LocalTime SEND_AT = LocalTime.of(9, 0);
+  static final LocalTime SEND_AT = LocalTime.of(11, 0); // 운영 서버는 낮(10시~)에만 켜져 있어요
 
   private final BenefitQueryService benefits;
   private final NoticeQueryService notices;
@@ -64,7 +64,7 @@ public class DeadlineReminderService {
     this.clock = clock;
   }
 
-  /** 오늘 할 차례면 하고 적은 요청 수를, 아직 09:00 전이거나 오늘 이미 했으면 빈 값을 돌려줘요 */
+  /** 오늘 할 차례면 하고 적은 요청 수를, 아직 11:00 전이거나 오늘 이미 했으면 빈 값을 돌려줘요 */
   @Transactional
   public OptionalInt runIfDue() {
     Instant now = clock.instant();

@@ -30,7 +30,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-/** 마감 D-3·D-1: 하루 한 번, 09:00 뒤 따라잡기, 여러 서버, 실패 뒤 다시. 픽스처 신청 기간은 10/1~11/30이에요. */
+/** 마감 D-3·D-1: 하루 한 번, 11:00 뒤 따라잡기, 여러 서버, 실패 뒤 다시. 픽스처 신청 기간은 10/1~11/30이에요. */
 @SpringBootTest(
     properties = {
       "app.outbox.scheduling-enabled=false",
@@ -74,7 +74,7 @@ class DeadlineReminderTest {
     UUID notice = onlyId("notice.notices");
     jdbc.sql("delete from common.outbox").update();
 
-    clock.set("2026-10-27T09:00"); // D-3 = 10/30
+    clock.set("2026-10-27T11:00"); // D-3 = 10/30
 
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
     JsonNode d3 = byType(requests(), "DEADLINE_D3");
@@ -91,7 +91,7 @@ class DeadlineReminderTest {
         .as("알림함에도")
         .isEqualTo(1L);
 
-    clock.set("2026-10-26T09:00");
+    clock.set("2026-10-26T11:00");
     jdbc.sql("delete from notification.reminder_runs").update();
     jdbc.sql("delete from common.outbox").update();
     assertThat(reminders.runIfDue()).as("D-4는 아님").isEqualTo(OptionalInt.of(0));
@@ -104,7 +104,7 @@ class DeadlineReminderTest {
     UUID space = noticePolicy("SPACE_RECRUITMENT", "2026-10-28");
     jdbc.sql("delete from common.outbox").update();
 
-    clock.set("2026-10-27T09:00"); // D-3 = 10/30, D-1 = 10/28
+    clock.set("2026-10-27T11:00"); // D-3 = 10/30, D-1 = 10/28
 
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(2));
     JsonNode d3 = byType(requests(), "DEADLINE_D3");
@@ -131,10 +131,10 @@ class DeadlineReminderTest {
             });
     jdbc.sql("delete from common.outbox").update();
 
-    clock.set("2026-11-27T08:59");
-    assertThat(reminders.runIfDue()).as("09:00 전").isEmpty();
+    clock.set("2026-11-27T10:59");
+    assertThat(reminders.runIfDue()).as("11:00 전").isEmpty();
 
-    clock.set("2026-11-27T09:00");
+    clock.set("2026-11-27T11:00");
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(2));
     List<JsonNode> sent = requests();
     JsonNode d3 = byType(sent, "DEADLINE_D3");
@@ -153,7 +153,7 @@ class DeadlineReminderTest {
     assertThat(reminders.runIfDue()).as("같은 날 두 번째 확인").isEmpty();
     assertThat(requests()).hasSize(2);
 
-    clock.set("2026-11-29T09:10");
+    clock.set("2026-11-29T11:10");
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
     assertThat(requests())
         .extracting(r -> r.path("dedupKey").asString())
@@ -165,7 +165,7 @@ class DeadlineReminderTest {
     policy(p -> {});
     jdbc.sql("delete from common.outbox").update();
 
-    clock.set("2026-11-29T23:55"); // 09:00부터 꺼져 있다가 밤에 켜짐
+    clock.set("2026-11-29T23:55"); // 11:00부터 꺼져 있다가 밤에 켜짐
 
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
     assertThat(byType(requests(), "DEADLINE_D1")).isNotNull();
@@ -179,7 +179,7 @@ class DeadlineReminderTest {
     policy(p -> p.withObject("schedule").put("applyEnd", "2026-11-29"));
     jdbc.sql("delete from common.outbox").update();
 
-    clock.set("2026-11-27T09:00"); // D-3 = 11/30, D-1 = 11/28
+    clock.set("2026-11-27T11:00"); // D-3 = 11/30, D-1 = 11/28
 
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(0));
     assertThat(requests()).isEmpty();
@@ -197,7 +197,7 @@ class DeadlineReminderTest {
       policy(p -> {});
     }
     jdbc.sql("delete from common.outbox").update();
-    clock.set("2026-11-27T09:00");
+    clock.set("2026-11-27T11:00");
     CyclicBarrier together = new CyclicBarrier(2);
     ExecutorService pool = Executors.newFixedThreadPool(2);
     try {
@@ -222,7 +222,7 @@ class DeadlineReminderTest {
   void failureRollsBackTheRunSoItIsRetried() {
     policy(p -> {});
     jdbc.sql("delete from common.outbox").update();
-    clock.set("2026-11-27T09:00");
+    clock.set("2026-11-27T11:00");
     doThrow(new IllegalStateException("회원 조회 실패"))
         .when(recipients)
         .forFavorite(any(), any(), any());
@@ -234,7 +234,7 @@ class DeadlineReminderTest {
         .isZero();
 
     doCallRealMethod().when(recipients).forFavorite(any(), any(), any());
-    clock.set("2026-11-27T09:10");
+    clock.set("2026-11-27T11:10");
     assertThat(reminders.runIfDue()).isEqualTo(OptionalInt.of(1));
     assertThat(requests()).hasSize(1);
   }

@@ -22,7 +22,7 @@ class ExpiredTokenCleanup {
     this.withdrawals = withdrawals;
   }
 
-  @Scheduled(cron = "0 30 4 * * *", zone = "Asia/Seoul")
+  @Scheduled(cron = "0 10 11 * * *", zone = "Asia/Seoul") // 서버가 켜져 있는 시간(10시~)
   void run() {
     int refreshTokens = tokens.deleteExpired();
     int tickets = withdrawals.deleteExpiredTickets();
