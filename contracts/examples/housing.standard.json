@@ -1,0 +1,629 @@
+{
+  "schemaVersion": "1.0.0",
+  "sourceReferences": [
+    {
+      "sourceCode": "test",
+      "sourceNoticeId": "synthetic-housing-1",
+      "rawPostId": "00000000-0000-7000-8000-000000000002",
+      "rawVersion": 1,
+      "kind": "NOTICE",
+      "supersedesPostId": null,
+      "detailUrl": "https://example.org/notices/housing-1",
+      "sourceTitle": "가상주거 청년 매입임대 입주자 모집 공고",
+      "sourceStatusText": "게시 중",
+      "postedOn": "2026-10-01"
+    }
+  ],
+  "documents": [
+    {
+      "id": "text1",
+      "kind": "TEXT",
+      "name": "housing.synthetic.txt",
+      "sha256": "b418434e4b3b2d60d636b93c4a07a928d22c58f0739cb9b2e4d73ac736343fff",
+      "originalUrl": "https://example.org/documents/housing.synthetic.txt",
+      "pageCount": null
+    }
+  ],
+  "notice": {
+    "title": "가상주거 청년 매입임대 입주자 모집 공고",
+    "publisher": "가상주거공사",
+    "field": "HOUSING",
+    "supplyType": "매입임대",
+    "announcedOn": "2026-10-01",
+    "description": "테스트 전용 가상 공고입니다.",
+    "counts": [
+      {
+        "id": "offered-one",
+        "kind": "OFFERED",
+        "value": 1,
+        "scope": {
+          "level": "NOTICE",
+          "locationIds": [],
+          "supplyGroupIds": [],
+          "targetGroups": [],
+          "supplyCategory": "ALL",
+          "resolution": "RESOLVED",
+          "description": "공고 전체에 적용합니다."
+        },
+        "aggregationRole": "STANDALONE",
+        "parentCountId": null,
+        "aggregationComplete": false,
+        "evidenceIds": [
+          "e1"
+        ]
+      }
+    ],
+    "evidenceIds": [
+      "e1"
+    ],
+    "targetGroups": [
+      "YOUTH"
+    ],
+    "applicationChannels": [
+      "ONLINE"
+    ]
+  },
+  "locations": [
+    {
+      "id": "building-a",
+      "kind": "BUILDING",
+      "parentLocationId": null,
+      "complexName": null,
+      "region": "서울특별시 종로구",
+      "buildingName": "가상건물 A동",
+      "address": "서울특별시 종로구 가상로 1",
+      "regionCode": "1111000000",
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "schedules": [
+    {
+      "id": "application",
+      "kinds": [
+        "APPLICATION"
+      ],
+      "applicationMode": "FIXED_PERIOD",
+      "places": [],
+      "applicationEmail": null,
+      "dailyHours": [],
+      "breaks": [],
+      "excludedDays": [],
+      "timeNote": null,
+      "rawLabel": "신청",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "channels": [
+        "ONLINE"
+      ],
+      "startsAt": {
+        "precision": "MINUTE",
+        "value": "2026-10-01T10:00:00+09:00"
+      },
+      "endsAt": {
+        "precision": "MINUTE",
+        "value": "2026-10-31T17:00:00+09:00"
+      },
+      "endStatus": "FIXED",
+      "endCondition": null,
+      "description": "원문에 명시한 신청 기간입니다.",
+      "applicationUrl": "https://example.org/apply",
+      "priorityRank": null,
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "supplyGroups": [
+    {
+      "id": "unit-201",
+      "locationId": "building-a",
+      "housingTypeCode": "20A",
+      "buildingUse": "공동주택",
+      "exclusiveAreaSqm": 20,
+      "commonAreaSqm": 5,
+      "scope": {
+        "level": "SUPPLY_GROUP",
+        "locationIds": [
+          "building-a"
+        ],
+        "supplyGroupIds": [
+          "unit-201"
+        ],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "201호에 적용합니다."
+      },
+      "counts": [],
+      "prices": [
+        {
+          "id": "deposit",
+          "kind": "DEPOSIT",
+          "amountKrw": 1000000,
+          "scope": {
+            "level": "SUPPLY_GROUP",
+            "locationIds": [
+              "building-a"
+            ],
+            "supplyGroupIds": [
+              "unit-201"
+            ],
+            "targetGroups": [],
+            "supplyCategory": "ALL",
+            "resolution": "RESOLVED",
+            "description": "201호에 적용합니다."
+          },
+          "sourceAmount": "1000000",
+          "sourceUnit": "원",
+          "taxTreatment": "NOT_APPLICABLE",
+          "vatRate": null,
+          "billingPeriod": "ONCE",
+          "pricePlanId": "BASE",
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        {
+          "id": "rent",
+          "kind": "MONTHLY_RENT",
+          "amountKrw": 100000,
+          "scope": {
+            "level": "SUPPLY_GROUP",
+            "locationIds": [
+              "building-a"
+            ],
+            "supplyGroupIds": [
+              "unit-201"
+            ],
+            "targetGroups": [],
+            "supplyCategory": "ALL",
+            "resolution": "RESOLVED",
+            "description": "201호에 적용합니다."
+          },
+          "sourceAmount": "100000",
+          "sourceUnit": "원",
+          "taxTreatment": "EXCLUDED",
+          "vatRate": 10,
+          "billingPeriod": "MONTHLY",
+          "pricePlanId": "BASE",
+          "evidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "itemKind": "HOUSING_UNIT",
+      "unitLabel": "201호",
+      "floor": "2층",
+      "leaseTerm": {
+        "initialMonths": 24,
+        "renewalMonths": 24,
+        "maxMonths": 72,
+        "description": "최초 24개월, 갱신 24개월, 최대 72개월입니다.",
+        "evidenceIds": [
+          "e1"
+        ]
+      },
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "eligibility": [
+    {
+      "id": "age",
+      "category": "AGE",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "appliesTo": "신청자 및 명시한 가구 범위",
+      "referenceTime": "공고일",
+      "originalText": "공고일 만 19세 이상 39세 이하이며 무주택 가구여야 합니다.",
+      "description": "공고일 만 19세 이상 39세 이하이며 무주택 가구여야 합니다.",
+      "rule": {
+        "status": "STRUCTURED",
+        "expression": {
+          "kind": "ALL",
+          "children": [
+            {
+              "kind": "ATOMIC",
+              "subject": "APPLICANT",
+              "attribute": "AGE_YEARS",
+              "operator": "GTE",
+              "value": 19,
+              "unit": "YEAR",
+              "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+              "referenceTime": "공고일",
+              "benchmark": null,
+              "evidenceIds": [
+                "e1"
+              ]
+            },
+            {
+              "kind": "ATOMIC",
+              "subject": "APPLICANT",
+              "attribute": "AGE_YEARS",
+              "operator": "LTE",
+              "value": 39,
+              "unit": "YEAR",
+              "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+              "referenceTime": "공고일",
+              "benchmark": null,
+              "evidenceIds": [
+                "e1"
+              ]
+            }
+          ]
+        },
+        "reason": null
+      },
+      "exceptionsStatus": "NONE_IN_SOURCE",
+      "exceptions": [],
+      "evidenceIds": [
+        "e1"
+      ]
+    },
+    {
+      "id": "homeless",
+      "category": "HOME_OWNERSHIP",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "appliesTo": "신청자 및 명시한 가구 범위",
+      "referenceTime": "공고일",
+      "originalText": "무주택 가구여야 합니다.",
+      "description": "무주택 가구여야 합니다.",
+      "rule": {
+        "status": "STRUCTURED",
+        "expression": {
+          "kind": "ATOMIC",
+          "subject": "HOUSEHOLD",
+          "attribute": "HOMELESS",
+          "operator": "EQ",
+          "value": true,
+          "unit": "BOOLEAN",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": null,
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        "reason": null
+      },
+      "exceptionsStatus": "NONE_IN_SOURCE",
+      "exceptions": [],
+      "evidenceIds": [
+        "e1"
+      ]
+    },
+    {
+      "id": "income",
+      "category": "INCOME",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "appliesTo": "신청자 및 명시한 가구 범위",
+      "referenceTime": "공고일",
+      "originalText": "가상 2026년 1인 가구 기준 월평균소득 70% 이하여야 합니다.",
+      "description": "가상 2026년 1인 가구 기준 월평균소득 70% 이하여야 합니다.",
+      "rule": {
+        "status": "STRUCTURED",
+        "expression": {
+          "kind": "ATOMIC",
+          "subject": "HOUSEHOLD",
+          "attribute": "INCOME_BENCHMARK_PERCENT",
+          "operator": "LTE",
+          "value": 70,
+          "unit": "PERCENT",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": {
+            "standardName": "가상 도시근로자 월평균소득",
+            "referenceYear": 2026,
+            "referenceVersion": "가상 기준표 2026",
+            "householdMemberCount": 1,
+            "householdScope": "신청자 포함 가구원"
+          },
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        "reason": null
+      },
+      "exceptionsStatus": "PRESENT",
+      "exceptions": [
+        {
+          "id": "income-child-exception",
+          "originalText": "다만 자녀 2명 이상은 90% 이하로 대체합니다.",
+          "description": "자녀가 2명 이상이면 소득 기준을 90% 이하로 대체합니다.",
+          "when": {
+            "status": "STRUCTURED",
+            "expression": {
+              "kind": "ATOMIC",
+              "subject": "HOUSEHOLD",
+              "attribute": "CHILD_COUNT",
+              "operator": "GTE",
+              "value": 2,
+              "unit": "COUNT",
+              "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+              "referenceTime": "공고일",
+              "benchmark": null,
+              "evidenceIds": [
+                "e1"
+              ]
+            },
+            "reason": null
+          },
+          "effect": "REPLACE",
+          "effectExpression": {
+            "kind": "ATOMIC",
+            "subject": "HOUSEHOLD",
+            "attribute": "INCOME_BENCHMARK_PERCENT",
+            "operator": "LTE",
+            "value": 90,
+            "unit": "PERCENT",
+            "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+            "referenceTime": "공고일",
+            "benchmark": {
+              "standardName": "가상 도시근로자 월평균소득",
+              "referenceYear": 2026,
+              "referenceVersion": "가상 기준표 2026",
+              "householdMemberCount": 1,
+              "householdScope": "신청자 포함 가구원"
+            },
+            "evidenceIds": [
+              "e1"
+            ]
+          },
+          "evidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "selectionRules": [
+    {
+      "id": "priority",
+      "kind": "PRIORITY",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "originalText": "우선공급 대상 청년은 1순위입니다.",
+      "description": "우선공급 대상 청년은 1순위입니다.",
+      "priorityRank": 1,
+      "points": null,
+      "maxPoints": null,
+      "order": null,
+      "rule": {
+        "status": "STRUCTURED",
+        "expression": {
+          "kind": "ATOMIC",
+          "subject": "APPLICANT",
+          "attribute": "TARGET_GROUP_CODE",
+          "operator": "EQ",
+          "value": "YOUTH",
+          "unit": "CODE",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": null,
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        "reason": null
+      },
+      "evidenceIds": [
+        "e1"
+      ]
+    },
+    {
+      "id": "children-score",
+      "kind": "SCORING",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "originalText": "자녀 1명 이상이면 2점, 최대 2점입니다.",
+      "description": "자녀 1명 이상이면 2점, 최대 2점입니다.",
+      "priorityRank": null,
+      "points": 2,
+      "maxPoints": 2,
+      "order": null,
+      "rule": {
+        "status": "STRUCTURED",
+        "expression": {
+          "kind": "ATOMIC",
+          "subject": "HOUSEHOLD",
+          "attribute": "CHILD_COUNT",
+          "operator": "GTE",
+          "value": 1,
+          "unit": "COUNT",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": null,
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        "reason": null
+      },
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "requiredDocuments": [
+    {
+      "id": "resident-document",
+      "name": "주민등록등본",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "appliesTo": "신청자",
+      "submissionTime": "신청 시",
+      "group": null,
+      "copies": null,
+      "issuer": null,
+      "description": "신청 시 주민등록등본을 제출합니다.",
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "guidance": [
+    {
+      "id": "apply-online",
+      "kind": "APPLICATION_METHOD",
+      "title": "온라인 신청",
+      "description": "온라인으로 신청합니다.",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "phone": null,
+      "url": "https://example.org/apply",
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "sourceId": "text1",
+      "locator": {
+        "kind": "TEXT_RANGE",
+        "start": 0,
+        "end": 546
+      },
+      "quote": "테스트 전용 가상 공고입니다. 가상주거 청년 매입임대 입주자 모집 공고. 기관은 가상주거공사입니다. 공고일은 2026년 10월 1일입니다. 서울특별시 종로구(시군구 코드 11110) 가상로 1, 가상건물 A동 201호 2층입니다. 모집 수는 1호입니다. 전용 20㎡, 공용 5㎡입니다. 보증금은 1000000원, 월임대료는 100000원이며 부가세 10% 별도입니다. 최초 24개월, 갱신 24개월, 최대 72개월입니다. 신청은 2026년 10월 1일 10시부터 31일 17시까지입니다. 공고일 만 19세 이상 39세 이하이며 무주택 가구여야 합니다. 가상 2026년 1인 가구 기준 월평균소득 70% 이하여야 합니다. 다만 자녀 2명 이상은 90% 이하로 대체합니다. 우선공급 대상 청년은 1순위입니다. 자녀 1명 이상이면 2점, 최대 2점입니다. 주민등록등본은 신청 시 제출합니다. 주택형은 20A이며 건물 용도는 공동주택입니다. 온라인으로 신청합니다. 신청 링크는 https://example.org/apply 입니다. 이 문서에는 그 밖의 일정·자격·예외는 없습니다."
+    }
+  ],
+  "quality": {
+    "coverage": {
+      "notice": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "locations": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "schedules": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "supplyGroups": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "eligibility": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "selectionRules": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "requiredDocuments": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "guidance": {
+        "status": "EXTRACTED",
+        "reason": null
+      }
+    },
+    "missingFields": [],
+    "reviewIssues": [],
+    "notes": [],
+    "verification": {
+      "status": "PASSED",
+      "sourceStatus": "PASSED",
+      "checkedAt": "2026-10-15T12:00:00+09:00",
+      "rulesVersion": "synthetic-fixture-v1",
+      "apiComparison": {
+        "status": "SKIPPED_NO_API_REFERENCE",
+        "referenceSha256": null,
+        "referenceIdentity": null,
+        "fields": []
+      }
+    }
+  },
+  "noticeId": "00000000-0000-7000-8000-000000000010",
+  "noticeVersion": 1,
+  "previousNoticeVersion": null,
+  "changedFields": [],
+  "publicationState": "APPROVED",
+  "publisherCode": "TEST_HOUSING",
+  "supplyTypeCode": "PURCHASE_RENTAL",
+  "regionScope": "REGIONAL",
+  "regionCodes": [
+    "1111000000"
+  ],
+  "applicationSummary": {
+    "status": "OPEN",
+    "startsOn": "2026-10-01",
+    "endsOn": "2026-10-31",
+    "basisScheduleIds": [
+      "application"
+    ],
+    "calculatedAt": "2026-10-15T12:00:00+09:00",
+    "statusReason": "명시된 신청 일정과 가상 기준 시각으로 계산한 예시입니다.",
+    "closedReason": null
+  },
+  "areaSummaries": []
+}

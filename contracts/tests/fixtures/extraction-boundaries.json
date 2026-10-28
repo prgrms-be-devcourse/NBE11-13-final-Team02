@@ -1,0 +1,1068 @@
+{
+  "base": "extraction.completed.json",
+  "cases": [
+    {
+      "name": "valid_legacy_without_condition_scope",
+      "operations": [],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "integer_envelope_number_spelling",
+      "operations": [
+        {
+          "path": "/schemaVersion",
+          "value": 1.0
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "integer_raw_version_number_spelling",
+      "operations": [
+        {
+          "path": "/payload/rawVersion",
+          "value": 1.0
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "wrong_producer",
+      "operations": [
+        {
+          "path": "/producer",
+          "value": "collector"
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "wrong_envelope_version",
+      "operations": [
+        {
+          "path": "/schemaVersion",
+          "value": 999
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "raw_version_exceeds_db_integer",
+      "operations": [
+        {
+          "path": "/payload/rawVersion",
+          "value": 4294967297
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "invalid_occurred_at",
+      "operations": [
+        {
+          "path": "/occurredAt",
+          "value": "not-a-date"
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "wrong_optional_array_type",
+      "operations": [
+        {
+          "path": "/payload/heldItems",
+          "value": {}
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "wrong_reprocess_type",
+      "operations": [
+        {
+          "path": "/payload/reprocess",
+          "value": "false"
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "raw_version_conflict",
+      "operations": [
+        {
+          "path": "/payload/rawVersion",
+          "value": 99
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_NOTICE_IDENTITY_CONFLICT"
+    },
+    {
+      "name": "title_conflict",
+      "operations": [
+        {
+          "path": "/payload/title",
+          "value": "다른 제목"
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_TITLE_CONFLICT"
+    },
+    {
+      "name": "reprocess_conflict",
+      "operations": [
+        {
+          "path": "/payload/reprocess",
+          "value": true
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_REPROCESS_CONFLICT"
+    },
+    {
+      "name": "region_conflict",
+      "operations": [
+        {
+          "path": "/payload/regionCode",
+          "value": "41110"
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_REGION_CONFLICT"
+    },
+    {
+      "name": "ready_without_detail",
+      "operations": [
+        {
+          "path": "/payload/notice",
+          "remove": true
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "review_without_detail",
+      "operations": [
+        {
+          "path": "/payload/notice",
+          "remove": true
+        },
+        {
+          "path": "/payload/reviewStatus",
+          "value": "IN_REVIEW"
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "policy_without_notice_detail",
+      "operations": [
+        {
+          "path": "/payload/notice",
+          "remove": true
+        },
+        {
+          "path": "/payload/field",
+          "value": "POLICY"
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "optional_schedule_omitted",
+      "operations": [
+        {
+          "path": "/payload/schedule",
+          "remove": true
+        },
+        {
+          "path": "/payload/applicationWindows",
+          "remove": true
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "source_version_conflict",
+      "operations": [
+        {
+          "path": "/payload/rawVersion",
+          "value": 99
+        },
+        {
+          "path": "/payload/notice/input/rawVersion",
+          "value": 99
+        }
+      ],
+      "valid": false,
+      "errorCode": "INPUT_REFERENCE_MISMATCH"
+    },
+    {
+      "name": "dangling_evidence",
+      "operations": [
+        {
+          "path": "/payload/notice/notice/evidenceIds",
+          "value": [
+            "unknown-evidence"
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "DANGLING_EVIDENCE"
+    },
+    {
+      "name": "wrong_evidence_document",
+      "operations": [
+        {
+          "path": "/payload/notice/evidence/0/sourceId",
+          "value": "unknown-doc"
+        }
+      ],
+      "valid": false,
+      "errorCode": "DANGLING_SOURCE"
+    },
+    {
+      "name": "duplicate_id",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/id",
+          "value": "building-a"
+        }
+      ],
+      "valid": false,
+      "errorCode": "DUPLICATE_ID"
+    },
+    {
+      "name": "dangling_quality_pointer",
+      "operations": [
+        {
+          "path": "/payload/notice/quality/notes",
+          "value": [
+            {
+              "code": "X",
+              "target": "/schedules/9999",
+              "description": "확인이 필요합니다."
+            }
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "DANGLING_FIELD_POINTER"
+    },
+    {
+      "name": "secret_in_malformed_url",
+      "operations": [
+        {
+          "path": "/payload/notice/documents/0/originalUrl",
+          "value": "not-an-absolute-url?serviceKey=review-placeholder-not-a-real-key"
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "secret_in_valid_url",
+      "operations": [
+        {
+          "path": "/payload/notice/documents/0/originalUrl",
+          "value": "https://example.com/file?serviceKey=review-placeholder-not-a-real-key"
+        }
+      ],
+      "valid": false,
+      "errorCode": "PRIVATE_URL"
+    },
+    {
+      "name": "condition_description_conflict",
+      "operations": [
+        {
+          "path": "/payload/conditions/0/description",
+          "value": "다른 설명입니다."
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_CONDITION_CONTENT_CONFLICT"
+    },
+    {
+      "name": "condition_target_conflict",
+      "operations": [
+        {
+          "path": "/payload/conditions/0/target",
+          "value": "다른 대상"
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_CONDITION_CONTENT_CONFLICT"
+    },
+    {
+      "name": "condition_scope_present",
+      "operations": [
+        {
+          "path": "/payload/conditions/0/scope",
+          "value": {
+            "level": "NOTICE",
+            "locationIds": [],
+            "supplyGroupIds": [],
+            "targetGroups": [],
+            "supplyCategory": "ALL",
+            "resolution": "RESOLVED",
+            "description": "공고 전체에 적용합니다."
+          }
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "condition_scope_conflict",
+      "operations": [
+        {
+          "path": "/payload/conditions/0/scope",
+          "value": {
+            "level": "NOTICE",
+            "locationIds": [],
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "different"
+            ],
+            "supplyCategory": "ALL",
+            "resolution": "RESOLVED",
+            "description": "공고 전체에 적용합니다."
+          }
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_CONDITION_CONTENT_CONFLICT"
+    },
+    {
+      "name": "condition_age_119_conflict",
+      "operations": [
+        {
+          "path": "/payload/conditions/0/rule/expression/children/0/value",
+          "value": 119
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_CONDITION_CONTENT_CONFLICT"
+    },
+    {
+      "name": "attribute_unit_conflict",
+      "operations": [
+        {
+          "path": "/payload/conditions/0/rule/expression/children/0/unit",
+          "value": "KRW"
+        },
+        {
+          "path": "/payload/notice/eligibility/0/rule/expression/children/0/unit",
+          "value": "KRW"
+        }
+      ],
+      "valid": false,
+      "errorCode": "ATTRIBUTE_UNIT_CONFLICT"
+    },
+    {
+      "name": "equal_percentage_number_spelling",
+      "operations": [
+        {
+          "path": "/payload/conditions/2/rule/expression/value",
+          "value": 70.0
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "schedule_projection_conflict",
+      "operations": [
+        {
+          "path": "/payload/schedule/applyEndOn",
+          "value": "2026-11-01"
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_SCHEDULE_CONFLICT"
+    },
+    {
+      "name": "window_projection_conflict",
+      "operations": [
+        {
+          "path": "/payload/applicationWindows/0/applyEndOn",
+          "value": "2026-11-01"
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_WINDOWS_CONFLICT"
+    },
+    {
+      "name": "reversed_schedule",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/startsAt",
+          "value": {
+            "precision": "DAY",
+            "value": "2026-12-31"
+          }
+        },
+        {
+          "path": "/payload/schedule",
+          "remove": true
+        },
+        {
+          "path": "/payload/applicationWindows",
+          "remove": true
+        }
+      ],
+      "valid": false,
+      "errorCode": "REVERSED_SCHEDULE"
+    },
+    {
+      "name": "invalid_application_mode",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/applicationMode",
+          "value": "NOT_APPLICABLE"
+        }
+      ],
+      "valid": false,
+      "errorCode": "APPLICATION_MODE_CONFLICT"
+    },
+    {
+      "name": "month_window_kept",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/startsAt",
+          "value": {
+            "precision": "MONTH",
+            "value": "2026-10"
+          }
+        },
+        {
+          "path": "/payload/notice/schedules/0/endsAt",
+          "value": {
+            "precision": "MONTH",
+            "value": "2026-10"
+          }
+        },
+        {
+          "path": "/payload/schedule",
+          "remove": true
+        },
+        {
+          "path": "/payload/applicationWindows",
+          "remove": true
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "nested_schedule_hold",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/heldItems",
+          "value": [
+            {
+              "target": "/schedules/0/applicationMode",
+              "extent": "ITEM",
+              "codes": [
+                "X"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/heldItems",
+          "value": [
+            {
+              "target": "/schedules/0/applicationMode",
+              "extent": "ITEM",
+              "codes": [
+                "X"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/schedule",
+          "value": null
+        },
+        {
+          "path": "/payload/applicationWindows",
+          "value": []
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "held_condition_without_review",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/heldItems",
+          "value": [
+            {
+              "target": "/eligibility/0/rule",
+              "extent": "ITEM",
+              "codes": [
+                "X"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/heldItems",
+          "value": [
+            {
+              "target": "/eligibility/0/rule",
+              "extent": "ITEM",
+              "codes": [
+                "X"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "PARTIALLY_PASSED"
+        }
+      ],
+      "valid": false,
+      "errorCode": "HELD_CONDITION_NOT_IN_REVIEW"
+    },
+    {
+      "name": "human_approval_preserves_auto_verification",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "APPROVED"
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "REVIEW_REQUIRED"
+        },
+        {
+          "path": "/payload/notice/quality/reviewIssues",
+          "value": [
+            {
+              "code": "MANUAL_CHECK",
+              "target": "/eligibility/0",
+              "description": "사람이 확인했습니다."
+            }
+          ]
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "human_approval_requires_notice_identity",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "APPROVED"
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "REVIEW_REQUIRED"
+        },
+        {
+          "path": "/payload/notice/notice/publisher",
+          "value": null
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "region_sido_level_location",
+      "operations": [
+        {
+          "path": "/payload/notice/locations/0/regionCode",
+          "value": "1100000000"
+        },
+        {
+          "path": "/payload/regionCode",
+          "value": "11000"
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "region_two_sigungu_same_sido",
+      "operations": [
+        {
+          "path": "/payload/notice/locations",
+          "value": [
+            {
+              "id": "building-a",
+              "kind": "BUILDING",
+              "parentLocationId": null,
+              "complexName": null,
+              "region": "서울특별시 종로구",
+              "buildingName": "가상건물 A동",
+              "address": "서울특별시 종로구 가상로 1",
+              "regionCode": "1111000000",
+              "evidenceIds": [
+                "e1"
+              ]
+            },
+            {
+              "id": "boundary-other-gu",
+              "kind": "BUILDING",
+              "parentLocationId": null,
+              "complexName": null,
+              "region": "서울특별시 종로구",
+              "buildingName": "가상건물 A동",
+              "address": "서울특별시 종로구 가상로 1",
+              "regionCode": "1114000000",
+              "evidenceIds": [
+                "e1"
+              ]
+            }
+          ]
+        },
+        {
+          "path": "/payload/regionCode",
+          "value": "11000"
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "region_two_sigungu_needs_sido_code",
+      "operations": [
+        {
+          "path": "/payload/notice/locations",
+          "value": [
+            {
+              "id": "building-a",
+              "kind": "BUILDING",
+              "parentLocationId": null,
+              "complexName": null,
+              "region": "서울특별시 종로구",
+              "buildingName": "가상건물 A동",
+              "address": "서울특별시 종로구 가상로 1",
+              "regionCode": "1111000000",
+              "evidenceIds": [
+                "e1"
+              ]
+            },
+            {
+              "id": "boundary-other-gu",
+              "kind": "BUILDING",
+              "parentLocationId": null,
+              "complexName": null,
+              "region": "서울특별시 종로구",
+              "buildingName": "가상건물 A동",
+              "address": "서울특별시 종로구 가상로 1",
+              "regionCode": "1114000000",
+              "evidenceIds": [
+                "e1"
+              ]
+            }
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "EVENT_REGION_CONFLICT"
+    },
+    {
+      "name": "region_sido_zero_invalid",
+      "operations": [
+        {
+          "path": "/payload/regionCode",
+          "value": "00110"
+        }
+      ],
+      "valid": false,
+      "errorCode": "REGION_CODE_HIERARCHY"
+    },
+    {
+      "name": "notice_announced_on_held",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/heldItems",
+          "value": [
+            {
+              "target": "/notice/announcedOn",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/heldItems",
+          "value": [
+            {
+              "target": "/notice/announcedOn",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/reviewIssues",
+          "value": [
+            {
+              "code": "API_MISMATCH",
+              "target": "/notice/announcedOn",
+              "description": "확인이 필요합니다."
+            }
+          ]
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "notice_title_cannot_be_held",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/heldItems",
+          "value": [
+            {
+              "target": "/notice/title",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/heldItems",
+          "value": [
+            {
+              "target": "/notice/title",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/reviewIssues",
+          "value": [
+            {
+              "code": "API_MISMATCH",
+              "target": "/notice/title",
+              "description": "확인이 필요합니다."
+            }
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "HELD_TARGET_NOT_ALLOWED"
+    },
+    {
+      "name": "api_mismatch_on_held_field",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/heldItems",
+          "value": [
+            {
+              "target": "/notice/announcedOn",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/heldItems",
+          "value": [
+            {
+              "target": "/notice/announcedOn",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/reviewIssues",
+          "value": [
+            {
+              "code": "API_MISMATCH",
+              "target": "/notice/announcedOn",
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/verification/apiComparison",
+          "value": {
+            "status": "MISMATCH",
+            "referenceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "referenceIdentity": {
+              "sourceCode": "test",
+              "sourceNoticeId": "synthetic-housing-1",
+              "rawPostId": "00000000-0000-7000-8000-000000000002",
+              "rawVersion": 1
+            },
+            "fields": [
+              {
+                "target": "/notice/announcedOn",
+                "sourcePath": "/목록/PAN_NT_ST_DT",
+                "expected": "1999-01-01",
+                "actual": "2026-10-01",
+                "status": "MISMATCH",
+                "reason": null
+              }
+            ]
+          }
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "api_mismatch_outside_hold",
+      "operations": [
+        {
+          "path": "/payload/reviewStatus",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/notice/quality/verification/status",
+          "value": "PARTIALLY_PASSED"
+        },
+        {
+          "path": "/payload/heldItems",
+          "value": [
+            {
+              "target": "/notice/supplyType",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/heldItems",
+          "value": [
+            {
+              "target": "/notice/supplyType",
+              "extent": "ITEM",
+              "codes": [
+                "API_MISMATCH"
+              ],
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/reviewIssues",
+          "value": [
+            {
+              "code": "API_MISMATCH",
+              "target": "/notice/supplyType",
+              "description": "확인이 필요합니다."
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/quality/verification/apiComparison",
+          "value": {
+            "status": "MISMATCH",
+            "referenceSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "referenceIdentity": {
+              "sourceCode": "test",
+              "sourceNoticeId": "synthetic-housing-1",
+              "rawPostId": "00000000-0000-7000-8000-000000000002",
+              "rawVersion": 1
+            },
+            "fields": [
+              {
+                "target": "/notice/announcedOn",
+                "sourcePath": "/목록/PAN_NT_ST_DT",
+                "expected": "1999-01-01",
+                "actual": "2026-10-01",
+                "status": "MISMATCH",
+                "reason": null
+              }
+            ]
+          }
+        }
+      ],
+      "valid": false,
+      "errorCode": "API_MISMATCH_NOT_HELD"
+    },
+    {
+      "name": "section_note_keeps_application_windows",
+      "operations": [
+        {
+          "path": "/payload/notice/quality/notes",
+          "value": [
+            {
+              "code": "ITEM_DROPPED_NO_EVIDENCE",
+              "target": "/schedules",
+              "description": "근거를 확인하지 못한 항목 1개를 뺐습니다."
+            }
+          ]
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "schedule_place_hours_and_days",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/places",
+          "value": [
+            {
+              "name": "가상주거공사 1층 접수처",
+              "address": null,
+              "detail": null
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/schedules/0/dailyHours",
+          "value": [
+            {
+              "start": "10:00",
+              "end": "17:00"
+            }
+          ]
+        },
+        {
+          "path": "/payload/notice/schedules/0/excludedDays",
+          "value": [
+            "SAT",
+            "SUN",
+            "HOLIDAY"
+          ]
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    },
+    {
+      "name": "free_text_channel_rejected",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/channels",
+          "value": [
+            "인터넷"
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "invalid_application_email",
+      "operations": [
+        {
+          "path": "/payload/notice/schedules/0/applicationEmail",
+          "value": {
+            "address": "접수 메일",
+            "subjectFormat": null
+          }
+        }
+      ],
+      "valid": false,
+      "errorCode": "SCHEMA"
+    },
+    {
+      "name": "application_channels_conflict",
+      "operations": [
+        {
+          "path": "/payload/notice/notice/applicationChannels",
+          "value": [
+            "ONLINE",
+            "FAX"
+          ]
+        }
+      ],
+      "valid": false,
+      "errorCode": "APPLICATION_CHANNELS_CONFLICT"
+    },
+    {
+      "name": "document_group_and_copies",
+      "operations": [
+        {
+          "path": "/payload/notice/requiredDocuments/0/group",
+          "value": "COMMON"
+        },
+        {
+          "path": "/payload/notice/requiredDocuments/0/copies",
+          "value": 1
+        }
+      ],
+      "valid": true,
+      "errorCode": null
+    }
+  ]
+}

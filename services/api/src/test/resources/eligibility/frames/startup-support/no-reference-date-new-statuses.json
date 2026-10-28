@@ -1,0 +1,243 @@
+{
+  "description": "기준일 문구가 없는 창업지원 공고(referenceDate null)와 새 유형 코드(대학생·1인 창조기업·장애인·벤처기업·소셜벤처). 판정하는 날 2026-10-22 기준",
+  "judgedOn": "2026-10-22",
+  "frame": {
+    "schema": "startup-support-judgment.v1",
+    "rawPolicyId": "test",
+    "rawVersion": 1,
+    "referenceDate": null,
+    "common": [
+      {
+        "id": "age",
+        "kind": "AGE",
+        "quote": null,
+        "page": null,
+        "inReview": false,
+        "reviewReason": null,
+        "asOf": null,
+        "minAge": null,
+        "maxAge": 39
+      }
+    ],
+    "groups": [
+      {
+        "id": "student",
+        "name": "대학생 창업",
+        "criteria": [
+          {
+            "id": "student-status",
+            "kind": "STATUS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "anyOf": [
+              "STUDENT"
+            ]
+          }
+        ]
+      },
+      {
+        "id": "one-person",
+        "name": "1인 창조기업",
+        "criteria": [
+          {
+            "id": "one-person-status",
+            "kind": "STATUS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "anyOf": [
+              "ONE_PERSON_CREATIVE"
+            ]
+          },
+          {
+            "id": "one-person-registered",
+            "kind": "BUSINESS_REGISTRATION",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "require": "REGISTERED"
+          }
+        ]
+      },
+      {
+        "id": "disabled",
+        "name": "장애인 창업",
+        "criteria": [
+          {
+            "id": "disabled-status",
+            "kind": "STATUS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "anyOf": [
+              "DISABLED"
+            ]
+          }
+        ]
+      }
+    ],
+    "preferences": [
+      {
+        "id": "venture",
+        "label": "벤처기업·소셜벤처 우대",
+        "groupId": null,
+        "effect": "PRIORITY",
+        "points": null,
+        "criteria": [
+          {
+            "id": "venture-status",
+            "kind": "STATUS",
+            "quote": null,
+            "page": null,
+            "inReview": false,
+            "reviewReason": null,
+            "asOf": null,
+            "anyOf": [
+              "VENTURE_COMPANY",
+              "SOCIAL_VENTURE"
+            ]
+          }
+        ],
+        "quote": null,
+        "page": null
+      }
+    ],
+    "notes": []
+  },
+  "cases": [
+    {
+      "name": "기준일 없음 → 판정하는 날(2026-10-22) 만 38세 대학생 → 대학생 창업으로 지원 가능",
+      "applicant": {
+        "birthDate": "1987-10-23",
+        "statuses": [
+          "STUDENT"
+        ],
+        "business": {
+          "history": []
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "student": "MET",
+          "one-person": "NOT_MET",
+          "disabled": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "1986-10-22생은 판정하는 날 만 40세라 나이 불충족 → 지원 불가",
+      "applicant": {
+        "birthDate": "1986-10-22",
+        "statuses": [
+          "STUDENT"
+        ],
+        "business": {
+          "history": []
+        }
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "criteria": {
+          "age": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "1인 창조기업이고 영업 중인 사업이 있음 → 1인 창조기업으로 지원 가능",
+      "applicant": {
+        "birthDate": "1990-01-01",
+        "statuses": [
+          "ONE_PERSON_CREATIVE"
+        ],
+        "business": {
+          "history": [
+            {
+              "openedOn": "2025-03-01"
+            }
+          ]
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "one-person": "MET"
+        }
+      }
+    },
+    {
+      "name": "1인 창조기업을 골랐지만 사업 이력이 없음 → 등록 불충족이라 지원 불가",
+      "applicant": {
+        "birthDate": "1990-01-01",
+        "statuses": [
+          "ONE_PERSON_CREATIVE"
+        ],
+        "business": {
+          "history": []
+        }
+      },
+      "expect": {
+        "result": "INELIGIBLE",
+        "groups": {
+          "one-person": "NOT_MET"
+        }
+      }
+    },
+    {
+      "name": "장애인 → 장애인 창업으로 지원 가능, 벤처기업이면 우대 해당",
+      "applicant": {
+        "birthDate": "1995-05-05",
+        "statuses": [
+          "DISABLED",
+          "VENTURE_COMPANY"
+        ],
+        "business": {
+          "history": []
+        }
+      },
+      "expect": {
+        "result": "ELIGIBLE",
+        "groups": {
+          "disabled": "MET"
+        },
+        "preferences": {
+          "venture": "MET"
+        }
+      }
+    },
+    {
+      "name": "유형을 아직 고르지 않음 → 확인 필요",
+      "applicant": {
+        "birthDate": "1995-05-05",
+        "business": {
+          "history": []
+        }
+      },
+      "expect": {
+        "result": "NEEDS_INPUT"
+      }
+    },
+    {
+      "name": "유형 '해당 없음'(빈 목록) → 세 대상군 모두 불충족이라 지원 불가",
+      "applicant": {
+        "birthDate": "1995-05-05",
+        "statuses": [],
+        "business": {
+          "history": []
+        }
+      },
+      "expect": {
+        "result": "INELIGIBLE"
+      }
+    }
+  ]
+}

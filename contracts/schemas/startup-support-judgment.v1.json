@@ -1,0 +1,1130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mujuthaek.kr/contracts/schemas/startup-support-judgment.v1.json",
+  "title": "창업지원 판정 틀 v1",
+  "description": "창업지원 사업 공고의 추출 결과를 지원 자격 판정용으로 한 번 더 가공한 데이터. 모든 칸을 항상 넣고, 없으면 null.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "rawPolicyId",
+    "rawVersion",
+    "referenceDate",
+    "common",
+    "groups",
+    "preferences",
+    "notes"
+  ],
+  "properties": {
+    "schema": {
+      "const": "startup-support-judgment.v1"
+    },
+    "rawPolicyId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rawVersion": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "referenceDate": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date",
+      "description": "판정 기준일 (보통 모집공고일). 공고에 기준일 문구가 없으면 null이고, 그러면 판정하는 날 기준이에요"
+    },
+    "common": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/criterion"
+      }
+    },
+    "groups": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/group"
+      }
+    },
+    "preferences": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/preference"
+      }
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/note"
+      }
+    }
+  },
+  "$defs": {
+    "age": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "minAge",
+        "maxAge"
+      ],
+      "properties": {
+        "kind": {
+          "const": "AGE"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "minAge": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "maxAge": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "properties": {
+              "minAge": {
+                "type": "null"
+              },
+              "maxAge": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "region": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "basis",
+        "regionCodes"
+      ],
+      "properties": {
+        "kind": {
+          "const": "REGION"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "basis": {
+          "enum": [
+            "RESIDENCE",
+            "BUSINESS_SITE",
+            "RESIDENCE_OR_BUSINESS_SITE"
+          ]
+        },
+        "regionCodes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]{10}$"
+          }
+        }
+      }
+    },
+    "registration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "require"
+      ],
+      "properties": {
+        "kind": {
+          "const": "BUSINESS_REGISTRATION"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "require": {
+          "enum": [
+            "REGISTERED",
+            "NOT_REGISTERED"
+          ]
+        }
+      }
+    },
+    "businessAge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "openedFrom",
+        "openedTo"
+      ],
+      "properties": {
+        "kind": {
+          "const": "BUSINESS_AGE"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "openedFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "openedTo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "properties": {
+              "openedFrom": {
+                "type": "null"
+              },
+              "openedTo": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "closure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "mode",
+        "closedFrom",
+        "closedTo"
+      ],
+      "properties": {
+        "kind": {
+          "const": "CLOSURE"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "mode": {
+          "enum": [
+            "NONE",
+            "ANY"
+          ]
+        },
+        "closedFrom": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        },
+        "closedTo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date"
+        }
+      }
+    },
+    "revenue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "year",
+        "minWon",
+        "maxWon"
+      ],
+      "properties": {
+        "kind": {
+          "const": "REVENUE"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "year": {
+          "type": "integer",
+          "minimum": 2000
+        },
+        "minWon": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "maxWon": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      },
+      "allOf": [
+        {
+          "not": {
+            "properties": {
+              "minWon": {
+                "type": "null"
+              },
+              "maxWon": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "industry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "mode",
+        "revision",
+        "codes",
+        "maybeCodes"
+      ],
+      "properties": {
+        "kind": {
+          "const": "INDUSTRY"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "mode": {
+          "enum": [
+            "EXCLUDE",
+            "ONLY"
+          ]
+        },
+        "revision": {
+          "enum": [
+            10,
+            11
+          ]
+        },
+        "codes": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]{2,5}$"
+          }
+        },
+        "maybeCodes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[0-9]{2,5}$"
+          }
+        }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "anyOf"
+      ],
+      "properties": {
+        "kind": {
+          "const": "STATUS"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "anyOf": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "SME",
+              "WOMAN",
+              "SMALL_BUSINESS",
+              "VENTURE_COMPANY",
+              "SOCIAL_VENTURE",
+              "DISABLED",
+              "ONE_PERSON_CREATIVE",
+              "STUDENT"
+            ]
+          }
+        }
+      }
+    },
+    "excludedStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "anyOf"
+      ],
+      "properties": {
+        "kind": {
+          "const": "EXCLUDED_STATUS"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "anyOf": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "CREDIT_DELINQUENT",
+              "TAX_ARREARS",
+              "CLAWBACK_UNPAID",
+              "PROGRAM_SANCTION",
+              "BUSINESS_SUSPENDED",
+              "WAGE_ARREARS",
+              "SUBSIDY_EXCLUDED"
+            ]
+          }
+        }
+      }
+    },
+    "anyOfKind": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "options"
+      ],
+      "properties": {
+        "kind": {
+          "const": "ANY_OF"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "options": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "label",
+              "criteria"
+            ],
+            "properties": {
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "criteria": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "$ref": "#/$defs/criterion"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "ask": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "id",
+        "quote",
+        "page",
+        "inReview",
+        "reviewReason",
+        "asOf",
+        "question",
+        "metWhen"
+      ],
+      "properties": {
+        "kind": {
+          "const": "ASK"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "공고 안에서 유일한 ID. ASK 답도 이 ID로 받아요"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "근거 원문 (공고문에 있는 그대로)"
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1,
+          "description": "근거 쪽 번호"
+        },
+        "inReview": {
+          "type": "boolean",
+          "description": "가공하면서 확신이 없으면 true. 판정은 이 조건을 계산하지 않고 '확인 필요'로 둬요"
+        },
+        "reviewReason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "inReview가 true인 이유"
+        },
+        "asOf": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date",
+          "description": "이 조건의 기준일이 referenceDate와 다를 때만 그 날짜"
+        },
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metWhen": {
+          "enum": [
+            "YES",
+            "NO"
+          ]
+        }
+      }
+    },
+    "criterion": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/age"
+        },
+        {
+          "$ref": "#/$defs/region"
+        },
+        {
+          "$ref": "#/$defs/registration"
+        },
+        {
+          "$ref": "#/$defs/businessAge"
+        },
+        {
+          "$ref": "#/$defs/closure"
+        },
+        {
+          "$ref": "#/$defs/revenue"
+        },
+        {
+          "$ref": "#/$defs/industry"
+        },
+        {
+          "$ref": "#/$defs/status"
+        },
+        {
+          "$ref": "#/$defs/excludedStatus"
+        },
+        {
+          "$ref": "#/$defs/anyOfKind"
+        },
+        {
+          "$ref": "#/$defs/ask"
+        }
+      ]
+    },
+    "group": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "criteria"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "criteria": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/criterion"
+          }
+        }
+      }
+    },
+    "preference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "groupId",
+        "effect",
+        "points",
+        "criteria",
+        "quote",
+        "page"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "groupId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "effect": {
+          "enum": [
+            "PRIORITY",
+            "BONUS_POINTS",
+            "OTHER"
+          ]
+        },
+        "points": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "exclusiveMinimum": 0
+        },
+        "criteria": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/criterion"
+          }
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "effect": {
+                "const": "BONUS_POINTS"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "points": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "note": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "groupId",
+        "text",
+        "quote",
+        "page"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "RULE",
+            "OBLIGATION",
+            "SELECTION",
+            "OTHER"
+          ]
+        },
+        "groupId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "page": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        }
+      }
+    }
+  }
+}

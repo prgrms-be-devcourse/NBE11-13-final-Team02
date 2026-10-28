@@ -1,0 +1,44 @@
+{
+  "response": {
+    "header": {
+      "resultCode": "00",
+      "resultMsg": "NORMAL SERVICE"
+    },
+    "body": {
+      "totalCount": "77",
+      "numOfRows": "1",
+      "pageNo": "1",
+      "item": [
+        {
+          "pblancId": "1452",
+          "houseSn": 1,
+          "sttusNm": "정정공고",
+          "pblancNm": "[정정공고](계약금 1,000만원)청주지북B1블록 공공분양 잔여세대 추가 입주자모집(선착순 동호지정)",
+          "suplyInsttNm": "LH",
+          "houseTyNm": "아파트",
+          "beforePblancId": "1451",
+          "rcritPblancDe": "20260716",
+          "przwnerPresnatnDe": "20270715",
+          "refrnc": "LH 콜센터 : 1600-1004 (평일 : 09:00 ~ 18:00)",
+          "url": "https://apply.lh.or.kr/lhapply/apply/wt/wrtanc/selectWrtancInfo.do?panId=0000061143&ccrCnntSysDsCd=02&uppAisTpCd=05&aisTpCd=05&mi=1027",
+          "pcUrl": "https://www.myhome.go.kr/hws/portal/sch/selectLttotHouseDetailView.do?pblancId=1452&houseSn=1",
+          "mobileUrl": "https://m.myhome.go.kr/hws/portal/sch/selectLttotHouseDetailView.do?pblancId=1452&houseSn=1",
+          "hsmpNm": "청주지북 B1블록",
+          "brtcNm": "충청북도",
+          "signguNm": "청주시 상당구",
+          "fullAdres": "충청북도 청주시 상당구 지북동 401 ",
+          "rnCodeNm": "",
+          "refrnLegaldongNm": "지북동",
+          "pnu": "4311112800104010000",
+          "heatMthdNm": "개별난방",
+          "sumSuplyCo": 648,
+          "enty": 10000000,
+          "prtpay": 0,
+          "surlus": 212580000,
+          "beginDe": "20260723",
+          "endDe": "20270715"
+        }
+      ]
+    }
+  }
+}

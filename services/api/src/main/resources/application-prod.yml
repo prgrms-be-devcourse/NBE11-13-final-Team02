@@ -1,4 +1,23 @@
+# Vercel rewrites → nginx → 이 서버. X-Forwarded-Proto·Host로 https 주소(쿠키·OAuth 리다이렉트)를 만들어요
+server:
+  forward-headers-strategy: framework
+
+# 운영은 health만 열어요 (nginx도 /actuator/health 말고는 막아요)
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+
 logging:
   structured:
     format:
       console: ecs                      # JSON 한 줄 로그
+
+app:
+  jwt:
+    secret: ${JWT_SECRET}                # 운영은 기본값 없이 꼭 넣어요
+    cookie-secure: true                  # refresh token 쿠키는 HTTPS에서만

@@ -1,0 +1,5377 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "무주택자들 공고 API",
+    "version": "1.0.0",
+    "description": "누구나 보는 공고 조회 API입니다(로그인 없음, GET만). services/api의 NoticeController와 같아야 하고, NoticeOpenApiSyncTest가 경로·요청 방식·요청 값 이름을 코드와 대조합니다. 자격 판정은 이 API에 없습니다(eligibility).\n\n- 공개된 공고만 나옵니다: 검수 대기 등 공개하지 않은 결과와 관리자가 숨긴 공고는 없는 공고와 같습니다(404 NOTICE_NOT_FOUND).\n- 다른 공고에 합쳐진 공고는 목록에 나오지 않고, 그 ID로 상세·주택목록·정정 이력을 물으면 합친(남은) 공고의 것이 나옵니다(상세의 header.id가 요청 ID와 다를 수 있음).\n- 값이 없는 칸도 null(목록은 빈 목록)로 내려갑니다. 날짜는 yyyy-MM-dd, 시각은 서울 시간(+09:00)입니다.\n- 오류는 모두 Problem Details(application/problem+json)이고 code로 구분합니다. 문서에 없는 경로는 404 NOT_FOUND, GET이 아닌 요청 방식은 405 METHOD_NOT_ALLOWED(Allow 헤더 포함), 그 밖의 표준 요청 오류(406 등)는 REQUEST_NOT_SUPPORTED에 실제 상태 코드를 넣습니다.\n- 특정 버전의 내용을 그대로 돌려주는 API는 아직 없습니다(정정 이력은 버전별로 바뀐 목록 값만 줍니다). 관리자 검수 API(/api/admin/reviews, ADMIN 권한)도 같은 컨트롤러 모듈이라 여기에 적습니다. 추출 서비스 검수 API(:8092)를 api 서버가 대신 부릅니다. 공고 제보(POST /api/v1/notices/{id}/reports, 로그인 회원)와 관리자 제보 처리(/api/admin/reports)도 여기에 적습니다."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "name": "notice",
+      "description": "공고 조회"
+    },
+    {
+      "name": "admin-review",
+      "description": "관리자 검수 (ADMIN)"
+    },
+    {
+      "name": "notice-report",
+      "description": "공고 제보 (회원 제보·관리자 처리)"
+    },
+    {
+      "name": "admin-source",
+      "description": "관리자 수집 현황 (수집기 관리자 API 대행)"
+    },
+    {
+      "name": "admin-benefit-review",
+      "description": "관리자 혜택(주거·이주 정책) 검수 (ADMIN)"
+    },
+    {
+      "name": "admin-activity",
+      "description": "관리자 처리 기록 (검수·제보를 누가 언제 처리했는지)"
+    }
+  ],
+  "paths": {
+    "/api/v1/notices": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "listNotices",
+        "summary": "공고 목록",
+        "description": "공개 목록입니다. 다음 페이지는 응답의 nextCursor를 cursor로 넘기고, 정렬을 바꾸면 처음부터 다시 받습니다(다른 정렬로 만든 커서는 400 INVALID_CURSOR). 예: GET /api/v1/notices?regionCodes=11440,41&tenure=RENT&statuses=APPLYING&sort=DEADLINE&applyEndFrom=2026-11-01&applyEndTo=2026-11-30",
+        "parameters": [
+          {
+            "name": "field",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "HOUSING",
+                "BUSINESS_SPACE"
+              ],
+              "default": "HOUSING"
+            },
+            "description": "분야. 없으면 HOUSING"
+          },
+          {
+            "name": "regionCodes",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[0-9]{2}([0-9]{3})?$"
+              }
+            },
+            "description": "지역: 시군구 5자리 또는 시도 2자리. 시도 2자리나 시도 단위 5자리(xx000, 예: 11000 = 서울특별시)는 그 시도의 모든 공고, 시군구 5자리는 그 시군구 공고와 그 시군구를 품는 대상 지역 전체 공고(예: 「대구 전체」)가 나옵니다. 여러 지역에 걸친 공고는 어느 지역으로도 찾을 수 있고, 전국 대상 공고는 어느 지역으로 찾아도 나옵니다. 여러 값은 하나라도 맞으면 나옵니다. 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: regionCodes=A,B)."
+          },
+          {
+            "name": "tenure",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RENT",
+                "BUY"
+              ]
+            },
+            "description": "RENT 빌려서 · BUY 사서. 공고 유형으로 정해요: PUBLIC_SALE·PRIVATE_SALE이 BUY, 그 밖의 유형이 RENT이고 유형을 모르는 공고는 둘 다에서 빠져요"
+          },
+          {
+            "name": "noticeTypes",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "YOUTH_SAFE_HOUSING",
+                  "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+                  "INTEGRATED_PUBLIC_RENTAL",
+                  "PUBLIC_RENTAL",
+                  "HAPPY_HOUSING",
+                  "NATIONAL_RENTAL",
+                  "PERMANENT_RENTAL",
+                  "PURCHASE_RENTAL",
+                  "JEONSE_RENTAL",
+                  "LONG_TERM_JEONSE",
+                  "PUBLIC_SALE",
+                  "PRIVATE_SALE",
+                  "STARTUP_SPACE",
+                  "SHOP_RENTAL",
+                  "MEETING_ROOM"
+                ]
+              }
+            },
+            "description": "공고 유형 (하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: noticeTypes=A,B)."
+          },
+          {
+            "name": "providers",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "공급 기관 이름 (원문 그대로, 하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: providers=A,B)."
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "UPCOMING",
+                  "APPLYING",
+                  "CLOSED",
+                  "ALWAYS",
+                  "UNKNOWN"
+                ]
+              }
+            },
+            "description": "접수 상태. 비우면 마감(CLOSED)을 뺀 전부(확인 필요 UNKNOWN 포함). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: statuses=A,B)."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "DEADLINE",
+                "LATEST"
+              ],
+              "default": "DEADLINE"
+            },
+            "description": "DEADLINE 마감 임박순(마감일 없는 공고는 맨 뒤) · LATEST 최신 공고일순(공고일 없는 공고는 맨 뒤). 없으면 DEADLINE"
+          },
+          {
+            "name": "applyEndFrom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "마감일이 이날 이후(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요"
+          },
+          {
+            "name": "applyEndTo",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "마감일이 이날 이전(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요. applyEndFrom보다 이르면 400"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "공고 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/{id}": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "getNotice",
+        "summary": "공고 상세 (현재 공개 버전)",
+        "description": "요약, 일정, 단지·건물, 주택형별 조건, 자격 조건과 근거 원문, 첨부 링크, 보류 항목, 지역 점수, 후속 안내입니다. 첨부는 기관 링크만 줍니다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "공고 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/{id}/units": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "listNoticeUnits",
+        "summary": "주택목록 (호별)",
+        "description": "호별 주소·면적·금액입니다. 주택목록이 없는 공고(상세의 hasUnits가 false)는 빈 목록입니다. 원문 확인 전까지 보류한 호(호 전체나 수량·가격 밖의 칸)는 빠지고, 가격만 보류한 호는 보증금·월임대료가 null(근거도 빠짐)입니다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          },
+          {
+            "name": "siteId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "단지·건물 하나만 볼 때 (상세의 sites[].id). 없는 ID면 빈 목록"
+          },
+          {
+            "$ref": "#/components/parameters/Cursor"
+          },
+          {
+            "$ref": "#/components/parameters/Size"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "주택목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeUnitPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/{id}/versions": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "listNoticeVersions",
+        "summary": "정정 이력",
+        "description": "공개한 버전 목록입니다(버전 오름차순, 첫 버전부터). 공개하지 않은 결과(검수 대기 등)와 후속 안내는 버전이 아닙니다.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "버전 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "$ref": "#/components/schemas/NoticeVersion"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "listAdminReviews",
+        "summary": "검수 대기 목록",
+        "parameters": [
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AdminReviewReason"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "대기 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/counts": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "countAdminReviews",
+        "summary": "검수 대기 건수 (사이드바·개요)",
+        "responses": {
+          "200": {
+            "description": "대기 건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/stats": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "adminReviewStats",
+        "summary": "검수 처리 통계 (개요의 판정 품질·오늘 처리)",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 7
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "처리 통계",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewStats"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/urgent": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "urgentAdminReviews",
+        "summary": "마감이 가까운 검수 대기 (개요의 지금 처리할 일)",
+        "description": "신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건, 마감이 이른 것부터",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 30,
+              "default": 3
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "마감이 가까운 대기 건",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AdminReviewItem"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/{id}": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "getAdminReview",
+        "summary": "검수 상세",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "검수 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/{id}/approve": {
+      "post": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "approveAdminReview",
+        "summary": "승인 (결과를 다시 발행)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reviews/{id}/reject": {
+      "post": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "rejectAdminReview",
+        "summary": "반려 (발행 없음)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/{id}/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportNotice",
+        "summary": "공고 제보 (로그인 회원)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/NoticeId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticeReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/NoticeNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
+    },
+    "/api/admin/activity": {
+      "get": {
+        "tags": [
+          "admin-activity"
+        ],
+        "operationId": "listAdminActivity",
+        "summary": "처리 기록: 관리자가 처리한 공고·혜택 검수와 공고·혜택·창업 사업·생활권 제보를 최근 순으로 (최대 300줄)",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "description": "최근 며칠 (1~90, 기본 30)",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 90,
+              "default": 30
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "처리 기록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminActivity"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "listAdminReports",
+        "summary": "제보 목록 (최근 것부터 최대 100건)",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "DOING",
+                "DONE"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "제보 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/counts": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "countAdminReports",
+        "summary": "상태별 제보 건수 (사이드바)",
+        "responses": {
+          "200": {
+            "description": "건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{id}": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "getAdminReport",
+        "summary": "제보 상세",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "제보 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{id}/start": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "startAdminReport",
+        "summary": "처리 시작 (새 제보 → 처리 중)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "제보 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{id}/review": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reviewAdminReport",
+        "summary": "고치기: 공고의 최신 추출 결과를 검수로 다시 열기",
+        "description": "같은 공고·칸의 처리 전 제보에도 이어요. 관리자는 검수 화면에서 칸을 고쳐 승인(다시 발행)한 뒤 resolve로 제보를 끝내요.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "다시 연 검수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportReview"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/{id}/resolve": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "resolveAdminReport",
+        "summary": "처리 끝 (고침 · 그대로 둠, 답장)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReportId"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReportResolveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "제보 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportDetail"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/sources": {
+      "get": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "adminSources",
+        "summary": "출처별 수집 상태",
+        "responses": {
+          "200": {
+            "description": "수집 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSources"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/sources/{code}/pause": {
+      "post": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "pauseAdminSource",
+        "summary": "멈춤 (수집하지 않음)",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "description": "수집 출처 코드 (sh, gh, lh_myhome …)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "바꾼 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSourceToggle"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/SourceNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/sources/{code}/run": {
+      "post": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "runAdminSource",
+        "summary": "지금 한 번 수집 (수집기가 뒤에서 돌림)",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "description": "수집 출처 코드",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "수집 시작",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "code",
+                    "started"
+                  ],
+                  "properties": {
+                    "code": {
+                      "type": "string"
+                    },
+                    "started": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/SourceNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/SourceBusy"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/sources/{code}/resume": {
+      "post": {
+        "tags": [
+          "admin-source"
+        ],
+        "operationId": "resumeAdminSource",
+        "summary": "다시 켜기",
+        "parameters": [
+          {
+            "name": "code",
+            "in": "path",
+            "required": true,
+            "description": "수집 출처 코드 (sh, gh, lh_myhome …)",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "바꾼 상태",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminSourceToggle"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/SourceNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/CollectorUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/programs/{id}/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportProgram",
+        "summary": "창업지원 사업 제보 (로그인 회원)",
+        "description": "id는 판정 API의 programId(rawPolicyId)와 같아요. 판정 틀이 있는 사업에만 받아요.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "창업지원 사업 ID (rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticeReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
+    },
+    "/api/v1/notices/map": {
+      "get": {
+        "tags": [
+          "notice"
+        ],
+        "operationId": "noticeMap",
+        "summary": "공고 지도",
+        "description": "지도 범위 안 공고의 대표 위치(area 좌표). 300개 이하면 핀, 넘으면 지역별 묶음이에요. 필터는 공개 목록과 같은 뜻이에요. 예: GET /api/v1/notices/map?swLat=37.4&swLng=126.8&neLat=37.7&neLng=127.2&zoom=12",
+        "parameters": [
+          {
+            "name": "swLat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "description": "지도 남서쪽 위도"
+          },
+          {
+            "name": "swLng",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "description": "지도 남서쪽 경도"
+          },
+          {
+            "name": "neLat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -90,
+              "maximum": 90
+            },
+            "description": "지도 북동쪽 위도 (swLat보다 커야 해요)"
+          },
+          {
+            "name": "neLng",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": -180,
+              "maximum": 180
+            },
+            "description": "지도 북동쪽 경도 (swLng보다 커야 해요)"
+          },
+          {
+            "name": "zoom",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            },
+            "description": "지도 확대 단계. 묶음일 때 10 미만은 시도, 아니면 시군구로 묶어요"
+          },
+          {
+            "name": "tenure",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "RENT",
+                "BUY"
+              ]
+            },
+            "description": "RENT 빌려서 · BUY 사서. 공고 유형으로 정해요: PUBLIC_SALE·PRIVATE_SALE이 BUY, 그 밖의 유형이 RENT이고 유형을 모르는 공고는 둘 다에서 빠져요"
+          },
+          {
+            "name": "noticeTypes",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "YOUTH_SAFE_HOUSING",
+                  "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+                  "INTEGRATED_PUBLIC_RENTAL",
+                  "PUBLIC_RENTAL",
+                  "HAPPY_HOUSING",
+                  "NATIONAL_RENTAL",
+                  "PERMANENT_RENTAL",
+                  "PURCHASE_RENTAL",
+                  "JEONSE_RENTAL",
+                  "LONG_TERM_JEONSE",
+                  "PUBLIC_SALE",
+                  "PRIVATE_SALE",
+                  "STARTUP_SPACE",
+                  "SHOP_RENTAL",
+                  "MEETING_ROOM"
+                ]
+              }
+            },
+            "description": "공고 유형 (하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: noticeTypes=A,B)."
+          },
+          {
+            "name": "providers",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "공급 기관 이름 (원문 그대로, 하나라도 맞으면). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: providers=A,B)."
+          },
+          {
+            "name": "statuses",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "UPCOMING",
+                  "APPLYING",
+                  "CLOSED",
+                  "ALWAYS",
+                  "UNKNOWN"
+                ]
+              }
+            },
+            "description": "접수 상태. 비우면 마감(CLOSED)을 뺀 전부(확인 필요 UNKNOWN 포함). 같은 이름을 여러 번 주거나 쉼표로 이어 줘요(예: statuses=A,B)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "지도",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeMap"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews": {
+      "get": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "listAdminBenefitReviews",
+        "summary": "혜택(주거·이주 정책) 검수 목록",
+        "description": "추출 서비스의 혜택 정제 결과 중 확인 필요(needsReview)와 정책 제보로 다시 연 건. 오래 기다린 것부터.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "APPROVED",
+                "REJECTED",
+                "SUPERSEDED"
+              ],
+              "default": "PENDING"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "검수 목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBenefitReviewList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews/{id}": {
+      "get": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "getAdminBenefitReview",
+        "summary": "혜택 검수 상세 (정제 결과·받은 원문·처리 기록)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "검수 상세",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBenefitReviewDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews/{id}/approve": {
+      "post": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "approveAdminBenefitReview",
+        "summary": "혜택 검수 승인 (칸별 수정 후 확인 필요를 풀어 다시 내보냄, 알림 없음)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/admin/benefit-reviews/{id}/reject": {
+      "post": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "rejectAdminBenefitReview",
+        "summary": "혜택 검수 반려 (relevant=false로 다시 내보내 서비스에 안 보임)",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ReviewId"
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminReviewDecisionRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리 결과",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewDecision"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReviewNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReviewConflict"
+          },
+          "422": {
+            "$ref": "#/components/responses/ReviewInvalid"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
+    "/api/v1/benefits/{id}/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportBenefit",
+        "summary": "주거·복지 정책(혜택) 제보 (로그인한 회원)",
+        "description": "혜택 정책의 틀린 값을 알려요. id는 정책 원본 ID(policy.extracted의 rawPolicyId)이고, 추출 서비스에 정제 결과가 있는 정책에만 받아요. 관리자 「고치기」는 혜택 검수(/api/admin/benefit-reviews)로 이어지고, 답은 BenefitReportAnswered 이벤트로 알림 쪽에 가요. 하루 20건까지.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "description": "혜택 정책 원본 ID (policy.extracted의 rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoticeReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "404": {
+            "$ref": "#/components/responses/ReportNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/ReportConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
+    },
+    "/api/admin/policy-duplicates": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "listPolicyDuplicates",
+        "summary": "중복 의심 사업 목록 (출처에 두 번 올라온 것 같은 창업 지원·입주 모집, 최근 순) · 상태별 건수",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "KEPT_BOTH",
+                "HIDDEN"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/policy-duplicates/counts": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "countPolicyDuplicates",
+        "summary": "중복 의심 상태별 건수 (사이드바)",
+        "responses": {
+          "200": {
+            "description": "건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/policy-duplicates/{later}/{earlier}/decide": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "decidePolicyDuplicate",
+        "summary": "중복 의심 처리: 둘 다 둠(KEEP_BOTH) 또는 나중 것 숨김(HIDE_LATER, 열린 목록·판정·알림에서 빠짐)",
+        "parameters": [
+          {
+            "name": "later",
+            "in": "path",
+            "required": true,
+            "description": "나중에 들어온 사업 ID (rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "earlier",
+            "in": "path",
+            "required": true,
+            "description": "먼저 있던 사업 ID (rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "KEEP_BOTH",
+                      "HIDE_LATER"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "처리함 · 상태별 건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateCounts"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "description": "이미 처리했거나 없는 중복 후보",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "parameters": {
+      "NoticeId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "description": "공고 ID. UUID 형식이 아니면 400 VALIDATION_FAILED"
+      },
+      "Cursor": {
+        "name": "cursor",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "string"
+        },
+        "description": "이전 응답의 nextCursor. 없으면 첫 페이지. 읽을 수 없거나 다른 정렬로 만든 커서면 400 INVALID_CURSOR"
+      },
+      "Size": {
+        "name": "size",
+        "in": "query",
+        "required": false,
+        "schema": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 20
+        },
+        "description": "한 페이지 개수. 범위를 벗어나면 400 VALIDATION_FAILED"
+      },
+      "ReviewId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "검수 작업 ID",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "ReportId": {
+        "name": "id",
+        "in": "path",
+        "required": true,
+        "description": "제보 ID",
+        "schema": {
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "responses": {
+      "BadRequest": {
+        "description": "요청 값이 올바르지 않음. code: VALIDATION_FAILED(쓸 수 없는 값·형식이 맞지 않는 값·size 범위·applyEndFrom이 applyEndTo보다 늦음 등), INVALID_CURSOR(커서를 읽을 수 없거나 다른 정렬의 커서)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "NoticeNotFound": {
+        "description": "공고가 없거나 숨김·공개 전 (code: NOTICE_NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "InternalError": {
+        "description": "서버 오류 (code: INTERNAL_ERROR). detail에 원인을 넣지 않고 timestamp를 붙여요",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "AdminForbidden": {
+        "description": "로그인하지 않았거나(UNAUTHENTICATED) 관리자가 아님(FORBIDDEN)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewNotFound": {
+        "description": "검수 항목이 없음 (code: NOTICE_REVIEW_NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewConflict": {
+        "description": "이미 처리됐거나 같은 공고의 새 버전으로 대체된 검수 항목 (code: NOTICE_REVIEW_CONFLICT). detail에 검수 API 설명",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewInvalid": {
+        "description": "검수 결과가 공고 형식에 맞지 않음 (code: NOTICE_REVIEW_INVALID)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReviewUnavailable": {
+        "description": "검수 서버에 연결하지 못함 (code: NOTICE_REVIEW_UNAVAILABLE)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReportNotFound": {
+        "description": "제보가 없음 (code: NOTICE_REPORT_NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReportConflict": {
+        "description": "같은 칸에 처리 전 제보가 있거나 이미 처리한 제보 (code: CONFLICT)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "ReportRateLimited": {
+        "description": "하루 제보 수(20건)를 넘음 (code: RATE_LIMITED)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "LoginRequired": {
+        "description": "로그인이 필요함 (code: UNAUTHENTICATED)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "CollectorUnavailable": {
+        "description": "수집기에 연결하지 못함 (code: NOTICE_COLLECTOR_UNAVAILABLE)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "SourceNotFound": {
+        "description": "없는 수집 출처 (code: NOT_FOUND)",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      },
+      "SourceBusy": {
+        "description": "다른 수집이 돌고 있거나, 그 출처가 수집 중·멈춤 (code: CONFLICT). detail에 수집기 설명",
+        "content": {
+          "application/problem+json": {
+            "schema": {
+              "$ref": "#/components/schemas/Problem"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "Problem": {
+        "type": "object",
+        "description": "오류 응답: Problem Details(RFC 9457) + 화면이 문구를 고르는 code. 입력값은 detail·errors에 넣지 않아요.",
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "code"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "description": "https://mujuthaek.kr/problems/ 뒤에 code를 소문자·하이픈으로 (예: .../validation-failed)"
+          },
+          "title": {
+            "type": "string",
+            "description": "code의 기본 문구"
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP 상태 코드"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "description": "요청 경로"
+          },
+          "code": {
+            "type": "string",
+            "enum": [
+              "VALIDATION_FAILED",
+              "INVALID_CURSOR",
+              "NOT_FOUND",
+              "NOTICE_NOT_FOUND",
+              "METHOD_NOT_ALLOWED",
+              "UNSUPPORTED_MEDIA_TYPE",
+              "REQUEST_NOT_SUPPORTED",
+              "INTERNAL_ERROR"
+            ],
+            "description": "이 API에서 나올 수 있는 코드. NOT_FOUND는 없는 경로, METHOD_NOT_ALLOWED는 GET이 아닌 요청, REQUEST_NOT_SUPPORTED는 그 밖의 표준 4xx(status는 실제 값)"
+          },
+          "errors": {
+            "type": "array",
+            "description": "본문 검증 오류의 칸별 이유 (이 API의 쿼리 오류에는 없음)",
+            "items": {
+              "type": "object",
+              "required": [
+                "field",
+                "reason"
+              ],
+              "properties": {
+                "field": {
+                  "type": "string"
+                },
+                "reason": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time",
+            "description": "500일 때만"
+          }
+        }
+      },
+      "NoticeStatus": {
+        "type": "string",
+        "enum": [
+          "UPCOMING",
+          "APPLYING",
+          "CLOSED",
+          "ALWAYS",
+          "UNKNOWN"
+        ],
+        "description": "접수 상태: UPCOMING 접수예정 · APPLYING 접수중 · CLOSED 마감 · ALWAYS 상시 · UNKNOWN 확인 필요(일정이 없거나 확실하지 않아 단정할 수 없음)"
+      },
+      "NoticePage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor",
+          "hasNext"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeSummary"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "다음 페이지 커서 (마지막 페이지면 null)"
+          },
+          "hasNext": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeSummary": {
+        "type": "object",
+        "description": "공고 목록 한 줄",
+        "required": [
+          "id",
+          "field",
+          "title",
+          "provider",
+          "noticeType",
+          "regionCode",
+          "regionName",
+          "status",
+          "applyStart",
+          "applyEnd",
+          "dday",
+          "postedOn",
+          "needsCheck",
+          "lat",
+          "lng",
+          "siteCount",
+          "areaScore",
+          "tags"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "HOUSING",
+              "BUSINESS_SPACE"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "공급 기관"
+          },
+          "noticeType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "YOUTH_SAFE_HOUSING",
+              "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+              "INTEGRATED_PUBLIC_RENTAL",
+              "PUBLIC_RENTAL",
+              "HAPPY_HOUSING",
+              "NATIONAL_RENTAL",
+              "PERMANENT_RENTAL",
+              "PURCHASE_RENTAL",
+              "JEONSE_RENTAL",
+              "LONG_TERM_JEONSE",
+              "PUBLIC_SALE",
+              "PRIVATE_SALE",
+              "STARTUP_SPACE",
+              "SHOP_RENTAL",
+              "MEETING_ROOM",
+              null
+            ],
+            "description": "공고 유형 (원문 공급 유형에서 못 정하면 null)"
+          },
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "대표 지역 5자리 (시도 단위면 xx000, 여러 시도면 null)"
+          },
+          "regionName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "대표 지역 이름"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NoticeStatus"
+          },
+          "applyStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "접수 시작일"
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "접수 마감일 (상시거나 모르면 null)"
+          },
+          "dday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "마감까지 남은 날 (마감일 당일 0, 마감일이 없거나 지났으면 null)"
+          },
+          "postedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "공고 게시일"
+          },
+          "needsCheck": {
+            "type": "boolean",
+            "description": "원문 확인 전까지 보여 주지 않는 항목이 있음 (화면의 「확인 필요」)"
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "대표 위치 위도 (좌표가 있는 첫 위치, 없으면 null)"
+          },
+          "lng": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "대표 위치 경도"
+          },
+          "siteCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "위치 수 (단지·건물이 여럿이면 2 이상)"
+          },
+          "areaScore": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "대표 위치의 생활권 총점 (항목 5개 같은 비중, 없으면 null)"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "STATION",
+                "SCHOOL",
+                "ELEMENTARY_NEAR",
+                "PARK",
+                "CONVENIENCE",
+                "CLINIC"
+              ]
+            },
+            "description": "세권 태그 (역·학·초품아·숲(공원)·편의·의세권)"
+          }
+        }
+      },
+      "NoticeDetail": {
+        "type": "object",
+        "description": "공고 상세 (현재 공개 버전)",
+        "required": [
+          "header",
+          "summary",
+          "schedules",
+          "sites",
+          "unitTypes",
+          "conditions",
+          "requiredDocuments",
+          "selectionRules",
+          "guidance",
+          "files",
+          "heldItems",
+          "areaSummaries",
+          "followUps",
+          "hasUnits",
+          "version",
+          "reviewed",
+          "updatedAt"
+        ],
+        "properties": {
+          "header": {
+            "$ref": "#/components/schemas/NoticeHeader"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/NoticeContentSummary"
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Schedule"
+            },
+            "description": "일정 (보류한 일정은 빠짐)"
+          },
+          "sites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Site"
+            },
+            "description": "단지·건물 (보류한 위치는 빠지고, 보류한 칸만 null)"
+          },
+          "unitTypes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnitType"
+            },
+            "description": "주택형별 조건 (공급 묶음 전체나 수량·가격 밖의 칸을 보류한 묶음이 있는 주택형은 빠짐. 수량만 보류했으면 supplyCount만, 가격만 보류했으면 그 보증금·월임대료만 null)"
+          },
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "description": "대상별 자격 조건과 근거 원문. 판정은 eligibility API로"
+          },
+          "requiredDocuments": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequiredDocument"
+            },
+            "description": "제출 서류 (서류 묶음 순서: 공통·해당자·본인 방문·배우자 대리·그 밖의 대리·묶음 없음, 같은 묶음 안은 원문 순서). 보류한 서류는 빠짐"
+          },
+          "selectionRules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SelectionRule"
+            },
+            "description": "선정 방식 (순위·배점·추첨·선착순 등, 원문 순서). 보류한 항목은 빠짐"
+          },
+          "guidance": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Guidance"
+            },
+            "description": "안내 (신청 방법·주의 사항·입주·거주·문의처, 원문 순서). 보류한 항목은 빠짐"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileLink"
+            },
+            "description": "첨부 (기관 링크만)"
+          },
+          "heldItems": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/HeldItem"
+            },
+            "description": "원문 확인 전까지 보여 주지 않는 항목. 화면은 「확인 필요」로 알려요"
+          },
+          "areaSummaries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AreaSummary"
+            },
+            "description": "위치별 생활·상업 점수 (지금 버전의 위치로 계산한 것만)"
+          },
+          "followUps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FollowUp"
+            },
+            "description": "원래 공고에 붙은 후속 안내 (공고 버전과 따로)"
+          },
+          "hasUnits": {
+            "type": "boolean",
+            "description": "호별 주택목록이 있는지 (없으면 주택목록·지도 섹션을 숨겨요)"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "공고 버전 (정정되면 올라가요)"
+          },
+          "reviewed": {
+            "type": "boolean",
+            "description": "검수자가 확인한 버전인지"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "공고가 마지막으로 바뀐 시각 (+09:00)"
+          }
+        }
+      },
+      "NoticeHeader": {
+        "type": "object",
+        "required": [
+          "id",
+          "field",
+          "title",
+          "provider",
+          "noticeType",
+          "supplyTypeText",
+          "status",
+          "applyStart",
+          "applyEnd",
+          "dday",
+          "regionCode",
+          "regionName",
+          "postedOn",
+          "detailUrl",
+          "needsCheck"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "공고 ID (합쳐진 공고 ID로 물었으면 합친 공고 ID)"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "HOUSING",
+              "BUSINESS_SPACE"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "noticeType": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "YOUTH_SAFE_HOUSING",
+              "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+              "INTEGRATED_PUBLIC_RENTAL",
+              "PUBLIC_RENTAL",
+              "HAPPY_HOUSING",
+              "NATIONAL_RENTAL",
+              "PERMANENT_RENTAL",
+              "PURCHASE_RENTAL",
+              "JEONSE_RENTAL",
+              "LONG_TERM_JEONSE",
+              "PUBLIC_SALE",
+              "PRIVATE_SALE",
+              "STARTUP_SPACE",
+              "SHOP_RENTAL",
+              "MEETING_ROOM",
+              null
+            ]
+          },
+          "supplyTypeText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문 공급 유형 그대로 (예: 매입임대)"
+          },
+          "status": {
+            "$ref": "#/components/schemas/NoticeStatus"
+          },
+          "applyStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "dday": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "regionName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "기관 원문 주소"
+          },
+          "needsCheck": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeContentSummary": {
+        "type": "object",
+        "required": [
+          "summaryText",
+          "targetGroups",
+          "supplyTotal",
+          "exclusiveM2Min",
+          "exclusiveM2Max",
+          "applicationChannels"
+        ],
+        "properties": {
+          "summaryText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "한 줄 요약"
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "공급 대상 (원문 표현)"
+          },
+          "supplyTotal": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "모집 호수 (공고에 적힌 수, 없으면 주택형별 합. 수량을 보류했거나 빠진 공급 묶음이 있으면 합을 쓰지 않아 null)"
+          },
+          "exclusiveM2Min": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "전용면적 최소 (㎡)"
+          },
+          "exclusiveM2Max": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "전용면적 최대 (㎡)"
+          },
+          "applicationChannels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplicationChannel"
+            },
+            "description": "공고 전체 신청 방법 (신청 일정들의 방법을 합친 것, 정해진 순서)"
+          }
+        }
+      },
+      "Schedule": {
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "kinds",
+          "startsAt",
+          "endsAt",
+          "description",
+          "applicationUrl",
+          "channels",
+          "places",
+          "applicationEmail",
+          "dailyHours",
+          "breaks",
+          "excludedDays",
+          "timeNote",
+          "current",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문 일정 이름"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "일정 종류 (APPLICATION, VIEWING(주택 열람·방문 예약), DOCUMENT_SUBMISSION, WINNER_ANNOUNCEMENT, CONTRACT, MOVE_IN 등)"
+          },
+          "startsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "시작: 날짜(yyyy-MM-dd) 또는 시각(yyyy-MM-ddTHH:mm:ss+09:00)"
+          },
+          "endsAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "끝: 날짜 또는 시각"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applicationUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "신청 주소"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ApplicationChannel"
+            },
+            "description": "신청·제출 방법 (이전 저장본의 자유 글자는 빠짐)"
+          },
+          "places": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SchedulePlace"
+            },
+            "description": "방문 접수 장소"
+          },
+          "applicationEmail": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ApplicationEmail"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "이메일 접수 (없으면 null)"
+          },
+          "dailyHours": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimeRange"
+            },
+            "description": "접수하는 날의 접수 시각"
+          },
+          "breaks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimeRange"
+            },
+            "description": "접수하지 않는 시각 (점심시간 등)"
+          },
+          "excludedDays": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "MON",
+                "TUE",
+                "WED",
+                "THU",
+                "FRI",
+                "SAT",
+                "SUN",
+                "HOLIDAY"
+              ]
+            },
+            "description": "접수하지 않는 요일·공휴일(HOLIDAY)"
+          },
+          "timeNote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "시각에 붙은 조건 설명"
+          },
+          "current": {
+            "type": "boolean",
+            "description": "오늘이 이 일정 안이면 true"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 일정의 근거 원문"
+          }
+        }
+      },
+      "Site": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "name",
+          "address",
+          "regionCode",
+          "siteId",
+          "lat",
+          "lng",
+          "tags"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "위치 ID (주택목록 siteId, 지역 점수 siteId)"
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "COMPLEX, BUILDING, SITE, AREA, UNKNOWN"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지 이름 (없으면 건물 이름)"
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "지역 5자리"
+          },
+          "siteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "area 위치 ID (GET /areas/sites/{siteId}·POST /areas/score). area가 아직 모르는 위치면 null"
+          },
+          "lat": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "위도 (area가 좌표를 못 찾았으면 null)"
+          },
+          "lng": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "경도"
+          },
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "STATION",
+                "SCHOOL",
+                "ELEMENTARY_NEAR",
+                "PARK",
+                "CONVENIENCE",
+                "CLINIC"
+              ]
+            },
+            "description": "세권 태그 (역·학·초품아·숲(공원)·편의·의세권)"
+          }
+        }
+      },
+      "UnitType": {
+        "type": "object",
+        "required": [
+          "houseType",
+          "targetGroups",
+          "exclusiveM2",
+          "depositWon",
+          "rentWon",
+          "supplyCount",
+          "evidence",
+          "supplyGroupId",
+          "siteName",
+          "salePriceMinWon",
+          "salePriceMaxWon"
+        ],
+        "properties": {
+          "houseType": {
+            "type": "string",
+            "description": "주택형"
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "이 줄의 가격 대상(가군·주거급여수급자 등), 없으면 공급 묶음의 대상"
+          },
+          "exclusiveM2": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "전용면적 (㎡)"
+          },
+          "depositWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "보증금 (원, 보류했으면 null)"
+          },
+          "rentWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "월임대료 (원, 보류했으면 null)"
+          },
+          "supplyCount": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "공급 호수. 묶음 전체 수량이 있으면 그것만, 없으면 대상별 수량의 합(하위 수량은 세지 않음). 같은 묶음의 줄이 여럿(가격 대상별)이면 첫 줄에만 있고 나머지는 null. 수량을 보류했으면 null"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "보여 주는 보증금·월임대료의 근거 원문"
+          },
+          "supplyGroupId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "공급 묶음 ID (같은 묶음의 줄끼리 같아요)"
+          },
+          "siteName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지·건물 이름 (모르면 null)"
+          },
+          "salePriceMinWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "분양가 가장 낮은 값 (원, 층·안별로 여러 개일 때. 분양이 아니거나 보류했으면 null)"
+          },
+          "salePriceMaxWon": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "분양가 가장 높은 값 (원)"
+          }
+        },
+        "description": "공급 묶음별 주택형 줄. 다른 묶음(단지·대상)은 주택형 이름이 같아도 합치지 않아요. 가격 대상이 여럿이면 대상마다 한 줄이에요."
+      },
+      "Condition": {
+        "type": "object",
+        "required": [
+          "id",
+          "category",
+          "target",
+          "targetGroups",
+          "description",
+          "originalText",
+          "inReview",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originalText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "근거 원문"
+          },
+          "inReview": {
+            "type": "boolean",
+            "description": "확인 필요 (검수 중이거나 원문 확인 전까지 보류한 조건)"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 조건의 근거 원문 (원문 확인 전까지 보류한 조건은 빈 목록)"
+          }
+        }
+      },
+      "Evidence": {
+        "type": "object",
+        "description": "값의 근거가 된 원문 인용. 모델 신뢰도는 추출 계약에 없어서 주지 않습니다",
+        "required": [
+          "quote",
+          "page",
+          "printedPage",
+          "documentName"
+        ],
+        "properties": {
+          "quote": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문 인용"
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "PDF의 실제 쪽 (1부터). 글자 범위 근거는 PDF 글자에서 쪽을 정한 경우만, 표 행 근거·쪽을 모르면 null"
+          },
+          "printedPage": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "그 쪽에 인쇄된 쪽 번호"
+          },
+          "documentName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "근거 문서 이름 (첨부 파일 이름 또는 원문 글자 묶음 이름)"
+          }
+        }
+      },
+      "FileLink": {
+        "type": "object",
+        "required": [
+          "name",
+          "url"
+        ],
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "description": "기관 원문 첨부 주소"
+          }
+        }
+      },
+      "HeldItem": {
+        "type": "object",
+        "required": [
+          "section",
+          "target",
+          "description"
+        ],
+        "properties": {
+          "section": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "어느 섹션인지 (schedules, supplyGroups, locations, eligibility, notice …)"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "보류한 항목의 위치 (JSON Pointer, 예: /schedules/2)"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "확인이 필요한 이유"
+          }
+        }
+      },
+      "AreaSummary": {
+        "type": "object",
+        "required": [
+          "siteId",
+          "kind",
+          "score",
+          "calculatedAt"
+        ],
+        "properties": {
+          "siteId": {
+            "type": "string",
+            "description": "단지·건물 (sites[].id)"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "LIVING",
+              "COMMERCIAL"
+            ],
+            "description": "LIVING 생활 · COMMERCIAL 상업"
+          },
+          "score": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100
+          },
+          "calculatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "FollowUp": {
+        "type": "object",
+        "required": [
+          "title",
+          "detailUrl",
+          "postedOn",
+          "schedules"
+        ],
+        "properties": {
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "postedOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "schedules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Schedule"
+            }
+          }
+        }
+      },
+      "NoticeUnitPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor",
+          "hasNext"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeUnit"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "hasNext": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeUnit": {
+        "type": "object",
+        "description": "주택목록 한 호",
+        "required": [
+          "id",
+          "siteId",
+          "address",
+          "unitLabel",
+          "floor",
+          "houseType",
+          "exclusiveM2",
+          "depositWon",
+          "rentWon",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "siteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지·건물 (sites[].id)"
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "단지·건물 주소 (보류했으면 null)"
+          },
+          "unitLabel": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "동·호"
+          },
+          "floor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "houseType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "exclusiveM2": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "depositWon": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rentWon": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "보증금·월임대료의 근거 원문"
+          }
+        }
+      },
+      "NoticeVersion": {
+        "type": "object",
+        "description": "정정 이력 한 줄",
+        "required": [
+          "version",
+          "kind",
+          "reviewStatus",
+          "changedFields",
+          "receivedAt"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "NOTICE",
+              "CORRECTION"
+            ],
+            "description": "NOTICE 모집공고 · CORRECTION 정정공고"
+          },
+          "reviewStatus": {
+            "type": "string",
+            "enum": [
+              "AUTO_PASSED",
+              "PARTIALLY_PASSED",
+              "APPROVED"
+            ]
+          },
+          "changedFields": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "title",
+                "provider",
+                "noticeType",
+                "regionCode",
+                "applyStart",
+                "applyEnd",
+                "summaryText"
+              ]
+            },
+            "description": "앞 버전과 비교해 바뀐 목록 값 (첫 버전은 빈 목록). 목록 값 밖의 내용만 바뀐 버전은 빈 목록일 수 있어요"
+          },
+          "receivedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "이 버전을 받은 시각 (+09:00)"
+          }
+        }
+      },
+      "ApplicationChannel": {
+        "type": "string",
+        "enum": [
+          "ONLINE",
+          "ONSITE",
+          "EMAIL",
+          "MAIL",
+          "FAX"
+        ],
+        "description": "신청·제출 방법: ONLINE(인터넷·온라인·홈페이지·모바일), ONSITE(방문·현장·창구), EMAIL(이메일), MAIL(우편·등기), FAX(팩스)"
+      },
+      "SchedulePlace": {
+        "type": "object",
+        "required": [
+          "name",
+          "address",
+          "detail"
+        ],
+        "description": "방문 접수 장소. 원문에 그대로 있는 글자만 주고, 모르는 칸은 null이에요",
+        "properties": {
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "접수처 이름"
+          },
+          "address": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "주소"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "층·호실·창구"
+          }
+        }
+      },
+      "ApplicationEmail": {
+        "type": "object",
+        "required": [
+          "address",
+          "subjectFormat"
+        ],
+        "description": "이메일 접수 주소",
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "접수 이메일 주소"
+          },
+          "subjectFormat": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문이 정한 메일 제목 형식"
+          }
+        }
+      },
+      "TimeRange": {
+        "type": "object",
+        "required": [
+          "start",
+          "end"
+        ],
+        "description": "하루 안의 시각 구간 (한국 시각)",
+        "properties": {
+          "start": {
+            "type": "string",
+            "pattern": "^([01][0-9]|2[0-3]):[0-5][0-9]$",
+            "description": "HH:MM"
+          },
+          "end": {
+            "type": "string",
+            "pattern": "^(([01][0-9]|2[0-3]):[0-5][0-9]|24:00)$",
+            "description": "HH:MM"
+          }
+        }
+      },
+      "RequiredDocument": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "group",
+          "appliesTo",
+          "submissionTime",
+          "copies",
+          "issuer",
+          "description",
+          "targetGroups",
+          "evidence"
+        ],
+        "description": "제출 서류",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "서류 이름"
+          },
+          "group": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "COMMON",
+              "CONDITIONAL",
+              "DIRECT",
+              "PROXY_SPOUSE",
+              "PROXY_OTHER",
+              null
+            ],
+            "description": "서류 묶음: COMMON(신청자 모두), CONDITIONAL(해당자만), DIRECT(본인 방문 신청), PROXY_SPOUSE(배우자 대리 신청), PROXY_OTHER(그 밖의 대리 신청). 원문이 나누지 않았으면 null"
+          },
+          "appliesTo": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "내는 사람 (원문 표현)"
+          },
+          "submissionTime": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "내는 때 (원문 표현)"
+          },
+          "copies": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "제출 부수 (원문에 있을 때만)"
+          },
+          "issuer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "발급 기관 (원문에 있을 때만)"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "대상 계층 (비면 모든 계층)"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 서류의 근거 원문"
+          }
+        }
+      },
+      "AdminReviewReason": {
+        "type": "string",
+        "enum": [
+          "MUST",
+          "CHECK",
+          "FORMAT"
+        ],
+        "description": "MUST 공개 전 꼭 볼 것(발행 전) · CHECK 발행했지만 보류한 칸이 있음 · FORMAT 원본 자료 문제(자료끼리 맞지 않아 추출 안 함)"
+      },
+      "AdminReviewItem": {
+        "type": "object",
+        "description": "검수 대기 한 건",
+        "required": [
+          "id",
+          "reason",
+          "title",
+          "sourceCode",
+          "rawVersion",
+          "receivedAt",
+          "issueCount",
+          "applyEndsOn"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AdminReviewReason"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "추출한 공고 제목, 없으면 수집한 글 제목"
+          },
+          "sourceCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rawVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "receivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "issueCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "applyEndsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date",
+            "description": "신청 일정 중 가장 이른 마감일(모르면 null)"
+          }
+        }
+      },
+      "AdminReviewList": {
+        "type": "object",
+        "required": [
+          "total",
+          "items"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "사유로 거르기 전 대기 건수(오래된 것부터 최대 50건)"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminReviewItem"
+            }
+          }
+        }
+      },
+      "AdminReviewCounts": {
+        "type": "object",
+        "required": [
+          "reviewPending",
+          "oldestReceivedAt"
+        ],
+        "properties": {
+          "reviewPending": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "oldestReceivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminReviewDetail": {
+        "type": "object",
+        "description": "검수 상세: 머리, 확인할 칸(신뢰도 숫자 대신 상태와 이유), 원문 근거, 처리 기록",
+        "required": [
+          "id",
+          "reason",
+          "reviewStatus",
+          "title",
+          "field",
+          "provider",
+          "sourceCode",
+          "rawVersion",
+          "rawPostId",
+          "detailUrl",
+          "receivedAt",
+          "issues",
+          "fields",
+          "sources",
+          "note",
+          "decidedBy",
+          "edits",
+          "impact",
+          "log"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/AdminReviewReason"
+          },
+          "reviewStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "SUPERSEDED"
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "field": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sourceCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rawVersion": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rawPostId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "기관 공고 원문 페이지 주소 (수집기가 준 값, 없으면 null)"
+          },
+          "receivedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "code",
+                "target"
+              ],
+              "properties": {
+                "code": {
+                  "type": "string",
+                  "description": "검증 이슈 코드 (예: VALUE_NOT_IN_QUOTE)"
+                },
+                "target": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "가리키는 칸(JSON Pointer). 공고 전체면 null"
+                }
+              }
+            }
+          },
+          "fields": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AdminReviewField"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminReviewSource"
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "검수자 메모 (반려 사유는 [사유] 머리로)"
+          },
+          "decidedBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "처리한 검수자(로그인 계정 ID)"
+          },
+          "edits": {
+            "type": "array",
+            "description": "고쳐서 승인한 칸",
+            "items": {
+              "type": "object",
+              "required": [
+                "path",
+                "before",
+                "after"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "before": {
+                  "description": "고치기 전 값"
+                },
+                "after": {
+                  "description": "고친 값"
+                }
+              }
+            }
+          },
+          "impact": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "승인하면 무엇이 바뀌는지 안내(사람 수 대신). 처리가 끝났으면 null"
+          },
+          "log": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "at",
+                "who",
+                "text"
+              ],
+              "properties": {
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "who": {
+                  "type": "string"
+                },
+                "text": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AdminReviewDecisionRequest": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "DUPLICATE",
+              "SOURCE_MISMATCH",
+              "OUT_OF_SCOPE",
+              "CLOSED",
+              null
+            ],
+            "description": "반려 사유(승인에서는 무시): DUPLICATE 중복 공고 · SOURCE_MISMATCH 원문과 다름·다시 추출 · OUT_OF_SCOPE 서비스 대상 아님 · CLOSED 마감된 공고"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 500
+          },
+          "edits": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "maxItems": 200,
+            "description": "고쳐서 승인할 칸(반려에서는 무시). 있는 칸만 바꾸고 원본·버전·검증 기록 칸은 못 바꿈",
+            "items": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string",
+                  "maxLength": 300
+                },
+                "value": {
+                  "description": "새 값"
+                }
+              }
+            }
+          }
+        }
+      },
+      "AdminReviewDecision": {
+        "type": "object",
+        "required": [
+          "id",
+          "reviewStatus",
+          "pendingCount"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reviewStatus": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "pendingCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "처리 뒤 남은 대기 건수"
+          }
+        }
+      },
+      "AdminReviewField": {
+        "type": "object",
+        "description": "사람이 확인할 칸",
+        "required": [
+          "path",
+          "section",
+          "label",
+          "status",
+          "value",
+          "display",
+          "editable",
+          "reasons",
+          "codes",
+          "sourceIds"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "칸 위치(JSON Pointer). 칸별 수정의 path에 그대로 씀"
+          },
+          "section": {
+            "type": "string",
+            "description": "섹션 이름(자격 조건·일정 등)"
+          },
+          "label": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "HELD",
+              "CHECK"
+            ],
+            "description": "HELD 확인 전까지 화면·판정에 쓰지 않는 칸 · CHECK 보이지만 확인이 필요한 칸"
+          },
+          "value": {
+            "description": "칸 값(JSON). 글자·숫자·참거짓·null, 묶음이면 null"
+          },
+          "display": {
+            "type": "string",
+            "description": "값을 한 줄로"
+          },
+          "editable": {
+            "type": "boolean",
+            "description": "칸별 수정으로 바꿀 수 있는 값인지"
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "확인해야 하는 이유(사람이 읽는 문장)"
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "sourceIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "AdminReviewSource": {
+        "type": "object",
+        "description": "원문 근거(인용문과 쪽)",
+        "required": [
+          "id",
+          "page",
+          "quote"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "page": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "quote": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AdminReviewStatsWindow": {
+        "type": "object",
+        "required": [
+          "approved",
+          "editedApproved",
+          "rejected",
+          "asIsRate",
+          "editedRate",
+          "rejectedRate",
+          "medianMinutes"
+        ],
+        "properties": {
+          "approved": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "그대로 승인"
+          },
+          "editedApproved": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "고쳐서 승인"
+          },
+          "rejected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "asIsRate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "그대로 승인 비율(%), 처리한 건이 없으면 null"
+          },
+          "editedRate": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "rejectedRate": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "medianMinutes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "들어와서 처리되기까지 걸린 시간 중앙값(분)"
+          }
+        }
+      },
+      "AdminReviewStats": {
+        "type": "object",
+        "required": [
+          "days",
+          "recent",
+          "today"
+        ],
+        "properties": {
+          "days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          },
+          "recent": {
+            "$ref": "#/components/schemas/AdminReviewStatsWindow"
+          },
+          "today": {
+            "$ref": "#/components/schemas/AdminReviewStatsWindow"
+          }
+        }
+      },
+      "NoticeReportRequest": {
+        "type": "object",
+        "description": "공고 제보. 맞는 값(reportedValue)이나 설명(note) 중 하나는 있어야 함. 소득·자산 같은 개인 정보는 받지 않음",
+        "required": [
+          "field"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50,
+            "description": "화면의 칸 이름 (보증금, 신청 마감 …)"
+          },
+          "currentValue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "reportedValue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000
+          },
+          "screen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50,
+            "description": "제보한 화면"
+          }
+        }
+      },
+      "NoticeReportCreated": {
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "NEW"
+            ]
+          }
+        }
+      },
+      "AdminReportCounts": {
+        "type": "object",
+        "required": [
+          "newCount",
+          "doing",
+          "done"
+        ],
+        "properties": {
+          "newCount": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "doing": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "done": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "AdminReportItem": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "screen",
+          "targetType",
+          "noticeId",
+          "programId",
+          "benefitPolicyId",
+          "benefitId",
+          "noticeTitle",
+          "field",
+          "currentValue",
+          "reportedValue",
+          "summary",
+          "createdAt",
+          "groupCount",
+          "result"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "NEW",
+              "DOING",
+              "DONE"
+            ],
+            "description": "NEW 새 제보 · DOING 처리 중 · DONE 처리 끝"
+          },
+          "screen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetType": {
+            "type": "string",
+            "enum": [
+              "NOTICE",
+              "PROGRAM",
+              "BENEFIT"
+            ],
+            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보 · BENEFIT 주거·복지 정책(혜택) 제보"
+          },
+          "noticeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "공고 제보면 공고 ID (사업이면 null)"
+          },
+          "programId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "사업 제보면 창업지원 사업 ID(rawPolicyId) (공고면 null)"
+          },
+          "noticeTitle": {
+            "type": "string",
+            "description": "공고 제목이나 사업 이름"
+          },
+          "field": {
+            "type": "string"
+          },
+          "currentValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportedValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "설명 앞부분"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "groupCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "같은 공고·칸의 처리 전 제보 수(이 제보 포함, 끝난 제보면 0)"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "FIXED",
+              "KEPT",
+              null
+            ],
+            "description": "FIXED 고침 · KEPT 원문대로 그대로 둠"
+          },
+          "benefitPolicyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "혜택 정책 제보면 정책 원본 ID (그 밖이면 null). 「고치기」는 혜택 검수로 이어져요"
+          },
+          "benefitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "혜택 화면(/benefits/{id})에 쓰는 혜택 ID. 원본 정책 ID와 달라요. 혜택 제보가 아니거나 아직 저장 전이면 null"
+          }
+        }
+      },
+      "AdminReportList": {
+        "type": "object",
+        "required": [
+          "counts",
+          "items"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/AdminReportCounts"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AdminReportItem"
+            }
+          }
+        }
+      },
+      "AdminReportDetail": {
+        "type": "object",
+        "description": "제보 상세. 제보한 회원이 누구인지는 보여 주지 않음",
+        "required": [
+          "report",
+          "note",
+          "notes",
+          "result",
+          "reply",
+          "handledBy",
+          "startedAt",
+          "handledAt",
+          "reviewId"
+        ],
+        "properties": {
+          "report": {
+            "$ref": "#/components/schemas/AdminReportItem"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": "array",
+            "description": "같은 공고·칸의 다른 제보",
+            "items": {
+              "type": "object",
+              "required": [
+                "reportedValue",
+                "text",
+                "status",
+                "createdAt"
+              ],
+              "properties": {
+                "reportedValue": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "text": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "NEW",
+                    "DOING",
+                    "DONE"
+                  ],
+                  "description": "NEW 새 제보 · DOING 처리 중 · DONE 처리 끝"
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "FIXED",
+              "KEPT",
+              null
+            ],
+            "description": "FIXED 고침 · KEPT 원문대로 그대로 둠"
+          },
+          "reply": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "handledBy": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "처리한 관리자(로그인 계정 ID)"
+          },
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "handledAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reviewId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "「고치기」로 다시 연 검수 작업 ID(검수 화면 GET /api/admin/reviews/{reviewId})"
+          }
+        }
+      },
+      "AdminReportResolveRequest": {
+        "type": "object",
+        "required": [
+          "result"
+        ],
+        "properties": {
+          "result": {
+            "type": "string",
+            "enum": [
+              "FIXED",
+              "KEPT"
+            ]
+          },
+          "reply": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 1000,
+            "description": "제보한 회원에게 보낼 답(비우면 답장 없음). NoticeReportAnswered 이벤트로 알림 쪽에 넘김"
+          },
+          "group": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "같은 공고·칸의 처리 전 제보도 같이 끝낼지(기본 true)"
+          }
+        }
+      },
+      "AdminReportReview": {
+        "type": "object",
+        "required": [
+          "reportId",
+          "reviewId",
+          "reopened"
+        ],
+        "properties": {
+          "reportId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reviewId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "다시 연 검수 작업 ID"
+          },
+          "reopened": {
+            "type": "boolean",
+            "description": "false면 이미 대기 중이던 검수를 이은 것"
+          }
+        }
+      },
+      "AdminSourceRun": {
+        "type": "object",
+        "properties": {
+          "startedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finishedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "RUNNING",
+              "SUCCESS",
+              "BLOCKED",
+              "FAILED"
+            ]
+          },
+          "newCount": {
+            "type": "integer"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AdminSource": {
+        "type": "object",
+        "required": [
+          "code",
+          "name",
+          "enabled",
+          "state",
+          "lastRun",
+          "lastSuccessAt",
+          "consecutiveEmpty",
+          "consecutiveFailures",
+          "totalCollected",
+          "recentRuns"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "late",
+              "fail",
+              "paused"
+            ],
+            "description": "ok 정상 · late 26시간 넘게 성공 회차 없음 · fail 마지막 회차 실패·차단 · paused 멈춤"
+          },
+          "lastRun": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AdminSourceRun"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lastSuccessAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "consecutiveEmpty": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "최근 연속 0건 성공 회차 수(목록 구조 변경 의심)"
+          },
+          "consecutiveFailures": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "totalCollected": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "recentRuns": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/AdminSourceRun"
+            }
+          }
+        }
+      },
+      "AdminSources": {
+        "type": "object",
+        "required": [
+          "asOf",
+          "summary",
+          "sources"
+        ],
+        "properties": {
+          "asOf": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object",
+            "required": [
+              "ok",
+              "late",
+              "fail",
+              "paused"
+            ],
+            "properties": {
+              "ok": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "late": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "fail": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "paused": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminSource"
+            }
+          }
+        }
+      },
+      "AdminSourceToggle": {
+        "type": "object",
+        "required": [
+          "code",
+          "enabled"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NoticeMap": {
+        "type": "object",
+        "description": "지도 범위 안 공고가 300개 이하면 핀, 넘으면 지역별 묶음만",
+        "required": [
+          "clusters",
+          "pins"
+        ],
+        "properties": {
+          "clusters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeMapCluster"
+            }
+          },
+          "pins": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NoticeMapPin"
+            }
+          }
+        }
+      },
+      "NoticeMapCluster": {
+        "type": "object",
+        "required": [
+          "regionCode",
+          "regionName",
+          "count",
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "regionCode": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "확대 10 미만은 시도 2자리, 아니면 시군구 5자리 (지역 모르면 null)"
+          },
+          "regionName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "lat": {
+            "type": "number",
+            "description": "묶음 안 공고 좌표 평균"
+          },
+          "lng": {
+            "type": "number"
+          }
+        }
+      },
+      "NoticeMapPin": {
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "noticeType",
+          "applyEnd",
+          "lat",
+          "lng"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "noticeType": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "lat": {
+            "type": "number"
+          },
+          "lng": {
+            "type": "number"
+          }
+        }
+      },
+      "SelectionRule": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "description",
+          "originalText",
+          "priorityRank",
+          "points",
+          "maxPoints",
+          "order",
+          "targetGroups",
+          "evidence"
+        ],
+        "description": "선정 방식 한 줄",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "PRIORITY",
+              "SCORING",
+              "TIE_BREAK",
+              "LOTTERY",
+              "FIRST_COME",
+              "BIDDING",
+              "OTHER",
+              null
+            ],
+            "description": "PRIORITY(순위), SCORING(배점), TIE_BREAK(동점 처리), LOTTERY(추첨), FIRST_COME(선착순), BIDDING(입찰), OTHER"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "originalText": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "원문 표현"
+          },
+          "priorityRank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "순위 (순위 항목일 때)"
+          },
+          "points": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "배점표 한 행의 점수 (감점은 음수)"
+          },
+          "maxPoints": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "그 항목의 최고점"
+          },
+          "order": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "description": "동점 처리 등의 적용 순서"
+          },
+          "targetGroups": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "대상 계층 (비면 모든 계층)"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 항목의 근거 원문"
+          }
+        }
+      },
+      "Guidance": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "title",
+          "description",
+          "phone",
+          "url",
+          "evidence"
+        ],
+        "description": "안내 한 줄",
+        "properties": {
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "APPLICATION_METHOD",
+              "CAUTION",
+              "MOVE_IN",
+              "LIVING_NOTICE",
+              "CONTACT",
+              "OTHER",
+              null
+            ],
+            "description": "APPLICATION_METHOD(신청 방법), CAUTION(주의 사항), MOVE_IN(입주), LIVING_NOTICE(거주), CONTACT(문의처), OTHER"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phone": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "전화번호 (원문에 있을 때만)"
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "안내 주소 (원문에 있을 때만)"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            },
+            "description": "이 안내의 근거 원문"
+          }
+        }
+      },
+      "AdminBenefitReviewItem": {
+        "type": "object",
+        "description": "혜택 검수 한 건",
+        "required": [
+          "id",
+          "rawPolicyId",
+          "rawVersion",
+          "sourceCode",
+          "policyId",
+          "title",
+          "status",
+          "reasons",
+          "reported",
+          "relevant",
+          "applyEndsOn",
+          "queuedAt",
+          "decidedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rawPolicyId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "정책 원본 ID (버전이 바뀌어도 같음)"
+          },
+          "rawVersion": {
+            "type": "integer"
+          },
+          "sourceCode": {
+            "type": "string",
+            "description": "출처 (youth 온통청년 등)"
+          },
+          "policyId": {
+            "type": "string",
+            "description": "출처의 정책 번호"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "SUPERSEDED"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "EVIDENCE_NOT_FOUND",
+                "LOW_CONFIDENCE",
+                "NO_DOCUMENT",
+                "RULE_AI_CONFLICT",
+                "TEXT_TRUNCATED",
+                "REPORTED"
+              ]
+            },
+            "description": "확인할 이유. LOW_CONFIDENCE는 기본 기준·전형별 값처럼 확실하지 않은 핵심 값을 채운 것, REPORTED는 정책 제보로 다시 연 것"
+          },
+          "reported": {
+            "type": "boolean"
+          },
+          "relevant": {
+            "type": "boolean",
+            "description": "주거·이주 혜택으로 판정했는지 (false면 서비스에 안 보임)"
+          },
+          "applyEndsOn": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "AdminBenefitReviewList": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminBenefitReviewItem"
+            }
+          }
+        }
+      },
+      "AdminBenefitReviewDetail": {
+        "type": "object",
+        "description": "혜택 검수 상세. result는 policy.extracted payload(contracts/events/policy.extracted.v1.json)이고, 칸별 수정 path는 이 객체 기준 JSON Pointer(예: /conditions/0/value). 원본·버전·출처(source)·품질(quality) 칸은 못 고쳐요",
+        "required": [
+          "id",
+          "rawPolicyId",
+          "rawVersion",
+          "status",
+          "reasons",
+          "note",
+          "queuedAt",
+          "decidedAt",
+          "decidedBy",
+          "result",
+          "edits",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rawPolicyId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rawVersion": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED",
+              "SUPERSEDED"
+            ]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "queuedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "decidedAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "decidedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "type": "object",
+            "description": "정제 결과 (policy.extracted payload)"
+          },
+          "edits": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object"
+            },
+            "description": "처리한 칸별 수정 [{path, before, after}]"
+          },
+          "source": {
+            "type": "object",
+            "description": "받은 원본 (raw.policy.collected)",
+            "required": [
+              "title",
+              "agency",
+              "detailUrl",
+              "applyUrl",
+              "categories",
+              "text",
+              "documentStatus"
+            ],
+            "properties": {
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "agency": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "detailUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "applyUrl": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "text": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "documentStatus": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "AdminActivity": {
+        "type": "object",
+        "required": [
+          "days",
+          "items"
+        ],
+        "properties": {
+          "days": {
+            "type": "integer"
+          },
+          "items": {
+            "type": "array",
+            "maxItems": 300,
+            "items": {
+              "$ref": "#/components/schemas/AdminActivityItem"
+            }
+          },
+          "reviewsError": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "추출 서비스(검수 기록)를 부르지 못했으면 그 이유. 그때는 제보 처리만 들어 있어요"
+          }
+        }
+      },
+      "AdminActivityItem": {
+        "type": "object",
+        "required": [
+          "at",
+          "kind",
+          "action"
+        ],
+        "properties": {
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "처리한 시각"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "NOTICE_REVIEW",
+              "BENEFIT_REVIEW",
+              "NOTICE_REPORT",
+              "BENEFIT_REPORT",
+              "PROGRAM_REPORT",
+              "AREA_REPORT"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "description": "검수 APPROVED·EDITED_APPROVED·REJECTED·REOPENED, 제보 FIXED·KEPT"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "대상 제목"
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "검수 메모 또는 제보한 칸 이름"
+          },
+          "by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "처리한 관리자 (회원 ID 또는 검수자 이름)"
+          },
+          "targetId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "검수 ID 또는 제보 ID"
+          }
+        }
+      },
+      "AdminPolicyDuplicateSide": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "field",
+          "title",
+          "organization",
+          "applyStart",
+          "applyEnd",
+          "regionCodes",
+          "detailUrl",
+          "createdAt",
+          "hidden"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "STARTUP_SUPPORT",
+              "SPACE_RECRUITMENT"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "organization": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "출처 안내의 운영 기관"
+          },
+          "applyStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "regionCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "시군구 5자리, 빈 목록은 전국"
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "처음 받은 때"
+          },
+          "hidden": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AdminPolicyDuplicateCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pending",
+          "keptBoth",
+          "hidden"
+        ],
+        "properties": {
+          "pending": {
+            "type": "integer"
+          },
+          "keptBoth": {
+            "type": "integer"
+          },
+          "hidden": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminPolicyDuplicateList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "counts"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "later",
+                "earlier",
+                "reason",
+                "status",
+                "createdAt",
+                "decidedAt",
+                "decidedBy"
+              ],
+              "properties": {
+                "later": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateSide"
+                },
+                "earlier": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateSide"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "SAME_TITLE_REGION: 같은 분야 · 같은 제목(띄어쓰기·기호 무시) · 같은 지역"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "PENDING",
+                    "KEPT_BOTH",
+                    "HIDDEN"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "decidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "decidedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "처리한 관리자 ID"
+                }
+              }
+            }
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AdminPolicyDuplicateCounts"
+          }
+        }
+      }
+    }
+  }
+}

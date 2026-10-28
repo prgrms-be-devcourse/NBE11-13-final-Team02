@@ -10,3 +10,11 @@ max_line_length = 120
 
 [*.{yml,yaml,json,md,toml}]
 indent_size = 2
+
+# area 테스트 자료는 원천 파일 그대로예요 (CP949 인코딩, 끝의 빈 줄도 검사 대상). 편집기가 고치지 않게 해요.
+[services/api/src/test/resources/area/fixtures/**]
+charset = unset
+end_of_line = unset
+insert_final_newline = unset
+trim_trailing_whitespace = unset
+max_line_length = unset

@@ -1,0 +1,4368 @@
+{
+  "eventId": "01a14da1-a7df-7197-9a8b-d3c3f8dc9430",
+  "eventType": "extraction.completed",
+  "schemaVersion": 1,
+  "occurredAt": "2026-10-18T06:10:02.335Z",
+  "producer": "extraction",
+  "payload": {
+    "rawPostId": "00000000-0000-7000-8000-68f38a8f19b2",
+    "rawVersion": 1,
+    "field": "HOUSING",
+    "title": "서초구 서리풀 청년아트타운 잔여세대 입주자 모집공고",
+    "conditions": [
+      {
+        "id": "eligibility-arts-proof",
+        "target": "문화예술분야 청년예술인",
+        "targetGroups": [
+          "문화예술분야 청년예술인"
+        ],
+        "category": "OTHER",
+        "description": "문화예술 분야에 종사하고, 예술활동증명서 또는 관련 협회 발급 예술인 증명서류로 예술인임을 증명할 수 있어야 합니다.",
+        "originalText": "「문화예술진흥법」에 따른 문화예술 분야에 종사하며, 한국예술인복지재단의예술활동증명서 또는관련협회에서발급한예술인증명서류를통해예술인증명이가능한자",
+        "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+        "rule": {
+          "expression": null,
+          "reason": "문화예술 분야 종사 및 예술인 증명서류 제출 요건은 속성 사전으로 표현할 수 없습니다.",
+          "status": "UNSTRUCTURED"
+        },
+        "exceptions": [],
+        "inReview": false,
+        "reviewReasons": []
+      },
+      {
+        "id": "eligibility-age",
+        "target": "문화예술분야 청년예술인",
+        "targetGroups": [
+          "문화예술분야 청년예술인"
+        ],
+        "category": "AGE",
+        "description": "공고일 기준 19세 이상 39세 이하인 청년이어야 합니다.",
+        "originalText": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+        "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+        "rule": {
+          "expression": {
+            "attribute": "AGE_YEARS",
+            "basis": "공고문에는 1986.10.17.~2007.10.16. 출생이라고 기재되어 있습니다.",
+            "benchmark": null,
+            "kind": "ATOMIC",
+            "operator": "BETWEEN",
+            "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+            "subject": "APPLICANT",
+            "unit": "YEAR",
+            "value": [
+              19,
+              39
+            ],
+            "evidenceIds": [
+              "ev-23"
+            ]
+          },
+          "reason": null,
+          "status": "STRUCTURED"
+        },
+        "exceptions": [],
+        "inReview": false,
+        "reviewReasons": []
+      },
+      {
+        "id": "eligibility-seoul-resident",
+        "target": "문화예술분야 청년예술인",
+        "targetGroups": [
+          "문화예술분야 청년예술인"
+        ],
+        "category": "RESIDENCE",
+        "description": "신청자는 서울시에 주민등록이 등재되어 있어야 합니다.",
+        "originalText": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+        "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+        "rule": {
+          "expression": null,
+          "reason": "서울시 주민등록 등재 요건은 사전의 법정동코드 값으로 원문에 제시되어 있지 않아 구조화할 수 없습니다.",
+          "status": "UNSTRUCTURED"
+        },
+        "exceptions": [],
+        "inReview": false,
+        "reviewReasons": []
+      },
+      {
+        "id": "eligibility-homeless-household",
+        "target": "문화예술분야 청년예술인",
+        "targetGroups": [
+          "문화예술분야 청년예술인"
+        ],
+        "category": "HOME_OWNERSHIP",
+        "description": "신청자를 포함한 세대원 전원이 무주택 세대구성원이어야 합니다. 공고문은 분리된 배우자 및 해당 주민등록표의 일부 직계존비속 등을 자격검증대상에 포함하고, 무주택세대구성원 정의에서 외국인을 제외한다고 안내합니다.",
+        "originalText": "세대원(신청자 포함) 전원이 무주택 세대구성원",
+        "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+        "rule": {
+          "expression": {
+            "attribute": "HOMELESS",
+            "basis": "공고문에서 정한 무주택세대구성원 범위에 속하는 세대원 전원(신청자 포함)이 주택을 소유하지 않아야 합니다.",
+            "benchmark": null,
+            "kind": "ATOMIC",
+            "operator": "EQ",
+            "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+            "subject": "HOUSEHOLD",
+            "unit": "BOOLEAN",
+            "value": true,
+            "evidenceIds": [
+              "ev-24",
+              "ev-25",
+              "ev-26"
+            ]
+          },
+          "reason": null,
+          "status": "STRUCTURED"
+        },
+        "exceptions": [],
+        "inReview": false,
+        "reviewReasons": []
+      },
+      {
+        "id": "eligibility-income-assets-alternative",
+        "target": "문화예술분야 청년예술인",
+        "targetGroups": [
+          "문화예술분야 청년예술인"
+        ],
+        "category": "INCOME",
+        "description": "아래 두 요건 중 하나를 충족해야 합니다. 첫째, 무주택세대구성원 전원의 전년도 도시근로자 월평균 소득 합산액이 50% 이하이고 총자산가액이 2.45억원 이하이며 자동차가액이 4,542만원 이하인 경우입니다. 둘째, 전년도 도시근로자 월평균 소득 합산액이 70% 이하인 경우이며 이 경로에는 자산기준이 없습니다. 공고문은 가구원 수별 월평균 소득 기준액도 함께 제시합니다: 50% 이하 기준은 1인가구 2,669,354원, 2인가구 3,519,762원, 3인가구 4,084,215원, 4인가구 4,401,101원, 5인가구 4,663,493원이고, 70% 이하 기준은 각각 3,432,027원, 4,693,016원, 5,717,900원, 6,161,541원, 6,528,890원입니다.",
+        "originalText": "라. 소득 및 자산기준 : 아래요건 중 하나에 해당하는 자 1) 전년도 도시근로자 월평균 소득 50% 이하 및 총자산가액 2.45억원 이하, 자동차가액 4.542만원 이하인 자 2) 전년도 도시근로자 월평균 소득 70% 이하인 자(자산기준 없음)",
+        "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+        "rule": {
+          "expression": {
+            "children": [
+              {
+                "children": [
+                  {
+                    "attribute": "INCOME_BENCHMARK_PERCENT",
+                    "basis": "무주택세대구성원 전원의 소득 합산액 기준입니다. 공고문에 가구원 수별 금액표가 함께 제시되어 있습니다.",
+                    "benchmark": {
+                      "householdMemberCount": null,
+                      "householdScope": "무주택세대구성원 전원",
+                      "referenceVersion": "전년도",
+                      "referenceYear": null,
+                      "standardName": "도시근로자 월평균 소득"
+                    },
+                    "kind": "ATOMIC",
+                    "operator": "LTE",
+                    "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                    "subject": "HOUSEHOLD",
+                    "unit": "PERCENT",
+                    "value": 50,
+                    "evidenceIds": [
+                      "ev-27",
+                      "ev-29",
+                      "ev-30"
+                    ]
+                  },
+                  {
+                    "attribute": "TOTAL_ASSETS_KRW",
+                    "basis": "부동산가액, 자동차가액, 금융자산가액 및 일반자산가액을 합산하고 부채를 차감하여 산출합니다.",
+                    "benchmark": null,
+                    "kind": "ATOMIC",
+                    "operator": "LTE",
+                    "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                    "subject": "HOUSEHOLD",
+                    "unit": "KRW",
+                    "value": 245000000,
+                    "evidenceIds": [
+                      "ev-28"
+                    ]
+                  },
+                  {
+                    "attribute": "CAR_ASSETS_KRW",
+                    "basis": "도시근로자 월평균 소득 50% 이하인 자에게 적용되는 자동차가액 기준입니다.",
+                    "benchmark": null,
+                    "kind": "ATOMIC",
+                    "operator": "LTE",
+                    "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                    "subject": "HOUSEHOLD",
+                    "unit": "KRW",
+                    "value": 45420000,
+                    "evidenceIds": [
+                      "ev-28"
+                    ]
+                  }
+                ],
+                "kind": "ALL"
+              },
+              {
+                "attribute": "INCOME_BENCHMARK_PERCENT",
+                "basis": "무주택세대구성원 전원의 소득 합산액 기준입니다. 공고문에 가구원 수별 금액표가 함께 제시되어 있습니다.",
+                "benchmark": {
+                  "householdMemberCount": null,
+                  "householdScope": "무주택세대구성원 전원",
+                  "referenceVersion": "전년도",
+                  "referenceYear": null,
+                  "standardName": "도시근로자 월평균 소득"
+                },
+                "kind": "ATOMIC",
+                "operator": "LTE",
+                "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                "subject": "HOUSEHOLD",
+                "unit": "PERCENT",
+                "value": 70,
+                "evidenceIds": [
+                  "ev-27",
+                  "ev-29",
+                  "ev-31",
+                  "ev-32"
+                ]
+              }
+            ],
+            "kind": "ANY"
+          },
+          "reason": null,
+          "status": "STRUCTURED"
+        },
+        "exceptions": [],
+        "inReview": true,
+        "reviewReasons": [
+          "TIER_CONDITION_MISSING",
+          "VALUE_NOT_IN_QUOTE"
+        ]
+      },
+      {
+        "id": "eligibility-one-application-per-household",
+        "target": "문화예술분야 청년예술인",
+        "targetGroups": [
+          "문화예술분야 청년예술인"
+        ],
+        "category": "HOUSEHOLD",
+        "description": "금회 모집대상 주택에는 1세대 1주택만 신청할 수 있으며, 중복 신청은 전부 무효 처리됩니다.",
+        "originalText": "금회 모집공고문의 모집대상 주택에 대하여 1세대 1주택 신청을 원칙으로 하며, 중복 신청하는 경우 전부 무효처리 합니다.",
+        "referenceTime": "신청 시",
+        "rule": {
+          "expression": null,
+          "reason": "1세대 1주택 신청 및 중복 신청 무효 요건은 속성 사전으로 표현할 수 없습니다.",
+          "status": "UNSTRUCTURED"
+        },
+        "exceptions": [],
+        "inReview": false,
+        "reviewReasons": []
+      }
+    ],
+    "reviewStatus": "PARTIALLY_PASSED",
+    "heldItems": [
+      {
+        "target": "/eligibility/4",
+        "extent": "ITEM",
+        "codes": [
+          "TIER_CONDITION_MISSING",
+          "VALUE_NOT_IN_QUOTE"
+        ],
+        "description": "확인 전까지 판정·화면에 쓰지 않습니다(원문 확인 필요)"
+      }
+    ],
+    "provider": "shpdf",
+    "regionCode": "11650",
+    "schedule": {
+      "applyStartOn": "2026-10-26",
+      "applyEndOn": "2026-10-30"
+    },
+    "applicationWindows": [
+      {
+        "scheduleId": "schedule-application",
+        "label": "신청접수",
+        "applyStartOn": "2026-10-26",
+        "applyEndOn": "2026-10-30",
+        "priorityRank": null,
+        "targetGroups": [],
+        "scopeDescription": "공고 전체 신청자에게 적용됩니다."
+      }
+    ],
+    "summary": "청년예술인의 주거 안정과 문화예술활동 커뮤니티 활성화를 위해 서초구와 서울주택도시공사가 협력하여 공급하는 공공임대주택의 잔여세대 입주자를 모집합니다.",
+    "reprocess": false,
+    "notice": {
+      "schemaVersion": "1.0.0",
+      "target": "NOTICE",
+      "input": {
+        "eventId": "00000000-0000-7000-8000-68f38a8fe000",
+        "rawPostId": "00000000-0000-7000-8000-68f38a8f19b2",
+        "rawVersion": 1,
+        "field": "HOUSING",
+        "reprocess": false
+      },
+      "sourceReferences": [
+        {
+          "sourceCode": "shpdf",
+          "sourceNoticeId": null,
+          "rawPostId": "00000000-0000-7000-8000-68f38a8f19b2",
+          "rawVersion": 1,
+          "kind": "NOTICE",
+          "supersedesPostId": null,
+          "detailUrl": "https://www.i-sh.co.kr/main/lay2/program/S1T294C295/www/brd/m_241/view.do?seq=311521",
+          "sourceTitle": "서초구 청년예술인주택 서리풀 청년아트타운(수요자맞춤형) 잔여세대 모집 공고",
+          "sourceStatusText": null,
+          "postedOn": "2026-10-16"
+        }
+      ],
+      "documents": [
+        {
+          "id": "text",
+          "kind": "TEXT",
+          "name": "수집 원문 텍스트",
+          "sha256": "64b250467af415610cc9f750a7e0dff54366a2c21c4f7adb47b0824d48b40869",
+          "originalUrl": null,
+          "pageCount": null
+        },
+        {
+          "id": "file-1",
+          "kind": "PDF",
+          "name": "311521_1.pdf",
+          "sha256": "59a98bde55a6a361776af9d92d53c285161bd36417151821349c33decf5d6ab3",
+          "originalUrl": "https://www.i-sh.co.kr/main/lay2/program/S1T294C295/www/brd/m_241/view.do?seq=311521",
+          "pageCount": 10
+        },
+        {
+          "id": "pdf-text",
+          "kind": "TEXT",
+          "name": "첨부 PDF에서 읽은 글자 (쪽·표 구분)",
+          "sha256": "35d4d7f1ec6ae02dffefdd8194adb32513654e87c7919da23dbbf14f3686923a",
+          "originalUrl": null,
+          "pageCount": null
+        }
+      ],
+      "notice": {
+        "announcedOn": "2026-10-16",
+        "counts": [
+          {
+            "aggregationComplete": false,
+            "aggregationRole": "STANDALONE",
+            "id": "notice-offered",
+            "kind": "OFFERED",
+            "parentCountId": null,
+            "scope": {
+              "description": "공고 전체의 모집 수입니다.",
+              "level": "NOTICE",
+              "locationIds": [],
+              "resolution": "RESOLVED",
+              "supplyCategory": "ALL",
+              "supplyGroupIds": [],
+              "targetGroups": []
+            },
+            "value": 6,
+            "evidenceIds": [
+              "ev-3"
+            ]
+          }
+        ],
+        "description": "청년예술인의 주거 안정과 문화예술활동 커뮤니티 활성화를 위해 서초구와 서울주택도시공사가 협력하여 공급하는 공공임대주택의 잔여세대 입주자를 모집합니다.",
+        "field": "HOUSING",
+        "publisher": "서울특별시 서초구청",
+        "supplyType": "공공임대주택",
+        "targetGroups": [
+          "문화예술분야 청년예술인"
+        ],
+        "title": "서초구 서리풀 청년아트타운 잔여세대 입주자 모집공고",
+        "evidenceIds": [
+          "ev-1",
+          "ev-2"
+        ],
+        "applicationChannels": [
+          "EMAIL"
+        ]
+      },
+      "locations": [
+        {
+          "address": "서울시 서초구 반포대로9길 59-16 (서초동 1479-14번지)",
+          "buildingName": null,
+          "complexName": "서리풀 청년아트타운 1차",
+          "id": "location-1차",
+          "kind": "BUILDING",
+          "parentLocationId": null,
+          "region": "서울특별시 서초구",
+          "evidenceIds": [
+            "ev-4"
+          ],
+          "regionCode": "1165000000"
+        },
+        {
+          "address": "서울시 서초구 남부순환로315길 88-7 (서초동1480-11번지)",
+          "buildingName": null,
+          "complexName": "서리풀 청년아트타운 2차",
+          "id": "location-2차",
+          "kind": "BUILDING",
+          "parentLocationId": null,
+          "region": "서울특별시 서초구",
+          "evidenceIds": [
+            "ev-4"
+          ],
+          "regionCode": "1165000000"
+        }
+      ],
+      "schedules": [
+        {
+          "applicationMode": "NOT_APPLICABLE",
+          "applicationUrl": null,
+          "channels": [],
+          "description": "모집공고 기간입니다.",
+          "endCondition": null,
+          "endStatus": "FIXED",
+          "endsAt": {
+            "precision": "DAY",
+            "value": "2026-10-30"
+          },
+          "id": "schedule-announcement",
+          "kinds": [
+            "ANNOUNCEMENT"
+          ],
+          "priorityRank": null,
+          "rawLabel": "모집공고",
+          "scope": {
+            "description": "공고 전체에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "startsAt": {
+            "precision": "DAY",
+            "value": "2026-10-16"
+          },
+          "evidenceIds": [
+            "ev-5"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        },
+        {
+          "applicationMode": "FIXED_PERIOD",
+          "applicationUrl": null,
+          "channels": [
+            "EMAIL"
+          ],
+          "description": "서초구 이메일로 접수하며, 17:00까지 접수된 신청을 받습니다.",
+          "endCondition": null,
+          "endStatus": "FIXED",
+          "endsAt": {
+            "precision": "MINUTE",
+            "value": "2026-10-30T17:00:00+09:00"
+          },
+          "id": "schedule-application",
+          "kinds": [
+            "APPLICATION"
+          ],
+          "priorityRank": null,
+          "rawLabel": "신청접수",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "startsAt": {
+            "precision": "DAY",
+            "value": "2026-10-26"
+          },
+          "evidenceIds": [
+            "ev-6"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        },
+        {
+          "applicationMode": "NOT_APPLICABLE",
+          "applicationUrl": null,
+          "channels": [
+            "ONSITE"
+          ],
+          "description": "사전 예약 후 방문해 주십시오. 점심시간(12:00~13:00)은 제외하며, 일정은 변경될 수 있습니다.",
+          "endCondition": null,
+          "endStatus": "FIXED",
+          "endsAt": {
+            "precision": "MINUTE",
+            "value": "2026-10-28T17:00:00+09:00"
+          },
+          "id": "schedule-housing-viewing",
+          "kinds": [
+            "OTHER"
+          ],
+          "priorityRank": null,
+          "rawLabel": "주택 사전공개",
+          "scope": {
+            "description": "서리풀 청년아트타운 1차와 2차 주택 공개에 적용됩니다.",
+            "level": "LOCATION",
+            "locationIds": [
+              "location-1차",
+              "location-2차"
+            ],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "startsAt": {
+            "precision": "MINUTE",
+            "value": "2026-10-26T10:00:00+09:00"
+          },
+          "evidenceIds": [
+            "ev-7"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        },
+        {
+          "applicationMode": "NOT_APPLICABLE",
+          "applicationUrl": null,
+          "channels": [],
+          "description": "소명 대상자에게 별도로 통보하며 제출 일정도 개별 안내됩니다.",
+          "endCondition": null,
+          "endStatus": "NOT_IN_SOURCE",
+          "endsAt": null,
+          "id": "schedule-document-submission-clarification",
+          "kinds": [
+            "DOCUMENT_SUBMISSION"
+          ],
+          "priorityRank": null,
+          "rawLabel": "소명대상자 서류제출",
+          "scope": {
+            "description": "소득·자산 소명 대상자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "소명대상자"
+            ]
+          },
+          "startsAt": null,
+          "evidenceIds": [
+            "ev-8"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        },
+        {
+          "applicationMode": "NOT_APPLICABLE",
+          "applicationUrl": null,
+          "channels": [
+            "ONLINE"
+          ],
+          "description": "당첨자(예비자) 발표 예정일입니다. 최종 입주자에게는 개별 연락합니다.",
+          "endCondition": null,
+          "endStatus": "FIXED",
+          "endsAt": {
+            "precision": "DAY",
+            "value": "2026-12-30"
+          },
+          "id": "schedule-winner-announcement",
+          "kinds": [
+            "WINNER_ANNOUNCEMENT"
+          ],
+          "priorityRank": null,
+          "rawLabel": "당첨자(예비자) 발표",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "startsAt": {
+            "precision": "DAY",
+            "value": "2026-12-30"
+          },
+          "evidenceIds": [
+            "ev-9",
+            "ev-10"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        },
+        {
+          "applicationMode": "NOT_APPLICABLE",
+          "applicationUrl": null,
+          "channels": [
+            "ONSITE"
+          ],
+          "description": "계약은 10:00~16:00에 진행되며, 점심시간(12:00~13:00)은 제외됩니다.",
+          "endCondition": null,
+          "endStatus": "FIXED",
+          "endsAt": {
+            "precision": "MINUTE",
+            "value": "2027-01-22T16:00:00+09:00"
+          },
+          "id": "schedule-contract",
+          "kinds": [
+            "CONTRACT"
+          ],
+          "priorityRank": null,
+          "rawLabel": "계약기간",
+          "scope": {
+            "description": "공고 전체 당첨자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "startsAt": {
+            "precision": "MINUTE",
+            "value": "2027-01-20T10:00:00+09:00"
+          },
+          "evidenceIds": [
+            "ev-11"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        },
+        {
+          "applicationMode": "NOT_APPLICABLE",
+          "applicationUrl": null,
+          "channels": [],
+          "description": "입주 전 진행되는 입주자 공동체 활성화 교육이며, 시행 시기는 예정되어 있습니다.",
+          "endCondition": null,
+          "endStatus": "NOT_IN_SOURCE",
+          "endsAt": null,
+          "id": "schedule-community-education",
+          "kinds": [
+            "OTHER"
+          ],
+          "priorityRank": null,
+          "rawLabel": "입주자 공동체 활성화 교육",
+          "scope": {
+            "description": "공고 전체 입주예정자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "startsAt": {
+            "precision": "MONTH",
+            "value": "2027-01"
+          },
+          "evidenceIds": [
+            "ev-12"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        },
+        {
+          "applicationMode": "NOT_APPLICABLE",
+          "applicationUrl": null,
+          "channels": [],
+          "description": "입주기간입니다. 실제 입주일은 서울주택도시개발공사와 협의해 주십시오.",
+          "endCondition": null,
+          "endStatus": "FIXED",
+          "endsAt": {
+            "precision": "MONTH",
+            "value": "2027-04"
+          },
+          "id": "schedule-move-in",
+          "kinds": [
+            "MOVE_IN"
+          ],
+          "priorityRank": null,
+          "rawLabel": "입주기간",
+          "scope": {
+            "description": "공고 전체 계약자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "startsAt": {
+            "precision": "MONTH",
+            "value": "2027-02"
+          },
+          "evidenceIds": [
+            "ev-13",
+            "ev-14"
+          ],
+          "places": [],
+          "applicationEmail": null,
+          "dailyHours": [],
+          "breaks": [],
+          "excludedDays": [],
+          "timeNote": null
+        }
+      ],
+      "supplyGroups": [
+        {
+          "buildingUse": null,
+          "commonAreaSqm": null,
+          "counts": [
+            {
+              "aggregationComplete": false,
+              "aggregationRole": "STANDALONE",
+              "id": "unit-1차-202-offered",
+              "kind": "OFFERED",
+              "parentCountId": null,
+              "scope": {
+                "description": "1차 202호의 모집 수입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-202"
+                ],
+                "targetGroups": []
+              },
+              "value": 1,
+              "evidenceIds": [
+                "ev-15"
+              ]
+            }
+          ],
+          "exclusiveAreaSqm": 27.98,
+          "floor": null,
+          "housingTypeCode": null,
+          "id": "unit-1차-202",
+          "itemKind": "HOUSING_UNIT",
+          "leaseTerm": {
+            "description": "계약기간은 2년이며, 재계약 요건을 유지하면 최대 4회 재계약하여 최장 10년 거주할 수 있습니다.",
+            "initialMonths": 24,
+            "maxMonths": 120,
+            "renewalMonths": null,
+            "evidenceIds": [
+              "ev-16"
+            ]
+          },
+          "locationId": "location-1차",
+          "prices": [
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-202-deposit-under50",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-202"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "31,600,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-15"
+              ],
+              "amountKrw": 31600000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-202-rent-under50",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-202"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "411,700",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-15"
+              ],
+              "amountKrw": 411700
+            },
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-202-deposit-50to70",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-202"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "52,690,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-15"
+              ],
+              "amountKrw": 52690000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-202-rent-50to70",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-202"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "686,400",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-15"
+              ],
+              "amountKrw": 686400
+            }
+          ],
+          "scope": {
+            "description": "1차 202호의 공급 조건입니다.",
+            "level": "SUPPLY_GROUP",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [
+              "unit-1차-202"
+            ],
+            "targetGroups": []
+          },
+          "unitLabel": "1차 202호",
+          "evidenceIds": [
+            "ev-15"
+          ]
+        },
+        {
+          "buildingUse": null,
+          "commonAreaSqm": null,
+          "counts": [
+            {
+              "aggregationComplete": false,
+              "aggregationRole": "STANDALONE",
+              "id": "unit-1차-203-offered",
+              "kind": "OFFERED",
+              "parentCountId": null,
+              "scope": {
+                "description": "1차 203호의 모집 수입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-203"
+                ],
+                "targetGroups": []
+              },
+              "value": 1,
+              "evidenceIds": [
+                "ev-17"
+              ]
+            }
+          ],
+          "exclusiveAreaSqm": 27.71,
+          "floor": null,
+          "housingTypeCode": null,
+          "id": "unit-1차-203",
+          "itemKind": "HOUSING_UNIT",
+          "leaseTerm": {
+            "description": "계약기간은 2년이며, 재계약 요건을 유지하면 최대 4회 재계약하여 최장 10년 거주할 수 있습니다.",
+            "initialMonths": 24,
+            "maxMonths": 120,
+            "renewalMonths": null,
+            "evidenceIds": [
+              "ev-16"
+            ]
+          },
+          "locationId": "location-1차",
+          "prices": [
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-203-deposit-under50",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-203"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "31,600,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-17"
+              ],
+              "amountKrw": 31600000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-203-rent-under50",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-203"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "411,700",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-17"
+              ],
+              "amountKrw": 411700
+            },
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-203-deposit-50to70",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-203"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "52,690,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-17"
+              ],
+              "amountKrw": 52690000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-203-rent-50to70",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-203"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "686,400",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-17"
+              ],
+              "amountKrw": 686400
+            }
+          ],
+          "scope": {
+            "description": "1차 203호의 공급 조건입니다.",
+            "level": "SUPPLY_GROUP",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [
+              "unit-1차-203"
+            ],
+            "targetGroups": []
+          },
+          "unitLabel": "1차 203호",
+          "evidenceIds": [
+            "ev-17"
+          ]
+        },
+        {
+          "buildingUse": null,
+          "commonAreaSqm": null,
+          "counts": [
+            {
+              "aggregationComplete": false,
+              "aggregationRole": "STANDALONE",
+              "id": "unit-1차-302-offered",
+              "kind": "OFFERED",
+              "parentCountId": null,
+              "scope": {
+                "description": "1차 302호의 모집 수입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-302"
+                ],
+                "targetGroups": []
+              },
+              "value": 1,
+              "evidenceIds": [
+                "ev-18"
+              ]
+            }
+          ],
+          "exclusiveAreaSqm": 27.98,
+          "floor": null,
+          "housingTypeCode": null,
+          "id": "unit-1차-302",
+          "itemKind": "HOUSING_UNIT",
+          "leaseTerm": {
+            "description": "계약기간은 2년이며, 재계약 요건을 유지하면 최대 4회 재계약하여 최장 10년 거주할 수 있습니다.",
+            "initialMonths": 24,
+            "maxMonths": 120,
+            "renewalMonths": null,
+            "evidenceIds": [
+              "ev-16"
+            ]
+          },
+          "locationId": "location-1차",
+          "prices": [
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-302-deposit-under50",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-302"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "32,200,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-18"
+              ],
+              "amountKrw": 32200000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-302-rent-under50",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-302"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "419,400",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-18"
+              ],
+              "amountKrw": 419400
+            },
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-302-deposit-50to70",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-302"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "53,670,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-18"
+              ],
+              "amountKrw": 53670000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-302-rent-50to70",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-302"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "699,200",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-18"
+              ],
+              "amountKrw": 699200
+            }
+          ],
+          "scope": {
+            "description": "1차 302호의 공급 조건입니다.",
+            "level": "SUPPLY_GROUP",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [
+              "unit-1차-302"
+            ],
+            "targetGroups": []
+          },
+          "unitLabel": "1차 302호",
+          "evidenceIds": [
+            "ev-18"
+          ]
+        },
+        {
+          "buildingUse": null,
+          "commonAreaSqm": null,
+          "counts": [
+            {
+              "aggregationComplete": false,
+              "aggregationRole": "STANDALONE",
+              "id": "unit-1차-402-offered",
+              "kind": "OFFERED",
+              "parentCountId": null,
+              "scope": {
+                "description": "1차 402호의 모집 수입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-402"
+                ],
+                "targetGroups": []
+              },
+              "value": 1,
+              "evidenceIds": [
+                "ev-19"
+              ]
+            }
+          ],
+          "exclusiveAreaSqm": 32.5,
+          "floor": null,
+          "housingTypeCode": null,
+          "id": "unit-1차-402",
+          "itemKind": "HOUSING_UNIT",
+          "leaseTerm": {
+            "description": "계약기간은 2년이며, 재계약 요건을 유지하면 최대 4회 재계약하여 최장 10년 거주할 수 있습니다.",
+            "initialMonths": 24,
+            "maxMonths": 120,
+            "renewalMonths": null,
+            "evidenceIds": [
+              "ev-16"
+            ]
+          },
+          "locationId": "location-1차",
+          "prices": [
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-402-deposit-under50",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-402"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "37,400,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-19"
+              ],
+              "amountKrw": 37400000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-402-rent-under50",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-402"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "487,300",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-19"
+              ],
+              "amountKrw": 487300
+            },
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-1차-402-deposit-50to70",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-402"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "62,340,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-19"
+              ],
+              "amountKrw": 62340000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-1차-402-rent-50to70",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-1차-402"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "812,200",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-19"
+              ],
+              "amountKrw": 812200
+            }
+          ],
+          "scope": {
+            "description": "1차 402호의 공급 조건입니다.",
+            "level": "SUPPLY_GROUP",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [
+              "unit-1차-402"
+            ],
+            "targetGroups": []
+          },
+          "unitLabel": "1차 402호",
+          "evidenceIds": [
+            "ev-19"
+          ]
+        },
+        {
+          "buildingUse": null,
+          "commonAreaSqm": null,
+          "counts": [
+            {
+              "aggregationComplete": false,
+              "aggregationRole": "STANDALONE",
+              "id": "unit-2차-201-offered",
+              "kind": "OFFERED",
+              "parentCountId": null,
+              "scope": {
+                "description": "2차 201호의 모집 수입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-201"
+                ],
+                "targetGroups": []
+              },
+              "value": 1,
+              "evidenceIds": [
+                "ev-20"
+              ]
+            }
+          ],
+          "exclusiveAreaSqm": 30.2,
+          "floor": null,
+          "housingTypeCode": null,
+          "id": "unit-2차-201",
+          "itemKind": "HOUSING_UNIT",
+          "leaseTerm": {
+            "description": "계약기간은 2년이며, 재계약 요건을 유지하면 최대 4회 재계약하여 최장 10년 거주할 수 있습니다.",
+            "initialMonths": 24,
+            "maxMonths": 120,
+            "renewalMonths": null,
+            "evidenceIds": [
+              "ev-16"
+            ]
+          },
+          "locationId": "location-2차",
+          "prices": [
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-2차-201-deposit-under50",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-201"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "33,080,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-20"
+              ],
+              "amountKrw": 33080000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-2차-201-rent-under50",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-201"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "431,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-20"
+              ],
+              "amountKrw": 431000
+            },
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-2차-201-deposit-50to70",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-201"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "55,140,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-20"
+              ],
+              "amountKrw": 55140000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-2차-201-rent-50to70",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-201"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "718,400",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-20"
+              ],
+              "amountKrw": 718400
+            }
+          ],
+          "scope": {
+            "description": "2차 201호의 공급 조건입니다.",
+            "level": "SUPPLY_GROUP",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [
+              "unit-2차-201"
+            ],
+            "targetGroups": []
+          },
+          "unitLabel": "2차 201호",
+          "evidenceIds": [
+            "ev-20"
+          ]
+        },
+        {
+          "buildingUse": null,
+          "commonAreaSqm": null,
+          "counts": [
+            {
+              "aggregationComplete": false,
+              "aggregationRole": "STANDALONE",
+              "id": "unit-2차-502-offered",
+              "kind": "OFFERED",
+              "parentCountId": null,
+              "scope": {
+                "description": "2차 502호의 모집 수입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-502"
+                ],
+                "targetGroups": []
+              },
+              "value": 1,
+              "evidenceIds": [
+                "ev-21"
+              ]
+            }
+          ],
+          "exclusiveAreaSqm": 24.83,
+          "floor": null,
+          "housingTypeCode": null,
+          "id": "unit-2차-502",
+          "itemKind": "HOUSING_UNIT",
+          "leaseTerm": {
+            "description": "계약기간은 2년이며, 재계약 요건을 유지하면 최대 4회 재계약하여 최장 10년 거주할 수 있습니다.",
+            "initialMonths": 24,
+            "maxMonths": 120,
+            "renewalMonths": null,
+            "evidenceIds": [
+              "ev-16"
+            ]
+          },
+          "locationId": "location-2차",
+          "prices": [
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-2차-502-deposit-under50",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-502"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "28,070,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-21"
+              ],
+              "amountKrw": 28070000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-2차-502-rent-under50",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-up-to-50",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 이하 및 자산기준 충족 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-502"
+                ],
+                "targetGroups": [
+                  "소득 50%이하 및 자산기준 충족"
+                ]
+              },
+              "sourceAmount": "365,700",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-21"
+              ],
+              "amountKrw": 365700
+            },
+            {
+              "billingPeriod": "ONCE",
+              "id": "unit-2차-502-deposit-50to70",
+              "kind": "DEPOSIT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-502"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "46,800,000",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-21"
+              ],
+              "amountKrw": 46800000
+            },
+            {
+              "billingPeriod": "MONTHLY",
+              "id": "unit-2차-502-rent-50to70",
+              "kind": "MONTHLY_RENT",
+              "pricePlanId": "income-over50-up-to70",
+              "priceStage": "STANDARD",
+              "scope": {
+                "description": "소득 50% 초과 70 이하 대상의 기본 임대조건입니다.",
+                "level": "SUPPLY_GROUP",
+                "locationIds": [],
+                "resolution": "RESOLVED",
+                "supplyCategory": "ALL",
+                "supplyGroupIds": [
+                  "unit-2차-502"
+                ],
+                "targetGroups": [
+                  "소득 50%초과 70 이하"
+                ]
+              },
+              "sourceAmount": "609,600",
+              "sourceUnit": "원",
+              "taxTreatment": "UNKNOWN",
+              "vatRate": null,
+              "evidenceIds": [
+                "ev-21"
+              ],
+              "amountKrw": 609600
+            }
+          ],
+          "scope": {
+            "description": "2차 502호의 공급 조건입니다.",
+            "level": "SUPPLY_GROUP",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [
+              "unit-2차-502"
+            ],
+            "targetGroups": []
+          },
+          "unitLabel": "2차 502호",
+          "evidenceIds": [
+            "ev-21"
+          ]
+        }
+      ],
+      "eligibility": [
+        {
+          "appliesTo": "문화예술분야 청년예술인",
+          "category": "OTHER",
+          "description": "문화예술 분야에 종사하고, 예술활동증명서 또는 관련 협회 발급 예술인 증명서류로 예술인임을 증명할 수 있어야 합니다.",
+          "exceptions": [],
+          "exceptionsStatus": "NONE_IN_SOURCE",
+          "id": "eligibility-arts-proof",
+          "originalText": "「문화예술진흥법」에 따른 문화예술 분야에 종사하며, 한국예술인복지재단의예술활동증명서 또는관련협회에서발급한예술인증명서류를통해예술인증명이가능한자",
+          "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+          "rule": {
+            "expression": null,
+            "reason": "문화예술 분야 종사 및 예술인 증명서류 제출 요건은 속성 사전으로 표현할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "문화예술분야 청년예술인 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-22"
+          ]
+        },
+        {
+          "appliesTo": "문화예술분야 청년예술인",
+          "category": "AGE",
+          "description": "공고일 기준 19세 이상 39세 이하인 청년이어야 합니다.",
+          "exceptions": [],
+          "exceptionsStatus": "NONE_IN_SOURCE",
+          "id": "eligibility-age",
+          "originalText": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+          "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+          "rule": {
+            "expression": {
+              "attribute": "AGE_YEARS",
+              "basis": "공고문에는 1986.10.17.~2007.10.16. 출생이라고 기재되어 있습니다.",
+              "benchmark": null,
+              "kind": "ATOMIC",
+              "operator": "BETWEEN",
+              "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+              "subject": "APPLICANT",
+              "unit": "YEAR",
+              "value": [
+                19,
+                39
+              ],
+              "evidenceIds": [
+                "ev-23"
+              ]
+            },
+            "reason": null,
+            "status": "STRUCTURED"
+          },
+          "scope": {
+            "description": "문화예술분야 청년예술인 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-23"
+          ]
+        },
+        {
+          "appliesTo": "문화예술분야 청년예술인",
+          "category": "RESIDENCE",
+          "description": "신청자는 서울시에 주민등록이 등재되어 있어야 합니다.",
+          "exceptions": [],
+          "exceptionsStatus": "NONE_IN_SOURCE",
+          "id": "eligibility-seoul-resident",
+          "originalText": "서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년",
+          "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+          "rule": {
+            "expression": null,
+            "reason": "서울시 주민등록 등재 요건은 사전의 법정동코드 값으로 원문에 제시되어 있지 않아 구조화할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "문화예술분야 청년예술인 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-23"
+          ]
+        },
+        {
+          "appliesTo": "문화예술분야 청년예술인",
+          "category": "HOME_OWNERSHIP",
+          "description": "신청자를 포함한 세대원 전원이 무주택 세대구성원이어야 합니다. 공고문은 분리된 배우자 및 해당 주민등록표의 일부 직계존비속 등을 자격검증대상에 포함하고, 무주택세대구성원 정의에서 외국인을 제외한다고 안내합니다.",
+          "exceptions": [],
+          "exceptionsStatus": "NONE_IN_SOURCE",
+          "id": "eligibility-homeless-household",
+          "originalText": "세대원(신청자 포함) 전원이 무주택 세대구성원",
+          "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+          "rule": {
+            "expression": {
+              "attribute": "HOMELESS",
+              "basis": "공고문에서 정한 무주택세대구성원 범위에 속하는 세대원 전원(신청자 포함)이 주택을 소유하지 않아야 합니다.",
+              "benchmark": null,
+              "kind": "ATOMIC",
+              "operator": "EQ",
+              "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+              "subject": "HOUSEHOLD",
+              "unit": "BOOLEAN",
+              "value": true,
+              "evidenceIds": [
+                "ev-24",
+                "ev-25",
+                "ev-26"
+              ]
+            },
+            "reason": null,
+            "status": "STRUCTURED"
+          },
+          "scope": {
+            "description": "문화예술분야 청년예술인 신청자와 공고문에 따른 자격검증대상 세대원에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-24",
+            "ev-25",
+            "ev-26"
+          ]
+        },
+        {
+          "appliesTo": "문화예술분야 청년예술인",
+          "category": "INCOME",
+          "description": "아래 두 요건 중 하나를 충족해야 합니다. 첫째, 무주택세대구성원 전원의 전년도 도시근로자 월평균 소득 합산액이 50% 이하이고 총자산가액이 2.45억원 이하이며 자동차가액이 4,542만원 이하인 경우입니다. 둘째, 전년도 도시근로자 월평균 소득 합산액이 70% 이하인 경우이며 이 경로에는 자산기준이 없습니다. 공고문은 가구원 수별 월평균 소득 기준액도 함께 제시합니다: 50% 이하 기준은 1인가구 2,669,354원, 2인가구 3,519,762원, 3인가구 4,084,215원, 4인가구 4,401,101원, 5인가구 4,663,493원이고, 70% 이하 기준은 각각 3,432,027원, 4,693,016원, 5,717,900원, 6,161,541원, 6,528,890원입니다.",
+          "exceptions": [],
+          "exceptionsStatus": "NONE_IN_SOURCE",
+          "id": "eligibility-income-assets-alternative",
+          "originalText": "라. 소득 및 자산기준 : 아래요건 중 하나에 해당하는 자 1) 전년도 도시근로자 월평균 소득 50% 이하 및 총자산가액 2.45억원 이하, 자동차가액 4.542만원 이하인 자 2) 전년도 도시근로자 월평균 소득 70% 이하인 자(자산기준 없음)",
+          "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+          "rule": {
+            "expression": {
+              "children": [
+                {
+                  "children": [
+                    {
+                      "attribute": "INCOME_BENCHMARK_PERCENT",
+                      "basis": "무주택세대구성원 전원의 소득 합산액 기준입니다. 공고문에 가구원 수별 금액표가 함께 제시되어 있습니다.",
+                      "benchmark": {
+                        "householdMemberCount": null,
+                        "householdScope": "무주택세대구성원 전원",
+                        "referenceVersion": "전년도",
+                        "referenceYear": null,
+                        "standardName": "도시근로자 월평균 소득"
+                      },
+                      "kind": "ATOMIC",
+                      "operator": "LTE",
+                      "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                      "subject": "HOUSEHOLD",
+                      "unit": "PERCENT",
+                      "value": 50,
+                      "evidenceIds": [
+                        "ev-27",
+                        "ev-29",
+                        "ev-30"
+                      ]
+                    },
+                    {
+                      "attribute": "TOTAL_ASSETS_KRW",
+                      "basis": "부동산가액, 자동차가액, 금융자산가액 및 일반자산가액을 합산하고 부채를 차감하여 산출합니다.",
+                      "benchmark": null,
+                      "kind": "ATOMIC",
+                      "operator": "LTE",
+                      "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                      "subject": "HOUSEHOLD",
+                      "unit": "KRW",
+                      "value": 245000000,
+                      "evidenceIds": [
+                        "ev-28"
+                      ]
+                    },
+                    {
+                      "attribute": "CAR_ASSETS_KRW",
+                      "basis": "도시근로자 월평균 소득 50% 이하인 자에게 적용되는 자동차가액 기준입니다.",
+                      "benchmark": null,
+                      "kind": "ATOMIC",
+                      "operator": "LTE",
+                      "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                      "subject": "HOUSEHOLD",
+                      "unit": "KRW",
+                      "value": 45420000,
+                      "evidenceIds": [
+                        "ev-28"
+                      ]
+                    }
+                  ],
+                  "kind": "ALL"
+                },
+                {
+                  "attribute": "INCOME_BENCHMARK_PERCENT",
+                  "basis": "무주택세대구성원 전원의 소득 합산액 기준입니다. 공고문에 가구원 수별 금액표가 함께 제시되어 있습니다.",
+                  "benchmark": {
+                    "householdMemberCount": null,
+                    "householdScope": "무주택세대구성원 전원",
+                    "referenceVersion": "전년도",
+                    "referenceYear": null,
+                    "standardName": "도시근로자 월평균 소득"
+                  },
+                  "kind": "ATOMIC",
+                  "operator": "LTE",
+                  "referenceTime": "입주자 모집 공고일(2026. 10. 16.) 기준",
+                  "subject": "HOUSEHOLD",
+                  "unit": "PERCENT",
+                  "value": 70,
+                  "evidenceIds": [
+                    "ev-27",
+                    "ev-29",
+                    "ev-31",
+                    "ev-32"
+                  ]
+                }
+              ],
+              "kind": "ANY"
+            },
+            "reason": null,
+            "status": "STRUCTURED"
+          },
+          "scope": {
+            "description": "문화예술분야 청년예술인 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-27",
+            "ev-28",
+            "ev-29",
+            "ev-30",
+            "ev-31",
+            "ev-32"
+          ]
+        },
+        {
+          "appliesTo": "문화예술분야 청년예술인",
+          "category": "HOUSEHOLD",
+          "description": "금회 모집대상 주택에는 1세대 1주택만 신청할 수 있으며, 중복 신청은 전부 무효 처리됩니다.",
+          "exceptions": [],
+          "exceptionsStatus": "NONE_IN_SOURCE",
+          "id": "eligibility-one-application-per-household",
+          "originalText": "금회 모집공고문의 모집대상 주택에 대하여 1세대 1주택 신청을 원칙으로 하며, 중복 신청하는 경우 전부 무효처리 합니다.",
+          "referenceTime": "신청 시",
+          "rule": {
+            "expression": null,
+            "reason": "1세대 1주택 신청 및 중복 신청 무효 요건은 속성 사전으로 표현할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "문화예술분야 청년예술인 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-33"
+          ]
+        }
+      ],
+      "selectionRules": [
+        {
+          "description": "월평균 소득이 전년도 도시근로자 월평균 소득의 50% 이하인 경우 40점을 부여합니다.",
+          "id": "score-income.50-or-less",
+          "kind": "SCORING",
+          "maxPoints": 40,
+          "order": null,
+          "originalText": "| 평가항목 50% 이하 1) 월평균 소득 50% 초과 70% 이하 |  |  | 배점 40 35 | 총점 100 |",
+          "points": 40,
+          "priorityRank": null,
+          "rule": {
+            "expression": {
+              "attribute": "INCOME_BENCHMARK_PERCENT",
+              "basis": "월평균 소득 기준입니다.",
+              "benchmark": {
+                "householdMemberCount": null,
+                "householdScope": "무주택세대구성원 전원",
+                "referenceVersion": "전년도",
+                "referenceYear": null,
+                "standardName": "도시근로자 월평균 소득"
+              },
+              "kind": "ATOMIC",
+              "operator": "LTE",
+              "referenceTime": "입주자 모집 공고일(2026. 10. 16.)",
+              "subject": "HOUSEHOLD",
+              "unit": "PERCENT",
+              "value": 50,
+              "evidenceIds": [
+                "ev-34"
+              ]
+            },
+            "reason": null,
+            "status": "STRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-34"
+          ]
+        },
+        {
+          "description": "월평균 소득이 전년도 도시근로자 월평균 소득의 50% 초과 70% 이하인 경우 35점을 부여합니다.",
+          "id": "score-income.over-50-to-70",
+          "kind": "SCORING",
+          "maxPoints": 40,
+          "order": null,
+          "originalText": "| 평가항목 50% 이하 1) 월평균 소득 50% 초과 70% 이하 |  |  | 배점 40 35 | 총점 100 |",
+          "points": 35,
+          "priorityRank": null,
+          "rule": {
+            "expression": {
+              "children": [
+                {
+                  "attribute": "INCOME_BENCHMARK_PERCENT",
+                  "basis": "월평균 소득 기준입니다.",
+                  "benchmark": {
+                    "householdMemberCount": null,
+                    "householdScope": "무주택세대구성원 전원",
+                    "referenceVersion": "전년도",
+                    "referenceYear": null,
+                    "standardName": "도시근로자 월평균 소득"
+                  },
+                  "kind": "ATOMIC",
+                  "operator": "GT",
+                  "referenceTime": "입주자 모집 공고일(2026. 10. 16.)",
+                  "subject": "HOUSEHOLD",
+                  "unit": "PERCENT",
+                  "value": 50,
+                  "evidenceIds": [
+                    "ev-34"
+                  ]
+                },
+                {
+                  "attribute": "INCOME_BENCHMARK_PERCENT",
+                  "basis": "월평균 소득 기준입니다.",
+                  "benchmark": {
+                    "householdMemberCount": null,
+                    "householdScope": "무주택세대구성원 전원",
+                    "referenceVersion": "전년도",
+                    "referenceYear": null,
+                    "standardName": "도시근로자 월평균 소득"
+                  },
+                  "kind": "ATOMIC",
+                  "operator": "LTE",
+                  "referenceTime": "입주자 모집 공고일(2026. 10. 16.)",
+                  "subject": "HOUSEHOLD",
+                  "unit": "PERCENT",
+                  "value": 70,
+                  "evidenceIds": [
+                    "ev-34"
+                  ]
+                }
+              ],
+              "kind": "ALL"
+            },
+            "reason": null,
+            "status": "STRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-34"
+          ]
+        },
+        {
+          "description": "서초구에 5년 이상 거주한 경우 50점을 부여합니다.",
+          "id": "score-residence-seocho.5-years-or-more",
+          "kind": "SCORING",
+          "maxPoints": 50,
+          "order": null,
+          "originalText": "| 2) 거주기간 | 2-1) 서초구 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 50 45 40 |  |",
+          "points": 50,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "원문은 서초구 거주기간 기준을 점수 구간으로 제시하지만, 거주기간의 세부 경계값을 속성 사전으로 정확히 구조화할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-35"
+          ]
+        },
+        {
+          "description": "서초구에 3년 이상 4년 이하 거주한 경우 45점을 부여합니다.",
+          "id": "score-residence-seocho.3-to-4-years",
+          "kind": "SCORING",
+          "maxPoints": 50,
+          "order": null,
+          "originalText": "| 2) 거주기간 | 2-1) 서초구 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 50 45 40 |  |",
+          "points": 45,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "원문은 서초구 거주기간 기준을 점수 구간으로 제시하지만, 거주기간의 세부 경계값을 속성 사전으로 정확히 구조화할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-35"
+          ]
+        },
+        {
+          "description": "서초구에 2년 이하 거주한 경우 40점을 부여합니다.",
+          "id": "score-residence-seocho.2-years-or-less",
+          "kind": "SCORING",
+          "maxPoints": 50,
+          "order": null,
+          "originalText": "| 2) 거주기간 | 2-1) 서초구 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 50 45 40 |  |",
+          "points": 40,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "원문은 서초구 거주기간 기준을 점수 구간으로 제시하지만, 거주기간의 세부 경계값을 속성 사전으로 정확히 구조화할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-35"
+          ]
+        },
+        {
+          "description": "서초구 외 서울특별시에 5년 이상 거주한 경우 35점을 부여합니다.",
+          "id": "score-residence-seoul-outside-seocho.5-years-or-more",
+          "kind": "SCORING",
+          "maxPoints": 35,
+          "order": null,
+          "originalText": "|  | 2-2) 서초구 외 서울특별시 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 35 30 25 |  |",
+          "points": 35,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "원문은 서초구 외 서울특별시 거주기간 기준을 점수 구간으로 제시하지만, 거주기간의 세부 경계값을 속성 사전으로 정확히 구조화할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-36"
+          ]
+        },
+        {
+          "description": "서초구 외 서울특별시에 3년 이상 4년 이하 거주한 경우 30점을 부여합니다.",
+          "id": "score-residence-seoul-outside-seocho.3-to-4-years",
+          "kind": "SCORING",
+          "maxPoints": 35,
+          "order": null,
+          "originalText": "|  | 2-2) 서초구 외 서울특별시 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 35 30 25 |  |",
+          "points": 30,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "원문은 서초구 외 서울특별시 거주기간 기준을 점수 구간으로 제시하지만, 거주기간의 세부 경계값을 속성 사전으로 정확히 구조화할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-36"
+          ]
+        },
+        {
+          "description": "서초구 외 서울특별시에 2년 이하 거주한 경우 25점을 부여합니다.",
+          "id": "score-residence-seoul-outside-seocho.2-years-or-less",
+          "kind": "SCORING",
+          "maxPoints": 35,
+          "order": null,
+          "originalText": "|  | 2-2) 서초구 외 서울특별시 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 35 30 25 |  |",
+          "points": 25,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "원문은 서초구 외 서울특별시 거주기간 기준을 점수 구간으로 제시하지만, 거주기간의 세부 경계값을 속성 사전으로 정확히 구조화할 수 없습니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-36"
+          ]
+        },
+        {
+          "description": "본인 명의 차량을 소유하지 않은 경우 10점을 부여합니다.",
+          "id": "score-vehicle.no-vehicle",
+          "kind": "SCORING",
+          "maxPoints": 10,
+          "order": null,
+          "originalText": "| 3) 본인명의 차량 소유 |  | 미소유 소유 | 10 5 |  |",
+          "points": 10,
+          "priorityRank": null,
+          "rule": {
+            "expression": {
+              "attribute": "TARGET_GROUP_CODE",
+              "basis": "본인 명의 차량 소유 여부를 기준으로 합니다.",
+              "benchmark": null,
+              "kind": "ATOMIC",
+              "operator": "EQ",
+              "referenceTime": "입주자 모집 공고일(2026. 10. 16.)",
+              "subject": "APPLICANT",
+              "unit": "CODE",
+              "value": "본인명의차량미소유",
+              "evidenceIds": [
+                "ev-37"
+              ]
+            },
+            "reason": null,
+            "status": "STRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-37"
+          ]
+        },
+        {
+          "description": "본인 명의 차량을 소유한 경우 5점을 부여합니다.",
+          "id": "score-vehicle.owns-vehicle",
+          "kind": "SCORING",
+          "maxPoints": 10,
+          "order": null,
+          "originalText": "| 3) 본인명의 차량 소유 |  | 미소유 소유 | 10 5 |  |",
+          "points": 5,
+          "priorityRank": null,
+          "rule": {
+            "expression": {
+              "attribute": "TARGET_GROUP_CODE",
+              "basis": "본인 명의 차량 소유 여부를 기준으로 합니다.",
+              "benchmark": null,
+              "kind": "ATOMIC",
+              "operator": "EQ",
+              "referenceTime": "입주자 모집 공고일(2026. 10. 16.)",
+              "subject": "APPLICANT",
+              "unit": "CODE",
+              "value": "본인명의차량소유",
+              "evidenceIds": [
+                "ev-37"
+              ]
+            },
+            "reason": null,
+            "status": "STRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-37"
+          ]
+        },
+        {
+          "description": "종합점수가 같으면 서초구 전입일이 빠른 신청자를 우선합니다.",
+          "id": "tie-break.1-seocho-move-in",
+          "kind": "TIE_BREAK",
+          "maxPoints": null,
+          "order": 1,
+          "originalText": "- ① 서초구 전입일이 빠른 순 ② 서울시 전입일이 빠른 순 ③ 생년월일이 빠른 순(연장자)",
+          "points": null,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "동점자 우선순위 처리 기준입니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-38"
+          ]
+        },
+        {
+          "description": "서초구 전입일이 같은 경우 서울시 전입일이 빠른 신청자를 우선합니다.",
+          "id": "tie-break.2-seoul-move-in",
+          "kind": "TIE_BREAK",
+          "maxPoints": null,
+          "order": 2,
+          "originalText": "- ① 서초구 전입일이 빠른 순 ② 서울시 전입일이 빠른 순 ③ 생년월일이 빠른 순(연장자)",
+          "points": null,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "동점자 우선순위 처리 기준입니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-38"
+          ]
+        },
+        {
+          "description": "서초구 및 서울시 전입일이 같은 경우 생년월일이 빠른 연장자를 우선합니다.",
+          "id": "tie-break.3-older-applicant",
+          "kind": "TIE_BREAK",
+          "maxPoints": null,
+          "order": 3,
+          "originalText": "- ① 서초구 전입일이 빠른 순 ② 서울시 전입일이 빠른 순 ③ 생년월일이 빠른 순(연장자)",
+          "points": null,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "동점자 우선순위 처리 기준입니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-38"
+          ]
+        },
+        {
+          "description": "앞선 기준으로도 순위가 결정되지 않으면 무작위 추첨으로 정합니다.",
+          "id": "tie-break.random-lottery",
+          "kind": "LOTTERY",
+          "maxPoints": null,
+          "order": null,
+          "originalText": "(순위가 결정되지 않을 경우 무작위 추첨에 의함)",
+          "points": null,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "동점 시 무작위 추첨으로 순위를 결정합니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-39"
+          ]
+        },
+        {
+          "description": "신청자 수가 공급호수를 초과하면 공급호수의 200%를 예비입주자로 선정합니다.",
+          "id": "reserve-selection.200-percent",
+          "kind": "OTHER",
+          "maxPoints": null,
+          "order": null,
+          "originalText": "- 신청자 수가 공급호수를 초과할 경우에는 공급호수의 200%를 예비 입주자로 선정",
+          "points": null,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "예비입주자 선정 배수에 관한 방식입니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-40"
+          ]
+        },
+        {
+          "description": "서류심사 고득점자 순으로 신청서에 적은 희망호수를 반영하여 호수를 선정합니다.",
+          "id": "unit-selection.score-and-preference",
+          "kind": "OTHER",
+          "maxPoints": null,
+          "order": null,
+          "originalText": "○ 호수선정방법 : 서류심사 고득점자 순으로 희망호수 반영(입주신청서에 희망호수 기입 필수)",
+          "points": null,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "고득점 순으로 희망호수를 반영하는 호수 선정 방식입니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-41"
+          ]
+        },
+        {
+          "description": "예비입주자 순위는 당첨자와 함께 게시하며, 예비입주자 공급 유효기간은 당첨자 발표일부터 12개월까지입니다.",
+          "id": "reserve-selection.validity",
+          "kind": "OTHER",
+          "maxPoints": null,
+          "order": null,
+          "originalText": "- 예비입주자 순위는 당첨자와 함께 게시하고 예비입주자에게 공급하는 유효기간은 당첨자 발표일로부터 12개월까지 임",
+          "points": null,
+          "priorityRank": null,
+          "rule": {
+            "expression": null,
+            "reason": "예비입주자 순위 게시 및 공급 유효기간에 관한 사항입니다.",
+            "status": "UNSTRUCTURED"
+          },
+          "scope": {
+            "description": "공고 대상인 문화예술분야 청년예술인에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": [
+              "문화예술분야 청년예술인"
+            ]
+          },
+          "evidenceIds": [
+            "ev-42"
+          ]
+        }
+      ],
+      "requiredDocuments": [
+        {
+          "appliesTo": "신청자 전원",
+          "description": null,
+          "id": "document-application",
+          "name": "입주신청서[별지1호]",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-43"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "신청자 전원",
+          "description": "한국예술인복지재단 예술활동 증명서의 유효기간은 모집공고일 현재 유효해야 하며, 관련 협회 증명서류는 직인 또는 서명이 없으면 인정되지 않습니다.",
+          "id": "document-arts-proof",
+          "name": "문화예술분야 종사 증빙서류",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-44"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "신청자 전원",
+          "description": "주민등록등본과 초본을 각각 제출하며, 주소변동사항·세대주 성명 및 관계·전입일·변동일 사유를 모두 기재하고 과거 주소변동 이력을 전체 포함하여 발급합니다.",
+          "id": "document-resident-register",
+          "name": "주민등록등본",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-45"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "신청자 전원",
+          "description": "주민등록등본과 초본을 각각 제출하며, 주소변동사항·세대주 성명 및 관계·전입일·변동일 사유를 모두 기재하고 과거 주소변동 이력을 전체 포함하여 발급합니다.",
+          "id": "document-resident-register-history",
+          "name": "주민등록초본",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-45"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "배우자 주소가 분리된 경우",
+          "description": null,
+          "id": "document-separated-spouse-register",
+          "name": "분리배우자 주민등록등본",
+          "scope": {
+            "description": "공고 전체에서 배우자 주소가 분리된 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-46"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "신청자 전원 및 세대원 전원",
+          "description": null,
+          "id": "document-personal-information-consent",
+          "name": "개인정보 수집·이용 및 제3자 제공 동의서[별지2호]",
+          "scope": {
+            "description": "공고 전체 신청자와 세대원에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-47"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "신청자 전원",
+          "description": "세대구성원 전원이 서명해야 합니다.",
+          "id": "document-financial-information-consent",
+          "name": "금융정보 등 제공 동의서[별지3호]",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-48"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "신청자 전원",
+          "description": null,
+          "id": "document-asset-holding-confirmation",
+          "name": "자산 보유 사실 확인서[별지4호]",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-49"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "소득을 추가로 입증하도록 요청받은 경우",
+          "description": "소득을 입증하지 못하면 선정에서 제외됩니다.",
+          "id": "document-income-evidence",
+          "name": "소득 입증 추가서류",
+          "scope": {
+            "description": "공고 전체에서 소득 입증 추가서류를 요청받은 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-50"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "본인이 계약을 체결하는 경우",
+          "description": null,
+          "id": "document-contract-identification",
+          "name": "신분증",
+          "scope": {
+            "description": "공고 전체에서 본인이 계약을 체결하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-51"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "본인이 계약을 체결하는 경우",
+          "description": "서명으로 대체할 수 있습니다.",
+          "id": "document-contract-stamp",
+          "name": "계약자 도장",
+          "scope": {
+            "description": "공고 전체에서 본인이 계약을 체결하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-51"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "본인이 계약을 체결하는 경우",
+          "description": "계약금은 선정된 주택 임대보증금의 10%입니다. 인터넷뱅킹·스마트뱅킹으로 납부한 경우 계좌이체 확인증 등을 출력해 지참하면 빠른 업무처리가 가능합니다.",
+          "id": "document-contract-payment-receipt",
+          "name": "계약금 납부 영수증",
+          "scope": {
+            "description": "공고 전체에서 본인이 계약을 체결하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-51"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "대리인이 계약하는 경우",
+          "description": null,
+          "id": "document-power-of-attorney",
+          "name": "위임장",
+          "scope": {
+            "description": "공고 전체에서 대리인이 계약하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-52"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "대리인이 계약하는 경우",
+          "description": null,
+          "id": "document-principal-identification",
+          "name": "계약자 신분증",
+          "scope": {
+            "description": "공고 전체에서 대리인이 계약하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-52"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "대리인이 계약하는 경우",
+          "description": null,
+          "id": "document-principal-seal-certificate",
+          "name": "계약자 인감증명서",
+          "scope": {
+            "description": "공고 전체에서 대리인이 계약하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-52"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "대리인이 계약하는 경우",
+          "description": null,
+          "id": "document-principal-seal",
+          "name": "계약자 인감도장",
+          "scope": {
+            "description": "공고 전체에서 대리인이 계약하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-52"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "대리인이 계약하는 경우",
+          "description": null,
+          "id": "document-agent-identification",
+          "name": "대리인 신분증",
+          "scope": {
+            "description": "공고 전체에서 대리인이 계약하는 경우에 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-52"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "입주 전",
+          "description": null,
+          "id": "document-community-obligations-consent",
+          "name": "입주자 의무사항 동의서",
+          "scope": {
+            "description": "공고 전체 입주자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-53"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "종전 거주 주택에서 주택도시기금 대출을 받은 경우",
+          "description": "임대주택에 입주하기 전까지 대출금을 상환해야 합니다.",
+          "id": "document-housing-fund-repayment-proof",
+          "name": "주택도시기금 대출금 상환 증빙서류",
+          "scope": {
+            "description": "공고 전체에서 종전 거주 주택의 주택도시기금 대출을 받은 입주자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-54"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "자산 보유 사실 확인서에 임차보증금을 신고한 경우",
+          "description": "확정일자가 표시된 임대차계약서 사본을 제출합니다. 공사 임대주택의 임차보증금은 제출하지 않아도 됩니다.",
+          "id": "document-asset-rent-deposit-contract",
+          "name": "임차보증금 관련 임대차계약서 사본",
+          "scope": {
+            "description": "공고 전체에서 임차보증금을 보유한 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-55"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "분양권을 보유한 경우",
+          "description": "제출일 현재까지의 분양대금 납부확인원에는 대출금액이 포함된 조사일 현재까지의 총 납부금액이 표시되어야 합니다.",
+          "id": "document-pre-sale-contract-copy",
+          "name": "해당 주택 분양계약서 사본",
+          "scope": {
+            "description": "공고 전체에서 분양권을 보유한 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-56"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "분양권을 보유한 경우",
+          "description": "제출일 현재까지의 분양대금 납부 내역을 확인하는 서류이며 대출금액을 포함한 조사일 현재까지의 총 납부금액을 확인할 수 있어야 합니다.",
+          "id": "document-pre-sale-payment-confirmation",
+          "name": "분양대금 납부확인원",
+          "scope": {
+            "description": "공고 전체에서 분양권을 보유한 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-56"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "비상장주식을 보유한 경우",
+          "description": "종목·수량 및 가액을 증명할 수 있는 자료를 제출합니다.",
+          "id": "document-unlisted-stock-evidence",
+          "name": "증권사 조회내역",
+          "scope": {
+            "description": "공고 전체에서 비상장주식을 보유한 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-57"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "비상장주식을 보유한 경우",
+          "description": "종목·수량 및 가액을 증명할 수 있는 자료를 제출합니다.",
+          "id": "document-stock-custody-certificate",
+          "name": "주식보관증",
+          "scope": {
+            "description": "공고 전체에서 비상장주식을 보유한 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-57"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "출자금 또는 출자지분을 보유한 경우",
+          "description": null,
+          "id": "document-investment-certificate",
+          "name": "출자증서 사본",
+          "scope": {
+            "description": "공고 전체에서 출자금 또는 출자지분을 보유한 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-58"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "부채로 임대보증금을 신고한 경우",
+          "description": "확정일자가 표시된 임대차계약서 사본을 제출합니다.",
+          "id": "document-liability-rent-deposit-contract",
+          "name": "임대보증금 관련 임대차계약서 사본",
+          "scope": {
+            "description": "공고 전체에서 부채로 임대보증금을 신고한 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-59"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        },
+        {
+          "appliesTo": "장기카드대출(카드론)이 있는 경우",
+          "description": null,
+          "id": "document-card-loan-evidence",
+          "name": "신용카드사가 발급한 증빙서류",
+          "scope": {
+            "description": "공고 전체에서 장기카드대출(카드론)이 있는 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "submissionTime": null,
+          "evidenceIds": [
+            "ev-60"
+          ],
+          "group": null,
+          "copies": null,
+          "issuer": null
+        }
+      ],
+      "guidance": [
+        {
+          "description": "서초구청 이메일(oyj4100@seocho.go.kr)로 접수해 주십시오. 메일 제목은 “청년예술인주택 신청서류_성명_날짜”로 작성하고, 서류는 각각 스캔하여 개별 파일로 제출해 주십시오.",
+          "id": "guidance-application-email",
+          "kind": "APPLICATION_METHOD",
+          "phone": null,
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "이메일 신청 방법",
+          "url": null,
+          "evidenceIds": [
+            "ev-61",
+            "ev-62"
+          ]
+        },
+        {
+          "description": "메일 접수 후 담당자에게 전화하여 접수 여부를 확인해 주십시오. 휴대전화로 촬영하거나 스캔 앱을 이용해 제출한 서류는 접수되지 않습니다.",
+          "id": "guidance-caution-email",
+          "kind": "CAUTION",
+          "phone": null,
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "이메일 접수 유의사항",
+          "url": null,
+          "evidenceIds": [
+            "ev-63",
+            "ev-64"
+          ]
+        },
+        {
+          "description": "신청서 작성 후에는 수정할 수 없으며, 제출한 서류는 반환하지 않습니다.",
+          "id": "guidance-caution-correction",
+          "kind": "CAUTION",
+          "phone": null,
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "신청서 수정 및 서류 반환",
+          "url": null,
+          "evidenceIds": [
+            "ev-65"
+          ]
+        },
+        {
+          "description": "주택 내부와 주변 환경을 확인한 뒤 신청해 주십시오. 사전 예약 없이 방문하면 주택을 공개하지 않으며, 지정된 공개기간이 지나면 입주 전까지 추가 확인이 불가합니다.",
+          "id": "guidance-caution-viewing",
+          "kind": "CAUTION",
+          "phone": null,
+          "scope": {
+            "description": "서리풀 청년아트타운 1차와 2차 주택 공개에 적용됩니다.",
+            "level": "LOCATION",
+            "locationIds": [
+              "location-1차",
+              "location-2차"
+            ],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "주택 사전공개 유의사항",
+          "url": null,
+          "evidenceIds": [
+            "ev-66",
+            "ev-67"
+          ]
+        },
+        {
+          "description": "당첨자 게시 내용을 직접 확인해 주십시오. 주소나 연락처 변경으로 계약 안내문 등이 도달하지 않거나 선정 여부를 확인하지 못해 발생하는 불이익은 신청자 본인에게 있습니다.",
+          "id": "guidance-caution-winner-check",
+          "kind": "CAUTION",
+          "phone": null,
+          "scope": {
+            "description": "공고 전체 당첨자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "당첨 여부 확인",
+          "url": null,
+          "evidenceIds": [
+            "ev-10",
+            "ev-68"
+          ]
+        },
+        {
+          "description": "계약금은 선정된 주택 임대보증금의 10%이며, 잔금을 납부하고 서울주택도시개발공사와 입주일을 협의한 뒤 입주할 수 있습니다.",
+          "id": "guidance-move-in-payment",
+          "kind": "MOVE_IN",
+          "phone": null,
+          "scope": {
+            "description": "공고 전체 계약자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "계약금 및 입주 절차",
+          "url": null,
+          "evidenceIds": [
+            "ev-69",
+            "ev-14"
+          ]
+        },
+        {
+          "description": "입주 전 공동체주택 교육에 참여하고, 입주자 자치규약 제정과 공동체 활동에 참여해 주십시오. 교육에 참여하지 않으면 계약 취소 또는 재계약 거절 등 불이익이 있을 수 있습니다.",
+          "id": "guidance-living-community",
+          "kind": "LIVING_NOTICE",
+          "phone": null,
+          "scope": {
+            "description": "공고 전체 입주자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "공동체주택 생활 및 교육",
+          "url": null,
+          "evidenceIds": [
+            "ev-70",
+            "ev-71"
+          ]
+        },
+        {
+          "description": "공동관리비와 공용·전용 부분의 단순 소모품 수리·교체 비용은 입주자가 부담합니다. 입주 중 관계 법령이 정한 범위에서 임대조건이 인상될 수 있습니다.",
+          "id": "guidance-living-costs",
+          "kind": "LIVING_NOTICE",
+          "phone": null,
+          "scope": {
+            "description": "공고 전체 입주자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "관리비 및 임대조건",
+          "url": null,
+          "evidenceIds": [
+            "ev-72",
+            "ev-73"
+          ]
+        },
+        {
+          "description": "주택 사전공개는 사전 전화 문의 후 방문해 주십시오. 점심시간에는 공개하지 않습니다.",
+          "id": "guidance-viewing-info",
+          "kind": "OTHER",
+          "phone": null,
+          "scope": {
+            "description": "서리풀 청년아트타운 1차와 2차 주택 공개에 적용됩니다.",
+            "level": "LOCATION",
+            "locationIds": [
+              "location-1차",
+              "location-2차"
+            ],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "주택 사전공개 안내",
+          "url": null,
+          "evidenceIds": [
+            "ev-74"
+          ]
+        },
+        {
+          "description": "신청 관련 문의처입니다.",
+          "id": "guidance-contact-application",
+          "kind": "CONTACT",
+          "phone": "02-2155-8317",
+          "scope": {
+            "description": "공고 전체 신청자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "서초구청 문화관광과 문화시설팀",
+          "url": null,
+          "evidenceIds": [
+            "ev-75"
+          ]
+        },
+        {
+          "description": "계약 관련 문의처입니다.",
+          "id": "guidance-contact-contract",
+          "kind": "CONTACT",
+          "phone": "02-3410-8565, 8562",
+          "scope": {
+            "description": "공고 전체 계약자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "서울주택도시개발공사 매입주택공급부",
+          "url": null,
+          "evidenceIds": [
+            "ev-76"
+          ]
+        },
+        {
+          "description": "입주 관련 문의처이며, 월임대료의 보증금 전환 문의도 안내합니다.",
+          "id": "guidance-contact-move-in",
+          "kind": "CONTACT",
+          "phone": "02-6990-5500~1",
+          "scope": {
+            "description": "공고 전체 입주자에게 적용됩니다.",
+            "level": "NOTICE",
+            "locationIds": [],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "서울주택도시개발공사 서초주거안심종합센터",
+          "url": null,
+          "evidenceIds": [
+            "ev-77",
+            "ev-78"
+          ]
+        },
+        {
+          "description": "주택 사전공개 예약 및 방문 문의처입니다.",
+          "id": "guidance-contact-viewing",
+          "kind": "CONTACT",
+          "phone": "02)6990-5500~1",
+          "scope": {
+            "description": "서리풀 청년아트타운 1차와 2차 주택 공개에 적용됩니다.",
+            "level": "LOCATION",
+            "locationIds": [
+              "location-1차",
+              "location-2차"
+            ],
+            "resolution": "RESOLVED",
+            "supplyCategory": "ALL",
+            "supplyGroupIds": [],
+            "targetGroups": []
+          },
+          "title": "서울주택도시개발공사 서초센터",
+          "url": null,
+          "evidenceIds": [
+            "ev-66"
+          ]
+        }
+      ],
+      "evidence": [
+        {
+          "id": "ev-1",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 41,
+            "end": 69
+          },
+          "quote": "서초구 서리풀 청년아트타운 잔여세대 입주자 모집공고"
+        },
+        {
+          "id": "ev-2",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 244,
+            "end": 257
+          },
+          "quote": "2026년 10월 16일"
+        },
+        {
+          "id": "ev-3",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 1586,
+            "end": 1600
+          },
+          "quote": "○ 공급호수 : 총 6세대"
+        },
+        {
+          "id": "ev-4",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 1627,
+            "end": 1670
+          },
+          "quote": "- 1차 : 서울시 서초구 반포대로9길 59-16 (서초동 1479-14번지)"
+        },
+        {
+          "id": "ev-5",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 7435,
+            "end": 7476
+          },
+          "quote": "| 모집공고 | ‘26.10.16.(금) ∼10.30.(금) | 서초구 |"
+        },
+        {
+          "id": "ev-6",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 7485,
+            "end": 7544
+          },
+          "quote": "| 신청접수 | ‘26.10.26.(월) ∼10.30.(금) (17:00접수분까지) | 서초구(이메일) |"
+        },
+        {
+          "id": "ev-7",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8219,
+            "end": 8275
+          },
+          "quote": "○ 공개기간 : 2026. 10. 26.(월) ∼ 10. 28.(수) 3일간 10:00 ~ 17:00"
+        },
+        {
+          "id": "ev-8",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 9175,
+            "end": 9194
+          },
+          "quote": "○ 소명대상자 서류제출 : 개별통보"
+        },
+        {
+          "id": "ev-9",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 7617,
+            "end": 7654
+          },
+          "quote": "| 당첨자(예비자) 발표 | ‘26.12.30.(수) | 서초구 |"
+        },
+        {
+          "id": "ev-10",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10392,
+            "end": 10427
+          },
+          "quote": "○ 게시장소 : 서초구청 홈페이지 게시 ※ 최종입주자 개별 연락"
+        },
+        {
+          "id": "ev-11",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10863,
+            "end": 10910
+          },
+          "quote": "○ 계약기간 : 2027. 1. 20.(수) ~1. 22.(금) 10:00~16:00"
+        },
+        {
+          "id": "ev-12",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 11456,
+            "end": 11489
+          },
+          "quote": "○ 입주자 공동체 활성화 교육 : 2027년 1월 중(예정)"
+        },
+        {
+          "id": "ev-13",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 11433,
+            "end": 11455
+          },
+          "quote": "○ 입주기간 : 2027년 2월 ~ 4월"
+        },
+        {
+          "id": "ev-14",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 11206,
+            "end": 11280
+          },
+          "quote": "계약 시 보증금의 10%을 계약금으로 납부하셔야 하며, 이후 잔금 납부 및 서울주택도시개발\n공사와 입주일을 협의 후 입주 가능합니다."
+        },
+        {
+          "id": "ev-15",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 2734,
+            "end": 2816
+          },
+          "quote": "| 1차 | 202 | 39.87 | 27.98 | 11.89 | 31,600,000 | 411,700 | 52,690,000 | 686,400 |"
+        },
+        {
+          "id": "ev-16",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 1922,
+            "end": 1972
+          },
+          "quote": "○ 계약기간 : 2년(재계약요건을 유지할 경우 재계약 최대 4회, 최장 10년 거주 가능)"
+        },
+        {
+          "id": "ev-17",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 3060,
+            "end": 3141
+          },
+          "quote": "| 1차 | 203 | 39.6 | 27.71 | 11.89 | 31,600,000 | 411,700 | 52,690,000 | 686,400 |"
+        },
+        {
+          "id": "ev-18",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 3384,
+            "end": 3466
+          },
+          "quote": "| 1차 | 302 | 39.87 | 27.98 | 11.89 | 32,200,000 | 419,400 | 53,670,000 | 699,200 |"
+        },
+        {
+          "id": "ev-19",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 3710,
+            "end": 3791
+          },
+          "quote": "| 1차 | 402 | 44.39 | 32.5 | 11.89 | 37,400,000 | 487,300 | 62,340,000 | 812,200 |"
+        },
+        {
+          "id": "ev-20",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 4034,
+            "end": 4115
+          },
+          "quote": "| 2차 | 201 | 40.66 | 30.2 | 10.46 | 33,080,000 | 431,000 | 55,140,000 | 718,400 |"
+        },
+        {
+          "id": "ev-21",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 4358,
+            "end": 4440
+          },
+          "quote": "| 2차 | 502 | 35.29 | 24.83 | 10.46 | 28,070,000 | 365,700 | 46,800,000 | 609,600 |"
+        },
+        {
+          "id": "ev-22",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5045,
+            "end": 5125
+          },
+          "quote": "가.「문화예술진흥법」에 따른 문화예술 분야에 종사하며, 한국예술인복지재단의예술활동증명서\n또는관련협회에서발급한예술인증명서류를통해예술인증명이가능한자"
+        },
+        {
+          "id": "ev-23",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5198,
+            "end": 5253
+          },
+          "quote": "나. 서울시에주민등록등재된19세이상~39세이하(1986.10.17.~2007.10.16.출생)인청년"
+        },
+        {
+          "id": "ev-24",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5254,
+            "end": 5282
+          },
+          "quote": "다. 세대원(신청자 포함) 전원이 무주택 세대구성원"
+        },
+        {
+          "id": "ev-25",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5472,
+            "end": 5529
+          },
+          "quote": "○ 무주택세대구성원 : 세대원 전원이 주택을 소유하고 있지 않은 세대의 구성원을 말하며, 배우자가 세대"
+        },
+        {
+          "id": "ev-26",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5530,
+            "end": 5577
+          },
+          "quote": "분리된 경우 배우자 및 배우자가 속한 등본의 무주택세대구성원까지 포함함(외국인 제외)"
+        },
+        {
+          "id": "ev-27",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5316,
+            "end": 5367
+          },
+          "quote": "1) 전년도 도시근로자 월평균 소득 50% 이하 및 총자산가액 2.45억원 이하, 자동차가액"
+        },
+        {
+          "id": "ev-28",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5368,
+            "end": 5381
+          },
+          "quote": "4.542만원 이하인 자"
+        },
+        {
+          "id": "ev-29",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 5382,
+            "end": 5420
+          },
+          "quote": "2) 전년도 도시근로자 월평균 소득 70% 이하인 자(자산기준 없음)"
+        },
+        {
+          "id": "ev-30",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 6460,
+            "end": 6556
+          },
+          "quote": "| 월평균소득 50% 이하 | 2,669,354원 이하 | 3,519,762원 이하 | 4,084,215원 이하 | 4,401,101원 이하 | 4,663,493원 이하 |"
+        },
+        {
+          "id": "ev-31",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 6557,
+            "end": 6653
+          },
+          "quote": "| 월평균소득 70% 이하 | 3,432,027원 이하 | 4,693,016원 이하 | 5,717,900원 이하 | 6,161,541원 이하 | 6,528,890원 이하 |"
+        },
+        {
+          "id": "ev-32",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 6658,
+            "end": 6689
+          },
+          "quote": "※가구원수는 무주택세대구성원 전원을 포함하여 산정합니다."
+        },
+        {
+          "id": "ev-33",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 800,
+            "end": 869
+          },
+          "quote": "▪ 금회 모집공고문의 모집대상 주택에 대하여 1세대 1주택 신청을 원칙으로 하며, 중복 신청하는 경우 전부\n무효처리 합니다."
+        },
+        {
+          "id": "ev-34",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 9515,
+            "end": 9580
+          },
+          "quote": "| 평가항목 50% 이하 1) 월평균 소득 50% 초과 70% 이하 |  |  | 배점 40 35 | 총점 100 |"
+        },
+        {
+          "id": "ev-35",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 9581,
+            "end": 9644
+          },
+          "quote": "| 2) 거주기간 | 2-1) 서초구 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 50 45 40 |  |"
+        },
+        {
+          "id": "ev-36",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 9718,
+            "end": 9782
+          },
+          "quote": "|  | 2-2) 서초구 외 서울특별시 거주기간 | 5년 이상 3년 ~ 4년 2년 이하 | 35 30 25 |  |"
+        },
+        {
+          "id": "ev-37",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 9864,
+            "end": 9903
+          },
+          "quote": "| 3) 본인명의 차량 소유 |  | 미소유 소유 | 10 5 |  |"
+        },
+        {
+          "id": "ev-38",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10052,
+            "end": 10103
+          },
+          "quote": "- ① 서초구 전입일이 빠른 순 ② 서울시 전입일이 빠른 순 ③ 생년월일이 빠른 순(연장자)"
+        },
+        {
+          "id": "ev-39",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10104,
+            "end": 10131
+          },
+          "quote": "(순위가 결정되지 않을 경우 무작위 추첨에 의함)"
+        },
+        {
+          "id": "ev-40",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10144,
+            "end": 10190
+          },
+          "quote": "- 신청자 수가 공급호수를 초과할 경우에는 공급호수의 200%를 예비 입주자로 선정"
+        },
+        {
+          "id": "ev-41",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10666,
+            "end": 10717
+          },
+          "quote": "○ 호수선정방법 : 서류심사 고득점자 순으로 희망호수 반영(입주신청서에 희망호수 기입 필수)"
+        },
+        {
+          "id": "ev-42",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10244,
+            "end": 10305
+          },
+          "quote": "예비입주자 순위는 당첨자와 함께 게시하고 예비입주자에게 공급하는 유효기간은\n당첨자 발표일로부터 12개월까지 임"
+        },
+        {
+          "id": "ev-43",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8532,
+            "end": 8545
+          },
+          "quote": "① 입주신청서[별지1호]"
+        },
+        {
+          "id": "ev-44",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8546,
+            "end": 8562
+          },
+          "quote": "② 문화예술분야 종사 증빙서류"
+        },
+        {
+          "id": "ev-45",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8642,
+            "end": 8659
+          },
+          "quote": "③ 주민등록등본, 초본 각 1부"
+        },
+        {
+          "id": "ev-46",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8730,
+            "end": 8765
+          },
+          "quote": "- 배우자 주소 분리 시 분리배우자 주민등록등본 1부 추가 제출"
+        },
+        {
+          "id": "ev-47",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8766,
+            "end": 8807
+          },
+          "quote": "④ 개인정보 수집·이용 및 제3자 제공 동의서 (세대원 전원) [별지2호]"
+        },
+        {
+          "id": "ev-48",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8808,
+            "end": 8830
+          },
+          "quote": "⑤ 금융정보 등 제공 동의서 [별지3호]"
+        },
+        {
+          "id": "ev-49",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8831,
+            "end": 8852
+          },
+          "quote": "⑥ 자산 보유 사실 확인서 [별지4호]"
+        },
+        {
+          "id": "ev-50",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 9195,
+            "end": 9275
+          },
+          "quote": "※ 소득입증 책임은 신청자에게 있고 소득확인을 위해 위 서류 외 추가서류 제출을 요청할 수\n있으며 소득을 입증 할 수 없는 경우 선정에서 제외됨"
+        },
+        {
+          "id": "ev-51",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10962,
+            "end": 11097
+          },
+          "quote": "| 본인 내방시 | 신분증, 계약자 도장(서명 가능), 계약금납부 영수증 ※ 인터넷뱅킹, 스마트뱅킹 등 이용하여 계약금을 납부하시는 경우 계좌이체 확인증 등을 출력 하여 오시면 빠른 업무처리 가능(계약금은 선정된 주택 임대보증금의 10%) |"
+        },
+        {
+          "id": "ev-52",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 11098,
+            "end": 11193
+          },
+          "quote": "| 대리인 내방시 (제3자) | 상기 ‘본인 내방시 구비서류[계약자 도장]’ 외 위임장(계약자 인감날인), 계약자 신분증, 계약자 인감증명서, 인감도장, 대리인 신분증 |"
+        },
+        {
+          "id": "ev-53",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 11329,
+            "end": 11400
+          },
+          "quote": "- 입주 전 공동체주택 의무사항(규약 제정 및 공동체 활동 등) 알림 및 입주자 의무사항 동\n의서 등 확인 및 작성 필요합니다."
+        },
+        {
+          "id": "ev-54",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 12638,
+            "end": 12724
+          },
+          "quote": "○ 입주세대가 종전에 거주하는 주택에서 주택도시기금 대출을 받은 경우에는 임대주택에 입주하기 전까지 대출금을 반드시 상환하고 증빙서류를 제출하여야 합니다."
+        },
+        {
+          "id": "ev-55",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 29288,
+            "end": 29364
+          },
+          "quote": "가. 임차보증금 : 해당 주택, 상가 등의 임대차계약서 사본(확정일자가 표시되어야 함) * 공사 임대주택의 임차보증금일 경우 제출 불필요"
+        },
+        {
+          "id": "ev-56",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 29365,
+            "end": 29439
+          },
+          "quote": "나. 분양권 : 해당 주택 분양계약서 사본 및 제출일 현재까지 분양대금 납부확인원(대출금액이 포함된 조사일 현재까지 총 납부한 금액)"
+        },
+        {
+          "id": "ev-57",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 29440,
+            "end": 29493
+          },
+          "quote": "다. 비상장주식 : 증권사 조회내역, 주식보관증 등 종목, 수량 및 가액을 증명할 수 있는 자료"
+        },
+        {
+          "id": "ev-58",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 29494,
+            "end": 29515
+          },
+          "quote": "라. 출자금/출자지분 : 출자증서 사본"
+        },
+        {
+          "id": "ev-59",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 29516,
+            "end": 29564
+          },
+          "quote": "마. 임대보증금 : 해당 주택, 상가 등의 임대차계약서 사본(확정일자가 표시되어야 함)"
+        },
+        {
+          "id": "ev-60",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 29565,
+            "end": 29597
+          },
+          "quote": "바. 장기카드대출(카드론) : 신용카드사가 발급한 증빙서류"
+        },
+        {
+          "id": "ev-61",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 7930,
+            "end": 7977
+          },
+          "quote": "신청방법 : 전자우편 접수 - 서초구청 이메일(oyj4100@seocho.go.kr)"
+        },
+        {
+          "id": "ev-62",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 7988,
+            "end": 8041
+          },
+          "quote": "• 전자우편 발송 시 제목은 반드시 “청년예술인주택 신청서류_성명_날짜”로 작성하시기 바랍니다."
+        },
+        {
+          "id": "ev-63",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8158,
+            "end": 8189
+          },
+          "quote": "• 메일 접수 후 반드시 담당자 전화하여 접수 확인 바람"
+        },
+        {
+          "id": "ev-64",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8074,
+            "end": 8128
+          },
+          "quote": "* 서류 등을 핸드폰으로 촬영 또는 핸드폰 스캔어플(캠스캐너 등)을 활용하여 제출할 시 접수 불가"
+        },
+        {
+          "id": "ev-65",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8982,
+            "end": 9075
+          },
+          "quote": "신청시 신청자의 착오 기재 등으로 인한 불이익에 대한 책임은 신청자 본인에게 있으니\n신청서를 정확하게 작성하여 주시기 바라며, 신청 완료 후에는 수정이 되지 않습니다."
+        },
+        {
+          "id": "ev-66",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8323,
+            "end": 8359
+          },
+          "quote": "문의처 : 서울주택도시개발공사 서초센터 02)6990-5500~1"
+        },
+        {
+          "id": "ev-67",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8459,
+            "end": 8493
+          },
+          "quote": "※ 일정 변경 될 수 있으며, 사전 미예약 시 주택 공개 불가"
+        },
+        {
+          "id": "ev-68",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 10509,
+            "end": 10567
+          },
+          "quote": "- 선정사실을 확인하지 못하여 미계약으로 인한 당첨취소 등의 불이익에 대한 책임은 신청\n자 본인에게 있음"
+        },
+        {
+          "id": "ev-69",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 11072,
+            "end": 11094
+          },
+          "quote": "계약금은 선정된 주택 임대보증금의 10%"
+        },
+        {
+          "id": "ev-70",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 11738,
+            "end": 11814
+          },
+          "quote": "‣ 본 교육은 맞춤형 주택 입주자 참여 의무사항으로, 입주 전 진행하며 미참여 시 계약취소, 재계\n약 거절 등 불리한 사유로 적용됩니다."
+        },
+        {
+          "id": "ev-71",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 389,
+            "end": 534
+          },
+          "quote": "‣ 이 주택은 공동체주택으로 입주자는 별도 입주자 위원회를 구성하여 건물 관리 및 공동요금 지출방법 등의 자치규약을 직접 만들고 실천하며, 입주자 공동체 활성화를 위한 정기적인 교육과 총회 등에 필히 참석 하여야 합니다. (※ 미 참여시 계약 및 재계약 불가)"
+        },
+        {
+          "id": "ev-72",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 535,
+            "end": 621
+          },
+          "quote": "‣ 커뮤니티실, 승강기, 정화조 등 공용부분 및 전용부분(수도꼭지, 전구, 도어락 등 단순소모품 수리교체비)의 관리비용이 발생하며 부담주체는 입주자입니다."
+        },
+        {
+          "id": "ev-73",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 12303,
+            "end": 12380
+          },
+          "quote": "○ 공고된 임대조건은 최초 임대차계약기간 동안 적용되는 금액이며 입주기간 중 관계법 령이 정한 범위 내에서 임대조건이 인상될 수 있습니다."
+        },
+        {
+          "id": "ev-74",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 8276,
+            "end": 8320
+          },
+          "quote": "○ 공개방법 : 사전 전화문의 후 방문 ※ 점심시간(12:00~13:00) 제외"
+        },
+        {
+          "id": "ev-75",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 18013,
+            "end": 18057
+          },
+          "quote": "□ 신청 관련 문의 : 서초구청 문화관광과 문화시설팀 ☎ 02-2155-8317"
+        },
+        {
+          "id": "ev-76",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 18058,
+            "end": 18110
+          },
+          "quote": "□ 계약 관련 문의 : 서울주택도시개발공사 매입주택공급부 ☎ 02-3410-8565, 8562"
+        },
+        {
+          "id": "ev-77",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 18111,
+            "end": 18162
+          },
+          "quote": "□ 입주 관련 문의 : 서울주택도시개발공사 서초주거안심종합센터 ☎ 02-6990-5500~1"
+        },
+        {
+          "id": "ev-78",
+          "sourceId": "pdf-text",
+          "locator": {
+            "kind": "TEXT_RANGE",
+            "start": 4757,
+            "end": 4821
+          },
+          "quote": "※상호전환(월임대료에서 임대보증금으로 전환)제도 안내-[SH서초주거안심종합센터 문의 (02-6990-5500~1)]"
+        }
+      ],
+      "quality": {
+        "coverage": {
+          "notice": {
+            "reason": null,
+            "status": "EXTRACTED"
+          },
+          "locations": {
+            "reason": null,
+            "status": "EXTRACTED"
+          },
+          "schedules": {
+            "reason": null,
+            "status": "EXTRACTED"
+          },
+          "supplyGroups": {
+            "reason": null,
+            "status": "EXTRACTED"
+          },
+          "eligibility": {
+            "reason": null,
+            "status": "EXTRACTED"
+          },
+          "selectionRules": {
+            "reason": null,
+            "status": "EXTRACTED"
+          },
+          "requiredDocuments": {
+            "reason": null,
+            "status": "EXTRACTED"
+          },
+          "guidance": {
+            "reason": null,
+            "status": "EXTRACTED"
+          }
+        },
+        "missingFields": [],
+        "reviewIssues": [
+          {
+            "code": "TIER_CONDITION_MISSING",
+            "target": "/eligibility/4",
+            "description": "같은 대상의 INCOME_BENCHMARK_PERCENT 기준이 값만 다르게(50, 70) 여러 조건으로 나뉘어 있고 가구원 수·자녀 수 조건이 없습니다. 모든 조건이 함께 적용되어 가장 낮은 값이 모든 가구에 적용됩니다"
+          },
+          {
+            "code": "VALUE_NOT_IN_QUOTE",
+            "target": "/eligibility/4/rule/expression/children/0/children/2/value",
+            "description": "CAR_ASSETS_KRW 45420000이(가) 근거 인용문에 없습니다 「4.542만원 이하인 자 / 1) 전년도 도시근로자 월평균 소득 50% 이하 및 총자산가액 2.45억원 이하, 자동차가액」"
+          }
+        ],
+        "notes": [],
+        "verification": {
+          "status": "PARTIALLY_PASSED",
+          "sourceStatus": "REVIEW_REQUIRED",
+          "checkedAt": "2026-10-18T06:09:40.123329+00:00",
+          "rulesVersion": "verify-1.9.0",
+          "apiComparison": {
+            "status": "SKIPPED_NO_API_REFERENCE",
+            "referenceSha256": null,
+            "referenceIdentity": null,
+            "fields": []
+          }
+        },
+        "heldItems": [
+          {
+            "target": "/eligibility/4",
+            "extent": "ITEM",
+            "codes": [
+              "TIER_CONDITION_MISSING",
+              "VALUE_NOT_IN_QUOTE"
+            ],
+            "description": "확인 전까지 판정·화면에 쓰지 않습니다(원문 확인 필요)"
+          }
+        ]
+      }
+    }
+  },
+  "traceId": null
+}

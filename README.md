@@ -7,7 +7,7 @@
 | --- | --- | --- |
 | `services/api` | 자바 25 + 스프링 부트 | 프론트의 단일 입구. 모듈 6개(notice, benefit, eligibility, area, user, notification) + `common` |
 | `services/collector` | 파이썬 3.12 | 기관 게시판·공공 API 수집, 원본 저장 |
-| `services/extraction` | 파이썬 3.12 | Claude API로 자격 조건·일정·금액 추출, 검증 |
+| `services/extraction` | 파이썬 3.12 | OpenAI API로 자격 조건·일정·금액 추출, 검증 |
 
 EC2 1대에 Docker 컨테이너 3개, DB는 RDS(PostgreSQL + PostGIS) 1대에 데이터베이스 3개(collector, extraction, api)예요.
 
@@ -15,8 +15,9 @@ EC2 1대에 Docker 컨테이너 3개, DB는 RDS(PostgreSQL + PostGIS) 1대에 �
 준비물: JDK 25, Python 3.12, [uv](https://docs.astral.sh/uv/), Docker Desktop
 
 ```bash
-cp infra/.env.example infra/.env           # 값 채우기 (ANTHROPIC_API_KEY를 비우면 가짜 추출기로 동작)
-docker compose -f infra/docker-compose.yml --env-file infra/.env up -d postgres rabbitmq
+cp infra/.env.example infra/.env           # 값 채우기 (extraction은 OPENAI_API_KEY 또는 LOCAL_AI_URL 필요)
+make infra                                 # PostgreSQL·RabbitMQ·MinIO (make help로 명령 보기)
+make migrate-collector migrate-extraction  # 파이썬 워커 DB 테이블 (Flyway)
 cd services/api && ./gradlew bootRun       # api
 ```
 파이썬 워커는 `services/collector`, `services/extraction`에서 `uv sync` 후 `uv run python -m mujuthaek_collector run`처럼 실행해요.
@@ -26,6 +27,7 @@ cd services/api && ./gradlew bootRun       # api
 | --- | --- |
 | api | http://localhost:8080 (`/actuator/health`) |
 | RabbitMQ 관리 화면 | http://localhost:15672 |
+| MinIO (S3 API) | http://localhost:9000 (minio / minio-pass, 버킷 `mujuthaek-raw`) |
 
 ## 담당
 | 담당자 | 맡는 폴더 |

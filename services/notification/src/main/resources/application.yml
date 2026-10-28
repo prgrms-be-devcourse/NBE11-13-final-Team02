@@ -1,0 +1,62 @@
+spring:
+  application:
+    name: notification
+  profiles:
+    default: local
+  threads:
+    virtual:
+      enabled: true                     # 가상 스레드: 웹 푸시처럼 바깥 요청을 기다리는 일이 많아서
+  datasource:
+    url: ${NOTIFICATION_DB_URL:jdbc:postgresql://localhost:5432/notification}
+    username: ${NOTIFICATION_DB_USER:notification_app}
+    password: ${NOTIFICATION_DB_PASSWORD:notification-pass}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate                # 테이블은 Flyway가 만들고 JPA는 확인만
+  flyway:
+    locations: classpath:db/migration
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    username: ${RABBITMQ_USER:mujuthaek}
+    password: ${RABBITMQ_PASSWORD:mq-pass}
+    publisher-confirm-type: correlated  # 아웃박스: 브로커가 받았다고 답해야 보낸 것으로 쳐요 (api와 같음)
+    publisher-returns: true             # 받을 큐가 없으면 버리지 말고 되돌려 받아요
+    template:
+      mandatory: true
+    listener:
+      simple:
+        default-requeue-rejected: false # 실패 메시지는 무한 재시도 대신 실패 큐(mujuthaek.notification.dlq)로
+        retry:                          # DB가 잠깐 끊기는 것 같은 오류는 몇 번 더 해 보고 실패 큐로 (2초 → 4초, api와 같음)
+          enabled: true
+          max-attempts: 3
+          initial-interval: 2s
+          multiplier: 2
+
+notification:
+  internal:
+    token: ${NOTIFICATION_INTERNAL_TOKEN:}             # api만 부르는 내부 API(/internal/stats) 비밀 값. 비면 같은 컴퓨터 요청만 받아요
+  mail:
+    provider: ${NOTIFICATION_MAIL_PROVIDER:log}     # log: 보내지 않고 로그만, ses: AWS SES로 보내기 (키는 AWS_PROFILE에서)
+    from: ${NOTIFICATION_MAIL_FROM:noreply@localhost}  # SES에서 인증한 보내는 주소
+    web-base-url: ${NOTIFICATION_WEB_BASE_URL:http://localhost:5173}
+    ses:
+      region: ${AWS_REGION:ap-northeast-2}
+      max-per-second: ${NOTIFICATION_SES_MAX_PER_SECOND:1}  # 샌드박스 한도
+  push:                                             # 웹 푸시 (contracts/schemas/web-push.draft.md 4장)
+    provider: ${NOTIFICATION_PUSH_PROVIDER:log}     # log: 보내지 않고 로그만, webpush: 푸시 서비스로 보내기 (VAPID 키 필요)
+    vapid-public-key: ${PUSH_VAPID_PUBLIC_KEY:}     # api와 같은 공개키. 만들기: npx web-push generate-vapid-keys
+    vapid-private-key: ${PUSH_VAPID_PRIVATE_KEY:}   # 개인키는 커밋하지 말고 .env·배포 비밀값에만
+    vapid-subject: ${PUSH_VAPID_SUBJECT:mailto:noreply@localhost}  # 푸시 서비스가 문제 있을 때 연락할 곳
+  delivery:
+    poll-interval-ms: 5000
+    batch-size: 20
+
+server:
+  port: 8081                            # api가 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info

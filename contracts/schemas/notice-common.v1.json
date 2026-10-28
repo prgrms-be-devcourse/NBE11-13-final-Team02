@@ -1,0 +1,2916 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json",
+  "title": "표준 공고 공통 자료형 v1",
+  "$defs": {
+    "ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "\\S"
+      },
+      "minItems": 0,
+      "uniqueItems": true,
+      "description": "ids 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "coverageItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "EXTRACTED",
+            "PARTIAL",
+            "NOT_APPLICABLE",
+            "NOT_IN_SOURCE",
+            "NOT_ATTEMPTED",
+            "FAILED"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "not": {
+                  "const": "EXTRACTED"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            }
+          }
+        }
+      ],
+      "description": "coverageItem 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "notice",
+        "locations",
+        "schedules",
+        "supplyGroups",
+        "eligibility",
+        "selectionRules",
+        "requiredDocuments",
+        "guidance"
+      ],
+      "properties": {
+        "notice": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        },
+        "locations": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        },
+        "schedules": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        },
+        "supplyGroups": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        },
+        "eligibility": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        },
+        "selectionRules": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        },
+        "requiredDocuments": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        },
+        "guidance": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverageItem"
+        }
+      },
+      "description": "coverage 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "level",
+        "locationIds",
+        "supplyGroupIds",
+        "targetGroups",
+        "supplyCategory",
+        "resolution",
+        "description"
+      ],
+      "properties": {
+        "level": {
+          "enum": [
+            "NOTICE",
+            "LOCATION",
+            "SUPPLY_GROUP"
+          ]
+        },
+        "locationIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "supplyGroupIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "targetGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "supplyCategory": {
+          "enum": [
+            "ALL",
+            "NEW",
+            "RESUPPLY",
+            "OTHER"
+          ]
+        },
+        "resolution": {
+          "enum": [
+            "RESOLVED",
+            "NEEDS_REVIEW"
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "level": {
+                "const": "NOTICE"
+              }
+            },
+            "required": [
+              "level"
+            ]
+          },
+          "then": {
+            "properties": {
+              "locationIds": {
+                "maxItems": 0
+              },
+              "supplyGroupIds": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "level": {
+                "const": "LOCATION"
+              }
+            },
+            "required": [
+              "level"
+            ]
+          },
+          "then": {
+            "properties": {
+              "locationIds": {
+                "minItems": 1
+              },
+              "supplyGroupIds": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "level": {
+                "const": "SUPPLY_GROUP"
+              }
+            },
+            "required": [
+              "level"
+            ]
+          },
+          "then": {
+            "properties": {
+              "supplyGroupIds": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ],
+      "description": "조건의 적용 범위입니다. 모든 참조 ID는 같은 공고 버전 안에서 해석합니다."
+    },
+    "count": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "value",
+        "scope",
+        "aggregationRole",
+        "parentCountId",
+        "aggregationComplete",
+        "evidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "enum": [
+            "TOTAL_HOUSING",
+            "OFFERED",
+            "RESERVE",
+            "CURRENT_VACANCIES",
+            "WAITLIST",
+            "OTHER"
+          ]
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "aggregationRole": {
+          "enum": [
+            "TOTAL",
+            "COMPONENT",
+            "STANDALONE"
+          ]
+        },
+        "parentCountId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "aggregationComplete": {
+          "type": "boolean"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "allocationPoolId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "여러 공급 묶음·계층이 함께 쓰는 하나의 모집 물량(원문 표의 병합 칸)이면 같은 ID. 같은 ID의 수량은 같은 kind·value이며 합산하지 않습니다(예: 대학생·청년이 함께 쓰는 21호를 42호로 세지 않음). TOTAL의 구성 합계에서도 같은 ID는 한 번만 세고, ID가 없는 구성은 하나씩 셉니다"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "aggregationRole": {
+                "const": "COMPONENT"
+              }
+            },
+            "required": [
+              "aggregationRole"
+            ]
+          },
+          "then": {
+            "properties": {
+              "parentCountId": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "aggregationRole": {
+                "enum": [
+                  "TOTAL",
+                  "STANDALONE"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "parentCountId": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "모집·공급 수량. TOTAL은 COMPONENT(parentCountId로 연결, 같은 kind)의 전체입니다. 구성 합계를 셀 때 같은 allocationPoolId는 한 번만 셉니다. aggregationComplete=true면 구성 합계가 전체 value와 같아야 하고, false라도 값을 아는 구성의 합계가 전체보다 클 수 없습니다"
+    },
+    "notice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "title",
+        "publisher",
+        "field",
+        "supplyType",
+        "announcedOn",
+        "description",
+        "counts",
+        "evidenceIds",
+        "targetGroups",
+        "applicationChannels"
+      ],
+      "properties": {
+        "title": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "publisher": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "field": {
+          "enum": [
+            "HOUSING",
+            "BUSINESS_SPACE",
+            null
+          ]
+        },
+        "supplyType": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "announcedOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "counts": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/count"
+          },
+          "minItems": 0
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "targetGroups": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "applicationChannels": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/applicationChannel"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "description": "공고 전체의 신청 방법. 프로그램이 신청(APPLICATION) 일정들의 channels를 합쳐 정해진 순서(ONLINE, ONSITE, EMAIL, MAIL, FAX)로 적습니다. 신청 일정이 없으면(계약으로 바로 신청받는 선착순 공고) 계약(CONTRACT) 일정들의 channels를 합칩니다(AI가 쓰지 않음, APPLICATION_CHANNELS_CONFLICT)"
+        }
+      },
+      "description": "PDF 등 원문에서 추출한 공고 내용입니다. 수집기 원문 제목·상태와 구분합니다."
+    },
+    "location": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "region",
+        "buildingName",
+        "address",
+        "evidenceIds",
+        "regionCode",
+        "kind",
+        "parentLocationId",
+        "complexName"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "region": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "buildingName": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "regionCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[0-9]{10}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "enum": [
+            "COMPLEX",
+            "BUILDING",
+            "SITE",
+            "AREA",
+            "UNKNOWN"
+          ],
+          "description": "AREA는 특정 주택이 아니라 공고의 대상 지역(단지·주소가 없는 전세임대·별첨 목록 매입임대 등): 전국이면 지역 표현 「전국」(지역 코드 없음), 지역이면 시도(또는 시군구)마다 하나. 검색에서 AREA로 정한 시도는 그 시도의 모든 시군구 검색에 포함됩니다"
+        },
+        "parentLocationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "complexName": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "location 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "temporal": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "precision",
+            "value"
+          ],
+          "properties": {
+            "precision": {
+              "const": "DAY"
+            },
+            "value": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "precision",
+            "value"
+          ],
+          "properties": {
+            "precision": {
+              "const": "MINUTE"
+            },
+            "value": {
+              "type": "string",
+              "format": "date-time",
+              "pattern": "(Z|[+-][0-9]{2}:[0-9]{2})$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "precision",
+            "value"
+          ],
+          "properties": {
+            "precision": {
+              "const": "MONTH"
+            },
+            "value": {
+              "type": "string",
+              "pattern": "^(?!0000)[0-9]{4}-(0[1-9]|1[0-2])$"
+            }
+          }
+        }
+      ],
+      "description": "temporal 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "schedule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kinds",
+        "rawLabel",
+        "scope",
+        "channels",
+        "startsAt",
+        "endsAt",
+        "endStatus",
+        "endCondition",
+        "description",
+        "evidenceIds",
+        "applicationUrl",
+        "priorityRank",
+        "applicationMode",
+        "places",
+        "applicationEmail",
+        "dailyHours",
+        "breaks",
+        "excludedDays",
+        "timeNote"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kinds": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "ANNOUNCEMENT",
+              "APPLICATION",
+              "DOCUMENT_SUBMISSION",
+              "WINNER_ANNOUNCEMENT",
+              "CONTRACT",
+              "MOVE_IN",
+              "OTHER",
+              "BID",
+              "BID_OPENING",
+              "DOCUMENT_REVIEW_RESULT",
+              "VIEWING"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "rawLabel": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "channels": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/applicationChannel"
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "description": "이 일정의 신청·제출 방법(applicationChannel). 2026-10-23부터 자유 글자가 아닌 정해진 값입니다"
+        },
+        "startsAt": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/temporal"
+        },
+        "endsAt": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/temporal"
+        },
+        "endStatus": {
+          "enum": [
+            "FIXED",
+            "CONDITIONAL",
+            "NOT_IN_SOURCE",
+            "UNKNOWN"
+          ]
+        },
+        "endCondition": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "applicationUrl": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "공개 주소만 씁니다. 사용자 정보(user:pass@)나 인증 값 매개변수(이름을 소문자로 바꾸고 _·-를 뺐을 때 servicekey·apikey·authkey·accesstoken·token·signature·credential을 포함하거나 key인 것, # 뒤 포함)가 있으면 PRIVATE_URL입니다. 주소가 아닌 글자 칸도 serviceKey=가 있으면 PRIVATE_URL입니다"
+        },
+        "priorityRank": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "applicationMode": {
+          "enum": [
+            "FIXED_PERIOD",
+            "ROLLING",
+            "NOT_APPLICABLE",
+            "UNKNOWN"
+          ]
+        },
+        "places": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/place"
+          },
+          "minItems": 0,
+          "description": "방문·현장 접수 장소. 원문에 없거나 확인하지 못하면 빈 목록"
+        },
+        "applicationEmail": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/applicationEmail"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "이메일 접수 주소. 일정 근거에서 주소를 확인하지 못하면 null"
+        },
+        "dailyHours": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/timeRange"
+          },
+          "minItems": 0,
+          "description": "접수하는 날의 접수 시각(예: 10:00~17:00). 원문에 없거나 근거에서 확인하지 못하면 빈 목록"
+        },
+        "breaks": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/timeRange"
+          },
+          "minItems": 0,
+          "description": "접수하지 않는 쉬는 시각(점심시간 등)"
+        },
+        "excludedDays": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "MON",
+              "TUE",
+              "WED",
+              "THU",
+              "FRI",
+              "SAT",
+              "SUN",
+              "HOLIDAY"
+            ]
+          },
+          "minItems": 0,
+          "uniqueItems": true,
+          "description": "기간 중 접수하지 않는 요일·공휴일(HOLIDAY). 원문의 「주말」은 SAT·SUN"
+        },
+        "timeNote": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "시각에 붙은 조건 설명(예: 마감일은 16시까지). 근거에 없는 시각이 들어 있으면 null"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "endStatus": {
+                "const": "FIXED"
+              }
+            },
+            "required": [
+              "endStatus"
+            ]
+          },
+          "then": {
+            "properties": {
+              "endsAt": {
+                "not": {
+                  "type": "null"
+                }
+              },
+              "endCondition": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "endStatus": {
+                "const": "CONDITIONAL"
+              }
+            },
+            "required": [
+              "endStatus"
+            ]
+          },
+          "then": {
+            "properties": {
+              "endsAt": {
+                "type": "null"
+              },
+              "endCondition": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "endStatus": {
+                "enum": [
+                  "NOT_IN_SOURCE",
+                  "UNKNOWN"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "endsAt": {
+                "type": "null"
+              },
+              "endCondition": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "schedule 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "price": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "amountKrw",
+        "scope",
+        "sourceAmount",
+        "sourceUnit",
+        "evidenceIds",
+        "taxTreatment",
+        "vatRate",
+        "billingPeriod",
+        "pricePlanId"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "enum": [
+            "DEPOSIT",
+            "MONTHLY_RENT",
+            "SALE_PRICE",
+            "MAX_SALE_PRICE",
+            "CONTRACT_PAYMENT",
+            "BALANCE",
+            "OTHER",
+            "BID_BASE_PRICE",
+            "BID_DEPOSIT",
+            "ANNUAL_RENT",
+            "MANAGEMENT_FEE"
+          ]
+        },
+        "amountKrw": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "amountRangeKrw": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/amountRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "선택. 원문이 금액을 범위로만 적었으면 amountKrw는 null, 범위는 여기에(둘을 함께 쓰지 않음). sourceAmount에는 원문 범위 표기를 그대로 둡니다."
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "sourceAmount": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceUnit": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "taxTreatment": {
+          "enum": [
+            "INCLUDED",
+            "EXCLUDED",
+            "EXEMPT",
+            "NOT_APPLICABLE",
+            "UNKNOWN"
+          ]
+        },
+        "vatRate": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "billingPeriod": {
+          "enum": [
+            "ONCE",
+            "MONTHLY",
+            "ANNUAL",
+            "UNKNOWN"
+          ]
+        },
+        "pricePlanId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priceStage": {
+          "anyOf": [
+            {
+              "enum": [
+                "STANDARD",
+                "CONVERSION_DEPOSIT_UP",
+                "CONVERSION_DEPOSIT_DOWN",
+                "BEFORE_SUPPORT",
+                "AFTER_SUPPORT",
+                "OTHER"
+              ]
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "가격 단계. STANDARD 기본 임대조건, CONVERSION_DEPOSIT_UP/DOWN 보증금을 올리거나 내린 전환안, BEFORE_SUPPORT 지원 전(당초) 금액, AFTER_SUPPORT 지원 후(반값 등) 금액. 같은 pricePlanId의 보증금·월세는 같은 단계입니다. 단계끼리 더하지 않습니다"
+        }
+      },
+      "description": "price 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "supplyGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "locationId",
+        "housingTypeCode",
+        "buildingUse",
+        "exclusiveAreaSqm",
+        "scope",
+        "counts",
+        "prices",
+        "evidenceIds",
+        "itemKind",
+        "unitLabel",
+        "floor",
+        "commonAreaSqm",
+        "leaseTerm"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "locationId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "housingTypeCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "buildingUse": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exclusiveAreaSqm": {
+          "anyOf": [
+            {
+              "type": "number",
+              "exclusiveMinimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "exclusiveAreaRange": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/areaRange"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "선택. 원문이 면적을 범위로만 적었으면 exclusiveAreaSqm은 null, 범위는 여기에(둘을 함께 쓰지 않음)."
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "counts": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/count"
+          },
+          "minItems": 0
+        },
+        "prices": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/price"
+          },
+          "minItems": 0
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "itemKind": {
+          "enum": [
+            "HOUSING_TYPE",
+            "HOUSING_UNIT",
+            "BUSINESS_UNIT",
+            "UNKNOWN"
+          ]
+        },
+        "unitLabel": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "floor": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "commonAreaSqm": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "leaseTerm": {
+          "anyOf": [
+            {
+              "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/leaseTerm"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "단지/건물 아래의 주택형 또는 개별 호실입니다. 단지 전체 합계와 구분합니다."
+    },
+    "selectionRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "scope",
+        "originalText",
+        "description",
+        "priorityRank",
+        "points",
+        "maxPoints",
+        "order",
+        "rule",
+        "evidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "enum": [
+            "PRIORITY",
+            "SCORING",
+            "TIE_BREAK",
+            "LOTTERY",
+            "FIRST_COME",
+            "BIDDING",
+            "OTHER"
+          ]
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "originalText": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "priorityRank": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "points": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "배점표 한 행의 점수. 감점 행(예: 과거 계약 사실 -5점)은 음수입니다"
+        },
+        "maxPoints": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "order": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rule": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/eligibility.v1.json#/$defs/rule"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "PRIORITY"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "priorityRank": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "SCORING"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "anyOf": [
+              {
+                "properties": {
+                  "points": {
+                    "type": "number"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "maxPoints": {
+                    "type": "number",
+                    "minimum": 0
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "TIE_BREAK"
+              }
+            },
+            "required": [
+              "kind"
+            ]
+          },
+          "then": {
+            "properties": {
+              "order": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "not": {
+                  "const": "PRIORITY"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "priorityRank": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "not": {
+                  "const": "SCORING"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "points": {
+                "type": "null"
+              },
+              "maxPoints": {
+                "type": "null"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "not": {
+                  "const": "TIE_BREAK"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "order": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "selectionRule 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "requiredDocument": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "name",
+        "scope",
+        "appliesTo",
+        "submissionTime",
+        "description",
+        "evidenceIds",
+        "group",
+        "copies",
+        "issuer"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "appliesTo": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "submissionTime": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "group": {
+          "enum": [
+            "COMMON",
+            "CONDITIONAL",
+            "DIRECT",
+            "PROXY_SPOUSE",
+            "PROXY_OTHER",
+            null
+          ],
+          "description": "서류 묶음. COMMON(신청자 모두), CONDITIONAL(해당자만), DIRECT(본인 방문 신청), PROXY_SPOUSE(배우자 대리 신청), PROXY_OTHER(배우자 외 대리 신청). 원문이 묶음을 나누지 않았으면 null"
+        },
+        "copies": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "제출 부수. 근거 인용문에 「1부」「2통」처럼 있는 수만, 없으면 null"
+        },
+        "issuer": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "발급 기관(예: 주민센터). 근거 인용문에 그대로 있는 글자만, 없으면 null"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "description": "requiredDocument 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "guidanceItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "title",
+        "description",
+        "scope",
+        "phone",
+        "url",
+        "evidenceIds"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "enum": [
+            "APPLICATION_METHOD",
+            "CAUTION",
+            "MOVE_IN",
+            "LIVING_NOTICE",
+            "CONTACT",
+            "OTHER"
+          ]
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "scope": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/scope"
+        },
+        "phone": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "url": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "공개 주소만 씁니다. 사용자 정보(user:pass@)나 인증 값 매개변수(이름을 소문자로 바꾸고 _·-를 뺐을 때 servicekey·apikey·authkey·accesstoken·token·signature·credential을 포함하거나 key인 것, # 뒤 포함)가 있으면 PRIVATE_URL입니다. 주소가 아닌 글자 칸도 serviceKey=가 있으면 PRIVATE_URL입니다"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "description": "guidanceItem 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "locator": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "page",
+            "printedPage"
+          ],
+          "properties": {
+            "kind": {
+              "const": "PDF_PAGE"
+            },
+            "page": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "printedPage": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "start",
+            "end"
+          ],
+          "properties": {
+            "kind": {
+              "const": "TEXT_RANGE"
+            },
+            "start": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "end": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "page": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "선택. 원문 글자가 쪽 표시(「--- N쪽 ---」)가 있는 PDF 글자일 때 범위 시작 위치가 들어 있는 그 PDF의 쪽 번호입니다. 쪽을 정할 수 없거나(그림 판독 묶음 안, 쪽 표시 없는 원문) 모르면 넣지 않습니다"
+            },
+            "printedPage": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "선택. page 쪽에 인쇄된 쪽 번호입니다. 모르면 넣지 않거나 null입니다"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "pointer"
+          ],
+          "properties": {
+            "kind": {
+              "const": "UNIT_ROW"
+            },
+            "pointer": {
+              "type": "string",
+              "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+            }
+          }
+        }
+      ],
+      "description": "locator 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "evidence": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "sourceId",
+        "locator",
+        "quote"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "sourceId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "locator": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/locator"
+        },
+        "quote": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "description": "실제 원문의 위치와 인용입니다. 검증 성공 여부는 독립 검증기가 기록합니다."
+    },
+    "missing": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "reason",
+        "description"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+        },
+        "reason": {
+          "enum": [
+            "NOT_IN_SOURCE",
+            "NOT_ATTEMPTED",
+            "EXTRACTION_FAILED",
+            "SOURCE_ATTACHMENT_REQUIRED",
+            "NEEDS_REVIEW",
+            "NOT_APPLICABLE",
+            "TO_BE_ANNOUNCED",
+            "CONFLICT",
+            "UNREADABLE"
+          ],
+          "description": "NOT_IN_SOURCE 관련 구역을 확인했으나 기재 없음, TO_BE_ANNOUNCED 원문이 추후 통보·미정이라고 명시, SOURCE_ATTACHMENT_REQUIRED 별첨·최초 공고 등 입력에 없는 문서가 필요, CONFLICT 같은 범위에 서로 다른 값, UNREADABLE 그 영역을 읽지 못함"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "description": "missing 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "issue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "target",
+        "description"
+      ],
+      "properties": {
+        "code": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "target": {
+          "type": "string",
+          "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "description": "issue 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "leaseTerm": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "initialMonths",
+        "renewalMonths",
+        "maxMonths",
+        "description",
+        "evidenceIds"
+      ],
+      "properties": {
+        "initialMonths": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "renewalMonths": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "maxMonths": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "evidenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        }
+      },
+      "description": "leaseTerm 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "document": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "kind",
+        "name",
+        "sha256",
+        "originalUrl",
+        "pageCount"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "enum": [
+            "PDF",
+            "TEXT",
+            "UNITS",
+            "SPREADSHEET"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "originalUrl": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "공개 주소만 씁니다. 사용자 정보(user:pass@)나 인증 값 매개변수(이름을 소문자로 바꾸고 _·-를 뺐을 때 servicekey·apikey·authkey·accesstoken·token·signature·credential을 포함하거나 key인 것, # 뒤 포함)가 있으면 PRIVATE_URL입니다. 주소가 아닌 글자 칸도 serviceKey=가 있으면 PRIVATE_URL입니다"
+        },
+        "pageCount": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "근거 문서 식별자·해시·원문 링크입니다. 내부 저장 경로나 서명된 URL은 포함하지 않습니다."
+    },
+    "sourceReference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourceCode",
+        "sourceNoticeId",
+        "rawPostId",
+        "rawVersion",
+        "kind",
+        "supersedesPostId",
+        "detailUrl",
+        "sourceTitle",
+        "sourceStatusText",
+        "postedOn"
+      ],
+      "properties": {
+        "sourceCode": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "sourceNoticeId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rawPostId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "rawVersion": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2147483647
+        },
+        "kind": {
+          "enum": [
+            "NOTICE",
+            "CORRECTION",
+            "FOLLOW_UP"
+          ]
+        },
+        "supersedesPostId": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detailUrl": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https?://"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "공개 주소만 씁니다. 사용자 정보(user:pass@)나 인증 값 매개변수(이름을 소문자로 바꾸고 _·-를 뺐을 때 servicekey·apikey·authkey·accesstoken·token·signature·credential을 포함하거나 key인 것, # 뒤 포함)가 있으면 PRIVATE_URL입니다. 주소가 아닌 글자 칸도 serviceKey=가 있으면 PRIVATE_URL입니다"
+        },
+        "sourceTitle": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "sourceStatusText": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "postedOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "수집기가 전달한 원본 식별자·버전·정정 관계입니다. 추출기가 새로 추정하지 않습니다."
+    },
+    "comparisonField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "sourcePath",
+        "expected",
+        "actual",
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^(?:/(?:[^~/]|~[01])*)+$"
+        },
+        "sourcePath": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "expected": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "actual": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "status": {
+          "enum": [
+            "MATCH",
+            "MISMATCH",
+            "NOT_COMPARABLE"
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "description": "comparisonField 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "apiComparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "referenceSha256",
+        "referenceIdentity",
+        "fields"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "MATCHED",
+            "MISMATCH",
+            "NO_COMPARABLE_FIELDS",
+            "SKIPPED_NO_API_REFERENCE",
+            "NOT_RUN"
+          ]
+        },
+        "referenceSha256": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^[a-f0-9]{64}$"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "referenceIdentity": {
+          "anyOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "sourceCode",
+                "sourceNoticeId",
+                "rawPostId",
+                "rawVersion"
+              ],
+              "properties": {
+                "sourceCode": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "sourceNoticeId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "\\S"
+                },
+                "rawPostId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "rawVersion": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              }
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fields": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/comparisonField"
+          },
+          "minItems": 0
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "SKIPPED_NO_API_REFERENCE"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "referenceSha256": {
+                "type": "null"
+              },
+              "referenceIdentity": {
+                "type": "null"
+              },
+              "fields": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "NOT_RUN"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "referenceSha256": {
+                "type": "null"
+              },
+              "referenceIdentity": {
+                "type": "null"
+              },
+              "fields": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "MATCHED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "referenceSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "referenceIdentity": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "MISMATCH"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "referenceSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "referenceIdentity": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "NO_COMPARABLE_FIELDS"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "referenceSha256": {
+                "type": "string",
+                "pattern": "^[a-f0-9]{64}$"
+              },
+              "referenceIdentity": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      ],
+      "description": "apiComparison 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "sourceStatus",
+        "checkedAt",
+        "rulesVersion",
+        "apiComparison"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "PASSED",
+            "PARTIALLY_PASSED",
+            "REVIEW_REQUIRED",
+            "NOT_RUN"
+          ]
+        },
+        "sourceStatus": {
+          "enum": [
+            "PASSED",
+            "REVIEW_REQUIRED",
+            "NOT_RUN"
+          ]
+        },
+        "checkedAt": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rulesVersion": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "apiComparison": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/apiComparison"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "PASSED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "sourceStatus": {
+                "const": "PASSED"
+              },
+              "checkedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "rulesVersion": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "apiComparison": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "MATCHED",
+                      "NO_COMPARABLE_FIELDS",
+                      "SKIPPED_NO_API_REFERENCE"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "PARTIALLY_PASSED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "checkedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "rulesVersion": {
+                "type": "string",
+                "minLength": 1,
+                "pattern": "\\S"
+              },
+              "apiComparison": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "MATCHED",
+                      "MISMATCH",
+                      "NO_COMPARABLE_FIELDS",
+                      "SKIPPED_NO_API_REFERENCE"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "description": "verification 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다. 부분 게시(PARTIALLY_PASSED)의 API 불일치(MISMATCH)는 불일치한 칸이 모두 보류 범위 안일 때만 허용합니다(검사기 API_MISMATCH_NOT_HELD)."
+    },
+    "quality": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "coverage",
+        "missingFields",
+        "reviewIssues",
+        "notes",
+        "verification"
+      ],
+      "properties": {
+        "coverage": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/coverage"
+        },
+        "missingFields": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/missing"
+          },
+          "minItems": 0
+        },
+        "reviewIssues": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/issue"
+          },
+          "minItems": 0
+        },
+        "notes": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/issue"
+          },
+          "minItems": 0,
+          "description": "사람 확인 없이 자동 처리하고 화면에 '원문 확인 필요'로만 표시하는 문제(판정에 영향 없는 섹션의 근거 위치 문제 등). 공고 등록을 막지 않습니다."
+        },
+        "verification": {
+          "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/verification"
+        },
+        "heldItems": {
+          "type": "array",
+          "items": {
+            "$ref": "https://mujuthaek.kr/contracts/schemas/notice-common.v1.json#/$defs/heldItem"
+          },
+          "minItems": 0,
+          "description": "부분 완료로 보류한 항목. 검수 이슈(reviewIssues)는 모두 이 범위 안에 있어야 합니다(PARTIALLY_PASSED)"
+        }
+      },
+      "description": "추출 불확실성과 독립 검증 결과입니다. AI가 검증 상태를 작성하지 않습니다."
+    },
+    "applicationSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "startsOn",
+        "endsOn",
+        "basisScheduleIds",
+        "calculatedAt",
+        "statusReason",
+        "closedReason"
+      ],
+      "properties": {
+        "status": {
+          "enum": [
+            "UPCOMING",
+            "OPEN",
+            "CLOSED",
+            "ROLLING",
+            "UNKNOWN"
+          ]
+        },
+        "startsOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "endsOn": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "basisScheduleIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "calculatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "statusReason": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "closedReason": {
+          "enum": [
+            "END_OF_PERIOD",
+            "SOLD_OUT",
+            "CANCELLED",
+            "OTHER",
+            null
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "CLOSED"
+              }
+            },
+            "required": [
+              "status"
+            ]
+          },
+          "then": {
+            "properties": {
+              "closedReason": {
+                "enum": [
+                  "END_OF_PERIOD",
+                  "SOLD_OUT",
+                  "CANCELLED",
+                  "OTHER"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "not": {
+                  "const": "CLOSED"
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "closedReason": {
+                "type": "null"
+              }
+            }
+          }
+        }
+      ],
+      "description": "notice가 일정과 조기마감 근거로 계산합니다. 원문 게시 상태와 구분합니다."
+    },
+    "areaSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "locationId",
+        "kind",
+        "score",
+        "calculatedAt",
+        "calculationVersion"
+      ],
+      "properties": {
+        "locationId": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "enum": [
+            "LIVING",
+            "COMMERCIAL"
+          ]
+        },
+        "score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "calculatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "calculationVersion": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "description": "areaSummary 공통 계약입니다. 세부 의미는 contracts/README.md를 따릅니다."
+    },
+    "areaRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "max"
+      ],
+      "properties": {
+        "min": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "max": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        }
+      },
+      "description": "원문이 범위로만 적은 면적(㎡). 「26~45㎡」처럼 단일 값이 없을 때만 씁니다. min ≤ max."
+    },
+    "amountRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min",
+        "max"
+      ],
+      "properties": {
+        "min": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "원문이 범위로만 적은 금액(원). 「1,200만~1,500만원」처럼 단일 값이 없을 때만 씁니다. min ≤ max."
+    },
+    "heldItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "target",
+        "extent",
+        "codes",
+        "description"
+      ],
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^(?:/(?:[^~/]|~[01])*)+$",
+          "description": "보류한 항목(/eligibility/3) 또는 섹션(/supplyGroups)의 JSON Pointer. 공고 정체성(/notice 전체·제목·기관·분야)·입력·원본 문서·원문 출처·근거·검증 기록과 문서 전체(/)는 보류할 수 없습니다(공고 전체 검수). 조건의 일부(/eligibility/3/rule)를 보류해도 그 조건 전체가 보류입니다 공고일·공급 유형·설명·대상 계층·공고 전체 수량은 칸 단위로 보류할 수 있고(예: /notice/announcedOn), 받는 쪽은 그 칸을 목록·중복 판단·알림에 쓰지 않습니다."
+        },
+        "extent": {
+          "enum": [
+            "ITEM",
+            "SECTION"
+          ]
+        },
+        "codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "description": "부분 완료(PARTIALLY_PASSED)에서 공고는 게시하되 확인 전까지 쓰지 않는 항목·섹션. 판정·화면은 이 범위만 '원문 확인 필요'로 보여 줍니다"
+    },
+    "applicationChannel": {
+      "enum": [
+        "ONLINE",
+        "ONSITE",
+        "EMAIL",
+        "MAIL",
+        "FAX"
+      ],
+      "description": "신청·제출 방법. ONLINE(인터넷·온라인·홈페이지·모바일), ONSITE(방문·현장·창구), EMAIL(이메일), MAIL(우편·등기), FAX(팩스). 원문이 「인터넷 신청 불가」처럼 막은 방법은 넣지 않습니다"
+    },
+    "place": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "address",
+        "detail"
+      ],
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "접수처 이름(예: 「○○지역본부 1층 접수처」). 원문에 그대로 있는 글자만"
+        },
+        "address": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "접수처 주소. 원문에 그대로 있는 글자만 쓰며, 일정 근거에서 확인하지 못하면 null"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "층·호실·창구 등 덧붙인 위치. 원문에 그대로 있는 글자만"
+        }
+      },
+      "description": "방문·현장 접수 장소. 세 칸이 모두 null인 장소는 넣지 않습니다(EMPTY_PLACE)"
+    },
+    "applicationEmail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "address",
+        "subjectFormat"
+      ],
+      "properties": {
+        "address": {
+          "type": "string",
+          "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+          "description": "원문에 그대로 있는 접수 이메일 주소"
+        },
+        "subjectFormat": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "\\S"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "원문이 정한 메일 제목 형식(예: 「[신청] 성명_주택형」). 없으면 null"
+        }
+      },
+      "description": "이메일 접수 주소와 제목 형식"
+    },
+    "timeRange": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "start",
+        "end"
+      ],
+      "properties": {
+        "start": {
+          "type": "string",
+          "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+        },
+        "end": {
+          "type": "string",
+          "pattern": "^(?:(?:[01][0-9]|2[0-3]):[0-5][0-9]|24:00)$"
+        }
+      },
+      "description": "하루 안의 시각 구간(HH:MM, 한국 시각). start는 end보다 일러야 합니다(TIME_RANGE_REVERSED)"
+    }
+  }
+}

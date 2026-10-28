@@ -1,0 +1,459 @@
+{
+  "schemaVersion": "1.0.0",
+  "target": "NOTICE",
+  "sourceReferences": [
+    {
+      "sourceCode": "test",
+      "sourceNoticeId": "synthetic-business-1",
+      "rawPostId": "00000000-0000-7000-8000-000000000004",
+      "rawVersion": 1,
+      "kind": "NOTICE",
+      "supersedesPostId": null,
+      "detailUrl": "https://example.org/notices/business-1",
+      "sourceTitle": "가상상가 201호 입찰 임대 공고",
+      "sourceStatusText": "게시 중",
+      "postedOn": "2026-10-01"
+    }
+  ],
+  "documents": [
+    {
+      "id": "text1",
+      "kind": "TEXT",
+      "name": "business.synthetic.txt",
+      "sha256": "1181094adc4a68db7df47d152688689fde811ff6badc9f1539fea3a1d9fef6a4",
+      "originalUrl": "https://example.org/documents/business.synthetic.txt",
+      "pageCount": null
+    }
+  ],
+  "input": {
+    "eventId": "00000000-0000-7000-8000-000000000003",
+    "rawPostId": "00000000-0000-7000-8000-000000000004",
+    "rawVersion": 1,
+    "field": "BUSINESS_SPACE",
+    "reprocess": false
+  },
+  "notice": {
+    "title": "가상상가 201호 입찰 임대 공고",
+    "publisher": "가상상가공사",
+    "field": "BUSINESS_SPACE",
+    "supplyType": "상가 임대",
+    "announcedOn": "2026-10-01",
+    "description": "테스트 전용 가상 공고입니다.",
+    "counts": [
+      {
+        "id": "offered-one",
+        "kind": "OFFERED",
+        "value": 1,
+        "scope": {
+          "level": "NOTICE",
+          "locationIds": [],
+          "supplyGroupIds": [],
+          "targetGroups": [],
+          "supplyCategory": "ALL",
+          "resolution": "RESOLVED",
+          "description": "공고 전체에 적용합니다."
+        },
+        "aggregationRole": "STANDALONE",
+        "parentCountId": null,
+        "aggregationComplete": false,
+        "evidenceIds": [
+          "e1"
+        ]
+      }
+    ],
+    "evidenceIds": [
+      "e1"
+    ],
+    "targetGroups": [],
+    "applicationChannels": [
+      "ONLINE"
+    ]
+  },
+  "locations": [
+    {
+      "id": "building-a",
+      "kind": "BUILDING",
+      "parentLocationId": null,
+      "complexName": null,
+      "region": "서울특별시 종로구",
+      "buildingName": "가상건물 A동",
+      "address": "서울특별시 종로구 가상로 1",
+      "regionCode": "1111000000",
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "schedules": [
+    {
+      "id": "application",
+      "kinds": [
+        "APPLICATION",
+        "BID"
+      ],
+      "applicationMode": "FIXED_PERIOD",
+      "places": [],
+      "applicationEmail": null,
+      "dailyHours": [],
+      "breaks": [],
+      "excludedDays": [],
+      "timeNote": null,
+      "rawLabel": "입찰신청",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "channels": [
+        "ONLINE"
+      ],
+      "startsAt": {
+        "precision": "MINUTE",
+        "value": "2026-10-20T10:00:00+09:00"
+      },
+      "endsAt": {
+        "precision": "MINUTE",
+        "value": "2026-10-21T17:00:00+09:00"
+      },
+      "endStatus": "FIXED",
+      "endCondition": null,
+      "description": "원문에 명시한 신청 기간입니다.",
+      "applicationUrl": "https://example.org/apply",
+      "priorityRank": null,
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "supplyGroups": [
+    {
+      "id": "unit-201",
+      "locationId": "building-a",
+      "housingTypeCode": null,
+      "buildingUse": "상가",
+      "exclusiveAreaSqm": 20,
+      "commonAreaSqm": 5,
+      "scope": {
+        "level": "SUPPLY_GROUP",
+        "locationIds": [
+          "building-a"
+        ],
+        "supplyGroupIds": [
+          "unit-201"
+        ],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "201호에 적용합니다."
+      },
+      "counts": [],
+      "prices": [
+        {
+          "id": "deposit",
+          "kind": "DEPOSIT",
+          "amountKrw": 1000000,
+          "scope": {
+            "level": "SUPPLY_GROUP",
+            "locationIds": [
+              "building-a"
+            ],
+            "supplyGroupIds": [
+              "unit-201"
+            ],
+            "targetGroups": [],
+            "supplyCategory": "ALL",
+            "resolution": "RESOLVED",
+            "description": "201호에 적용합니다."
+          },
+          "sourceAmount": "1000000",
+          "sourceUnit": "원",
+          "taxTreatment": "NOT_APPLICABLE",
+          "vatRate": null,
+          "billingPeriod": "ONCE",
+          "pricePlanId": "BASE",
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        {
+          "id": "rent",
+          "kind": "MONTHLY_RENT",
+          "amountKrw": 100000,
+          "scope": {
+            "level": "SUPPLY_GROUP",
+            "locationIds": [
+              "building-a"
+            ],
+            "supplyGroupIds": [
+              "unit-201"
+            ],
+            "targetGroups": [],
+            "supplyCategory": "ALL",
+            "resolution": "RESOLVED",
+            "description": "201호에 적용합니다."
+          },
+          "sourceAmount": "100000",
+          "sourceUnit": "원",
+          "taxTreatment": "EXCLUDED",
+          "vatRate": 10,
+          "billingPeriod": "MONTHLY",
+          "pricePlanId": "BASE",
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        {
+          "id": "bid",
+          "kind": "BID_BASE_PRICE",
+          "amountKrw": 5000000,
+          "scope": {
+            "level": "SUPPLY_GROUP",
+            "locationIds": [
+              "building-a"
+            ],
+            "supplyGroupIds": [
+              "unit-201"
+            ],
+            "targetGroups": [],
+            "supplyCategory": "ALL",
+            "resolution": "RESOLVED",
+            "description": "201호에 적용합니다."
+          },
+          "sourceAmount": "5000000",
+          "sourceUnit": "원",
+          "taxTreatment": "EXEMPT",
+          "vatRate": null,
+          "billingPeriod": "ONCE",
+          "pricePlanId": "BASE",
+          "evidenceIds": [
+            "e1"
+          ]
+        }
+      ],
+      "itemKind": "BUSINESS_UNIT",
+      "unitLabel": "201호",
+      "floor": "2층",
+      "leaseTerm": {
+        "initialMonths": 24,
+        "renewalMonths": 24,
+        "maxMonths": 72,
+        "description": "최초 24개월, 갱신 24개월, 최대 72개월입니다.",
+        "evidenceIds": [
+          "e1"
+        ]
+      },
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "eligibility": [
+    {
+      "id": "registered",
+      "category": "BUSINESS_REGISTRATION",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "appliesTo": "신청자 및 명시한 가구 범위",
+      "referenceTime": "공고일",
+      "originalText": "사업자 등록이 필요합니다.",
+      "description": "사업자 등록이 필요합니다.",
+      "rule": {
+        "status": "STRUCTURED",
+        "expression": {
+          "kind": "ATOMIC",
+          "subject": "BUSINESS",
+          "attribute": "BUSINESS_REGISTERED",
+          "operator": "EQ",
+          "value": true,
+          "unit": "BOOLEAN",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": null,
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        "reason": null
+      },
+      "exceptionsStatus": "NONE_IN_SOURCE",
+      "exceptions": [],
+      "evidenceIds": [
+        "e1"
+      ]
+    },
+    {
+      "id": "industry",
+      "category": "INDUSTRY",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "appliesTo": "신청자 및 명시한 가구 범위",
+      "referenceTime": "공고일",
+      "originalText": "한국표준산업분류 제11차 56111 업종은 제외합니다.",
+      "description": "한국표준산업분류 제11차 56111 업종은 제외합니다.",
+      "rule": {
+        "status": "STRUCTURED",
+        "expression": {
+          "kind": "ATOMIC",
+          "subject": "BUSINESS",
+          "attribute": "INDUSTRY_CODE",
+          "operator": "NOT_IN",
+          "value": [
+            "56111"
+          ],
+          "unit": "CODE",
+          "basis": "아래 가상 공고 원문에 명시한 기준입니다.",
+          "referenceTime": "공고일",
+          "benchmark": {
+            "standardName": "한국표준산업분류",
+            "referenceYear": 2024,
+            "referenceVersion": "제11차",
+            "householdMemberCount": null,
+            "householdScope": null
+          },
+          "evidenceIds": [
+            "e1"
+          ]
+        },
+        "reason": null
+      },
+      "exceptionsStatus": "NONE_IN_SOURCE",
+      "exceptions": [],
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "selectionRules": [
+    {
+      "id": "bidding",
+      "kind": "BIDDING",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "originalText": "최고가 입찰 방식입니다.",
+      "description": "최고가 입찰 방식으로 선정합니다.",
+      "priorityRank": null,
+      "points": null,
+      "maxPoints": null,
+      "order": null,
+      "rule": {
+        "status": "UNSTRUCTURED",
+        "expression": null,
+        "reason": "자격 조건식으로 환산하지 않는 입찰 선정 방식입니다."
+      },
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "requiredDocuments": [],
+  "guidance": [
+    {
+      "id": "apply-online",
+      "kind": "APPLICATION_METHOD",
+      "title": "온라인 신청",
+      "description": "온라인으로 신청합니다.",
+      "scope": {
+        "level": "NOTICE",
+        "locationIds": [],
+        "supplyGroupIds": [],
+        "targetGroups": [],
+        "supplyCategory": "ALL",
+        "resolution": "RESOLVED",
+        "description": "공고 전체에 적용합니다."
+      },
+      "phone": null,
+      "url": "https://example.org/apply",
+      "evidenceIds": [
+        "e1"
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "id": "e1",
+      "sourceId": "text1",
+      "locator": {
+        "kind": "TEXT_RANGE",
+        "start": 0,
+        "end": 442
+      },
+      "quote": "테스트 전용 가상 공고입니다. 가상상가 201호 입찰 임대 공고. 기관은 가상상가공사입니다. 공고일은 2026년 10월 1일입니다. 서울특별시 종로구(시군구 코드 11110) 가상로 1, 가상건물 A동 201호 2층입니다. 모집 수는 1호입니다. 전용 20㎡, 공용 5㎡입니다. 보증금은 1000000원, 월임대료는 100000원이며 부가세 10% 별도입니다. 최초 24개월, 갱신 24개월, 최대 72개월입니다. 입찰신청은 2026년 10월 20일 10시부터 21일 17시까지입니다. 입찰 예정가격은 5000000원이며 부가세 면세입니다. 사업자 등록이 필요합니다. 한국표준산업분류 제11차 56111 업종은 제외합니다. 최고가 입찰 방식입니다. 온라인으로 신청합니다. 신청 링크는 https://example.org/apply 입니다. 이 문서에는 그 밖의 일정·자격·예외는 없습니다."
+    }
+  ],
+  "quality": {
+    "coverage": {
+      "notice": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "locations": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "schedules": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "supplyGroups": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "eligibility": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "selectionRules": {
+        "status": "EXTRACTED",
+        "reason": null
+      },
+      "requiredDocuments": {
+        "status": "NOT_IN_SOURCE",
+        "reason": "가상 원문에는 해당 항목이 없습니다."
+      },
+      "guidance": {
+        "status": "EXTRACTED",
+        "reason": null
+      }
+    },
+    "missingFields": [],
+    "reviewIssues": [],
+    "notes": [],
+    "verification": {
+      "status": "PASSED",
+      "sourceStatus": "PASSED",
+      "checkedAt": "2026-10-15T12:00:00+09:00",
+      "rulesVersion": "synthetic-fixture-v1",
+      "apiComparison": {
+        "status": "SKIPPED_NO_API_REFERENCE",
+        "referenceSha256": null,
+        "referenceIdentity": null,
+        "fields": []
+      }
+    }
+  }
+}

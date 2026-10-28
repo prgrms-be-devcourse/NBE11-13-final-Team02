@@ -1,0 +1,11 @@
+# Docker 빌드 컨텍스트(저장소 루트)에서 빼는 것
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/build
+**/.gradle
+.git
+.idea
+.docs
+infra/.env
