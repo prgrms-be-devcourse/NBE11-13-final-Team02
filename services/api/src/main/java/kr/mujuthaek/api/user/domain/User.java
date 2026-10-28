@@ -34,6 +34,15 @@ public class User {
 
   private Instant lastLoginAt;
 
+  /** 계정 연락용 이메일 (선택). 주소·동의 버전·동의 시각은 같이 있거나 같이 비어요 */
+  @Column(length = 254)
+  private String email;
+
+  @Column(length = 20)
+  private String emailConsentVersion;
+
+  private Instant emailConsentedAt;
+
   protected User() {}
 
   private User(String nickname, Instant now) {
@@ -55,6 +64,22 @@ public class User {
       this.nickname = trim(nickname);
     }
     this.lastLoginAt = now;
+    this.updatedAt = now;
+  }
+
+  /** 연락용 이메일 등록·변경. 동의한 문구 버전과 시각을 같이 남겨요 (검사는 서비스에서) */
+  public void changeEmail(String email, String consentVersion, Instant now) {
+    this.email = email;
+    this.emailConsentVersion = consentVersion;
+    this.emailConsentedAt = now;
+    this.updatedAt = now;
+  }
+
+  /** 연락용 이메일 삭제 (동의 철회). 동의 기록도 같이 지워요 */
+  public void removeEmail(Instant now) {
+    this.email = null;
+    this.emailConsentVersion = null;
+    this.emailConsentedAt = null;
     this.updatedAt = now;
   }
 
@@ -84,5 +109,17 @@ public class User {
 
   public Instant getLastLoginAt() {
     return lastLoginAt;
+  }
+
+  public String getEmail() {
+    return email;
+  }
+
+  public String getEmailConsentVersion() {
+    return emailConsentVersion;
+  }
+
+  public Instant getEmailConsentedAt() {
+    return emailConsentedAt;
   }
 }

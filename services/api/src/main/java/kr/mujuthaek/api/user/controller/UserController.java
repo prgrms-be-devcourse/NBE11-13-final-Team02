@@ -1,15 +1,22 @@
 package kr.mujuthaek.api.user.controller;
 
+import jakarta.validation.Valid;
 import java.util.Locale;
+import kr.mujuthaek.api.user.dto.request.ContactEmailRequest;
 import kr.mujuthaek.api.user.dto.response.MeResponse;
 import kr.mujuthaek.api.user.dto.response.WithdrawalResponse;
+import kr.mujuthaek.api.user.service.ContactEmailService;
 import kr.mujuthaek.api.user.service.LoginUser;
 import kr.mujuthaek.api.user.service.UserService;
 import kr.mujuthaek.api.user.service.WithdrawalService;
 import kr.mujuthaek.api.user.service.WithdrawalStart;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -21,10 +28,15 @@ class UserController {
 
   private final UserService userService;
   private final WithdrawalService withdrawalService;
+  private final ContactEmailService contactEmails;
 
-  UserController(UserService userService, WithdrawalService withdrawalService) {
+  UserController(
+      UserService userService,
+      WithdrawalService withdrawalService,
+      ContactEmailService contactEmails) {
     this.userService = userService;
     this.withdrawalService = withdrawalService;
+    this.contactEmails = contactEmails;
   }
 
   /**
@@ -51,5 +63,20 @@ class UserController {
   @GetMapping("/me")
   MeResponse me(@AuthenticationPrincipal LoginUser user) {
     return userService.getMe(user.userId());
+  }
+
+  /** 연락용 이메일 등록·변경 (선택, 가입 마무리 화면·마이페이지). 주소는 {@code GET /me}의 email로 확인해요 */
+  @PutMapping("/me/email")
+  ResponseEntity<Void> changeEmail(
+      @AuthenticationPrincipal LoginUser user, @Valid @RequestBody ContactEmailRequest request) {
+    contactEmails.change(user.userId(), request.email(), request.consentVersion());
+    return ResponseEntity.noContent().build();
+  }
+
+  /** 연락용 이메일 삭제 (동의 철회). 없어도 204 */
+  @DeleteMapping("/me/email")
+  ResponseEntity<Void> removeEmail(@AuthenticationPrincipal LoginUser user) {
+    contactEmails.remove(user.userId());
+    return ResponseEntity.noContent().build();
   }
 }

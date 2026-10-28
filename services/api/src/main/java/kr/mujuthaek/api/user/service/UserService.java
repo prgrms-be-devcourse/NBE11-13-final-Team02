@@ -40,6 +40,11 @@ public class UserService {
             .map(a -> a.getProvider().name())
             .toList();
     return new MeResponse(
-        user.getId(), user.getNickname(), user.getRole().name(), providers, user.getCreatedAt());
+        user.getId(),
+        user.getNickname(),
+        user.getRole().name(),
+        providers,
+        user.getCreatedAt(),
+        user.getEmail());
   }
 }

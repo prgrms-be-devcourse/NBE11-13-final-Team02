@@ -9,6 +9,12 @@ import java.util.UUID;
  *
  * @param role USER 또는 ADMIN
  * @param providers 이어진 소셜 로그인 (KAKAO, NAVER, GOOGLE)
+ * @param email 계정 연락용 이메일. 등록하지 않았으면 null
  */
 public record MeResponse(
-    UUID id, String nickname, String role, List<String> providers, Instant joinedAt) {}
+    UUID id,
+    String nickname,
+    String role,
+    List<String> providers,
+    Instant joinedAt,
+    String email) {}

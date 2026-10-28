@@ -40,6 +40,8 @@ src/main/java/kr/mujuthaek/api/
 | 콜백 | `GET /login/oauth2/code/{kakao\|naver\|google}` | 각 개발자 콘솔에 Redirect(Callback) URI로 등록 (스프링 필터가 처리, 컨트롤러 없음) |
 | access token 받기·재발급 | `POST /api/auth/refresh` | 쿠키로 확인. `{accessToken, tokenType: "Bearer", expiresIn}` + 새 refresh token 쿠키 (회전: 쓴 값은 다시 못 써요). 실패하면 401 `INVALID_REFRESH_TOKEN` → 다시 로그인. 같은 쿠키로 동시에 부르면 먼저 온 하나만 새 토큰을 받고 나머지는 409 `CONFLICT`(쿠키는 그대로) → 원래 요청을 한 번 다시. `Authorization` 헤더는 읽지 않아요(만료된 access token이 붙어 와도 막히지 않게) |
 | 내 정보 | `GET /api/users/me` | Bearer 없거나 만료면 401 `UNAUTHORIZED` |
+| 연락용 이메일 등록·변경 | `PUT /api/users/me/email` | 선택 항목. 본문 `{email, consentVersion}`(화면이 보여 준 동의 문구 버전, 예 `email-v1`). 204. 가입 마무리 화면과 마이페이지가 같이 써요. 형식이 틀리면 400 `VALIDATION_FAILED`(주소는 응답·로그에 넣지 않아요). 다른 회원이 쓰는 주소면(대소문자 무시) 409 `EMAIL_ALREADY_USED`, 본인이 같은 주소로 다시 저장하는 건 돼요. 인증 코드는 받지 않아요. 등록한 주소는 `GET /api/users/me`의 `email`(없으면 null) |
+| 연락용 이메일 삭제 | `DELETE /api/users/me/email` | 동의 철회. 주소와 동의 기록(버전·시각)을 같이 지워요. 없어도 204 |
 | 로그아웃 | `POST /api/auth/logout` | 이 기기의 refresh token 삭제 + 쿠키 삭제, 204 |
 | 탈퇴 시작 | `POST /api/users/me/withdrawal[?provider=naver]` | 바로 지우지 않고 `{provider, reauthUrl, expiresIn, otherProviders}`를 줘요. `otherProviders`(함께 연결된 다른 소셜)는 서버가 연결을 끊을 수 없어서, 탈퇴 전에 "각 서비스에서 직접 해제하세요"라고 보여 줘요. 프론트가 `reauthUrl`로 **페이지 이동** → 그 소셜로 다시 로그인 → 회원 삭제(hard delete) → 소셜 연결 끊기 → `FRONTEND_URL/withdrawn`. 실패·취소는 `FRONTEND_URL/mypage?withdraw=cancelled\|expired\|account_mismatch\|failed` |
 
