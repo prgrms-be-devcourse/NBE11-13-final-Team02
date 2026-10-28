@@ -1,0 +1,82 @@
+# 개발 서버(dev EC2) 구성. compose.prod.yml과 같고 수집기가 없어요.
+# 수집 이벤트(raw.notice.collected·raw.policy.collected·area.source.ready)는 운영 RabbitMQ의 dev.mirror 큐에서
+# shovel(from-prod)로 받아 와요 (shovel.sh). 실행: docker compose -f compose.dev.yml --env-file .env --env-file versions.env ...
+name: mujuthaek
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+x-app: &app
+  env_file: .env
+  restart: unless-stopped
+  logging: *logging
+  depends_on:
+    rabbitmq: { condition: service_healthy }
+
+services:
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    mem_limit: 200m
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      # 컨테이너 상한(200MB)보다 낮게: 180MB를 넘으면 발행을 잠시 막아요
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "-rabbit vm_memory_high_watermark {absolute,188743680}"
+    ports:
+      - "127.0.0.1:15672:15672"   # 관리 화면은 서버 안에서만
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+      - ./rabbitmq/enabled_plugins:/etc/rabbitmq/enabled_plugins:ro   # 관리 화면 + shovel
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  migrate-extraction:
+    image: flyway/flyway:11.14
+    profiles: [migrate]
+    logging: *logging
+    command: >
+      -url=jdbc:postgresql://${RDS_HOST}:5432/extraction_dev -user=${EXTRACTION_DB_USER:-extraction_app} -password=${EXTRACTION_DB_PASSWORD}
+      -locations=filesystem:/flyway/sql -connectRetries=10 migrate
+    volumes:
+      - ./migrations/extraction:/flyway/sql:ro
+
+  api:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/api:${API_TAG:?versions.env에 API_TAG가 없어요}
+    mem_limit: 600m
+    environment:
+      NOTIFICATION_SERVER_URL: http://notification:8081
+    ports: ["127.0.0.1:8080:8080"]
+
+  notification:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/notification:${NOTIFICATION_TAG:?versions.env에 NOTIFICATION_TAG가 없어요}
+    mem_limit: 300m
+    ports: ["127.0.0.1:8081:8081"]
+
+  extraction:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/extraction:${EXTRACTION_TAG:?versions.env에 EXTRACTION_TAG가 없어요}
+    mem_limit: 450m
+    environment:
+      SERVICE_NAME: extraction
+      DB_URL: ${EXTRACTION_DB_URL}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_HOST:-rabbitmq}:5672/
+
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    logging: *logging
+    depends_on: [api]
+    ports: ["0.0.0.0:80:80"]
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  rabbitmq-data:

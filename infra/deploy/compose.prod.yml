@@ -1,0 +1,103 @@
+# 운영 서버(prod EC2) 구성. 서버의 /opt/mujuthaek에서 deploy.sh가 이렇게 불러요:
+#   docker compose -f compose.prod.yml --env-file .env --env-file versions.env ...
+# .env는 GitHub Environment production의 ENV_FILE, versions.env는 서비스별 이미지 태그(API_TAG …)예요.
+# DB는 RDS, 원본 파일은 S3(S3_ENDPOINT 빈 값, 인증은 EC2 IAM 역할)라 이 파일에는 없어요.
+name: mujuthaek
+
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+
+x-app: &app
+  env_file: .env
+  restart: unless-stopped
+  logging: *logging
+  depends_on:
+    rabbitmq: { condition: service_healthy }
+
+services:
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    mem_limit: 300m
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+    ports:
+      - "127.0.0.1:15672:15672"   # 관리 화면은 서버 안에서만 (ssh -L 15672:127.0.0.1:15672)
+      - "10.20.5.63:5672:5672"    # 사설 IP에만: dev 서버의 shovel이 dev.mirror를 읽어 가요 (보안 그룹도 dev만 허용)
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # DB 테이블 (Flyway). deploy.sh가 그 버전 이미지에서 꺼낸 migrations/<서비스>를 적용해요
+  migrate-collector:
+    image: flyway/flyway:11.14
+    profiles: [migrate]
+    logging: *logging
+    command: >
+      -url=jdbc:postgresql://${RDS_HOST}:5432/collector -user=${COLLECTOR_DB_USER:-collector_app} -password=${COLLECTOR_DB_PASSWORD}
+      -locations=filesystem:/flyway/sql -connectRetries=10 migrate
+    volumes:
+      - ./migrations/collector:/flyway/sql:ro
+
+  migrate-extraction:
+    image: flyway/flyway:11.14
+    profiles: [migrate]
+    logging: *logging
+    command: >
+      -url=jdbc:postgresql://${RDS_HOST}:5432/extraction -user=${EXTRACTION_DB_USER:-extraction_app} -password=${EXTRACTION_DB_PASSWORD}
+      -locations=filesystem:/flyway/sql -connectRetries=10 migrate
+    volumes:
+      - ./migrations/extraction:/flyway/sql:ro
+
+  api:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/api:${API_TAG:?versions.env에 API_TAG가 없어요}
+    mem_limit: 1200m
+    environment:
+      NOTIFICATION_SERVER_URL: http://notification:8081
+    ports: ["127.0.0.1:8080:8080"]
+
+  notification:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/notification:${NOTIFICATION_TAG:?versions.env에 NOTIFICATION_TAG가 없어요}
+    mem_limit: 500m
+    ports: ["127.0.0.1:8081:8081"]
+
+  # 파이썬 워커는 DB_URL·RABBITMQ_URL 한 줄 주소를 읽어요. .env의 이름을 여기서 바꿔 넘겨요
+  collector:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/collector:${COLLECTOR_TAG:?versions.env에 COLLECTOR_TAG가 없어요}
+    mem_limit: 400m
+    environment:
+      SERVICE_NAME: collector
+      DB_URL: ${COLLECTOR_DB_URL}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_HOST:-rabbitmq}:5672/
+
+  extraction:
+    <<: *app
+    image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/extraction:${EXTRACTION_TAG:?versions.env에 EXTRACTION_TAG가 없어요}
+    mem_limit: 500m
+    environment:
+      SERVICE_NAME: extraction
+      DB_URL: ${EXTRACTION_DB_URL}
+      RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_HOST:-rabbitmq}:5672/
+
+  # Vercel이 /api/**를 http://<탄력적 IP>:80으로 대신 불러요. api 앞에서 받아 넘기고 actuator는 health만 열어요
+  nginx:
+    image: nginx:1.29-alpine
+    restart: unless-stopped
+    logging: *logging
+    depends_on: [api]
+    ports: ["0.0.0.0:80:80"]
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+volumes:
+  rabbitmq-data:
