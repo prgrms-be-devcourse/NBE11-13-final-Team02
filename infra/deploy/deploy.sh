@@ -30,7 +30,7 @@ if [ "$TARGET" = all ]; then
 else
   found=no
   for s in "${SERVICES[@]}"; do [ "$s" = "$TARGET" ] && found=yes; done
-  [ "$found" = yes ] || { echo "$ENVIRONMENT에는 $TARGET 서비스가 없어요 (${SERVICES[*]})" >&2; exit 2; }
+  [ "$found" = yes ] || { echo "${ENVIRONMENT}에는 $TARGET 서비스가 없어요 (${SERVICES[*]})" >&2; exit 2; }
   TARGETS=("$TARGET")
 fi
 
