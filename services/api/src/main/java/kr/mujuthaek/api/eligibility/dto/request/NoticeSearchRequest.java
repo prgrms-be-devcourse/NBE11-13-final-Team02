@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
+import jakarta.validation.constraints.Size;
 import java.util.List;
 
 /**
@@ -21,17 +22,22 @@ public record NoticeSearchRequest(
     String cursor,
     @Min(1) @Max(100) Integer size) {
 
-  /** 공개 목록(GET /notices)과 같은 필터. statuses를 비우면 접수예정·접수중이에요. */
+  /**
+   * 공개 목록(GET /notices)과 같은 필터. statuses를 비우면 접수예정·접수중이에요.
+   *
+   * @param keyword 검색어. 띄어쓰기로 나눈 낱말이 모두 제목에 들어 있는 공고만. 비우면 전부
+   */
   public record Filters(
       String field,
       List<String> regionCodes,
       String tenure,
       List<String> noticeTypes,
       List<String> providers,
-      List<String> statuses) {}
+      List<String> statuses,
+      @Size(max = 100) String keyword) {}
 
   public Filters filtersOrEmpty() {
-    return filters == null ? new Filters(null, null, null, null, null, null) : filters;
+    return filters == null ? new Filters(null, null, null, null, null, null, null) : filters;
   }
 
   public String sortOrDefault() {

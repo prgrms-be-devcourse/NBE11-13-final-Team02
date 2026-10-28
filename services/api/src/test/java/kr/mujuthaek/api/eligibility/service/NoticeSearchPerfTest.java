@@ -152,7 +152,7 @@ class NoticeSearchPerfTest {
   private NoticeSearchRequest request(
       List<String> regions, ApplicantRequest applicant, String cursor) {
     return new NoticeSearchRequest(
-        new NoticeSearchRequest.Filters(null, regions, null, null, List.of(f.provider), null),
+        new NoticeSearchRequest.Filters(null, regions, null, null, List.of(f.provider), null, null),
         applicant,
         null,
         true,

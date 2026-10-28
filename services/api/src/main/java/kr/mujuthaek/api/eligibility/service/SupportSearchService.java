@@ -14,6 +14,7 @@ import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
+import kr.mujuthaek.api.common.text.Keywords;
 import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.dto.request.SupportSearchRequest;
 import kr.mujuthaek.api.eligibility.dto.response.SupportEvaluationResponse;
@@ -60,9 +61,13 @@ public class SupportSearchService {
             .toList();
     Map<UUID, NoticeQueryService.PolicyInfo> infos =
         notices.policyInfos(matched.stream().map(MatchResult.Item::noticeId).toList());
+    Keywords keywords = Keywords.of(f.keyword());
     List<SupportSearchResponse.Item> inRegion =
         withoutDuplicates(
-            matched.stream().map(m -> item(m, infos.get(m.noticeId()), today)).toList());
+                matched.stream().map(m -> item(m, infos.get(m.noticeId()), today)).toList())
+            .stream()
+            .filter(i -> keywords.matches(i.title(), i.organization()))
+            .toList();
     Map<String, Integer> subFieldCounts = new LinkedHashMap<>();
     SUB_FIELDS.forEach(t -> subFieldCounts.put(t, 0));
     inRegion.forEach(i -> subFieldCounts.merge(i.subField(), 1, Integer::sum));

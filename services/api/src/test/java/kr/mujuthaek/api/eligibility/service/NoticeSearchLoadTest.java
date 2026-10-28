@@ -94,7 +94,8 @@ class NoticeSearchLoadTest {
     counting.reset();
     search.search(
         new NoticeSearchRequest(
-            new NoticeSearchRequest.Filters(null, null, null, null, List.of(f.provider), null),
+            new NoticeSearchRequest.Filters(
+                null, null, null, null, List.of(f.provider), null, null),
             null,
             null,
             true,

@@ -15,6 +15,7 @@ import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
+import kr.mujuthaek.api.common.text.Keywords;
 import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
 import kr.mujuthaek.api.eligibility.dto.request.SpaceSearchRequest;
 import kr.mujuthaek.api.eligibility.dto.response.SpaceEvaluationResponse;
@@ -56,7 +57,7 @@ public class SpaceSearchService {
     LocalDate today = LocalDate.now(clock);
     Map<UUID, NoticeQueryService.Candidate> info =
         notices
-            .searchCandidates("BUSINESS_SPACE", null, null, null, null, null, MAX_NOTICES)
+            .searchCandidates("BUSINESS_SPACE", null, null, null, null, null, null, MAX_NOTICES)
             .stream()
             .collect(Collectors.toMap(NoticeQueryService.Candidate::id, Function.identity()));
     List<MatchResult.Item> matched =
@@ -69,11 +70,15 @@ public class SpaceSearchService {
                 .filter(MatchResult.Item::policy)
                 .map(MatchResult.Item::noticeId)
                 .toList());
+    Keywords keywords = Keywords.of(f.keyword());
     List<SpaceSearchResponse.Item> inRegion =
         withoutDuplicates(
-            matched.stream()
-                .map(m -> item(m, info.get(m.noticeId()), infos.get(m.noticeId()), today))
-                .toList());
+                matched.stream()
+                    .map(m -> item(m, info.get(m.noticeId()), infos.get(m.noticeId()), today))
+                    .toList())
+            .stream()
+            .filter(i -> keywords.matches(i.title(), i.organization()))
+            .toList();
     Map<String, Integer> typeCounts = new LinkedHashMap<>();
     SPACE_TYPES.forEach(t -> typeCounts.put(t, 0));
     inRegion.forEach(i -> typeCounts.merge(i.spaceType(), 1, Integer::sum));

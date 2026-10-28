@@ -76,6 +76,7 @@ public class NoticeSearchService {
             f.noticeTypes(),
             f.providers(),
             f.statuses(),
+            f.keyword(),
             MAX_CANDIDATES);
     // 판정 틀은 한 번에 읽고(기억해 둔 건 다시 안 읽어요), 기준 소득·대출 상품도 요청마다 한 번만 읽어요
     var sources =

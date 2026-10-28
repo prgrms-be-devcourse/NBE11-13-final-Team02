@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
+import kr.mujuthaek.api.common.text.Keywords;
 import kr.mujuthaek.api.notice.domain.NoticeStatus;
 import kr.mujuthaek.api.notice.domain.NoticeType;
 
@@ -18,6 +19,7 @@ import kr.mujuthaek.api.notice.domain.NoticeType;
  * @param sort DEADLINE(기본) 마감 임박 · LATEST 최신
  * @param applyEndFrom 마감일이 이날 이후(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요
  * @param applyEndTo 마감일이 이날 이전(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요
+ * @param keyword 검색어. 낱말이 모두 제목에 들어 있는 공고만 ({@link Keywords}). 비우면 전부
  */
 public record NoticeListFilter(
     String field,
@@ -28,7 +30,8 @@ public record NoticeListFilter(
     List<String> statuses,
     String sort,
     LocalDate applyEndFrom,
-    LocalDate applyEndTo) {
+    LocalDate applyEndTo,
+    String keyword) {
 
   public static final List<String> BUY_TYPES =
       List.of(NoticeType.PUBLIC_SALE.name(), NoticeType.PRIVATE_SALE.name());
@@ -62,6 +65,30 @@ public record NoticeListFilter(
     }
   }
 
+  /** 검색어 없이 (공개 목록). */
+  public NoticeListFilter(
+      String field,
+      List<String> regionCodes,
+      String tenure,
+      List<String> noticeTypes,
+      List<String> providers,
+      List<String> statuses,
+      String sort,
+      LocalDate applyEndFrom,
+      LocalDate applyEndTo) {
+    this(
+        field,
+        regionCodes,
+        tenure,
+        noticeTypes,
+        providers,
+        statuses,
+        sort,
+        applyEndFrom,
+        applyEndTo,
+        null);
+  }
+
   /** 마감일 범위 없이 (다른 모듈의 후보 찾기 등). */
   public NoticeListFilter(
       String field,
@@ -71,7 +98,11 @@ public record NoticeListFilter(
       List<String> providers,
       List<String> statuses,
       String sort) {
-    this(field, regionCodes, tenure, noticeTypes, providers, statuses, sort, null, null);
+    this(field, regionCodes, tenure, noticeTypes, providers, statuses, sort, null, null, null);
+  }
+
+  public Keywords keywords() {
+    return Keywords.of(keyword);
   }
 
   /** 시군구 5자리 (시도 단위 xx000은 빼요). */

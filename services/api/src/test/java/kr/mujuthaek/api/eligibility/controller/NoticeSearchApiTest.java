@@ -91,6 +91,29 @@ class NoticeSearchApiTest {
   }
 
   @Test
+  void keywordKeepsOnlyNoticesWhoseTitleHasEveryWord() throws Exception {
+    UUID mapo = noticeForAges(19, 39, "2026-10-30");
+    UUID other = noticeForAges(19, 39, "2026-10-30");
+    title(mapo, "마포 행복주택 입주자 모집");
+    title(other, "강남 행복주택 입주자 모집");
+
+    mvc.perform(
+            post("/api/v1/notices/search")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"filters":{"providers":["%s"],"keyword":"행복 주택  마포"},"applicant":{"birthMonth":"1997-03"}}"""
+                        .formatted(f.provider)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.items.length()").value(1))
+        .andExpect(jsonPath("$.items[0].id").value(mapo.toString()));
+  }
+
+  private void title(UUID notice, String title) {
+    f.jdbc.update("update notice.notices set title = ? where id = ?", title, notice);
+  }
+
+  @Test
   void craftedPositionCursorIs400Not500() throws Exception {
     noticeForAges(19, 39, "2026-10-30");
     String cursor =

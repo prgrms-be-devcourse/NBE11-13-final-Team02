@@ -7,6 +7,7 @@ import java.util.Map;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
 import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
+import kr.mujuthaek.api.common.text.Keywords;
 import kr.mujuthaek.api.eligibility.dto.request.BenefitSearchRequest;
 import kr.mujuthaek.api.eligibility.dto.response.BenefitSearchResponse;
 import kr.mujuthaek.api.eligibility.rule.Applicant;
@@ -30,9 +31,11 @@ public class BenefitSearchService {
     CursorQuery page = CursorQuery.of(request.cursor(), request.size(), sort);
     Applicant applicant =
         request.applicant() == null ? Applicant.empty() : request.applicant().toApplicant();
+    Keywords keywords = request.keywords();
     List<BenefitSearchResponse.Item> judged =
         evaluations.judgeAll(request.regionCodes(), applicant).stream()
             .map(evaluations::item)
+            .filter(i -> keywords.matches(i.title(), i.agency()))
             .toList();
     List<BenefitSearchResponse.Item> open =
         judged.stream().filter(i -> i.overall() != Overall.INELIGIBLE).toList();
