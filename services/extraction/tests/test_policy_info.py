@@ -48,3 +48,13 @@ def test_bizinfo_fields_strip_html():
 def test_other_sources_have_no_info():
     assert policy_info({"sourceCode": "youthcenter", "record": {"x": 1}}) is None
     assert policy_info({"sourceCode": "kstartup", "record": {}}) is None
+
+
+def test_amount_written_in_thousands_reads_in_man_won_without_changing_the_value():
+    from mujuthaek_extraction.publish import _readable_amount
+
+    assert _readable_amount("최대 10,000천원") == "최대 1,000만원"  # 실측 2026-10-28 기업마당 서천 예비창업자 지원
+    assert _readable_amount("최대 5,000 천 원") == "최대 500만원"
+    assert _readable_amount("최대 1,005천원") == "최대 1,005천원"  # 나눠떨어지지 않으면 그대로
+    assert _readable_amount("최대 3천만원") == "최대 3천만원"  # 천만 단위는 건드리지 않음
+    assert _readable_amount("최대 1,000만원") == "최대 1,000만원"
