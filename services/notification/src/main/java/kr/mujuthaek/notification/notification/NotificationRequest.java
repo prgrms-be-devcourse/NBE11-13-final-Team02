@@ -29,8 +29,14 @@ public record NotificationRequest(
    * @param quietEnabled 22:00~08:00 알림을 08:00에 보내기
    * @param push 웹 푸시로 보낼 구독 기기 (contracts/schemas/web-push.draft.md 3장). api가 "이 종류 켬 + 기기 1대 이상"일
    *     때만 넣고, 아니면 null. 최대 5대
+   * @param inboxId 이 회원의 api 알림함 줄 ID. 웹 푸시에 실어 보내면 기기가 「떴어요·눌렀어요」를 이 ID로 api에 알려요. 예전 요청은 null
    */
-  public record Recipient(UUID userId, String email, boolean quietEnabled, List<PushDevice> push) {
+  public record Recipient(
+      UUID userId, String email, boolean quietEnabled, List<PushDevice> push, UUID inboxId) {
+
+    public Recipient(UUID userId, String email, boolean quietEnabled, List<PushDevice> push) {
+      this(userId, email, quietEnabled, push, null);
+    }
 
     /** 이메일만 받는 회원 (푸시 기기 없음) */
     public static Recipient emailOnly(UUID userId, String email, boolean quietEnabled) {

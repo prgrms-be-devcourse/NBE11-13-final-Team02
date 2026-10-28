@@ -159,7 +159,7 @@ class SecurityConfig {
         .access(admin.anyOf(REPORTS))
         .requestMatchers("/api/admin/chat/**")
         .access(admin.anyOf(CHAT))
-        .requestMatchers("/api/admin/traffic/**")
+        .requestMatchers("/api/admin/traffic/**", "/api/admin/notifications/**")
         .access(admin.anyOf(TRAFFIC))
         .requestMatchers("/api/admin/activity/**")
         .access(admin.anyOf(ACTIVITY))

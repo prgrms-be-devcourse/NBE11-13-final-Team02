@@ -34,6 +34,8 @@ spring:
           multiplier: 2
 
 notification:
+  internal:
+    token: ${NOTIFICATION_INTERNAL_TOKEN:}             # api만 부르는 내부 API(/internal/stats) 비밀 값. 비면 같은 컴퓨터 요청만 받아요
   mail:
     provider: ${NOTIFICATION_MAIL_PROVIDER:log}     # log: 보내지 않고 로그만, ses: AWS SES로 보내기 (키는 AWS_PROFILE에서)
     from: ${NOTIFICATION_MAIL_FROM:noreply@localhost}  # SES에서 인증한 보내는 주소

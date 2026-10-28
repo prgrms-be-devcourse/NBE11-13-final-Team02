@@ -64,6 +64,18 @@ public class InboxService {
     }
   }
 
+  /** 웹 푸시가 기기에 떴어요 (서비스 워커가 알려 줌). 없는 줄이어도 조용히 넘어가요 */
+  @Transactional
+  public void markShown(UUID notificationId) {
+    inbox.markShown(notificationId, clock.instant());
+  }
+
+  /** 푸시나 알림 목록에서 눌렀어요. 없는 줄이어도 조용히 넘어가요 */
+  @Transactional
+  public void markClicked(UUID notificationId) {
+    inbox.markClicked(notificationId, clock.instant());
+  }
+
   @Transactional
   public int markAllRead(UUID userId) {
     return inbox.markAllRead(userId, clock.instant());

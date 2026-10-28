@@ -221,9 +221,15 @@ class PushChannelTest {
                     new OutgoingNotification(
                         NotificationType.NEW_SUPPORT, "새 정책: 청년 월세", "b", "/benefits/2"),
                     new OutgoingNotification(
-                        NotificationType.NEW_NOTICE, "새 공고: 행복주택", "b", "/notices/3"))));
+                        NotificationType.NEW_NOTICE,
+                        "새 공고: 행복주택",
+                        "b",
+                        "/notices/3",
+                        java.util.UUID.fromString("01a17700-0000-7000-8000-000000000003")))));
 
     assertThat(payload)
+        // 기기가 「떴어요·눌렀어요」를 알릴 알림함 줄 ID (없는 줄은 빼요)
+        .contains("\"ids\":[\"01a17700-0000-7000-8000-000000000003\"]")
         .contains("\"type\":\"NEW_DIGEST\"")
         .contains("\"title\":\"새 소식 3건\"")
         .contains("\"body\":\"서리풀 청년아트타운 외 2건\"")

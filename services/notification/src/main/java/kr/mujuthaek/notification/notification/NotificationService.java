@@ -80,6 +80,7 @@ public class NotificationService {
                     request.title(),
                     request.body(),
                     request.linkPath(),
+                    recipient.inboxId(),
                     cadence.isPresent(),
                     quiet,
                     cadence

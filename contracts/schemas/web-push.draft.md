@@ -155,10 +155,12 @@
   "title": "내일 마감: 서초구 서리풀 청년아트타운 잔여세대 입주자 모집공고",
   "body": "관심 공고 접수가 내일(10월 30일) 마감돼요.",
   "linkPath": "/notices/0192b6f0-1111-7000-8000-000000000001",
-  "tag": "/notices/0192b6f0-1111-7000-8000-000000000001"
+  "tag": "/notices/0192b6f0-1111-7000-8000-000000000001",
+  "ids": ["0192b6f0-2222-7000-8000-000000000001"]
 }
 ```
 
+- `ids`: api 알림함 줄 ID (묶음이면 묶인 알림 모두). 서비스 워커는 알림을 띄우면 `POST /api/v1/notifications/{id}/shown`, 누르면 `POST /api/v1/notifications/{id}/clicked`로 알려요 (로그인 없이, 늘 204). 관리자 「알림」 화면의 봤는지·눌렀는지 지표예요
 - `tag`: 같은 화면(공고) 알림은 기기에서 **최신 것 하나로 바꿔 보여요** (D-3 뒤 정정이 오면 정정만 남음). `linkPath`와 같은 값이에요
 
 새 소식 묶음(2건 이상)은 알림 서버가 문구를 만들어요:
@@ -245,7 +247,7 @@
 - 푸시를 받으면 **반드시 알림을 띄워요** (`userVisibleOnly: true`). 조용히 받기만 하면 브라우저가 권한을 거둬요
 - 제목·본문·아이콘만 써요
 
-서비스 워커가 할 일: `push`(알림 띄우기), `notificationclick`(그 `linkPath` 열기, 이미 열린 탭이 있으면 그 탭으로), `pushsubscriptionchange`(새 구독을 `PUT`).
+서비스 워커가 할 일: `push`(알림 띄우기, `ids`로 shown 알리기), `notificationclick`(그 `linkPath` 열기, 이미 열린 탭이 있으면 그 탭으로, `ids`로 clicked 알리기), `pushsubscriptionchange`(새 구독을 `PUT`).
 
 ## 8. 정한 것과 남은 것
 

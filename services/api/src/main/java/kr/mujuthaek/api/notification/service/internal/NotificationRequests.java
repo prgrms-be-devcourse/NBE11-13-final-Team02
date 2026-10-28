@@ -80,13 +80,16 @@ public class NotificationRequests {
     int stored = 0;
     for (int from = 0; from < to.size(); from += MAX_RECIPIENTS) {
       List<Recipient> chunk = to.subList(from, Math.min(from + MAX_RECIPIENTS, to.size()));
+      // 알림함 줄 ID를 요청에도 실어요: 푸시를 받은 기기가 「떴어요·눌렀어요」를 이 ID로 알려 줘요
+      Map<UUID, UUID> inboxIds = new LinkedHashMap<>();
+      chunk.forEach(r -> inboxIds.putIfAbsent(r.userId(), UuidV7.next()));
       stored +=
           inbox.addAll(
               chunk.stream()
                   .map(
                       r ->
                           new InboxRepository.NewEntry(
-                              UuidV7.next(),
+                              inboxIds.get(r.userId()),
                               r.userId(),
                               type,
                               targetType,
@@ -103,7 +106,12 @@ public class NotificationRequests {
       withPush += devices.size();
       List<Map<String, Object>> recipients =
           chunk.stream()
-              .map(r -> recipient(r, r.pushEnabled() ? devices.get(r.userId()) : null))
+              .map(
+                  r ->
+                      recipient(
+                          r,
+                          inboxIds.get(r.userId()),
+                          r.pushEnabled() ? devices.get(r.userId()) : null))
               .filter(m -> m.get("email") != null || m.get("push") != null)
               .toList();
       if (recipients.isEmpty()) {
@@ -131,9 +139,11 @@ public class NotificationRequests {
     return sent;
   }
 
-  private static Map<String, Object> recipient(Recipient r, List<PushDevice> devices) {
+  private static Map<String, Object> recipient(
+      Recipient r, UUID inboxId, List<PushDevice> devices) {
     Map<String, Object> m = new LinkedHashMap<>();
     m.put("userId", r.userId());
+    m.put("inboxId", inboxId);
     m.put("email", r.email());
     m.put("quietEnabled", r.quietEnabled());
     m.put(
