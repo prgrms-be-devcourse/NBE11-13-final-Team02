@@ -118,6 +118,9 @@ public class NotificationRequests {
       if (recipients.isEmpty()) {
         continue; // 모두 알림함에만 (기기·이메일 없음 또는 이 종류를 끔)
       }
+      if (targetType == null) {
+        continue; // 가리킬 대상이 없는 알림(일반 제보 답변)은 알림함에만. 알림 서버 요청은 대상이 있어야 해요
+      }
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("type", type);
       payload.put("dedupKey", dedupKey);
