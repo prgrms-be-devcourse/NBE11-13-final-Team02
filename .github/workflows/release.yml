@@ -155,13 +155,14 @@ jobs:
           ENV_FILE: ${{ secrets.ENV_FILE }}
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET: ${{ needs.meta.outputs.target }}
+          # TARGET은 ssh-action이 자기 실행 파일 경로로 덮어써서 다른 이름을 써요
+          DEPLOY_SERVICE: ${{ needs.meta.outputs.target }}
           VERSION: ${{ needs.meta.outputs.version }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-          envs: ENV_FILE,GHCR_USER,GHCR_TOKEN,TARGET,VERSION
+          envs: ENV_FILE,GHCR_USER,GHCR_TOKEN,DEPLOY_SERVICE,VERSION
           # 서비스 여러 개를 한 번에 배포하면 기본 10분을 넘어요 (이미지 받기·헬스체크 최대 3분씩)
           command_timeout: 30m
           script: |
@@ -173,7 +174,7 @@ jobs:
             chmod +x deploy.sh shovel.sh
             printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
             trap 'docker logout ghcr.io >/dev/null' EXIT
-            ./deploy.sh prod "$TARGET" "$VERSION"
+            ./deploy.sh prod "$DEPLOY_SERVICE" "$VERSION"
 
   notes:
     name: 릴리즈 노트
