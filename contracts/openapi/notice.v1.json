@@ -1661,6 +1661,156 @@
           }
         }
       }
+    },
+    "/api/admin/policy-duplicates": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "listPolicyDuplicates",
+        "summary": "중복 의심 사업 목록 (출처에 두 번 올라온 것 같은 창업 지원·입주 모집, 최근 순) · 상태별 건수",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "PENDING",
+                "KEPT_BOTH",
+                "HIDDEN"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "목록",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateList"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/policy-duplicates/counts": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "countPolicyDuplicates",
+        "summary": "중복 의심 상태별 건수 (사이드바)",
+        "responses": {
+          "200": {
+            "description": "건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/policy-duplicates/{later}/{earlier}/decide": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "decidePolicyDuplicate",
+        "summary": "중복 의심 처리: 둘 다 둠(KEEP_BOTH) 또는 나중 것 숨김(HIDE_LATER, 열린 목록·판정·알림에서 빠짐)",
+        "parameters": [
+          {
+            "name": "later",
+            "in": "path",
+            "required": true,
+            "description": "나중에 들어온 사업 ID (rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "earlier",
+            "in": "path",
+            "required": true,
+            "description": "먼저 있던 사업 ID (rawPolicyId)",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "action"
+                ],
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "KEEP_BOTH",
+                      "HIDE_LATER"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "처리함"
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "409": {
+            "description": "이미 처리했거나 없는 중복 후보",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5051,6 +5201,167 @@
               "null"
             ],
             "description": "검수 ID 또는 제보 ID"
+          }
+        }
+      },
+      "AdminPolicyDuplicateSide": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "field",
+          "title",
+          "organization",
+          "applyStart",
+          "applyEnd",
+          "regionCodes",
+          "detailUrl",
+          "createdAt",
+          "hidden"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "field": {
+            "type": "string",
+            "enum": [
+              "STARTUP_SUPPORT",
+              "SPACE_RECRUITMENT"
+            ]
+          },
+          "title": {
+            "type": "string"
+          },
+          "organization": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "출처 안내의 운영 기관"
+          },
+          "applyStart": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "applyEnd": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date"
+          },
+          "regionCodes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "시군구 5자리, 빈 목록은 전국"
+          },
+          "detailUrl": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "처음 받은 때"
+          },
+          "hidden": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AdminPolicyDuplicateCounts": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "pending",
+          "keptBoth",
+          "hidden"
+        ],
+        "properties": {
+          "pending": {
+            "type": "integer"
+          },
+          "keptBoth": {
+            "type": "integer"
+          },
+          "hidden": {
+            "type": "integer"
+          }
+        }
+      },
+      "AdminPolicyDuplicateList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "counts"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "later",
+                "earlier",
+                "reason",
+                "status",
+                "createdAt",
+                "decidedAt",
+                "decidedBy"
+              ],
+              "properties": {
+                "later": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateSide"
+                },
+                "earlier": {
+                  "$ref": "#/components/schemas/AdminPolicyDuplicateSide"
+                },
+                "reason": {
+                  "type": "string",
+                  "description": "SAME_TITLE_REGION: 같은 분야 · 같은 제목(띄어쓰기·기호 무시) · 같은 지역"
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "PENDING",
+                    "KEPT_BOTH",
+                    "HIDDEN"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "decidedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time"
+                },
+                "decidedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "처리한 관리자 ID"
+                }
+              }
+            }
+          },
+          "counts": {
+            "$ref": "#/components/schemas/AdminPolicyDuplicateCounts"
           }
         }
       }

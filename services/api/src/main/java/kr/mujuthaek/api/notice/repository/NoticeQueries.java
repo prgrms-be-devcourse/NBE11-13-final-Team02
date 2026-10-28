@@ -243,7 +243,7 @@ public class NoticeQueries {
         select raw_policy_id, raw_version, title, apply_start, apply_end, region_codes, frame::text,
                detail_url
         from notice.policy_judgments
-        where field = :field and review_status <> 'IN_REVIEW'
+        where field = :field and review_status <> 'IN_REVIEW' and hidden_at is null
           and (apply_end >= :today
                or (apply_end is null and (apply_always or info->>'applyNote' is not null)))
         order by apply_end nulls last, raw_policy_id
@@ -285,7 +285,8 @@ public class NoticeQueries {
   public java.util.Optional<PolicySummaryRow> policySummary(UUID rawPolicyId) {
     return jdbc
         .query(
-            POLICY_SUMMARY_COLUMNS + " where raw_policy_id = :id and review_status <> 'IN_REVIEW'",
+            POLICY_SUMMARY_COLUMNS
+                + " where raw_policy_id = :id and review_status <> 'IN_REVIEW' and hidden_at is null",
             new MapSqlParameterSource("id", rawPolicyId),
             (rs, i) -> policySummaryRow(rs))
         .stream()

@@ -155,7 +155,10 @@ class SecurityConfig {
         .access(admin.anyOf(CRITERIA, ACTIVITY))
         .requestMatchers("/api/admin/criteria/**", "/api/admin/regulated-areas/**")
         .access(admin.anyOf(CRITERIA))
-        .requestMatchers("/api/admin/reports/**", "/api/admin/area-reports/**")
+        .requestMatchers(
+            "/api/admin/reports/**",
+            "/api/admin/area-reports/**",
+            "/api/admin/policy-duplicates/**")
         .access(admin.anyOf(REPORTS))
         .requestMatchers("/api/admin/chat/**")
         .access(admin.anyOf(CHAT))

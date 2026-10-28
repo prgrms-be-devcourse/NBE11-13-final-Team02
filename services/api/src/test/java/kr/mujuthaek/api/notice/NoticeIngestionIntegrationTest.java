@@ -42,6 +42,7 @@ import kr.mujuthaek.api.notice.service.internal.NoticeBackfillService;
 import kr.mujuthaek.api.notice.service.internal.NoticeIngestionService;
 import kr.mujuthaek.api.notice.service.internal.NoticeMergeService;
 import kr.mujuthaek.api.notice.service.internal.NoticeStatusService;
+import kr.mujuthaek.api.notice.service.internal.PolicyDuplicateService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -116,6 +117,7 @@ class NoticeIngestionIntegrationTest {
   @Autowired NoticeMergeService merges;
   @Autowired NoticeAreaScoreService areaScores;
   @Autowired NoticeBackfillService backfill;
+  @Autowired PolicyDuplicateService duplicates;
   @MockitoSpyBean ExtractionResultRepository results;
 
   @BeforeEach
@@ -126,7 +128,7 @@ class NoticeIngestionIntegrationTest {
                 + " notice.notice_follow_ups,"
                 + " notice.notice_regions, notice.notice_source_heads,"
                 + " notice.notice_duplicate_candidates, notice.notice_area_scores, notice.notices,"
-                + " notice.extraction_results, notice.policy_judgments,"
+                + " notice.extraction_results, notice.policy_duplicate_candidates, notice.policy_judgments,"
                 + " common.processed_events")
         .update();
   }
@@ -635,6 +637,40 @@ class NoticeIngestionIntegrationTest {
         .extracting(ProgramForJudgment::title)
         .containsExactly("상시 모집 사업");
     assertThat(query.findOpenForJudgment(NoticeField.BUSINESS_SPACE)).isEmpty();
+  }
+
+  @Test
+  void 같은_분야_이름_지역의_정책이_또_오면_중복_의심에_올리고_숨기면_목록에서_뺀다() {
+    // 2026-10-28 사용자 결정 A안: 출처에 같은 사업이 두 번 올라오면(실측 온통청년) 지우지 않고 관리자 「중복 의심」에 올려요
+    ObjectNode first = policyEvent("SPACE_RECRUITMENT", 2, "2026-12-31", "11000");
+    ((ObjectNode) first.path("payload")).put("title", "청년창업 거주지원시설 입주자 1차 모집");
+    ObjectNode again = otherPolicy(policyEvent("SPACE_RECRUITMENT", 2, "2026-12-31", "11000"));
+    ((ObjectNode) again.path("payload")).put("title", "청년창업 거주지원시설(입주자) 1차  모집");
+    ObjectNode elsewhere = otherPolicy(policyEvent("SPACE_RECRUITMENT", 2, "2026-12-31", "26000"));
+    ((ObjectNode) elsewhere.path("payload")).put("title", "청년창업 거주지원시설 입주자 1차 모집");
+    UUID firstId = UUID.fromString(first.path("payload").path("rawPostId").asString());
+    UUID againId = UUID.fromString(again.path("payload").path("rawPostId").asString());
+
+    ingestion.apply(body(first));
+    ingestion.apply(body(again));
+    ingestion.apply(body(elsewhere)); // 지역이 다르면 다른 사업
+
+    var pending = duplicates.list("PENDING");
+    assertThat(pending.items()).hasSize(1);
+    assertThat(pending.items().get(0).later().id()).isEqualTo(againId);
+    assertThat(pending.items().get(0).earlier().id()).isEqualTo(firstId);
+    assertThat(pending.counts().pending()).isEqualTo(1);
+    assertThat(query.findOpenForJudgment(NoticeField.BUSINESS_SPACE)).hasSize(3);
+
+    duplicates.decide(againId, firstId, "HIDE_LATER", "admin-1");
+
+    assertThat(query.findOpenForJudgment(NoticeField.BUSINESS_SPACE))
+        .extracting(NoticeForJudgment::noticeId)
+        .doesNotContain(againId)
+        .contains(firstId);
+    assertThat(duplicates.list("HIDDEN").items()).hasSize(1);
+    assertThatThrownBy(() -> duplicates.decide(againId, firstId, "KEEP_BOTH", "admin-1"))
+        .isInstanceOf(kr.mujuthaek.api.common.exception.CustomException.class);
   }
 
   @Test
