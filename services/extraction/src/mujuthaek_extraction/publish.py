@@ -339,6 +339,20 @@ def policy_detail_url(policy: dict[str, Any]) -> str | None:
 # 요약 글의 지원 금액 구절: 「최대 1억 원」「최고 5,000만원」「한도 3천만 원」
 _AMOUNT = re.compile(r"(?:최대|최고|한도|기업당|팀당|과제당)\s*[0-9][0-9,.]*\s*(?:억|천만|백만|만|천)?\s*원")
 _TAGS = re.compile(r"<[^>]+>")
+# 「10,000천원」처럼 천 원 단위로 적은 금액(기업마당). 10으로 나눠떨어질 때만 만 원으로 바꿔요(「최대 10,000천원」 → 「최대 1,000만원」)
+_THOUSANDS = re.compile(r"([0-9][0-9,]*)\s*천\s*원")
+
+
+def _readable_amount(text: str) -> str:
+    """금액 구절의 천 원 단위를 만 원으로. 값은 그대로이고, 10으로 나눠떨어지지 않으면(「1,005천원」) 원문 그대로 둬요."""
+
+    def to_man(found: re.Match[str]) -> str:
+        value = int(found.group(1).replace(",", ""))
+        return f"{value // 10:,}만원" if value and value % 10 == 0 else found.group(0)
+
+    return _THOUSANDS.sub(to_man, text)
+
+
 POLICY_INFO_TEXT_MAX = 1000
 
 
@@ -396,7 +410,7 @@ def policy_info(policy: dict[str, Any]) -> dict[str, Any] | None:
     else:
         return None
     found = _AMOUNT.search(info["summary"] or "") or _AMOUNT.search(str(policy.get("text") or ""))
-    info["amountText"] = re.sub(r"\s+", " ", found.group(0)) if found else None
+    info["amountText"] = _readable_amount(re.sub(r"\s+", " ", found.group(0))) if found else None
     return info if any(info.values()) else None
 
 
