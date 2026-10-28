@@ -99,6 +99,100 @@ class FavoriteServiceTest {
     verify(repository, never()).add(any(), anyString(), any(), any());
   }
 
+  @Test
+  void listFillsTitleStatusDeadlineAndScreenPerKind() {
+    UUID house = UUID.randomUUID();
+    UUID spaceNotice = UUID.randomUUID();
+    UUID benefit = UUID.randomUUID();
+    UUID startup = UUID.randomUUID();
+    UUID gone = UUID.randomUUID();
+    Instant at = Instant.parse("2026-10-20T00:00:00Z");
+    when(repository.page(eq(user), any(), any(), any(), org.mockito.ArgumentMatchers.anyInt()))
+        .thenReturn(
+            List.of(
+                new FavoriteRepository.Favorite("NOTICE", house, at),
+                new FavoriteRepository.Favorite("NOTICE", spaceNotice, at),
+                new FavoriteRepository.Favorite("BENEFIT", benefit, at),
+                new FavoriteRepository.Favorite("STARTUP_SUPPORT", startup, at),
+                new FavoriteRepository.Favorite("NOTICE", gone, at)));
+    var end = java.time.LocalDate.parse("2026-11-03");
+    when(notices.findSummaries(any()))
+        .thenReturn(
+            java.util.Map.of(
+                house,
+                new NoticeSummary(
+                    house,
+                    1,
+                    "HOUSING",
+                    "행복주택",
+                    "LH",
+                    null,
+                    "APPLYING",
+                    null,
+                    end,
+                    List.of(),
+                    false,
+                    "/",
+                    null),
+                spaceNotice,
+                new NoticeSummary(
+                    spaceNotice,
+                    1,
+                    "BUSINESS_SPACE",
+                    "창업센터",
+                    "SH",
+                    null,
+                    "APPLYING",
+                    null,
+                    end,
+                    List.of(),
+                    false,
+                    "/",
+                    null)));
+    when(benefits.findSummary(benefit))
+        .thenReturn(
+            Optional.of(
+                new BenefitSummary(
+                    benefit,
+                    "BENEFIT",
+                    1,
+                    "청년 월세",
+                    "서울시",
+                    "OPEN",
+                    null,
+                    end,
+                    false,
+                    "NATIONWIDE",
+                    List.of(),
+                    null)));
+    when(notices.findPolicySummary(startup))
+        .thenReturn(
+            Optional.of(
+                new PolicySummary(
+                    startup,
+                    1,
+                    "STARTUP_SUPPORT",
+                    "창업 지원금",
+                    "중기부",
+                    "APPLYING",
+                    null,
+                    end,
+                    List.of(),
+                    null)));
+
+    var items = service.list(user, null, null, null).items();
+
+    assertThat(items)
+        .extracting(
+            f -> f.title() + "|" + f.organization() + "|" + f.applyEnd() + "|" + f.linkPath())
+        .containsExactly(
+            "행복주택|LH|2026-11-03|/notices/" + house,
+            "창업센터|SH|2026-11-03|/business/spaces/" + spaceNotice,
+            "청년 월세|서울시|2026-11-03|/benefits/" + benefit,
+            "창업 지원금|중기부|2026-11-03|/business/support/" + startup,
+            "null|null|null|/notices/" + gone); // 사라진 공고는 제목 없이
+  }
+
   private static void notFound(Throwable e) {
     assertThat(((CustomException) e).errorCode()).isEqualTo(ErrorCode.FAVORITE_TARGET_NOT_FOUND);
   }
