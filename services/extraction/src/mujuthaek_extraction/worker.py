@@ -27,6 +27,8 @@ from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+from psycopg_pool import ConnectionPool
+
 from mujuthaek_extraction.assemble.regions import RegionCodeTable
 from mujuthaek_extraction.benefit.build import build_payload
 from mujuthaek_extraction.benefit.codes import rules_for
@@ -499,6 +501,31 @@ def store_session(settings: Settings):
         conn.close()
 
 
+# 검수 API가 기다릴 수 있는 최대 시간. api가 검수 API를 5초 기다리므로 그 안에 끝나게
+REVIEW_POOL_TIMEOUT_SECONDS = 4.0
+
+
+def review_pool(settings: Settings) -> ConnectionPool:
+    """검수 API용 DB 연결 풀. 요청마다 새로 연결(운영은 TLS)하지 않고, 동시에 여는 연결 수도 max_size로 묶어요.
+    끊긴 연결은 내주기 전에 확인해 바꿔요(check)."""
+    return ConnectionPool(
+        settings.db_url,
+        min_size=1,
+        max_size=settings.review_db_pool,
+        timeout=REVIEW_POOL_TIMEOUT_SECONDS,
+        kwargs={"application_name": "mujuthaek", "autocommit": True},
+        check=ConnectionPool.check_connection,
+        name="review-api",
+        open=True,
+    )
+
+
+@contextmanager
+def pooled_store_session(pool: ConnectionPool):
+    with pool.connection() as conn:
+        yield JobStore(conn)
+
+
 def relay_loop(settings: Settings, stop: threading.Event, health: Health | None = None) -> None:
     """stop이 설정될 때까지 아웃박스 이벤트를 relay_seconds마다 발행합니다. 오류가 나면 5초 뒤 다시 연결합니다."""
     while not stop.is_set():
@@ -730,7 +757,8 @@ def run(settings: Settings) -> None:
     health = Health({"consumer": 120, "relay": 120, "retry": settings.retry_seconds * 2 + 60})
     threading.Thread(target=relay_loop, args=(settings, stop, health), daemon=True, name="relay").start()
     threading.Thread(target=retry_loop, args=(settings, processor, stop, health), daemon=True, name="retry").start()
-    service = ReviewService(lambda: store_session(settings), new_event, settings.monthly_budget_usd)
+    pool = review_pool(settings)
+    service = ReviewService(lambda: pooled_store_session(pool), new_event, settings.monthly_budget_usd)
     server = serve(service, settings.review_host, settings.review_port, settings.review_token, health)
     threading.Thread(target=server.serve_forever, daemon=True, name="review-api").start()
     log.info("검수 API 시작", extra={"host": settings.review_host, "port": settings.review_port})
@@ -740,6 +768,7 @@ def run(settings: Settings) -> None:
         except KeyboardInterrupt:
             stop.set()
             server.shutdown()
+            pool.close()
             return
         except Exception:
             log.exception("큐 연결 오류. 5초 뒤 다시 연결합니다")
