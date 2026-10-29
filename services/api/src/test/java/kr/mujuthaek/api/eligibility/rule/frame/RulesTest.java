@@ -193,10 +193,11 @@ class RulesTest {
     assertThat(PersonRules.age(youth, bornIn("1987-09"), DAY).verdict()).isEqualTo(Verdict.MET);
     // 1986-09생은 그 달 어느 날이든 만 40세 → 불충족
     assertThat(PersonRules.age(youth, bornIn("1986-09"), DAY).verdict()).isEqualTo(Verdict.NOT_MET);
-    // 1986-10생은 10월 1일생이면 만 40세, 2일 이후면 만 39세 → 확인 필요 (생년월일을 물어요)
+    // 1986-10생은 10월 1일생이면 만 40세, 2일 이후면 만 39세 → 확인 필요. 화면은 출생 연월만 보내서 생년월일을 묻지 않아요
     var edge = PersonRules.age(youth, bornIn("1986-10"), DAY);
     assertThat(edge.verdict()).isEqualTo(Verdict.UNKNOWN);
-    assertThat(edge.missing()).containsExactly(Input.BIRTH_DATE);
+    assertThat(edge.reason()).isEqualTo("생일이 지났는지에 따라 달라져요. 직접 확인해 주세요");
+    assertThat(edge.missing()).isEmpty();
   }
 
   @Test
@@ -482,6 +483,46 @@ class RulesTest {
     // 만 40세: 검수 중이어도 불충족 그대로
     assertThat(judge.evaluate(reviewing, bornIn("1986-09"), DAY).verdict())
         .isEqualTo(Verdict.NOT_MET);
+  }
+
+  @Test
+  void businessAgeYearsSetsTheOpenedRangeFromTheReferenceDay() {
+    // 기준일 2026-10-28. 추출의 opened_range와 같아요: 이내는 N년 전 같은 날부터, 미만은 그다음 날부터, 이상은 그날까지, 초과는 그 전날까지
+    LocalDate day = LocalDate.of(2026, 10, 28);
+    FrameJudge judge =
+        new FrameJudge(
+            (k, y, p, s) -> OptionalLong.empty(), (d, region, area) -> OptionalLong.empty());
+    var within = new Criterion.BusinessAgeYears(meta("within"), 7, Criterion.YearsRule.WITHIN);
+    var under = new Criterion.BusinessAgeYears(meta("under"), 3, Criterion.YearsRule.UNDER);
+    var atLeast = new Criterion.BusinessAgeYears(meta("at-least"), 3, Criterion.YearsRule.AT_LEAST);
+    var over = new Criterion.BusinessAgeYears(meta("over"), 3, Criterion.YearsRule.OVER);
+
+    assertThat(judge.evaluate(within, openedOn("2019-10-28"), day).verdict())
+        .isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(within, openedOn("2019-10-27"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+    assertThat(judge.evaluate(under, openedOn("2023-10-28"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+    assertThat(judge.evaluate(under, openedOn("2023-10-29"), day).verdict()).isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(atLeast, openedOn("2023-10-28"), day).verdict())
+        .isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(atLeast, openedOn("2023-10-29"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+    assertThat(judge.evaluate(over, openedOn("2023-10-27"), day).verdict()).isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(over, openedOn("2023-10-28"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+
+    var met = judge.evaluate(within, openedOn("2024-03-01"), day);
+    assertThat(met.criterion().kind()).isEqualTo("BUSINESS_AGE");
+    assertThat(met.summary()).isEqualTo("창업 7년 이내 · 개업일 2019-10-28 ~ 2026-10-28 (둘 다 포함)");
+    // 사업 정보를 안 넣었으면 사업 이력을 넣어 달라고 해요
+    var empty = judge.evaluate(within, withBusiness(business(null, null, null, null)), day);
+    assertThat(empty.verdict()).isEqualTo(Verdict.UNKNOWN);
+    assertThat(empty.missing()).containsExactly(Input.BUSINESS_HISTORY);
+  }
+
+  private static Applicant openedOn(String day) {
+    return withBusiness(business(null, null, List.of(record(day, null)), null));
   }
 
   // ── 공고 단위 ──

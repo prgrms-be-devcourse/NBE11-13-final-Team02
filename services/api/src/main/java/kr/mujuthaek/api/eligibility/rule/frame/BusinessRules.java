@@ -5,6 +5,7 @@ import java.util.List;
 import kr.mujuthaek.api.eligibility.rule.frame.Applicant.BusinessRecord;
 import kr.mujuthaek.api.eligibility.rule.frame.Criterion.ApplicantKind;
 import kr.mujuthaek.api.eligibility.rule.frame.Criterion.BusinessAge;
+import kr.mujuthaek.api.eligibility.rule.frame.Criterion.BusinessAgeYears;
 import kr.mujuthaek.api.eligibility.rule.frame.Criterion.BusinessCareer;
 import kr.mujuthaek.api.eligibility.rule.frame.Criterion.BusinessRegistration;
 import kr.mujuthaek.api.eligibility.rule.frame.Criterion.Closure;
@@ -92,6 +93,25 @@ final class BusinessRules {
         (c.openedFrom() == null || !opened.isBefore(c.openedFrom()))
             && (c.openedTo() == null || !opened.isAfter(c.openedTo()));
     return Evaluation.decided(c, met, summary);
+  }
+
+  /** 업력 햇수: 기준일로 개업일 범위를 정해 업력처럼 보고, 설명 앞에 공고의 햇수를 붙여요 (예: 창업 7년 이내 · 개업일 …). */
+  static Evaluation ageInYears(BusinessAgeYears c, Applicant a, LocalDate on) {
+    Evaluation e = age(c.on(on), a, on);
+    String rule =
+        switch (c.rule()) {
+          case WITHIN -> "이내";
+          case UNDER -> "미만";
+          case AT_LEAST -> "이상";
+          case OVER -> "초과";
+        };
+    return new Evaluation(
+        c,
+        e.verdict(),
+        "창업 " + c.years() + "년 " + rule + " · " + e.summary(),
+        e.reason(),
+        e.missing(),
+        e.options());
   }
 
   static Evaluation closure(Closure c, Applicant a, LocalDate on) {

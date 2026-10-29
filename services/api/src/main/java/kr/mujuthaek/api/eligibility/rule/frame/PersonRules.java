@@ -29,10 +29,11 @@ final class PersonRules {
   static Evaluation age(Age c, Applicant a, LocalDate on) {
     String summary = Texts.ageRange(c.minAge(), c.maxAge());
     if (a.birthDate() == null && a.birthMonth() != null) {
-      // 출생 연월만 알면 그 달의 첫날·마지막 날 둘 다 같은 결과일 때만 정해요 (기준일이 생일 달이면 확인 필요)
+      // 출생 연월만 알면 그 달의 첫날·마지막 날 둘 다 같은 결과일 때만 정해요 (기준일이 생일 달이면 확인 필요). 화면은 출생 연월만 보내니
+      // (구간만 받는 원칙) 생년월일을 더 묻지 않고 주거 판정과 같은 문구로 둬요 (2026-10-29 QA)
       var status = Bands.ageWithin(Bands.ages(a.birthMonth(), on), c.minAge(), c.maxAge());
       return status == kr.mujuthaek.api.eligibility.rule.Status.UNKNOWN
-          ? Evaluation.unknown(c, summary, "생일이 기준일과 같은 달이라 생년월일이 필요해요", Input.BIRTH_DATE)
+          ? Evaluation.unknown(c, summary, "생일이 지났는지에 따라 달라져요. 직접 확인해 주세요")
           : Evaluation.decided(c, status == kr.mujuthaek.api.eligibility.rule.Status.MET, summary);
     }
     if (a.birthDate() == null) {

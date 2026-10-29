@@ -4,6 +4,7 @@ import java.util.List;
 import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
+import kr.mujuthaek.api.eligibility.rule.Verdict;
 import kr.mujuthaek.api.eligibility.rule.frame.Evaluation;
 import kr.mujuthaek.api.eligibility.rule.frame.FrameJudgment;
 import kr.mujuthaek.api.eligibility.rule.frame.Input;
@@ -66,6 +67,9 @@ public final class JudgmentMapper {
         e.verdict(),
         e.summary(),
         e.reason(),
+        e.verdict() == Verdict.UNKNOWN
+            ? e.missing().stream().map(Input::field).toList()
+            : List.of(),
         e.criterion().meta().quote(),
         e.criterion().meta().page(),
         e.options().stream()

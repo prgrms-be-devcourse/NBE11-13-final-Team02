@@ -295,9 +295,13 @@ public final class FrameReader {
         }
         yield new Criterion.AnyOf(meta, parsed);
       }
-      case "ASK" ->
-          new Criterion.Ask(
-              meta, string(node, "question", at), requiredEnum(node, "metWhen", at, Answer.class));
+      case "ASK" -> {
+        String question = string(node, "question", at);
+        Answer metWhen = requiredEnum(node, "metWhen", at, Answer.class);
+        yield BusinessAgeQuestion.read(meta, question, metWhen)
+            .<Criterion>map(c -> c)
+            .orElseGet(() -> new Criterion.Ask(meta, question, metWhen));
+      }
       default -> throw new IllegalStateException("종류 목록과 읽는 코드가 맞지 않아요: " + kind);
     };
   }

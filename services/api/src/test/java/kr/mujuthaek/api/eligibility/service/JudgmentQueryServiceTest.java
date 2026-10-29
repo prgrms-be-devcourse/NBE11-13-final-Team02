@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
@@ -101,6 +102,52 @@ class JudgmentQueryServiceTest {
     assertThat(result.missingInputs())
         .extracting(MissingInput::field)
         .contains("household.monthlyIncomeWon", "birthDate");
+  }
+
+  @Test
+  void eachUndecidedCriterionSaysWhichInputWouldDecideIt() throws Exception {
+    // 2026-10-29 QA: 검수 중이라 확인 필요인 조건에도 화면이 「입력」을 붙였어요. 주거·혜택처럼 조건마다 needs를 줘요
+    JsonNode frame =
+        JSON.readTree(
+            """
+            {"schema":"business-space-judgment.v1","rawPostId":"p","rawVersion":1,"referenceDate":"2026-10-28",
+             "common":[
+               {"id":"age","kind":"AGE","quote":null,"page":null,"inReview":false,"reviewReason":null,"minAge":19,"maxAge":49},
+               {"id":"reviewing","kind":"AGE","quote":null,"page":null,"inReview":true,"reviewReason":"표기가 두 가지","minAge":19,"maxAge":49},
+               {"id":"branch","kind":"ASK","quote":null,"page":null,"inReview":false,"reviewReason":null,"question":"지사로 입주하나요?","metWhen":"NO"}],
+             "groups":[{"id":"all","name":"전체","criteria":[]}],"preferences":[],"notes":[]}""");
+
+    JudgmentResult empty = judgments.judgeBusinessSpace(frame, null);
+    assertThat(empty.common())
+        .extracting(JudgmentResult.Criterion::needs)
+        .containsExactly(List.of("birthDate"), List.of(), List.of()); // 검수 중·질문은 넣을 입력이 없어요
+
+    JudgmentResult born =
+        judgments.judgeBusinessSpace(frame, applicant("{\"birthDate\": \"1992-07-15\"}"));
+    assertThat(born.common().getFirst().result()).isEqualTo(Verdict.MET);
+    assertThat(born.common()).extracting(JudgmentResult.Criterion::needs).allMatch(List::isEmpty);
+  }
+
+  @Test
+  void businessAgeQuestionIsJudgedFromTheBusinessHistory() throws Exception {
+    // 2026-10-29 QA: 「창업 7년 이내」가 업력을 넣어도 질문으로만 남아 확인 필요였어요
+    JsonNode frame =
+        JSON.readTree(
+            """
+            {"schema":"business-space-judgment.v1","rawPostId":"p","rawVersion":1,"referenceDate":"2026-10-28",
+             "common":[],"preferences":[],"notes":[],
+             "groups":[{"id":"young","name":"창업 7년 이내 기업","criteria":[
+               {"id":"registered","kind":"BUSINESS_REGISTRATION","require":"REGISTERED","closedWithinYears":null},
+               {"id":"age-7y","kind":"ASK","question":"사업을 시작한 날(법인은 설립등기일)부터 7년 이내인가요?","metWhen":"YES"}]}]}""");
+
+    JudgmentResult result =
+        judgments.judgeBusinessSpace(
+            frame, applicant("{\"business\": {\"history\": [{\"openedOn\": \"2024-03-01\"}]}}"));
+
+    assertThat(result.result()).isEqualTo(Eligibility.ELIGIBLE);
+    JudgmentResult.Criterion age = result.groups().getFirst().criteria().get(1);
+    assertThat(age.kind()).isEqualTo("BUSINESS_AGE");
+    assertThat(age.result()).isEqualTo(Verdict.MET);
   }
 
   @Test
