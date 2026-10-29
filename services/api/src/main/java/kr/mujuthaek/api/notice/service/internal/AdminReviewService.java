@@ -224,8 +224,9 @@ public class AdminReviewService {
     return out;
   }
 
+  /** 대기 건수와 가장 오래된 것. 목록은 오래된 것부터라 한 건만 받아요(건수는 total). */
   public AdminReviewCountsResponse counts() {
-    JsonNode page = client.page(PENDING);
+    JsonNode page = client.pendingHead();
     List<Item> all = items(page == null ? null : page.get("items"));
     OffsetDateTime oldest =
         all.stream()
@@ -604,7 +605,7 @@ public class AdminReviewService {
   }
 
   private int remaining() {
-    return ExtractionReviewClient.total(client.page(PENDING));
+    return ExtractionReviewClient.total(client.pendingHead());
   }
 
   private static List<Item> items(JsonNode list) {

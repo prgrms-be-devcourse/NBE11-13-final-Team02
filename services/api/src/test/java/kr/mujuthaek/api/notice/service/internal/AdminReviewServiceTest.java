@@ -64,11 +64,25 @@ class AdminReviewServiceTest {
         .andRespond(withSuccess(LIST, MediaType.APPLICATION_JSON));
   }
 
+  /** 건수·남은 건수: 가장 오래된 한 건과 전체 건수만 받아요. */
+  private void expectHead() {
+    server
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1"))
+        .andRespond(
+            withSuccess(
+                """
+                {"total":3,"items":[{"jobId":"%s","jobStatus":"IN_REVIEW","reviewStatus":"PENDING",
+                 "title":"가상 행복주택","queuedAt":"2026-10-24 21:00:00.5+00:00","reasons":[]}]}
+                """
+                    .formatted(A),
+                MediaType.APPLICATION_JSON));
+  }
+
   @Test
   void countsUseTheTotalNotTheTruncatedListLength() {
     var service = service();
     server
-        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1"))
         .andRespond(
             withSuccess(
                 """
@@ -112,7 +126,7 @@ class AdminReviewServiceTest {
   @Test
   void countsGivesPendingAndOldest() {
     var service = service();
-    expectList(1);
+    expectHead();
     var counts = service.counts();
     assertThat(counts.reviewPending()).isEqualTo(3);
     assertThat(counts.oldestReceivedAt()).isEqualTo(OffsetDateTime.parse("2026-10-24T21:00:00.5Z"));
@@ -155,7 +169,7 @@ class AdminReviewServiceTest {
         .andExpect(
             content().json("{\"note\":\"[원문과 다름 · 다시 추출] 표가 잘렸어요\",\"reviewer\":\"admin-1\"}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
-    expectList(1);
+    expectHead();
     var result =
         service.reject(
             B,
@@ -256,7 +270,7 @@ class AdminReviewServiceTest {
                 .json(
                     "{\"note\":\"원문 4쪽\",\"reviewer\":\"admin-7\",\"edits\":[{\"path\":\"/eligibility/1/description\",\"value\":\"가상 새 설명\"}]}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"APPROVED\"}", MediaType.APPLICATION_JSON));
-    expectList(1);
+    expectHead();
     var request =
         new AdminReviewDecisionRequest(
             null,

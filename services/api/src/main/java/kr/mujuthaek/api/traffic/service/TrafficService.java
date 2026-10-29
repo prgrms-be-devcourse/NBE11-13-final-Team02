@@ -8,7 +8,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import kr.mujuthaek.api.traffic.TrafficProperties;
@@ -83,6 +86,15 @@ public class TrafficService {
   /** 실시간은 30초만 다시 써요(같은 화면을 여러 번 열어도 GA를 매번 부르지 않게). */
   private static final Duration REALTIME_TTL = Duration.ofSeconds(30);
 
+  /**
+   * 서버 요청 기록 집계는 1분만 다시 써요. 기록 전체를 세는 쿼리라 화면을 열 때마다 돌리면 DB가 바빠져요(2026-10-29 부하 시험: 관리자 50명에서
+   * 9~12초).
+   */
+  static final Duration SERVER_TTL = Duration.ofMinutes(1);
+
+  /** 집계 하나: 시작한 시각과 결과. 같은 기간을 동시에 열면 먼저 시작한 집계 하나를 같이 기다려요. */
+  private record Fresh<T>(Instant at, CompletableFuture<T> value) {}
+
   private volatile RealtimeResponse realtimeCache;
 
   private final GaDataClient ga;
@@ -90,6 +102,9 @@ public class TrafficService {
   private final TrafficProperties props;
   private final Clock clock;
   private final Map<Integer, Cached> cache = new ConcurrentHashMap<>();
+  private final Map<Integer, Fresh<List<RequestLogStore.ServerDaily>>> serverDaily =
+      new ConcurrentHashMap<>();
+  private final Map<Integer, Fresh<BotTrafficResponse>> botsCache = new ConcurrentHashMap<>();
 
   public TrafficService(
       GaDataClient ga, RequestLogStore logs, TrafficProperties props, Clock clock) {
@@ -106,17 +121,24 @@ public class TrafficService {
     return new ReportSpec(List.of(dimension), metrics, metric, 10, null, null);
   }
 
-  /** 개요·유입·이용 흐름(GA)과 서버 숫자. */
+  /** 개요·유입·이용 흐름(GA)과 서버 숫자. 서버 숫자는 1분 안이면 지난 집계를 써요. */
   public TrafficResponse traffic(int days) {
     Instant now = clock.instant();
     LocalDate today = LocalDate.ofInstant(now, RequestLogStore.KST);
     Instant from = today.minusDays(days - 1L).atStartOfDay(RequestLogStore.KST).toInstant();
     return new TrafficResponse(
-        now, days, gaReport(days, now), logs.daily(from, now.plusSeconds(1)));
+        now,
+        days,
+        gaReport(days, now),
+        recent(serverDaily, days, () -> logs.daily(from, now.plusSeconds(1))));
   }
 
-  /** 봇·보안. */
+  /** 봇·보안. 1분 안이면 지난 집계를 그대로 줘요(asOf가 그 집계 시각). */
   public BotTrafficResponse bots(int days) {
+    return recent(botsCache, days, () -> botsNow(days));
+  }
+
+  private BotTrafficResponse botsNow(int days) {
     Instant now = clock.instant();
     LocalDate today = LocalDate.ofInstant(now, RequestLogStore.KST);
     Instant from = today.minusDays(days - 1L).atStartOfDay(RequestLogStore.KST).toInstant();
@@ -130,6 +152,35 @@ public class TrafficService {
         logs.statuses(from, to),
         logs.adminAccess(from, to, 50),
         logs.loginFailures(from, to, 30));
+  }
+
+  /**
+   * 기간(days)별 집계를 {@link #SERVER_TTL} 동안 다시 써요. 비었거나 지났으면 이 요청이 집계하고, 그동안 같은 기간을 연 요청은 그 결과를
+   * 기다려요(동시에 열어도 집계는 한 번). 집계가 실패하면 남기지 않고 다음 요청이 다시 해요.
+   */
+  private <T> T recent(Map<Integer, Fresh<T>> store, int days, Supplier<T> load) {
+    Instant now = clock.instant();
+    var mine = new Fresh<T>(now, new CompletableFuture<>());
+    Fresh<T> got =
+        store.compute(
+            days, (k, old) -> old != null && old.at().plus(SERVER_TTL).isAfter(now) ? old : mine);
+    if (got == mine) {
+      try {
+        mine.value().complete(load.get());
+      } catch (RuntimeException failure) {
+        store.remove(days, mine);
+        mine.value().completeExceptionally(failure);
+        throw failure;
+      }
+    }
+    try {
+      return got.value().join();
+    } catch (CompletionException e) {
+      if (e.getCause() instanceof RuntimeException cause) {
+        throw cause;
+      }
+      throw e;
+    }
   }
 
   private TrafficResponse.Ga gaReport(int days, Instant now) {

@@ -109,7 +109,7 @@ public class AdminBenefitReviewService {
   }
 
   private int remaining() {
-    return ExtractionReviewClient.total(client.benefitPage("PENDING"));
+    return ExtractionReviewClient.total(client.benefitPendingHead());
   }
 
   static AdminBenefitReviewListResponse.Item item(JsonNode row) {
