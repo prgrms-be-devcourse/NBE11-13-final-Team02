@@ -29,7 +29,7 @@ public final class MatchMapper {
 
   /** 판정 틀이 없거나 읽지 못한 공고: 확인 필요 + 자격 조건 정리 중. */
   public static MatchResult.Item notReady(NoticeCandidate n) {
-    return item(n, Eligibility.NEEDS_INPUT, null, CONDITIONS_NOT_READY, List.of(), List.of(), 0);
+    return item(n, Eligibility.NEEDS_INPUT, null, CONDITIONS_NOT_READY, List.of(), List.of());
   }
 
   /** 판정한 공고. 지원 불가면 대상군·빠진 입력 없이 넣어요 (사업공간 맞춤 목록만 지원 불가도 불러요). */
@@ -41,8 +41,7 @@ public final class MatchMapper {
         j.rank(),
         null,
         groups(j, needsInput ? Verdict.UNKNOWN : Verdict.MET),
-        needsInput ? JudgmentMapper.missingInputs(j.missingInputs()) : List.of(),
-        needsInput ? openQuestions(j) : 0);
+        needsInput ? JudgmentMapper.missingInputs(j.missingInputs()) : List.of());
   }
 
   private static MatchResult.Item item(
@@ -51,8 +50,7 @@ public final class MatchMapper {
       Integer rank,
       String reason,
       List<String> groups,
-      List<MissingInput> missingInputs,
-      int openQuestions) {
+      List<MissingInput> missingInputs) {
     return new MatchResult.Item(
         n.noticeId(),
         n.policy(),
@@ -66,8 +64,7 @@ public final class MatchMapper {
         rank,
         reason,
         groups,
-        missingInputs,
-        openQuestions);
+        missingInputs);
   }
 
   private static int count(List<MatchResult.Item> items, Eligibility status) {
@@ -79,12 +76,5 @@ public final class MatchMapper {
         .filter(g -> g.verdict() == verdict)
         .map(g -> g.group().name())
         .toList();
-  }
-
-  private static int openQuestions(FrameJudgment j) {
-    return (int)
-        j.questions().stream()
-            .filter(q -> q.purpose() == FrameJudgment.Purpose.ELIGIBILITY && q.answer() == null)
-            .count();
   }
 }

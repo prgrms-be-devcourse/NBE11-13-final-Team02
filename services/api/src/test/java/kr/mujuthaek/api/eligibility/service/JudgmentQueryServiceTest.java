@@ -7,16 +7,15 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
-import java.util.Map;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.eligibility.dto.request.JudgmentApplicantRequest;
+import kr.mujuthaek.api.eligibility.dto.request.SpaceEvaluateRequest;
 import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
 import kr.mujuthaek.api.eligibility.rule.Verdict;
-import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -35,6 +34,7 @@ class JudgmentQueryServiceTest {
   private static final JsonMapper JSON = JsonMapper.builder().build();
 
   @Autowired private JudgmentQueryService judgments;
+  @Autowired private JsonMapper mapper;
 
   /** 정답 케이스 파일의 틀 (정의서 예시 그대로). */
   private static JsonNode frame(String file) throws IOException {
@@ -67,25 +67,26 @@ class JudgmentQueryServiceTest {
             {"birthDate": "1999-05-05", "residenceRegionCode": "1165000000",
              "household": {"size": 1, "homeless": true, "monthlyIncomeWon": 3000000}}""");
 
-    JudgmentResult result =
-        judgments.judgeHousing(
-            frame("housing/seoripul-artown"), applicant, Map.of("arts-proof", Answer.YES));
+    JudgmentResult result = judgments.judgeHousing(frame("housing/seoripul-artown"), applicant);
 
     assertThat(result.field()).isEqualTo("HOUSING");
-    assertThat(result.result()).isEqualTo(Eligibility.ELIGIBLE);
+    // 예술인 증명은 공고마다 묻지 않고 원문 확인이라, 나머지가 다 맞아도 확인 필요예요 (2026-10-29 결정)
+    assertThat(result.result()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(result.referenceDate()).isEqualTo(LocalDate.parse("2026-10-16"));
     JudgmentResult.Group artist = result.groups().getFirst();
     assertThat(artist.id()).isEqualTo("artist");
-    assertThat(artist.result()).isEqualTo(Eligibility.ELIGIBLE);
+    assertThat(artist.result()).isEqualTo(Eligibility.NEEDS_INPUT);
+    JudgmentResult.Criterion artsProof = artist.criteria().getFirst();
+    assertThat(artsProof.id()).isEqualTo("arts-proof");
+    assertThat(artsProof.result()).isEqualTo(Verdict.UNKNOWN);
+    assertThat(artsProof.reason()).isEqualTo("원문 조건을 확인해 주세요");
     JudgmentResult.Criterion incomeOrAssets = artist.criteria().get(4);
     assertThat(incomeOrAssets.kind()).isEqualTo("ANY_OF");
     assertThat(incomeOrAssets.options().get(1).result()).isEqualTo(Verdict.MET);
     assertThat(incomeOrAssets.options().get(1).criteria().getFirst().summary())
         .isEqualTo("세대 월소득 3,432,027원 이하 (도시근로자 가구원수별 월평균소득 2025년 1인 × 90%)");
-    assertThat(result.questions().getFirst().id()).isEqualTo("arts-proof");
-    assertThat(result.questions().getFirst().answer()).isEqualTo(Answer.YES);
     assertThat(result.notes().getFirst().kind()).isEqualTo("RULE");
-    assertThat(result.missingInputs()).isEmpty();
+    assertThat(result.missingInputs()).isEmpty(); // 더 넣을 입력이 아니라 원문을 볼 조건이에요
     // 결과에는 사용자가 넣은 값(소득·생년월일)이 없어요
     assertThat(JSON.writeValueAsString(result))
         .doesNotContain("3,000,000")
@@ -93,15 +94,13 @@ class JudgmentQueryServiceTest {
   }
 
   @Test
-  void anEmptyApplicantGetsTheQuestionnaire() throws Exception {
-    JudgmentResult result = judgments.judgeHousing(frame("housing/seoripul-artown"), null, null);
+  void anEmptyApplicantGetsTheMissingInputs() throws Exception {
+    JudgmentResult result = judgments.judgeHousing(frame("housing/seoripul-artown"), null);
 
     assertThat(result.result()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(result.missingInputs())
         .extracting(MissingInput::field)
         .contains("household.monthlyIncomeWon", "birthDate");
-    assertThat(result.questions().getFirst().answer()).isNull();
-    assertThat(result.questions().getFirst().purpose()).isEqualTo("ELIGIBILITY");
   }
 
   @Test
@@ -112,20 +111,19 @@ class JudgmentQueryServiceTest {
             {"birthDate": "1996-02-01", "korean": true,
              "business": {"applicantType": "INDIVIDUAL", "history": [], "industryCode": "56111"},
              "statuses": [], "restrictions": []}""");
-    Map<String, Answer> answers =
-        Map.of(
-            "real-use", Answer.YES,
-            "not-general-tenant", Answer.NO,
-            "industry-other", Answer.NO,
-            "youth-idea", Answer.YES);
-
     JudgmentResult result =
-        judgments.judgeBusinessSpace(frame("business-space/yangsan-hope-shop"), applicant, answers);
+        judgments.judgeBusinessSpace(frame("business-space/yangsan-hope-shop"), applicant);
 
     assertThat(result.field()).isEqualTo("BUSINESS_SPACE");
-    assertThat(result.result()).isEqualTo(Eligibility.ELIGIBLE);
+    // 실제 사용·창업 아이디어 같은 질문은 원문 확인이라, 입력으로 정하는 조건이 다 맞아도 청년 길은 확인 필요예요
+    assertThat(result.result()).isEqualTo(Eligibility.NEEDS_INPUT);
     assertThat(result.groups().getFirst().id()).isEqualTo("youth");
-    assertThat(result.groups().getFirst().result()).isEqualTo(Eligibility.ELIGIBLE);
+    assertThat(result.groups().getFirst().result()).isEqualTo(Eligibility.NEEDS_INPUT);
+    assertThat(result.common())
+        .filteredOn(c -> c.kind().equals("ASK"))
+        .extracting(JudgmentResult.Criterion::reason)
+        .containsOnly("원문 조건을 확인해 주세요");
+    assertThat(result.missingInputs()).isEmpty();
   }
 
   @Test
@@ -135,34 +133,32 @@ class JudgmentQueryServiceTest {
             """
             {"birthDate": "1993-04-10", "business": {"history": [{"openedOn": "2024-05-02"}], "industryCode": "58222"},
              "statuses": ["SME"], "restrictions": []}""");
-    Map<String, Answer> answers =
-        Map.of(
-            "startup-recognized", Answer.YES,
-            "industry-other", Answer.NO,
-            "program-history", Answer.NO,
-            "host-staff", Answer.NO,
-            "ces-award-ask", Answer.YES);
-
     JudgmentResult result =
-        judgments.judgeStartupSupport(
-            frame("startup-support/early-startup-package"), applicant, answers);
+        judgments.judgeStartupSupport(frame("startup-support/early-startup-package"), applicant);
 
-    assertThat(result.result()).isEqualTo(Eligibility.ELIGIBLE);
+    assertThat(result.result()).isEqualTo(Eligibility.NEEDS_INPUT); // 질문 조건은 원문 확인
     JudgmentResult.Preference award = result.preferences().getFirst();
     assertThat(award.id()).isEqualTo("ces-award");
-    assertThat(award.result()).isEqualTo(Verdict.MET);
+    assertThat(award.result()).isEqualTo(Verdict.UNKNOWN); // 우대 질문도 원문 확인
     assertThat(award.points()).isEqualByComparingTo("2");
-    assertThat(result.questions())
-        .filteredOn(q -> q.purpose().equals("PREFERENCE"))
-        .extracting(JudgmentResult.Question::id)
-        .contains("climate-tech-ask");
+  }
+
+  @Test
+  void anOldScreenSendingAnswersStillWorks() {
+    // 예전 화면은 질문 답(answers)을 보냈어요. 이제 받지 않지만 요청이 깨지면 안 돼요 (2026-10-29)
+    SpaceEvaluateRequest request =
+        mapper.readValue(
+            """
+            {"applicant": {"birthDate": "1996-02-01"}, "answers": {"real-use": "YES"}}""",
+            SpaceEvaluateRequest.class);
+    assertThat(request.applicant()).isNotNull();
   }
 
   @Test
   void aFrameOfAnotherFieldIsRejected() throws Exception {
     JsonNode housing = frame("housing/seoripul-artown");
     rejected(
-        () -> judgments.judgeBusinessSpace(housing, null, null),
+        () -> judgments.judgeBusinessSpace(housing, null),
         ErrorCode.ELIGIBILITY_FIELD_MISMATCH,
         "housing-judgment.v1");
   }
@@ -175,7 +171,7 @@ class JudgmentQueryServiceTest {
             {"schema": "housing-judgment.v1", "rawPostId": "p", "rawVersion": 1, "referenceDate": "2026-10-16",
              "groups": [{"id": "g", "name": "전체", "criteria": [{"id": "x", "kind": "REVENUE"}]}]}""");
     rejected(
-        () -> judgments.judgeHousing(frame, null, null),
+        () -> judgments.judgeHousing(frame, null),
         ErrorCode.ELIGIBILITY_INVALID_FRAME,
         "frame.groups[0].criteria[0].kind");
   }
@@ -186,15 +182,15 @@ class JudgmentQueryServiceTest {
     JudgmentApplicantRequest applicant =
         applicant("{\"household\": {\"monthlyIncomeWon\": -7654321}}");
     rejected(
-        () -> judgments.judgeHousing(frame, applicant, null),
+        () -> judgments.judgeHousing(frame, applicant),
         ErrorCode.VALIDATION_FAILED,
         "profile.household.monthlyIncomeWon");
-    assertThatThrownBy(() -> judgments.judgeHousing(frame, applicant, null))
+    assertThatThrownBy(() -> judgments.judgeHousing(frame, applicant))
         .hasMessageNotContaining("7654321");
   }
 
   @Test
   void theFrameIsRequired() {
-    rejected(() -> judgments.judgeHousing(null, null, null), ErrorCode.VALIDATION_FAILED, "frame");
+    rejected(() -> judgments.judgeHousing(null, null), ErrorCode.VALIDATION_FAILED, "frame");
   }
 }

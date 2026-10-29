@@ -13,7 +13,6 @@ import kr.mujuthaek.api.eligibility.mapper.JudgmentMapper;
 import kr.mujuthaek.api.eligibility.model.JudgmentResult;
 import kr.mujuthaek.api.eligibility.rule.BaseValues;
 import kr.mujuthaek.api.eligibility.rule.SubscriptionDeposits;
-import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import kr.mujuthaek.api.eligibility.rule.frame.Applicant;
 import kr.mujuthaek.api.eligibility.rule.frame.Frame;
 import kr.mujuthaek.api.eligibility.rule.frame.FrameJudge;
@@ -44,36 +43,29 @@ public class JudgmentQueryService {
   /**
    * 주거 자격 판정. 틀: housing-judgment.v1.
    *
-   * @param applicant 사용자 입력. 비우면 이 공고에 필요한 입력(missingInputs)과 질문(questions)을 알려줘요
-   * @param answers 질문(ASK) ID → YES / NO
+   * @param applicant 사용자 입력. 비우면 이 공고에 필요한 입력(missingInputs)을 알려줘요
    */
-  public JudgmentResult judgeHousing(
-      JsonNode frame, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
-    return judge(FrameSpec.HOUSING, frame, applicant, answers);
+  public JudgmentResult judgeHousing(JsonNode frame, JudgmentApplicantRequest applicant) {
+    return judge(FrameSpec.HOUSING, frame, applicant);
   }
 
   /** 사업공간 입점 자격 판정. 틀: business-space-judgment.v1. */
-  public JudgmentResult judgeBusinessSpace(
-      JsonNode frame, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
-    return judge(FrameSpec.BUSINESS_SPACE, frame, applicant, answers);
+  public JudgmentResult judgeBusinessSpace(JsonNode frame, JudgmentApplicantRequest applicant) {
+    return judge(FrameSpec.BUSINESS_SPACE, frame, applicant);
   }
 
   /** 창업지원 사업 판정. 틀: startup-support-judgment.v1. */
-  public JudgmentResult judgeStartupSupport(
-      JsonNode frame, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
-    return judge(FrameSpec.STARTUP_SUPPORT, frame, applicant, answers);
+  public JudgmentResult judgeStartupSupport(JsonNode frame, JudgmentApplicantRequest applicant) {
+    return judge(FrameSpec.STARTUP_SUPPORT, frame, applicant);
   }
 
-  private JudgmentResult judge(
-      FrameSpec spec,
-      JsonNode frame,
-      JudgmentApplicantRequest applicant,
-      Map<String, Answer> answers) {
+  /** 공고마다 묻는 예/아니요 답은 받지 않아요 (2026-10-29 결정). 질문 조건은 늘 원문 확인이에요. */
+  private JudgmentResult judge(FrameSpec spec, JsonNode frame, JudgmentApplicantRequest applicant) {
     if (frame == null || frame.isNull()) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "frame: 판정 틀이 있어야 해요");
     }
     Frame read = FrameReader.read(frame, spec);
-    Applicant input = ApplicantMapper.toApplicant(applicant, answers == null ? Map.of() : answers);
+    Applicant input = ApplicantMapper.toApplicant(applicant, Map.of());
     return JudgmentMapper.toResult(judge(read, input));
   }
 

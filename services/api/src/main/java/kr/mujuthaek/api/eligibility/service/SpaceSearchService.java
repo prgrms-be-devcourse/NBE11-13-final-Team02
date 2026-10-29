@@ -22,7 +22,6 @@ import kr.mujuthaek.api.eligibility.dto.response.SpaceEvaluationResponse;
 import kr.mujuthaek.api.eligibility.dto.response.SpaceSearchResponse;
 import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
-import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import org.springframework.stereotype.Service;
 
@@ -61,7 +60,7 @@ public class SpaceSearchService {
             .stream()
             .collect(Collectors.toMap(NoticeQueryService.Candidate::id, Function.identity()));
     List<MatchResult.Item> matched =
-        matches.judgeBusinessSpaceAll(request.applicant(), request.answers()).stream()
+        matches.judgeBusinessSpaceAll(request.applicant()).stream()
             .filter(m -> inRegions(m.regionCodes(), f.regionCodes()))
             .toList();
     Map<UUID, NoticeQueryService.PolicyInfo> infos =
@@ -115,11 +114,10 @@ public class SpaceSearchService {
   }
 
   /** 열린 사업공간 하나의 판정. 열린 사업공간이 아니면 404 NOTICE_NOT_FOUND. */
-  public SpaceEvaluationResponse evaluate(
-      UUID id, JudgmentApplicantRequest applicant, Map<String, Answer> answers) {
+  public SpaceEvaluationResponse evaluate(UUID id, JudgmentApplicantRequest applicant) {
     var j =
         matches
-            .judgeBusinessSpace(id, applicant, answers)
+            .judgeBusinessSpace(id, applicant)
             .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_NOT_FOUND));
     var n = j.notice();
     LocalDate today = LocalDate.now(clock);

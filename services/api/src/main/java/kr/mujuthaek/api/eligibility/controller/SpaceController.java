@@ -38,8 +38,6 @@ class SpaceController {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())
         .body(
-            request == null
-                ? spaces.evaluate(id, null, null)
-                : spaces.evaluate(id, request.applicant(), request.answers()));
+            request == null ? spaces.evaluate(id, null) : spaces.evaluate(id, request.applicant()));
   }
 }

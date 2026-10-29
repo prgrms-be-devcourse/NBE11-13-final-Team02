@@ -5,7 +5,6 @@ import java.time.LocalDate;
 import java.util.List;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
 import kr.mujuthaek.api.eligibility.rule.Verdict;
-import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 
 /**
  * 판정 틀 하나의 판정 결과. result는 ELIGIBLE(지원 가능) / NEEDS_INPUT(확인 필요) / INELIGIBLE(지원 불가)이에요. 저장하지 않아요.
@@ -17,7 +16,6 @@ import kr.mujuthaek.api.eligibility.rule.frame.Answer;
  * @param groups 대상군 결과 (rank는 공고가 정한 그 대상군의 신청 순위, result는 공통 조건까지 합친 결과로 ELIGIBLE / NEEDS_INPUT /
  *     INELIGIBLE, criteria는 그 대상군 조건만)
  * @param preferences 우대 결과 (MET = 우대 해당, UNKNOWN = 우대 확인 필요)
- * @param questions 틀 안의 모든 질문과 받은 답 (answer가 null이면 아직 안 받음)
  * @param missingInputs 결과가 확인 필요일 때 넣으면 결과가 정해질 수 있는 입력 칸
  */
 public record JudgmentResult(
@@ -29,7 +27,6 @@ public record JudgmentResult(
     List<Group> groups,
     List<Preference> preferences,
     List<Note> notes,
-    List<Question> questions,
     List<MissingInput> missingInputs) {
 
   /**
@@ -64,7 +61,4 @@ public record JudgmentResult(
       List<Criterion> criteria) {}
 
   public record Note(String kind, String groupId, String text, String quote, Integer page) {}
-
-  /** purpose: ELIGIBILITY(자격 질문) / PREFERENCE(우대 질문). */
-  public record Question(String id, String text, Answer answer, String purpose) {}
 }
