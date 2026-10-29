@@ -306,7 +306,7 @@ class SecurityIntegrationTest {
   @Test
   void refreshesWithTheSameCookieAtOnceAllSucceed() throws Exception {
     // 새로고침 연타·탭 여러 개: 같은 쿠키로 연장이 한꺼번에 와도 모두 새 토큰을 받아요(예전에는 늦은 쪽이 409·401로 로그아웃)
-    LoginUser user = login("2099");
+    LoginUser user = login("2098");
     var cookie = new Cookie(RefreshTokenCookies.NAME, tokens.issue(user).refreshToken());
     var start = new java.util.concurrent.CountDownLatch(1);
     var pool = java.util.concurrent.Executors.newFixedThreadPool(5);
