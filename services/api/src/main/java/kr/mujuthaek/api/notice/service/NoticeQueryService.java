@@ -756,9 +756,7 @@ public class NoticeQueryService {
     boolean tenureOk =
         tenure == null
             || ("BUY".equals(tenure) && NoticeListFilter.BUY_TYPES.contains(s.noticeType()))
-            || ("RENT".equals(tenure)
-                && s.noticeType() != null
-                && !NoticeListFilter.BUY_TYPES.contains(s.noticeType()));
+            || ("RENT".equals(tenure) && !NoticeListFilter.BUY_TYPES.contains(s.noticeType()));
     return statusOk
         && tenureOk
         && (noticeTypes == null || noticeTypes.isEmpty() || noticeTypes.contains(s.noticeType()))
