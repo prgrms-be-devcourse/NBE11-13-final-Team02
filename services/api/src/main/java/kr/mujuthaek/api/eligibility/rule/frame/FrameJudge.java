@@ -125,6 +125,7 @@ public final class FrameJudge {
           case Criterion.BusinessRegistration c -> BusinessRules.registration(c, a, on);
           case Criterion.BusinessCareer c -> BusinessRules.career(c, a, on);
           case Criterion.BusinessAge c -> BusinessRules.age(c, a, on);
+          case Criterion.BusinessAgeYears c -> BusinessRules.ageInYears(c, a, on);
           case Criterion.Closure c -> BusinessRules.closure(c, a, on);
           case Criterion.Revenue c -> BusinessRules.revenue(c, a);
           case Criterion.Industry c -> BusinessRules.industry(c, a);

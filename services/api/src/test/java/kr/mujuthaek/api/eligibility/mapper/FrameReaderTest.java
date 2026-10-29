@@ -36,6 +36,43 @@ class FrameReaderTest {
             });
   }
 
+  private static String ask(String id, String question, String metWhen) {
+    return """
+        {"id": "%s", "kind": "ASK", "question": "%s", "metWhen": "%s"}"""
+        .formatted(id, question, metWhen);
+  }
+
+  @Test
+  void businessAgeQuestionsAreReadAsBusinessAgeYears() {
+    // 2026-10-29 QA: 사업공간 틀에는 업력 칸이 없어 「창업 N년 이내」가 질문으로 와요. 추출 문구 그대로면 업력 햇수로 읽어요
+    String q = "사업을 시작한 날(법인은 설립등기일)부터 ";
+    Frame frame =
+        FrameReader.read(
+            JSON.readTree(
+                """
+                {"schema": "business-space-judgment.v1", "rawPostId": "p1", "rawVersion": 1,
+                 "referenceDate": "2026-10-28", "common": [], "preferences": [], "notes": [],
+                 "groups": [{"id": "g", "name": "창업 7년 이내 기업", "criteria": [%s, %s, %s, %s, %s, %s]}]}"""
+                    .formatted(
+                        ask("within", q + "7년 이내인가요?", "YES"),
+                        ask("under", q + "3년이 지나지 않았나요?", "YES"),
+                        ask("at-least", q + "2년 이상 지났나요?", "YES"),
+                        ask("over", q + "1년이 넘게 지났나요?", "YES"),
+                        ask("no-means-met", q + "7년 이내인가요?", "NO"),
+                        ask("branch", "지사로 입주하나요?", "NO"))),
+            FrameSpec.BUSINESS_SPACE);
+    var criteria = frame.groups().getFirst().criteria();
+    assertThat(criteria)
+        .extracting(Criterion::kind)
+        .containsExactly(
+            "BUSINESS_AGE", "BUSINESS_AGE", "BUSINESS_AGE", "BUSINESS_AGE", "ASK", "ASK");
+    assertThat(criteria.subList(0, 4))
+        .extracting(c -> (Criterion.BusinessAgeYears) c)
+        .extracting(c -> c.years() + " " + c.rule())
+        .containsExactly("7 WITHIN", "3 UNDER", "2 AT_LEAST", "1 OVER");
+    assertThat(criteria.getFirst().id()).isEqualTo("within"); // 같은 ID·근거를 그대로 써요
+  }
+
   @Test
   void onlyStartupSupportFramesMayLeaveTheReferenceDateEmpty() {
     // 창업지원 공고에 기준일 문구가 없으면 null로 받고, 판정하는 날 기준으로 계산해요
