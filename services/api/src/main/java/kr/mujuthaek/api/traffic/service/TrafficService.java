@@ -8,12 +8,10 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import kr.mujuthaek.api.common.cache.RecentCache;
 import kr.mujuthaek.api.traffic.TrafficProperties;
 import kr.mujuthaek.api.traffic.dto.BotTrafficResponse;
 import kr.mujuthaek.api.traffic.dto.RealtimeResponse;
@@ -78,8 +76,6 @@ public class TrafficService {
               null,
               "/notices/"));
 
-  private record Cached(Instant at, TrafficResponse.Ga ga) {}
-
   /** 공고 상세 주소에서 공고 ID (/notices/{id}, 뒤의 하위 경로·쿼리는 같은 공고) */
   private static final Pattern NOTICE_PATH = Pattern.compile("^/notices/([^/?#]+)");
 
@@ -92,19 +88,30 @@ public class TrafficService {
    */
   static final Duration SERVER_TTL = Duration.ofMinutes(1);
 
-  /** 집계 하나: 시작한 시각과 결과. 같은 기간을 동시에 열면 먼저 시작한 집계 하나를 같이 기다려요. */
-  private record Fresh<T>(Instant at, CompletableFuture<T> value) {}
-
-  private volatile RealtimeResponse realtimeCache;
+  /** 마지막으로 받은 실시간 숫자(GA 실패 때 대신 보여 줘요). */
+  private volatile RealtimeResponse lastRealtime;
 
   private final GaDataClient ga;
   private final RequestLogStore logs;
   private final TrafficProperties props;
   private final Clock clock;
-  private final Map<Integer, Cached> cache = new ConcurrentHashMap<>();
-  private final Map<Integer, Fresh<List<RequestLogStore.ServerDaily>>> serverDaily =
-      new ConcurrentHashMap<>();
-  private final Map<Integer, Fresh<BotTrafficResponse>> botsCache = new ConcurrentHashMap<>();
+
+  /**
+   * 기간별 GA 보고서(cacheTtl, 한 시간쯤). 만료된 순간 여러 명이 열어도 GA는 한 번만 불러요(GA 호출 한도). 실패는 남기지 않아서 다음 요청이 다시
+   * 물어요.
+   */
+  private final RecentCache<Integer, TrafficResponse.Ga> gaReports;
+
+  /** 기간별 마지막으로 받은 GA 보고서(GA 실패 때 대신 보여 줘요). */
+  private final Map<Integer, TrafficResponse.Ga> lastGa = new ConcurrentHashMap<>();
+
+  /** 실시간 숫자(30초). 키는 하나예요. */
+  private final RecentCache<Boolean, RealtimeResponse> realtimeReports;
+
+  /** 기간(days)별 서버 숫자. 같은 기간을 동시에 열면 집계는 한 번이에요. */
+  private final RecentCache<Integer, List<RequestLogStore.ServerDaily>> serverDaily;
+
+  private final RecentCache<Integer, BotTrafficResponse> botsCache;
 
   public TrafficService(
       GaDataClient ga, RequestLogStore logs, TrafficProperties props, Clock clock) {
@@ -112,6 +119,10 @@ public class TrafficService {
     this.logs = logs;
     this.props = props;
     this.clock = clock;
+    this.serverDaily = new RecentCache<>(SERVER_TTL, clock);
+    this.botsCache = new RecentCache<>(SERVER_TTL, clock);
+    this.gaReports = new RecentCache<>(props.ga().cacheTtl(), clock);
+    this.realtimeReports = new RecentCache<>(REALTIME_TTL, clock);
   }
 
   private static ReportSpec item(String dimension, String metric) {
@@ -130,12 +141,12 @@ public class TrafficService {
         now,
         days,
         gaReport(days, now),
-        recent(serverDaily, days, () -> logs.daily(from, now.plusSeconds(1))));
+        serverDaily.get(days, () -> logs.daily(from, now.plusSeconds(1))));
   }
 
   /** 봇·보안. 1분 안이면 지난 집계를 그대로 줘요(asOf가 그 집계 시각). */
   public BotTrafficResponse bots(int days) {
-    return recent(botsCache, days, () -> botsNow(days));
+    return botsCache.get(days, () -> botsNow(days));
   }
 
   private BotTrafficResponse botsNow(int days) {
@@ -154,68 +165,39 @@ public class TrafficService {
         logs.loginFailures(from, to, 30));
   }
 
-  /**
-   * 기간(days)별 집계를 {@link #SERVER_TTL} 동안 다시 써요. 비었거나 지났으면 이 요청이 집계하고, 그동안 같은 기간을 연 요청은 그 결과를
-   * 기다려요(동시에 열어도 집계는 한 번). 집계가 실패하면 남기지 않고 다음 요청이 다시 해요.
-   */
-  private <T> T recent(Map<Integer, Fresh<T>> store, int days, Supplier<T> load) {
-    Instant now = clock.instant();
-    var mine = new Fresh<T>(now, new CompletableFuture<>());
-    Fresh<T> got =
-        store.compute(
-            days, (k, old) -> old != null && old.at().plus(SERVER_TTL).isAfter(now) ? old : mine);
-    if (got == mine) {
-      try {
-        mine.value().complete(load.get());
-      } catch (RuntimeException failure) {
-        store.remove(days, mine);
-        mine.value().completeExceptionally(failure);
-        throw failure;
-      }
-    }
-    try {
-      return got.value().join();
-    } catch (CompletionException e) {
-      if (e.getCause() instanceof RuntimeException cause) {
-        throw cause;
-      }
-      throw e;
-    }
-  }
-
   private TrafficResponse.Ga gaReport(int days, Instant now) {
     if (!ga.configured()) {
       return TrafficResponse.Ga.off("GA가 연결되지 않았어요(속성 ID·서비스 계정 키 설정 필요)");
     }
-    Cached hit = cache.get(days);
-    if (hit != null && hit.at().plus(props.ga().cacheTtl()).isAfter(now)) {
-      return hit.ga();
-    }
     try {
-      List<List<Row>> r = ga.run(REPORTS, days);
-      var result =
-          new TrafficResponse.Ga(
-              true,
-              null,
-              now,
-              r.get(0).stream().map(TrafficService::daily).toList(),
-              items(r.get(1)),
-              items(r.get(2)),
-              items(r.get(3)),
-              items(r.get(4)),
-              items(r.get(5)),
-              items(r.get(6)),
-              items(r.get(7)),
-              items(r.get(8)),
-              funnel(r.get(9)),
-              popularNotices(r.get(10)));
-      cache.put(days, new Cached(now, result));
+      TrafficResponse.Ga result = gaReports.get(days, () -> fetchGa(days, now));
+      lastGa.put(days, result);
       return result;
     } catch (RuntimeException failure) {
       log.warn("GA 보고서를 가져오지 못했어요: {}", failure.getMessage());
       // 실패해도 지난번 값이 있으면 그걸 보여 줘요
-      return hit != null ? hit.ga() : TrafficResponse.Ga.off("GA 숫자를 가져오지 못했어요. 잠시 뒤 다시 열어 주세요");
+      TrafficResponse.Ga last = lastGa.get(days);
+      return last != null ? last : TrafficResponse.Ga.off("GA 숫자를 가져오지 못했어요. 잠시 뒤 다시 열어 주세요");
     }
+  }
+
+  private TrafficResponse.Ga fetchGa(int days, Instant now) {
+    List<List<Row>> r = ga.run(REPORTS, days);
+    return new TrafficResponse.Ga(
+        true,
+        null,
+        now,
+        r.get(0).stream().map(TrafficService::daily).toList(),
+        items(r.get(1)),
+        items(r.get(2)),
+        items(r.get(3)),
+        items(r.get(4)),
+        items(r.get(5)),
+        items(r.get(6)),
+        items(r.get(7)),
+        items(r.get(8)),
+        funnel(r.get(9)),
+        popularNotices(r.get(10)));
   }
 
   /** 지금 접속자: 최근 30분·5분 활성 사용자와 기기별. */
@@ -223,31 +205,30 @@ public class TrafficService {
     if (!ga.configured()) {
       return RealtimeResponse.off("GA가 연결되지 않았어요(속성 ID·서비스 계정 키 설정 필요)");
     }
-    Instant now = clock.instant();
-    RealtimeResponse hit = realtimeCache;
-    if (hit != null && hit.fetchedAt().plus(REALTIME_TTL).isAfter(now)) {
-      return hit;
-    }
     try {
-      long last30 = total(ga.realtime(List.of(), List.of("activeUsers"), null));
-      long last5 = total(ga.realtime(List.of(), List.of("activeUsers"), 5));
-      List<Item> devices =
-          ga.realtime(List.of("deviceCategory"), List.of("activeUsers"), null).stream()
-              .map(
-                  r ->
-                      new Item(
-                          r.dimensions().getFirst(),
-                          r.metrics().getFirst(),
-                          r.metrics().getFirst()))
-              .sorted((x, y) -> Long.compare(y.value(), x.value()))
-              .toList();
-      RealtimeResponse result = new RealtimeResponse(true, null, now, last30, last5, devices);
-      realtimeCache = result;
+      RealtimeResponse result = realtimeReports.get(true, this::fetchRealtime);
+      lastRealtime = result;
       return result;
     } catch (RuntimeException failure) {
       log.warn("GA 실시간 보고서를 가져오지 못했어요: {}", failure.getMessage());
-      return hit != null ? hit : RealtimeResponse.off("GA 실시간 숫자를 가져오지 못했어요");
+      RealtimeResponse last = lastRealtime;
+      return last != null ? last : RealtimeResponse.off("GA 실시간 숫자를 가져오지 못했어요");
     }
+  }
+
+  private RealtimeResponse fetchRealtime() {
+    Instant now = clock.instant();
+    long last30 = total(ga.realtime(List.of(), List.of("activeUsers"), null));
+    long last5 = total(ga.realtime(List.of(), List.of("activeUsers"), 5));
+    List<Item> devices =
+        ga.realtime(List.of("deviceCategory"), List.of("activeUsers"), null).stream()
+            .map(
+                r ->
+                    new Item(
+                        r.dimensions().getFirst(), r.metrics().getFirst(), r.metrics().getFirst()))
+            .sorted((x, y) -> Long.compare(y.value(), x.value()))
+            .toList();
+    return new RealtimeResponse(true, null, now, last30, last5, devices);
   }
 
   private static long total(List<Row> rows) {

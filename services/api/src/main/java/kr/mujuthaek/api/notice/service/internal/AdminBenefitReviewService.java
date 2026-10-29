@@ -12,6 +12,7 @@ import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest.FieldEdit;
+import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewCountsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
@@ -50,6 +51,11 @@ public class AdminBenefitReviewService {
       }
     }
     return new AdminBenefitReviewListResponse(items);
+  }
+
+  /** 대기 건수(사이드바·개요). 건수만 받아요. */
+  public AdminBenefitReviewCountsResponse counts() {
+    return new AdminBenefitReviewCountsResponse(remaining());
   }
 
   public AdminBenefitReviewDetailResponse detail(String id) {

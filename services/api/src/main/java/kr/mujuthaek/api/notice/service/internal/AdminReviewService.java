@@ -1,6 +1,7 @@
 package kr.mujuthaek.api.notice.service.internal;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import kr.mujuthaek.api.common.cache.RecentCache;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
@@ -65,27 +67,40 @@ public class AdminReviewService {
 
   private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
+  /**
+   * 마감이 가까운 검수 대기는 1분 동안 다시 써요. 대기 목록을 통째로 받아 건마다 마감일을 읽는 무거운 조회라 관리자 개요를 열 때마다 돌리면 추출 DB가
+   * 포화돼요(2026-10-29 부하 시험). 검수를 처리하면 바로 비워요.
+   */
+  static final Duration URGENT_TTL = Duration.ofMinutes(1);
+
   private final ExtractionReviewClient client;
   private final Clock clock;
+
+  /** 마감 기준일(오늘+days)별 결과. 날짜가 키라 자정이 지나면 새로 계산해요. */
+  private final RecentCache<LocalDate, List<Item>> urgentCache;
 
   public AdminReviewService(ExtractionReviewClient client, Clock clock) {
     this.client = client;
     this.clock = clock;
+    this.urgentCache = new RecentCache<>(URGENT_TTL, clock);
   }
 
   /**
    * 마감이 가까운 검수 대기 (관리자 개요의 「지금 처리할 일」): 신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건, 마감이 이른 것부터. 아직 발행
-   * 전(MUST)이면 사용자에게 안 보이는 공고예요.
+   * 전(MUST)이면 사용자에게 안 보이는 공고예요. 1분 안이면 지난 결과를 써요({@link #URGENT_TTL}).
    */
   public List<Item> urgent(int days) {
     if (days < 0 || days > 30) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "days는 0~30 사이예요");
     }
     LocalDate limit = LocalDate.now(clock.withZone(SEOUL)).plusDays(days);
-    return items(client.list(PENDING)).stream()
-        .filter(i -> i.applyEndsOn() != null && !i.applyEndsOn().isAfter(limit))
-        .sorted(Comparator.comparing(Item::applyEndsOn))
-        .toList();
+    return urgentCache.get(
+        limit,
+        () ->
+            items(client.list(PENDING)).stream()
+                .filter(i -> i.applyEndsOn() != null && !i.applyEndsOn().isAfter(limit))
+                .sorted(Comparator.comparing(Item::applyEndsOn))
+                .toList());
   }
 
   /** 대기 목록. reason이 있으면 그 묶음만. */
@@ -374,6 +389,7 @@ public class AdminReviewService {
       }
     }
     client.approve(id, request == null ? null : blankToNull(request.note()), reviewer, edits);
+    urgentCache.clear();
     return new AdminReviewDecisionResponse(id, "APPROVED", remaining());
   }
 
@@ -381,6 +397,7 @@ public class AdminReviewService {
   public AdminReviewDecisionResponse reject(
       String id, AdminReviewDecisionRequest request, String reviewer) {
     client.reject(id, rejectNote(request), reviewer);
+    urgentCache.clear();
     return new AdminReviewDecisionResponse(id, "REJECTED", remaining());
   }
 

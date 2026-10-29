@@ -1566,6 +1566,37 @@
         }
       }
     },
+    "/api/admin/benefit-reviews/counts": {
+      "get": {
+        "tags": [
+          "admin-benefit-review"
+        ],
+        "operationId": "countAdminBenefitReviews",
+        "summary": "혜택 검수 대기 건수 (사이드바·개요)",
+        "description": "목록 전체를 받지 않고 건수만 줘요(추출 서비스의 total).",
+        "responses": {
+          "200": {
+            "description": "대기 건수",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminBenefitReviewCounts"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
     "/api/admin/benefit-reviews/{id}": {
       "get": {
         "tags": [
@@ -3796,6 +3827,18 @@
               "null"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "AdminBenefitReviewCounts": {
+        "type": "object",
+        "required": [
+          "benefitPending"
+        ],
+        "properties": {
+          "benefitPending": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

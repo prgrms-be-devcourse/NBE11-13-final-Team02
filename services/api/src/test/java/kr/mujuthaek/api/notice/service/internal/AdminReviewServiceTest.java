@@ -311,6 +311,24 @@ class AdminReviewServiceTest {
   }
 
   @Test
+  void urgentIsReusedForAMinuteAndRecomputedAfterADecision() {
+    var service = service();
+    // 받을 요청 차례: 목록 한 번 → 반려 → 남은 건수 → (처리했으니) 목록 다시. 더 받으면 가짜 서버가 실패시켜요
+    expectList(1);
+    server
+        .expect(requestTo(BASE + "/reviews/" + B + "/reject"))
+        .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
+    expectHead();
+    expectList(1);
+
+    var first = service.urgent(3);
+    assertThat(service.urgent(3)).isSameAs(first);
+    service.reject(B, null, "admin-1");
+    assertThat(service.urgent(3)).isNotSameAs(first);
+    server.verify();
+  }
+
+  @Test
   void impactExplainsWhatApprovalChangesInsteadOfCountingPeople() {
     var mapper = JsonMapper.builder().build();
     var candidate = mapper.readTree("{}");

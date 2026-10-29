@@ -143,4 +143,52 @@ class TrafficServerCacheTest {
     assertThatThrownBy(() -> service.bots(7)).isInstanceOf(IllegalStateException.class);
     assertThat(service.bots(7).clients()).isEmpty();
   }
+
+  @Test
+  void GA_보고서가_만료된_순간_여럿이_열어도_GA는_한_번만_부른다() throws Exception {
+    var props =
+        new TrafficProperties(
+            "salt",
+            14,
+            90,
+            "",
+            new TrafficProperties.Ga(
+                "123", "key.json", Duration.ofHours(1), Duration.ofSeconds(5)));
+    var ga = mock(GaDataClient.class);
+    var gaCalls = new AtomicInteger();
+    when(ga.configured()).thenReturn(true);
+    when(ga.run(any(), anyInt()))
+        .thenAnswer(
+            i -> {
+              gaCalls.incrementAndGet();
+              Thread.sleep(200); // GA가 느린 동안 들어온 요청은 이걸 기다려요
+              return java.util.Collections.nCopies(11, List.<GaDataClient.Row>of());
+            });
+    when(logs.daily(any(), any())).thenReturn(List.of());
+    var service = new TrafficService(ga, logs, props, clock);
+
+    var pool = Executors.newFixedThreadPool(20);
+    var start = new CountDownLatch(1);
+    List<Future<?>> results = new ArrayList<>();
+    for (int i = 0; i < 20; i++) {
+      results.add(
+          pool.submit(
+              () -> {
+                start.await();
+                return service.traffic(7).ga();
+              }));
+    }
+    start.countDown();
+    Object first = results.get(0).get();
+    for (var r : results) {
+      assertThat(r.get()).isSameAs(first);
+    }
+    pool.shutdown();
+    assertThat(gaCalls).hasValue(1);
+
+    // 한 시간이 지나면 다시 물어요. 그때 GA가 실패하면 지난 값을 보여 줘요
+    clock.plus(Duration.ofMinutes(61));
+    when(ga.run(any(), anyInt())).thenThrow(new IllegalStateException("GA 한도"));
+    assertThat(service.traffic(7).ga()).isSameAs(first);
+  }
 }

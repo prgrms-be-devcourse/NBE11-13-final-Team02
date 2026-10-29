@@ -57,6 +57,16 @@ class AdminBenefitReviewServiceTest {
   }
 
   @Test
+  void countsUseTheTotalWithoutTheWholeList() {
+    server
+        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1"))
+        .andRespond(
+            withSuccess("{\"total\":1500,\"items\":[" + ITEM + "]}", MediaType.APPLICATION_JSON));
+    assertThat(service.counts().benefitPending()).isEqualTo(1500);
+    server.verify();
+  }
+
+  @Test
   void listMapsTheExtractionItems() {
     server
         .expect(requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1000"))

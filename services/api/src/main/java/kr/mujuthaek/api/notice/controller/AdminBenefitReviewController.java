@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
+import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewCountsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <pre>
  * GET  /api/admin/benefit-reviews?status=PENDING   목록 (PENDING·APPROVED·REJECTED·SUPERSEDED)
+ * GET  /api/admin/benefit-reviews/counts           대기 건수 (사이드바·개요 숫자. 목록 전체를 받지 않아요)
  * GET  /api/admin/benefit-reviews/{id}             상세: 정제 결과·받은 원문·처리 기록
  * POST /api/admin/benefit-reviews/{id}/approve     승인 { "note": "…", "edits": [{ "path": "/conditions/0/value", "value": … }] }
  * POST /api/admin/benefit-reviews/{id}/reject      반려(서비스에 안 보이게) { "reason": "OUT_OF_SCOPE", "note": "…" }
@@ -39,6 +41,11 @@ class AdminBenefitReviewController {
   @GetMapping
   AdminBenefitReviewListResponse list(@RequestParam(required = false) String status) {
     return reviews.list(status);
+  }
+
+  @GetMapping("/counts")
+  AdminBenefitReviewCountsResponse counts() {
+    return reviews.counts();
   }
 
   @GetMapping("/{id}")
