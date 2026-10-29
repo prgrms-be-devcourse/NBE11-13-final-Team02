@@ -378,6 +378,56 @@ class CriterionJudgeTest {
   }
 
   @Test
+  void exceptionBundleIsNamedByItsBaseCriterionAndLeavesExceptionsToTheSource() {
+    // 2026-10-29 QA: 강북구 신혼부부의 무주택 예외 11가지가 이름 한 줄로 이어져 829자였어요
+    var c =
+        new Judgment.AnyOf(
+            B,
+            List.of(
+                new Judgment.Option("기본 기준", List.of(new Judgment.Homeless(B, "HOUSEHOLD", null))),
+                new Judgment.Option(
+                    "상속으로 주택 공유지분을 취득했지만 부적격 통보일부터 3개월 이내에 처분하면 무주택으로 인정해요.",
+                    List.of(new Judgment.Ask(B, "다음 예외에 해당하나요? 「상속으로 …」", "YES"))),
+                new Judgment.Option(
+                    "공고에 열거된 비수도권 오래된 단독주택은 무주택으로 인정해요.",
+                    List.of(new Judgment.Ask(B, "다음 예외에 해당하나요? 「사용승인 후 20년 …」", "YES")))));
+
+    Item owner = judge(c, applicant().homeOwner(true).build());
+    assertThat(owner.label()).isEqualTo("무주택 · 세대 전원 (예외 2가지)");
+    assertThat(owner.status()).isEqualTo(UNKNOWN);
+    assertThat(owner.reason()).isEqualTo("예외에 해당하는지 원문을 확인해 주세요");
+    assertThat(owner.options()).hasSize(3); // 길마다 이름과 결과는 그대로 줘요
+    assertThat(judge(c, applicant().homeOwner(false).build()).status()).isEqualTo(MET);
+    // 기본 기준을 아직 모르면 지금처럼 입력을 받아요
+    Item empty = judge(c, Applicant.empty());
+    assertThat(empty.reason()).isEqualTo("기준 중 하나에 맞는지 확인이 필요해요");
+    assertThat(empty.needs()).isNotEmpty();
+  }
+
+  @Test
+  void longAnyOfLabelShowsTheFirstOptionAndHowManyMore() {
+    var youth = new Judgment.Age(B, 19, 39);
+    var shortOne =
+        new Judgment.AnyOf(
+            B,
+            List.of(
+                new Judgment.Option("월평균소득 50% 이하", List.of(youth)),
+                new Judgment.Option("월평균소득 50% 초과 ~100% 이하", List.of(youth))));
+    assertThat(judge(shortOne, Applicant.empty()).label())
+        .isEqualTo("다음 중 하나 · 월평균소득 50% 이하 / 월평균소득 50% 초과 ~100% 이하");
+
+    var longOne =
+        new Judgment.AnyOf(
+            B,
+            List.of(
+                new Judgment.Option("자녀가 있고 같은 세대별 주민등록표등본에 자녀가 등재된 미성년 세대주", List.of(youth)),
+                new Judgment.Option("형제자매를 부양해야 하는 미성년 세대주", List.of(youth)),
+                new Judgment.Option("외국인 부모가 대리 신청하는 한부모가족", List.of(youth))));
+    assertThat(judge(longOne, Applicant.empty()).label())
+        .isEqualTo("다음 중 하나 · 자녀가 있고 같은 세대별 주민등록표등본에 자녀가 등재된 미성년 세대주 외 2가지");
+  }
+
+  @Test
   void regionPrefix() {
     assertThat(CriterionJudge.regionPrefix("1100000000")).isEqualTo("11");
     assertThat(CriterionJudge.regionPrefix("1144000000")).isEqualTo("11440");

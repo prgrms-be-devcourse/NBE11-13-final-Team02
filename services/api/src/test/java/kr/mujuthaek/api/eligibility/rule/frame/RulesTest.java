@@ -193,10 +193,11 @@ class RulesTest {
     assertThat(PersonRules.age(youth, bornIn("1987-09"), DAY).verdict()).isEqualTo(Verdict.MET);
     // 1986-09생은 그 달 어느 날이든 만 40세 → 불충족
     assertThat(PersonRules.age(youth, bornIn("1986-09"), DAY).verdict()).isEqualTo(Verdict.NOT_MET);
-    // 1986-10생은 10월 1일생이면 만 40세, 2일 이후면 만 39세 → 확인 필요 (생년월일을 물어요)
+    // 1986-10생은 10월 1일생이면 만 40세, 2일 이후면 만 39세 → 확인 필요. 화면은 출생 연월만 보내서 생년월일을 묻지 않아요
     var edge = PersonRules.age(youth, bornIn("1986-10"), DAY);
     assertThat(edge.verdict()).isEqualTo(Verdict.UNKNOWN);
-    assertThat(edge.missing()).containsExactly(Input.BIRTH_DATE);
+    assertThat(edge.reason()).isEqualTo("생일이 지났는지에 따라 달라져요. 직접 확인해 주세요");
+    assertThat(edge.missing()).isEmpty();
   }
 
   @Test

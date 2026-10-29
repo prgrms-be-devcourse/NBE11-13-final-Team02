@@ -37,6 +37,8 @@ public record JudgmentResult(
    *
    * @param summary 기준 설명 (예: 만 19~39세)
    * @param reason 충족이 아닌 이유 (충족이면 null)
+   * @param needs 확인 필요일 때 넣으면 이 조건이 정해질 수 있는 입력 칸 (missingInputs의 field와 같은 이름). 검수 중이거나 입력으로 정할 수
+   *     없는 조건(원문 확인)은 빈 목록이에요. 주거·혜택 판정의 needs와 같은 뜻이에요 (2026-10-29 QA)
    * @param options ANY_OF일 때 길마다의 결과
    */
   public record Criterion(
@@ -45,6 +47,7 @@ public record JudgmentResult(
       Verdict result,
       String summary,
       String reason,
+      List<String> needs,
       String quote,
       Integer page,
       List<Option> options) {}
