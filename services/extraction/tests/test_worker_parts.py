@@ -627,9 +627,24 @@ def test_failed_policy_message_is_moved_to_dlq_then_acked():
         def __getattr__(self, name):
             return lambda *args, **kwargs: calls.append((name, args, kwargs))
 
-    worker.finish_policy(Channel(), 7, "dlq", b'{"eventId": "x"}', "props")
+    import pika
+
+    original = pika.BasicProperties(content_type="application/json", delivery_mode=2, headers={"trace": "t1"})
+    worker.finish_policy(Channel(), 7, "dlq", b'{"eventId": "x"}', original, "AI_FAILED:INVALID_JSON")
     assert [c[0] for c in calls] == ["basic_publish", "basic_ack"]
-    assert calls[0][2] == {"exchange": "", "routing_key": "mujuthaek.raw.policy.dlq", "body": b'{"eventId": "x"}', "properties": "props"}
+    published = calls[0][2]
+    assert {k: published[k] for k in ("exchange", "routing_key", "body")} == {
+        "exchange": "",
+        "routing_key": "mujuthaek.raw.policy.dlq",
+        "body": b'{"eventId": "x"}',
+    }
+    # 실패 이유를 헤더로 남깁니다(원래 헤더·속성은 그대로)
+    props = published["properties"]
+    assert props.content_type == "application/json"
+    assert props.headers["trace"] == "t1"
+    assert props.headers["x-error-reason"] == "AI_FAILED:INVALID_JSON"
+    assert props.headers["x-failed-at"].endswith("+00:00")
+    assert original.headers == {"trace": "t1"}
     calls.clear()
     worker.finish_policy(Channel(), 8, "requeue", b"{}")
     assert calls == [("basic_nack", (8,), {"requeue": True})]
@@ -645,6 +660,20 @@ def test_failed_policy_message_is_moved_to_dlq_then_acked():
     with pytest.raises(OSError):
         worker.finish_policy(Broken(), 10, "dlq", b"{}")
     assert calls == []  # 옮기지 못했으면 ack하지 않음(연결이 끊긴 뒤 다시 옴)
+
+
+def test_judge_message_notes_why_a_policy_goes_to_dlq(monkeypatch):
+    from mujuthaek_extraction import worker
+
+    class Processor:
+        def open_ledger(self, _raw_event):
+            raise RuntimeError("S3 끊김")
+
+    why: list[str] = []
+    settings = type("S", (), {"benefit_enabled": False, "notice_budget_usd": 1.0})()
+    raw = {"eventId": "e1", "payload": {"field": "STARTUP_SUPPORT", "rawPolicyId": "p1", "version": 1}}
+    assert worker.judge_message(settings, Processor(), raw, worker.RetryCounter(), why) == "dlq"
+    assert why == ["ERROR:RuntimeError"]
 
 
 def test_replay_dlq_moves_messages_back_until_limit_or_empty():

@@ -59,6 +59,7 @@ from mujuthaek_collector.sources.policy.store import PostgresPolicyStore
 from mujuthaek_collector.sources.registry import ORDER, get
 from mujuthaek_platform import broker, outbox
 from mujuthaek_platform import logging as platform_logging
+from mujuthaek_platform.slack import QuietAlerts
 
 log = logging.getLogger("mujuthaek_collector")
 TIMEZONE = "Asia/Seoul"
@@ -90,7 +91,33 @@ def collect(code: str, settings: Settings, *, recheck: bool = False) -> RunResul
         client.close()
         store.close()
     _last_results[code] = {"status": result.status, "new": result.new_count, "at": datetime.now().isoformat(timespec="seconds")}
+    alert_on_trouble(code, result)
     return result
+
+
+FAILURE_ALERT_RUNS = 3  # 같은 출처가 이만큼 연달아 실패(FAILED·BLOCKED)하면 슬랙으로 한 번 알려요
+_failure_runs: dict[str, int] = {}  # 출처별 연속 실패 수(이 프로세스 안에서만. 다시 뜨면 처음부터)
+_alerts: QuietAlerts | None = None
+
+
+def alerts() -> QuietAlerts:
+    global _alerts
+    if _alerts is None:
+        _alerts = QuietAlerts.from_env("collector")
+    return _alerts
+
+
+def alert_on_trouble(code: str, result: RunResult) -> None:
+    """연속 실패가 FAILURE_ALERT_RUNS번이 되는 순간과, 목록이 계속 비어 사이트 구조 변경이 의심될 때 운영 알림을 보내요."""
+    if result.status in ("FAILED", "BLOCKED"):
+        _failure_runs[code] = _failure_runs.get(code, 0) + 1
+        if _failure_runs[code] == FAILURE_ALERT_RUNS:
+            alerts().send(f"source.failed:{code}", f"{code} 수집이 {FAILURE_ALERT_RUNS}번 연달아 실패했어요", "\n".join(result.warnings[-3:]))
+    else:
+        _failure_runs[code] = 0
+    suspected = [w for w in result.warnings if "구조 변경 의심" in w]
+    if suspected:
+        alerts().send(f"source.structure:{code}", f"{code} 사이트 구조가 바뀐 것 같아요", "\n".join(suspected[:3]))
 
 
 def enabled_sources(settings: Settings, order: list[str] = ORDER) -> list[str]:
@@ -144,6 +171,7 @@ def collect_policy(code: str, settings: Settings, *, recheck: bool = False) -> R
         web.close()
         store.close()
     _last_results[code] = {"status": result.status, "new": result.new_count, "at": datetime.now().isoformat(timespec="seconds")}
+    alert_on_trouble(code, result)
     return result
 
 

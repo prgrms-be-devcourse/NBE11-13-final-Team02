@@ -14,6 +14,7 @@
 | `logging` | `setup(service)` | JSON 한 줄 로그. `extra` 값도 칸으로 남김 |
 | `contracts` | `validate_event(event)` | `contracts/events/<eventType>.v<schemaVersion>.json`으로 검사 (테스트용, jsonschema 필요) |
 | `slack` | `SlackNotifier.from_env(name, env_file)` · `send(text)` | 슬랙 수신 웹훅으로 글 하나 보내기. 주소는 환경 변수 → `env_file` 순서로 읽고, 없으면 보내지 않고 경고 로그 한 번. 실패는 `SlackError`, 주소는 로그·예외에 안 남김 |
+| `slack` | `QuietAlerts.from_env(service)` · `send(kind, title, detail)` | 운영 오류 알림. 같은 종류는 10분에 한 번(그동안 횟수는 다음 알림에), 머리 `[MUJUTHAEK_ENV 서비스]`, 실패해도 예외 없이 경고 로그 |
 
 ## 쓰는 법
 워커의 `pyproject.toml`에 경로로 연결해요.
