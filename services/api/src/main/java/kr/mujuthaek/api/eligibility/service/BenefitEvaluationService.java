@@ -4,6 +4,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -100,18 +101,24 @@ public class BenefitEvaluationService {
     return new BenefitJudge.Condition(c.type(), value, c.group(), c.known(), c.rawText());
   }
 
-  /** 1년에 받을 수 있는 돈: 금액이 정해진 지원만 (대출 빼고). 월 지원은 최대 12개월. */
+  /**
+   * 1년에 받을 수 있는 돈: 금액이 정해진 지원만 (대출 빼고). 월 지원은 최대 12개월.
+   *
+   * <p>같은 종류의 지원이 여러 줄이면 연차별 금액(1년차·2년차), 유형별 금액(가형·나형), 같은 지원 중복인 경우가 많아서 더하지 않고 가장 큰 것만 넣어요. 다른
+   * 종류끼리만 더해요 (2026-10-29 QA: 1~3년차 월 지원을 다 더해 1년 3,600만 원이 되던 것).
+   */
   static long annualWon(BenefitForJudgment b) {
-    long total = 0;
+    Map<String, Long> byKind = new HashMap<>();
     for (var s : b.supports()) {
       if (s.amountMaxWon() == null || LOANS.contains(s.kind())) continue;
-      total +=
+      long won =
           switch (s.amountPer() == null ? "ONCE" : s.amountPer()) {
             case "MONTH" -> s.amountMaxWon() * Math.min(s.months() == null ? 12 : s.months(), 12);
             default -> s.amountMaxWon();
           };
+      byKind.merge(s.kind(), won, Math::max);
     }
-    return total;
+    return byKind.values().stream().mapToLong(Long::longValue).sum();
   }
 
   /** 목록 한 줄. */
