@@ -14,7 +14,7 @@ import kr.mujuthaek.api.notice.domain.NoticeType;
  * @param field HOUSING(기본) · BUSINESS_SPACE
  * @param regionCodes 시군구 5자리 또는 시도 2자리. 시도 단위 5자리(xx000, 예: 11000 = 서울특별시)는 시도 2자리와 같아서 그 시도의 모든
  *     시군구 공고가 나와요
- * @param tenure RENT 빌려서 · BUY 사서 (공고 유형에서 정해요: 공공·민영 분양이 BUY)
+ * @param tenure RENT 빌려서 · BUY 사서 (공고 유형에서 정해요: 공공·민영 분양이 BUY, 나머지는 유형을 못 정한 공고까지 RENT)
  * @param statuses 비우면 마감(CLOSED)을 뺀 전부 (확인 필요 UNKNOWN 포함)
  * @param sort DEADLINE(기본) 마감 임박 · LATEST 최신
  * @param applyEndFrom 마감일이 이날 이후(이날 포함)인 공고만. 마감일을 모르는 공고는 빠져요

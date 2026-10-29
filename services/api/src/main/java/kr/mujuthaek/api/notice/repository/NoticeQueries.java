@@ -85,7 +85,8 @@ public class NoticeQueries {
       sql.append(" and notice_type in (:buy)");
       params.addValue("buy", NoticeListFilter.BUY_TYPES);
     } else if ("RENT".equals(f.tenure())) {
-      sql.append(" and notice_type is not null and notice_type not in (:buy)");
+      // 유형을 못 정한 공고(null)도 빌려서: 분양이 아니면 임대예요
+      sql.append(" and (notice_type is null or notice_type not in (:buy))");
       params.addValue("buy", NoticeListFilter.BUY_TYPES);
     }
     if (!f.noticeTypes().isEmpty()) {

@@ -68,12 +68,17 @@ class NoticeListApiTest {
     UUID suwon = f.notice(p -> NoticeFixtures.region(p, "41111"));
     UUID sale =
         f.notice(p -> ((ObjectNode) p.get("notice").get("notice")).put("supplyType", "공공분양"));
+    // 유형을 못 정한 공고는 분양이 아니니 빌려서에 나와요
+    UUID untyped =
+        f.notice(p -> ((ObjectNode) p.get("notice").get("notice")).put("supplyType", "공공기숙사"));
 
     assertThat(ids("regionCodes", "11440")).containsExactly(mapo.toString());
     assertThat(ids("regionCodes", "41")).containsExactly(suwon.toString());
     assertThat(ids("tenure", "BUY")).containsExactly(sale.toString());
     assertThat(ids("noticeTypes", "PUBLIC_SALE")).containsExactly(sale.toString());
-    assertThat(ids("tenure", "RENT")).doesNotContain(sale.toString()).contains(mapo.toString());
+    assertThat(ids("tenure", "RENT"))
+        .doesNotContain(sale.toString())
+        .contains(mapo.toString(), untyped.toString());
     assertThat(ids("statuses", "CLOSED")).isEmpty();
   }
 
