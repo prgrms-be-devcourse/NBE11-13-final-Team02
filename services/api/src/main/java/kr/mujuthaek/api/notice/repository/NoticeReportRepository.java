@@ -23,13 +23,17 @@ public class NoticeReportRepository {
           + " r.target_title) as title, r.reporter_id,"
           + " r.field, r.current_value, r.reported_value,"
           + " r.note, r.screen, r.status, r.result, r.reply, r.handled_by, r.created_at,"
-          + " r.started_at, r.handled_at, r.review_job_id, (select count(*) from notice.notice_reports g where"
-          + " g.notice_id is not distinct from r.notice_id and g.raw_policy_id is not distinct from"
-          + " r.raw_policy_id and g.benefit_policy_id is not distinct from r.benefit_policy_id"
-          + " and g.field = r.field and g.status <> 'DONE'"
+          + " r.started_at, r.handled_at, r.review_job_id,"
+          // 같은 대상·같은 칸의 열린 제보 수. 대상 종류마다 = 로 비교해 부분 인덱스(대상, field) where status <> 'DONE'을 써요
+          // (한 제보는 대상이 하나뿐이라 is not distinct from 세 개와 결과가 같아요, 2026-10-30 부하 시험: 13.7ms → 2.5ms)
+          + " case when r.notice_id is not null then (select count(*) from notice.notice_reports g"
+          + " where g.notice_id = r.notice_id and g.field = r.field and g.status <> 'DONE')"
+          + " when r.raw_policy_id is not null then (select count(*) from notice.notice_reports g"
+          + " where g.raw_policy_id = r.raw_policy_id and g.field = r.field and g.status <> 'DONE')"
+          + " when r.benefit_policy_id is not null then (select count(*) from notice.notice_reports g"
+          + " where g.benefit_policy_id = r.benefit_policy_id and g.field = r.field and g.status <> 'DONE')"
           // 일반 제보(대상 없음)는 묶지 않아요: 같은 종류라도 내용이 매번 달라요
-          + " and num_nonnulls(r.notice_id, r.raw_policy_id, r.benefit_policy_id) = 1) as"
-          + " open_in_group";
+          + " else 0 end as open_in_group";
 
   private final JdbcClient jdbc;
 
