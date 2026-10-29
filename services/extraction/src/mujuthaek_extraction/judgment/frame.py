@@ -165,6 +165,11 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
             }
             ctx.flag(membership, ["이 대상의 자격 조건을 원문에서 확인해야 해요"])
             group["criteria"].append(membership)
+    groups, folded = _fold_income_tiers(ctx, groups)
+    if folded:  # 없어진 소득 구간 대상군을 가리키던 안내·우대는 공고 전체로
+        for entry in [*notes, *preferences]:
+            if entry.get("groupId") in folded:
+                entry["groupId"] = None
     groups = [{"id": g["id"], "name": g["name"], "rank": rank_of(g["name"]), "criteria": g["criteria"]} for g in groups]
     shared = {"criteria": common}
     for group in [shared, *groups]:
@@ -183,6 +188,52 @@ def build_frame(candidate: dict[str, Any], regions: Any, spec: Spec, *, approved
         frame["preferences"] = preferences
     frame["notes"] = [*notes, *_guidance_notes(candidate)] if spec.copy_selection_notes else notes
     return _strip_private(frame)
+
+
+# 소득 구간 이름: 「월평균소득 50% 이하 및 자산·자동차 기준 충족」「월평균소득 50% 초과 ~100% 이하」「소득 70% 이하」
+INCOME_TIER_NAME = re.compile(r"소득\D{0,6}\d+(?:\.\d+)?\s*%")
+FINANCIAL_KINDS = {"INCOME", "ASSET", "CAR"}
+
+
+def _financial_only(criteria: list[dict[str, Any]]) -> bool:
+    """소득·자산·자동차 조건뿐인지(가구원 수 예외로 생긴 ANY_OF 안의 질문은 괜찮아요). 소득 조건이 하나는 있어야 해요."""
+    kinds: list[str] = []
+
+    def walk(items: list[dict[str, Any]], nested: bool) -> bool:
+        for c in items:
+            if c["kind"] == "ANY_OF":
+                if not all(walk(o["criteria"], True) for o in c["options"]):
+                    return False
+            elif c["kind"] in FINANCIAL_KINDS or (nested and c["kind"] == "ASK"):
+                kinds.append(c["kind"])
+            else:
+                return False
+        return True
+
+    return bool(criteria) and walk(criteria, False) and "INCOME" in kinds
+
+
+def _fold_income_tiers(ctx: Context, groups: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], set[str]]:
+    """소득 구간(「월평균소득 50% 이하 …」)으로 나뉜 대상군을 대상(누구) 대상군의 「이 중 하나」 조건으로 접어요.
+
+    추출은 순위·계층마다 소득 기준이 다르면 그 구간 이름을 대상군으로 적어요. 그대로 두면 구간 대상군에는 소득·자산 조건만 있어서,
+    나이·거주지가 맞지 않아도 소득만 맞으면 공고 전체가 「지원 가능」이 돼요(실측 2026-10-29 구로구 도전숙: 부산 거주 66세 세대원이
+    「월평균소득 50% 이하」 대상군으로 지원 가능). 구간은 대상이 아니라 그 대상이 갖춰야 할 소득 기준 중 하나라서,
+    순위가 없는 대상 대상군마다 「구간 중 하나」(구간이 하나면 그 조건 그대로)를 더하고 구간 대상군은 없애요.
+    「1순위 …」「2순위」처럼 순위로 나뉜 대상군만 있으면(대상 대상군이 없으면) 지금처럼 둬요.
+    (남는 대상군, 없앤 대상군 id)."""
+    tiers = [g for g in groups if g["id"] != "all" and rank_of(g["name"]) is None and INCOME_TIER_NAME.search(g["name"]) and _financial_only(g["criteria"])]
+    tier_ids = {g["id"] for g in tiers}
+    bases = [g for g in groups if g["id"] not in tier_ids and g["id"] != "all" and rank_of(g["name"]) is None]
+    if not tiers or not bases:
+        return groups, set()
+    for base in bases:
+        if len(tiers) == 1:
+            base["criteria"].extend(ctx.copy(c, base["id"]) for c in tiers[0]["criteria"])
+            continue
+        options = [{"label": tier["name"], "criteria": [ctx.copy(c, base["id"]) for c in tier["criteria"]]} for tier in tiers]
+        base["criteria"].append({**base_fields(ctx.new_id(f"{base['id']}-income-tier"), "ANY_OF", None), "options": options})
+    return [g for g in groups if g["id"] not in tier_ids], tier_ids
 
 
 # 대상 이름의 목차 표기: 「나목」「타목」「「가」군」「타.」(실측 홍성·대전 영구임대: 「1순위 나목 국가유공자 등」 ↔ 「일반공급 1순위 나목
