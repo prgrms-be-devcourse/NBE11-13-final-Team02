@@ -285,6 +285,30 @@ def test_same_value_treats_region_containment_as_same():
     assert not same_value("RESIDENCE", {"regions": ["27110"]}, {"regions": ["52"]})
 
 
+def test_homeless_needs_a_quote_about_owning_a_house_not_living_on_the_street():
+    # 2026-10-29: 「일정한 주거 없이 노숙…」(행려자·부랑인)을 무주택(HOMELESS)으로 읽어 노숙인 혜택이 무주택자 혜택이 됐어요.
+    # 근거가 주택 소유를 말하지 않으면 비우고 검수로, 주택 소유를 말하면 그대로
+    text = TEXT + "\n지원 대상: 일정한 주거 없이 노숙생활을 하는 것으로 확인된 자\n모집 대상: 관내 청년 누구나"
+    data = payload(text=text)
+
+    def build(conditions):
+        reading = BenefitReading(answer(conditions), truncated=False, model="recorded")
+        return build_payload(data, reading, rules_for("youth", data["record"], data["text"]), REGIONS)
+
+    street = build([condition("HOMELESS", "일정한 주거 없이 노숙생활을 하는 것으로 확인된 자", basis="PERSON")])
+    [row] = [c for c in street["conditions"] if c["origin"] == "AI"]
+    assert (row["type"], row["known"], row["value"]) == ("HOMELESS", False, None)
+    assert "LOW_CONFIDENCE" in street["quality"]["reviewReasons"] and street["quality"]["needsReview"] is True
+
+    # 「모집」 속 「집」은 주택 이야기가 아니에요
+    recruit = build([condition("HOMELESS", "모집 대상: 관내 청년 누구나", basis="PERSON")])
+    assert [c["known"] for c in recruit["conditions"] if c["origin"] == "AI"] == [False]
+
+    owner = build([condition("HOMELESS", "19 ~ 39세 대구시 거주 무주택 청년", basis="PERSON")])
+    [row] = [c for c in owner["conditions"] if c["origin"] == "AI" and c["type"] == "HOMELESS"]
+    assert (row["known"], row["value"]) == (True, {"basis": "PERSON"})
+
+
 def test_text_only_conditions_are_unknown_and_source_regions_are_filled():
     data = build_payload(
         payload(regionCodes=[], regionNames=["전북특별자치도 무주군"], sourceCode="gov24", provider="GOV24", record={}),
