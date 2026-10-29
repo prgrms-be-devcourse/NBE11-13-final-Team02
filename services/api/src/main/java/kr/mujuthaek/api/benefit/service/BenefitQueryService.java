@@ -46,6 +46,11 @@ public class BenefitQueryService {
    * 수집 정책 ID(rawPolicyId)로 혜택 하나의 요약 (알림 담당: BenefitReportAnswered의 policyId가 이 ID라서). 숨김도 줘요. 없으면
    * 빈 값
    */
+  /** 혜택 ID의 정책 원본 ID (제보·검수는 원본 ID로 다뤄요). 혜택 ID가 아니면 비어 있어요 */
+  public Optional<UUID> findRawPolicyId(UUID benefitId) {
+    return benefits.rawPolicyId(benefitId);
+  }
+
   public Optional<BenefitSummary> findSummaryByRawPolicyId(UUID rawPolicyId) {
     return benefits.summaryByRawPolicyId(rawPolicyId).map(BenefitQueryService::toSummary);
   }

@@ -37,13 +37,15 @@ class NoticeReportServiceTest {
 
   private final NoticeApiFixture fixture = new NoticeApiFixture();
   private final List<Object> events = new ArrayList<>();
+  private final kr.mujuthaek.api.benefit.service.BenefitQueryService benefits =
+      org.mockito.Mockito.mock(kr.mujuthaek.api.benefit.service.BenefitQueryService.class);
   private final NoticeReportService service =
       new NoticeReportService(
           new NoticeReportRepository(JdbcClient.create(fixture.jdbc)),
           reviewClient(),
           events::add,
           Clock.fixed(Instant.parse("2026-10-25T03:00:00Z"), ZoneId.of("Asia/Seoul")),
-          org.mockito.Mockito.mock(kr.mujuthaek.api.benefit.service.BenefitQueryService.class));
+          benefits);
 
   private MockRestServiceServer reviewServer;
 
@@ -77,6 +79,68 @@ class NoticeReportServiceTest {
     assertThat(detail.report().noticeId()).isEqualTo(notice);
     assertThat(detail.notes()).extracting(n -> n.text()).containsExactly("정정 공고에 2,600만 원");
     assertThat(service.list("NEW").items()).extracting(i -> i.id()).contains(first);
+  }
+
+  @Test
+  void generalReportsAreNotGroupedAndAnsweredWithoutTarget() {
+    UUID a = UUID.randomUUID();
+    UUID b = UUID.randomUUID();
+    var first =
+        service.reportGeneral(
+            new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+                "MISSING_NOTICE", "마포구 청년주택 공고가 없어요", "검색", null),
+            a.toString());
+    service.reportGeneral(
+        new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+            "MISSING_NOTICE", "다른 공고도 빠졌어요", "검색", null),
+        b.toString());
+    // 같은 사람이 같은 종류를 또 보내도 돼요 (내용이 매번 달라요)
+    service.reportGeneral(
+        new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+            "MISSING_NOTICE", "하나 더", null, null),
+        a.toString());
+
+    var detail = service.detail(first.id());
+    assertThat(detail.report().targetType()).isEqualTo("GENERAL");
+    assertThat(detail.report().groupCount()).isEqualTo(1); // 같은 종류끼리 묶지 않아요
+    assertThat(detail.notes()).isEmpty();
+    assertThatThrownBy(() -> service.openReview(first.id(), "admin-1"))
+        .isInstanceOfSatisfying(
+            CustomException.class, e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.CONFLICT));
+
+    service.resolve(
+        first.id(), new AdminReportResolveRequest(Result.FIXED, "공고를 더했어요", null), "admin-1");
+    // 묶음 처리(group 기본값)여도 다른 사람의 일반 제보는 그대로예요
+    assertThat(events)
+        .singleElement()
+        .isInstanceOfSatisfying(
+            kr.mujuthaek.api.common.event.GeneralReportAnswered.class,
+            e -> assertThat(e.reporterId()).isEqualTo(a));
+    assertThat(service.list("NEW").items())
+        .filteredOn(i -> "GENERAL".equals(i.targetType()))
+        .hasSize(2);
+  }
+
+  @Test
+  void generalReportNeedsKnownKindNoteAndLogin() {
+    assertThatThrownBy(
+            () ->
+                service.reportGeneral(
+                    new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+                        "HELLO", "내용", null, null),
+                    UUID.randomUUID().toString()))
+        .isInstanceOfSatisfying(
+            CustomException.class,
+            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.VALIDATION_FAILED));
+    assertThatThrownBy(
+            () ->
+                service.reportGeneral(
+                    new kr.mujuthaek.api.notice.dto.request.GeneralReportRequest(
+                        "ETC", "내용", null, null),
+                    null))
+        .isInstanceOfSatisfying(
+            CustomException.class,
+            e -> assertThat(e.errorCode()).isEqualTo(ErrorCode.UNAUTHENTICATED));
   }
 
   @Test
@@ -251,7 +315,11 @@ class NoticeReportServiceTest {
         .andRespond(withStatus(HttpStatus.NOT_FOUND));
 
     UUID reporter = UUID.randomUUID();
-    UUID id = service.reportBenefit(policy, deposit("공고문 3쪽"), reporter.toString()).id();
+    // 혜택 화면은 혜택 ID를 써요: 원본 정책 ID로 바꿔 받아요
+    UUID benefitId = UUID.randomUUID();
+    org.mockito.Mockito.when(benefits.findRawPolicyId(benefitId))
+        .thenReturn(java.util.Optional.of(policy));
+    UUID id = service.reportBenefit(benefitId, deposit("공고문 3쪽"), reporter.toString()).id();
 
     var detail = service.detail(id);
     assertThat(detail.report().targetType()).isEqualTo("BENEFIT");

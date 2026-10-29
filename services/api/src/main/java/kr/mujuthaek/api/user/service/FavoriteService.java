@@ -2,7 +2,9 @@ package kr.mujuthaek.api.user.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.api.benefit.service.BenefitQueryService;
 import kr.mujuthaek.api.benefit.service.BenefitSummary;
@@ -11,11 +13,13 @@ import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.pagination.CursorKey;
 import kr.mujuthaek.api.common.pagination.CursorQuery;
+import kr.mujuthaek.api.common.text.ScreenPaths;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.NoticeSummary;
 import kr.mujuthaek.api.notice.service.PolicySummary;
 import kr.mujuthaek.api.user.dto.response.FavoriteResponse;
 import kr.mujuthaek.api.user.repository.FavoriteRepository;
+import kr.mujuthaek.api.user.repository.FavoriteRepository.Favorite;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -85,11 +89,77 @@ public class FavoriteService {
       }
       afterId = query.after().id();
     }
+    List<Favorite> rows = favorites.page(userId, type, afterAt, afterId, query.fetchSize());
+    Map<UUID, NoticeSummary> noticeSummaries =
+        notices.findSummaries(
+            rows.stream()
+                .filter(f -> "NOTICE".equals(f.targetType()))
+                .map(Favorite::targetId)
+                .toList());
     return CursorPageResponse.from(
-        favorites.page(userId, type, afterAt, afterId, query.fetchSize()),
+        rows,
         query.size(),
-        f -> new FavoriteResponse(f.targetType(), f.targetId(), f.createdAt()),
+        f -> response(f, noticeSummaries),
         f -> CursorKey.of(sort, f.createdAt(), f.targetId()));
+  }
+
+  /** 목록 한 줄: 대상의 제목·기관·상태·신청 기간을 그 모듈 조회 메서드로 채워요. 대상이 사라졌으면 제목 없이 */
+  private FavoriteResponse response(Favorite f, Map<UUID, NoticeSummary> noticeSummaries) {
+    UUID id = f.targetId();
+    return switch (f.targetType()) {
+      case "NOTICE" -> {
+        NoticeSummary n = noticeSummaries.get(id);
+        yield n == null
+            ? empty(f, ScreenPaths.of("NOTICE", id))
+            : new FavoriteResponse(
+                f.targetType(),
+                id,
+                f.createdAt(),
+                n.title(),
+                n.provider(),
+                n.status(),
+                n.applyStart(),
+                n.applyEnd(),
+                ScreenPaths.notice(id, n.field()));
+      }
+      case "BENEFIT" ->
+          benefits
+              .findSummary(id)
+              .map(
+                  b ->
+                      new FavoriteResponse(
+                          f.targetType(),
+                          id,
+                          f.createdAt(),
+                          b.title(),
+                          b.agency(),
+                          b.status(),
+                          b.applyStart(),
+                          b.applyEnd(),
+                          ScreenPaths.of("BENEFIT", id)))
+              .orElseGet(() -> empty(f, ScreenPaths.of("BENEFIT", id)));
+      default ->
+          notices
+              .findPolicySummary(id)
+              .map(
+                  p ->
+                      new FavoriteResponse(
+                          f.targetType(),
+                          id,
+                          f.createdAt(),
+                          p.title(),
+                          p.organization(),
+                          p.status(),
+                          p.applyStart(),
+                          p.applyEnd(),
+                          ScreenPaths.of(f.targetType(), id)))
+              .orElseGet(() -> empty(f, ScreenPaths.of(f.targetType(), id)));
+    };
+  }
+
+  private static FavoriteResponse empty(Favorite f, String linkPath) {
+    return new FavoriteResponse(
+        f.targetType(), f.targetId(), f.createdAt(), null, null, null, null, null, linkPath);
   }
 
   private UUID resolve(String type, UUID id) {

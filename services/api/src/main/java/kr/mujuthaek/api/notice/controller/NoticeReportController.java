@@ -3,6 +3,7 @@ package kr.mujuthaek.api.notice.controller;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.UUID;
+import kr.mujuthaek.api.notice.dto.request.GeneralReportRequest;
 import kr.mujuthaek.api.notice.dto.request.NoticeReportRequest;
 import kr.mujuthaek.api.notice.dto.response.NoticeReportCreatedResponse;
 import kr.mujuthaek.api.notice.service.internal.NoticeReportService;
@@ -38,6 +39,13 @@ class NoticeReportController {
   NoticeReportCreatedResponse reportBenefit(
       @PathVariable UUID id, @Valid @RequestBody NoticeReportRequest request, Principal principal) {
     return reports.reportBenefit(id, request, principal == null ? null : principal.getName());
+  }
+
+  /** 일반 제보 (로그인한 회원만): 공고·혜택·사업에 묶이지 않은 제보. field는 MISSING_NOTICE · WRONG_INFO · APP_ERROR · ETC */
+  @PostMapping("/api/v1/reports")
+  NoticeReportCreatedResponse reportGeneral(
+      @Valid @RequestBody GeneralReportRequest request, Principal principal) {
+    return reports.reportGeneral(request, principal == null ? null : principal.getName());
   }
 
   @PostMapping("/api/v1/notices/{id}/reports")

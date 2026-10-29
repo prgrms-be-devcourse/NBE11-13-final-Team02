@@ -1179,13 +1179,54 @@
         }
       }
     },
+    "/api/v1/reports": {
+      "post": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "reportGeneral",
+        "summary": "일반 제보 (로그인 회원)",
+        "description": "공고·혜택·사업에 묶이지 않은 제보(빠진 공고·정책, 틀린 정보, 화면 오류, 기타). 같은 종류끼리 묶지 않아요. 답은 알림함에만 남아요.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GeneralReportRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "받은 제보",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoticeReportCreated"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/LoginRequired"
+          },
+          "429": {
+            "$ref": "#/components/responses/ReportRateLimited"
+          }
+        }
+      }
+    },
     "/api/v1/programs/{id}/reports": {
       "post": {
         "tags": [
           "notice-report"
         ],
         "operationId": "reportProgram",
-        "summary": "창업지원 사업 제보 (로그인 회원)",
+        "summary": "창업지원 사업·사업공간 모집 제보 (로그인 회원)",
         "description": "id는 판정 API의 programId(rawPolicyId)와 같아요. 판정 틀이 있는 사업에만 받아요.",
         "parameters": [
           {
@@ -1610,7 +1651,7 @@
         ],
         "operationId": "reportBenefit",
         "summary": "주거·복지 정책(혜택) 제보 (로그인한 회원)",
-        "description": "혜택 정책의 틀린 값을 알려요. id는 정책 원본 ID(policy.extracted의 rawPolicyId)이고, 추출 서비스에 정제 결과가 있는 정책에만 받아요. 관리자 「고치기」는 혜택 검수(/api/admin/benefit-reviews)로 이어지고, 답은 BenefitReportAnswered 이벤트로 알림 쪽에 가요. 하루 20건까지.",
+        "description": "혜택 정책의 틀린 값을 알려요. id는 정책 원본 ID(policy.extracted의 rawPolicyId)이고, 추출 서비스에 정제 결과가 있는 정책에만 받아요. 관리자 「고치기」는 혜택 검수(/api/admin/benefit-reviews)로 이어지고, 답은 BenefitReportAnswered 이벤트로 알림 쪽에 가요. 하루 20건까지. id는 혜택 ID도 받아요(정책 원본 ID로 바꿔요).",
         "parameters": [
           {
             "name": "id",
@@ -4176,9 +4217,10 @@
             "enum": [
               "NOTICE",
               "PROGRAM",
-              "BENEFIT"
+              "BENEFIT",
+              "GENERAL"
             ],
-            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업 제보 · BENEFIT 주거·복지 정책(혜택) 제보"
+            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업·사업공간 모집 제보 · BENEFIT 주거·복지 정책(혜택) 제보 · GENERAL 일반 제보(대상 없음)"
           },
           "noticeId": {
             "type": [
@@ -4197,8 +4239,11 @@
             "description": "사업 제보면 창업지원 사업 ID(rawPolicyId) (공고면 null)"
           },
           "noticeTitle": {
-            "type": "string",
-            "description": "공고 제목이나 사업 이름"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "공고 제목이나 사업 이름. 일반 제보는 null"
           },
           "field": {
             "type": "string"
@@ -5369,6 +5414,48 @@
           },
           "counts": {
             "$ref": "#/components/schemas/AdminPolicyDuplicateCounts"
+          }
+        }
+      },
+      "GeneralReportRequest": {
+        "type": "object",
+        "description": "일반 제보: 공고·혜택·사업에 묶이지 않은 제보. 소득·자산 같은 개인 정보는 받지 않음",
+        "required": [
+          "field",
+          "note"
+        ],
+        "properties": {
+          "field": {
+            "type": "string",
+            "enum": [
+              "MISSING_NOTICE",
+              "WRONG_INFO",
+              "APP_ERROR",
+              "ETC"
+            ],
+            "description": "종류: MISSING_NOTICE 빠진 공고·정책 · WRONG_INFO 틀린 정보 · APP_ERROR 화면 오류 · ETC 기타"
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "내용"
+          },
+          "screen": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 50,
+            "description": "제보한 화면"
+          },
+          "currentValue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 200,
+            "description": "화면에 보인 값이나 오류 코드"
           }
         }
       }

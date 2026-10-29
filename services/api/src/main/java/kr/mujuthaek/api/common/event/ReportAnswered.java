@@ -9,7 +9,11 @@ import java.util.UUID;
  * <p>답이 있을 때만, 제보한 회원마다 한 번 나가요. 이미 처리한 제보는 다시 처리할 수 없어서(409) 같은 제보로 두 번 나가지 않아요.
  */
 public sealed interface ReportAnswered
-    permits NoticeReportAnswered, BenefitReportAnswered, ProgramReportAnswered, AreaReportAnswered {
+    permits NoticeReportAnswered,
+        BenefitReportAnswered,
+        ProgramReportAnswered,
+        AreaReportAnswered,
+        GeneralReportAnswered {
 
   /** 제보 ID (UUID v7). 생활권 제보는 다른 표라 공고·혜택·사업 제보와 ID가 겹칠 수 있으니 종류와 함께 써요 */
   UUID reportId();

@@ -4,9 +4,11 @@ import jakarta.validation.Valid;
 import java.util.Locale;
 import kr.mujuthaek.api.user.dto.request.ContactEmailRequest;
 import kr.mujuthaek.api.user.dto.response.MeResponse;
+import kr.mujuthaek.api.user.dto.response.MyReportsResponse;
 import kr.mujuthaek.api.user.dto.response.WithdrawalResponse;
 import kr.mujuthaek.api.user.service.ContactEmailService;
 import kr.mujuthaek.api.user.service.LoginUser;
+import kr.mujuthaek.api.user.service.MyReportService;
 import kr.mujuthaek.api.user.service.UserService;
 import kr.mujuthaek.api.user.service.WithdrawalService;
 import kr.mujuthaek.api.user.service.WithdrawalStart;
@@ -29,14 +31,17 @@ class UserController {
   private final UserService userService;
   private final WithdrawalService withdrawalService;
   private final ContactEmailService contactEmails;
+  private final MyReportService myReports;
 
   UserController(
       UserService userService,
       WithdrawalService withdrawalService,
-      ContactEmailService contactEmails) {
+      ContactEmailService contactEmails,
+      MyReportService myReports) {
     this.userService = userService;
     this.withdrawalService = withdrawalService;
     this.contactEmails = contactEmails;
+    this.myReports = myReports;
   }
 
   /**
@@ -63,6 +68,12 @@ class UserController {
   @GetMapping("/me")
   MeResponse me(@AuthenticationPrincipal LoginUser user) {
     return userService.getMe(user.userId());
+  }
+
+  /** 내 제보 (공고·혜택·창업지원 사업·생활권·일반 제보, 최근 100건) — 처리 상태·결과·답 */
+  @GetMapping("/me/reports")
+  MyReportsResponse myReports(@AuthenticationPrincipal LoginUser user) {
+    return new MyReportsResponse(myReports.mine(user.userId()));
   }
 
   /** 연락용 이메일 등록·변경 (선택, 가입 마무리 화면·마이페이지). 주소는 {@code GET /me}의 email로 확인해요 */
