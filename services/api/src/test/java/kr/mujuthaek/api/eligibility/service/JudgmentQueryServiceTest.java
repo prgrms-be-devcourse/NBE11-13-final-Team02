@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -102,6 +103,30 @@ class JudgmentQueryServiceTest {
         .contains("household.monthlyIncomeWon", "birthDate");
     assertThat(result.questions().getFirst().answer()).isNull();
     assertThat(result.questions().getFirst().purpose()).isEqualTo("ELIGIBILITY");
+  }
+
+  @Test
+  void eachUndecidedCriterionSaysWhichInputWouldDecideIt() throws Exception {
+    // 2026-10-29 QA: 검수 중이라 확인 필요인 조건에도 화면이 「입력」을 붙였어요. 주거·혜택처럼 조건마다 needs를 줘요
+    JsonNode frame =
+        JSON.readTree(
+            """
+            {"schema":"business-space-judgment.v1","rawPostId":"p","rawVersion":1,"referenceDate":"2026-10-28",
+             "common":[
+               {"id":"age","kind":"AGE","quote":null,"page":null,"inReview":false,"reviewReason":null,"minAge":19,"maxAge":49},
+               {"id":"reviewing","kind":"AGE","quote":null,"page":null,"inReview":true,"reviewReason":"표기가 두 가지","minAge":19,"maxAge":49},
+               {"id":"branch","kind":"ASK","quote":null,"page":null,"inReview":false,"reviewReason":null,"question":"지사로 입주하나요?","metWhen":"NO"}],
+             "groups":[{"id":"all","name":"전체","criteria":[]}],"preferences":[],"notes":[]}""");
+
+    JudgmentResult empty = judgments.judgeBusinessSpace(frame, null, null);
+    assertThat(empty.common())
+        .extracting(JudgmentResult.Criterion::needs)
+        .containsExactly(List.of("birthDate"), List.of(), List.of()); // 검수 중·질문은 넣을 입력이 없어요
+
+    JudgmentResult born =
+        judgments.judgeBusinessSpace(frame, applicant("{\"birthDate\": \"1992-07-15\"}"), null);
+    assertThat(born.common().getFirst().result()).isEqualTo(Verdict.MET);
+    assertThat(born.common()).extracting(JudgmentResult.Criterion::needs).allMatch(List::isEmpty);
   }
 
   @Test
