@@ -40,9 +40,9 @@ class BenefitSearchApiTest {
 
   @org.junit.jupiter.api.BeforeEach
   void onlyThisTestsRegion() {
-    // 전국 혜택은 어느 지역 검색에도 나와서, 다른 테스트가 만든 전국 혜택을 숨겨요 (개수 비교용)
-    f.jdbc.update(
-        "update benefit.benefits set status = 'HIDDEN' where region_scope = 'NATIONWIDE'");
+    // 전국·시도·지역 모름(UNKNOWN, 확인 필요로 어디에나 나옴) 혜택은 이 테스트의 시군구 검색에도 섞여 개수가 바뀌어요.
+    // 다른 테스트가 만든 것까지 숨겨요 (테스트 순서에 따라 가끔 categoryCounts가 1 많던 문제)
+    f.jdbc.update("update benefit.benefits set status = 'HIDDEN' where region_scope <> 'SIGUNGU'");
   }
 
   /** 이 시군구만 대상인 혜택 (나이 조건 하나 + 월 20만 원 12개월). */
