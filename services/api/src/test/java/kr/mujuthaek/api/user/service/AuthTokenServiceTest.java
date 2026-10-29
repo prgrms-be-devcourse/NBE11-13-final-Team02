@@ -59,24 +59,69 @@ class AuthTokenServiceTest {
   }
 
   @Test
-  void concurrentRefreshLoserGetsConflictNotServerError() {
-    // 두 요청이 같은 쿠키로 동시에 찾기를 통과하고, 먼저 온 쪽이 지운 뒤라 늦은 쪽의 삭제가 0줄인 경우
+  void concurrentRefreshLoserAlsoGetsTokens() {
+    // 두 요청이 같은 쿠키로 동시에 찾기를 통과하고, 먼저 온 쪽이 바꾼 시각을 적어 늦은 쪽의 표시가 0줄인 경우.
+    // 예전에는 409로 끝나 프론트가 로그아웃으로 봤어요. 지금은 늦은 쪽도 새 토큰을 받아요(2026-10-29)
+    LoginUser user = login("3010");
+    users.flush();
     var repo = org.mockito.Mockito.mock(RefreshTokenRepository.class);
     var saved =
         new kr.mujuthaek.api.user.domain.RefreshToken(
-            java.util.UUID.randomUUID(),
+            user.userId(),
             AuthTokenService.hash("raw"),
             Instant.now().plus(Duration.ofDays(1)),
             Instant.now());
     org.mockito.Mockito.when(repo.findByTokenHash(AuthTokenService.hash("raw")))
         .thenReturn(java.util.Optional.of(saved));
-    org.mockito.Mockito.when(repo.deleteByTokenHash(AuthTokenService.hash("raw"))).thenReturn(0);
+    org.mockito.Mockito.when(
+            repo.markRotated(
+                org.mockito.ArgumentMatchers.eq(AuthTokenService.hash("raw")),
+                org.mockito.ArgumentMatchers.any()))
+        .thenReturn(0);
     var service = new AuthTokenService(jwtEncoder, props, repo, users, admins, Clock.systemUTC());
 
-    assertThatThrownBy(() -> service.refresh("raw"))
+    var pair = service.refresh("raw");
+
+    assertThat(pair.accessToken()).isNotBlank();
+    assertThat(pair.refreshToken()).isNotEqualTo("raw");
+  }
+
+  @Test
+  void rotatedRefreshTokenIsAcceptedOnlyWithinGrace() {
+    // 새로고침 연타·탭 여러 개: 바꾼 옛 쿠키가 잠깐 뒤에 또 와도 로그아웃되지 않아요. 30초가 지나면 받지 않아요
+    LoginUser user = login("3011");
+    Instant t0 = Instant.now();
+    String raw = at(t0).issue(user).refreshToken();
+
+    String first = at(t0).refresh(raw).refreshToken();
+    var late = at(t0.plusSeconds(10)).refresh(raw);
+
+    assertThat(late.refreshToken()).isNotEqualTo(first).isNotEqualTo(raw);
+    assertThat(at(t0.plusSeconds(10)).refresh(first).accessToken())
+        .isNotBlank(); // 먼저 받은 새 값도 그대로 써요
+    assertThatThrownBy(
+            () -> at(t0.plus(AuthTokenService.ROTATED_GRACE).plusSeconds(1)).refresh(raw))
         .isInstanceOf(CustomException.class)
         .extracting(e -> ((CustomException) e).errorCode())
-        .isEqualTo(ErrorCode.CONFLICT);
+        .isEqualTo(ErrorCode.INVALID_REFRESH_TOKEN);
+  }
+
+  @Test
+  void cleanupDeletesRotatedTokensPastGraceButKeepsFreshOnes() {
+    LoginUser user = login("3012");
+    Instant t0 = Instant.now();
+    String raw = at(t0).issue(user).refreshToken();
+    String fresh = at(t0).refresh(raw).refreshToken();
+
+    at(t0.plus(AuthTokenService.ROTATED_GRACE).plusSeconds(1)).deleteExpired();
+
+    assertThat(refreshTokens.findByTokenHash(AuthTokenService.hash(raw))).isEmpty();
+    assertThat(refreshTokens.findByTokenHash(AuthTokenService.hash(fresh))).isPresent();
+  }
+
+  private AuthTokenService at(Instant now) {
+    return new AuthTokenService(
+        jwtEncoder, props, refreshTokens, users, admins, Clock.fixed(now, ZoneOffset.UTC));
   }
 
   @Test
@@ -107,8 +152,7 @@ class AuthTokenServiceTest {
 
     assertThat(jwtDecoder.decode(pair.accessToken()).getClaimAsString(AuthTokenService.ROLE_CLAIM))
         .isEqualTo("ADMIN");
-    assertThatThrownBy(() -> tokens.refresh(raw))
-        .isInstanceOf(CustomException.class); // 회전: 쓴 값은 지워요
+    assertThat(pair.refreshToken()).isNotEqualTo(raw); // 회전: 새 값으로 바꿔요
   }
 
   @Test

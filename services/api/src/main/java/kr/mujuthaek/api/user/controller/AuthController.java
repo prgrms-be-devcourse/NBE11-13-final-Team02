@@ -39,7 +39,8 @@ class AuthController {
     try {
       pair = tokens.refresh(raw);
     } catch (CustomException e) {
-      // 쿠키가 없어졌거나 만료됐을 때만 지워요. 동시 재발급에서 늦은 요청(409)이 지우면 먼저 온 요청이 받은 새 쿠키까지 지워져요
+      // 쿠키가 없어졌거나 만료됐을 때만 지워요(정지 등 다른 오류로 지우면 먼저 온 요청이 받은 새 쿠키까지 지워져요).
+      // 바꾼 지 얼마 안 된 옛 쿠키는 401이 아니라 새 토큰을 받아요(AuthTokenService.ROTATED_GRACE)
       if (e.errorCode() == ErrorCode.INVALID_REFRESH_TOKEN) {
         cookies.clear(response);
       }

@@ -29,6 +29,9 @@ public class RefreshToken {
   @Column(nullable = false)
   private Instant createdAt;
 
+  /** 로그인 연장으로 새 값으로 바꾼 시각. 바꾼 뒤 잠깐은 같은 값도 받아 줘요(AuthTokenService.ROTATED_GRACE). */
+  private Instant rotatedAt;
+
   protected RefreshToken() {}
 
   public RefreshToken(UUID userId, String tokenHash, Instant expiresAt, Instant now) {
@@ -44,5 +47,9 @@ public class RefreshToken {
 
   public UUID getUserId() {
     return userId;
+  }
+
+  public Instant getRotatedAt() {
+    return rotatedAt;
   }
 }
