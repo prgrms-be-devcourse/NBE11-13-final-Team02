@@ -52,7 +52,7 @@ public sealed interface Criterion {
    * @param id 틀 안에서 유일한 ID. 질문(ASK)의 답도 이 ID로 받아요
    * @param quote 근거 원문
    * @param page 근거 쪽
-   * @param inReview 가공하면서 확신이 없었던 조건. 계산하지 않고 확인 필요로 둬요
+   * @param inReview 가공하면서 확신이 없었던 조건. 계산해서 불충족이면 그대로, 아니면 확인 필요로 둬요
    * @param asOf 이 조건만 기준일이 다를 때 그 날짜 (창업지원 틀). 없으면 틀의 referenceDate
    */
   record Meta(

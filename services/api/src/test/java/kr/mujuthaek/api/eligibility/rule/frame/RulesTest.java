@@ -468,6 +468,22 @@ class RulesTest {
         .containsExactly(Input.APPLICANT_TYPE);
   }
 
+  @Test
+  void inReviewHoldsBackMetButKeepsNotMet() {
+    Criterion.Age reviewing =
+        new Criterion.Age(new Meta("youth-age", null, null, true, "나이 표기가 두 가지", null), 19, 39);
+    FrameJudge judge =
+        new FrameJudge(
+            (k, y, p, s) -> OptionalLong.empty(), (d, region, area) -> OptionalLong.empty());
+    var met = judge.evaluate(reviewing, bornIn("1987-09"), DAY);
+    assertThat(met.verdict()).isEqualTo(Verdict.UNKNOWN);
+    assertThat(met.reason()).isNull();
+    assertThat(met.missing()).isEmpty();
+    // 만 40세: 검수 중이어도 불충족 그대로
+    assertThat(judge.evaluate(reviewing, bornIn("1986-09"), DAY).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+  }
+
   // ── 공고 단위 ──
 
   @Test

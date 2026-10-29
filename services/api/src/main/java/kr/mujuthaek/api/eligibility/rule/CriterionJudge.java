@@ -30,8 +30,8 @@ import kr.mujuthaek.api.eligibility.rule.Judgment.WelfareStatus;
 /**
  * 판정 틀의 조건 하나를 판정해요 (MET · NOT_MET · UNKNOWN).
  *
- * <p>입력이 비었거나, 검수 중(inReview)이거나, 지금 입력 칸으로는 알 수 없는 조건(거주 기간, 청약 예치금, 부모 소득 …)은 UNKNOWN이고 이유와 필요한
- * 입력(needs)을 같이 줘요. 사용자가 보낸 값은 결과에 넣지 않아요.
+ * <p>입력이 비었거나, 검수 중(inReview)인데 불충족이 아니거나, 지금 입력 칸으로는 알 수 없는 조건(거주 기간, 청약 예치금, 부모 소득 …)은 UNKNOWN이고
+ * 이유와 필요한 입력(needs)을 같이 줘요. 사용자가 보낸 값은 결과에 넣지 않아요.
  */
 public final class CriterionJudge {
 
@@ -81,8 +81,9 @@ public final class CriterionJudge {
           case AnyOf x -> anyOf(x, a, referenceDate, benchmarks);
           case Ask x -> item(x, "ASK", x.question(), UNKNOWN, x.question(), List.of(), null, null);
         };
-    if (c.basics().inReview()) {
-      // 확인 필요로만 둬요. 검수 이유(reviewReason)는 관리자용 설명이라 회원 화면에 문구로 보이지 않게 해요(2026-10-29 QA)
+    if (c.basics().inReview() && item.status() != NOT_MET) {
+      // 검수 중이면 충족을 확인 필요로 낮춰요. 입력만으로 걸리는 불충족(집 있음, 나이 초과 …)은 그대로 둬요 (2026-10-29 QA).
+      // 검수 이유(reviewReason)는 관리자용 설명이라 회원 화면에 문구로 보이지 않게 해요(2026-10-29 QA)
       return withStatus(item, UNKNOWN, null, List.of());
     }
     return item;

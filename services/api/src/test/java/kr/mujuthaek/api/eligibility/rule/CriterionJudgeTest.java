@@ -357,7 +357,7 @@ class CriterionJudgeTest {
   }
 
   @Test
-  void askAndInReviewAreAlwaysToBeChecked() {
+  void askIsAlwaysToBeCheckedAndInReviewOnlyHoldsBackMet() {
     Item ask = judge(new Judgment.Ask(B, "예술인임을 증명할 수 있나요?", "YES"), Applicant.empty());
     assertThat(ask.status()).isEqualTo(UNKNOWN);
     assertThat(ask.reason()).isEqualTo("예술인임을 증명할 수 있나요?");
@@ -367,6 +367,14 @@ class CriterionJudgeTest {
     assertThat(item.status()).isEqualTo(UNKNOWN);
     assertThat(item.reason()).isNull(); // 검수 이유는 관리자용이라 회원 화면 문구로 내보내지 않아요
     assertThat(item.evidence()).isNull();
+    // 검수 중이어도 입력만으로 걸리면 불충족 그대로 (2026-10-29 QA: 집 있는 사람이 무주택 조건에서 확인 필요로 남던 것)
+    Item over = judge(reviewing, applicant().birthMonth(1980, 3).build());
+    assertThat(over.status()).isEqualTo(NOT_MET);
+    assertThat(over.reason()).isEqualTo("나이 기준에 맞지 않아요");
+    // 입력이 없으면 지금처럼 확인 필요이고 입력을 따로 묻지 않아요
+    Item empty = judge(reviewing, Applicant.empty());
+    assertThat(empty.status()).isEqualTo(UNKNOWN);
+    assertThat(empty.needs()).isEmpty();
   }
 
   @Test
