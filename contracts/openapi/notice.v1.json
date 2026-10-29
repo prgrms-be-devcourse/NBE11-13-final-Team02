@@ -385,6 +385,80 @@
         }
       }
     },
+    "/api/admin/reviews/queue": {
+      "get": {
+        "tags": [
+          "admin-review"
+        ],
+        "operationId": "pageAdminReviewQueue",
+        "summary": "검수 대기열 한 페이지 (공고·혜택 검수를 들어온 시각 순으로, 무한 스크롤)",
+        "description": "kinds에 적은 종류마다 그 검수 권한(NOTICE_REVIEW·BENEFIT_REVIEW)이 있어야 해요. 다음 페이지는 응답의 nextCursor를 cursor로 보내요.",
+        "parameters": [
+          {
+            "name": "kinds",
+            "in": "query",
+            "required": false,
+            "description": "NOTICE·BENEFIT를 쉼표로 (없으면 둘 다)",
+            "schema": {
+              "type": "string",
+              "example": "NOTICE,BENEFIT"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/AdminReviewReason"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "앞 페이지의 nextCursor (없으면 처음부터)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "대기열 한 페이지",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReviewQueue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "503": {
+            "$ref": "#/components/responses/ReviewUnavailable"
+          }
+        }
+      }
+    },
     "/api/admin/reviews/counts": {
       "get": {
         "tags": [
@@ -3625,6 +3699,83 @@
             "items": {
               "$ref": "#/components/schemas/AdminReviewItem"
             }
+          }
+        }
+      },
+      "AdminReviewQueue": {
+        "type": "object",
+        "required": [
+          "total",
+          "items"
+        ],
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "이 조건(사유)의 대기 건수. 첫 페이지(cursor 없이)에서만 정확해요"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "kind",
+                "id",
+                "reason"
+              ],
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "NOTICE",
+                    "BENEFIT"
+                  ],
+                  "description": "NOTICE 공고 검수 · BENEFIT 혜택 검수"
+                },
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "검수 ID (상세·승인·반려)"
+                },
+                "reason": {
+                  "$ref": "#/components/schemas/AdminReviewReason"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sourceCode": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "수집 출처 코드"
+                },
+                "rawVersion": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                },
+                "queuedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "format": "date-time",
+                  "description": "검수 대기에 들어온 시각"
+                }
+              }
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "다음 페이지를 받을 값 (더 없으면 null)"
           }
         }
       },
