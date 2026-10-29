@@ -33,7 +33,6 @@ public record MatchResult(String field, Counts counts, List<Item> items) {
    * @param reason 판정 틀이 없어 확인 필요면 CONDITIONS_NOT_READY, 아니면 null
    * @param groups 지원 가능이면 충족한 대상군, 확인 필요면 될 수도 있는 대상군 (이름)
    * @param missingInputs 확인 필요일 때 넣으면 결과가 정해질 수 있는 입력
-   * @param openQuestions 확인 필요일 때 답하지 않은 자격 질문 수 (상세에서 물어요)
    */
   public record Item(
       UUID noticeId,
@@ -48,6 +47,5 @@ public record MatchResult(String field, Counts counts, List<Item> items) {
       Integer rank,
       String reason,
       List<String> groups,
-      List<MissingInput> missingInputs,
-      int openQuestions) {}
+      List<MissingInput> missingInputs) {}
 }

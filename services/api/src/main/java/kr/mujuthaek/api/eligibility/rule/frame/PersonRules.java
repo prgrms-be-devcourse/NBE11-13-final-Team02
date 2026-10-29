@@ -221,7 +221,8 @@ final class PersonRules {
   static Evaluation ask(Ask c, Applicant a) {
     Answer answer = a.answers().get(c.id());
     if (answer == null) {
-      return Evaluation.unknown(c, c.question(), "질문에 답하지 않았어요");
+      // 화면은 공고마다 묻는 예/아니요 답을 보내지 않아요 (2026-10-29 결정). 드문 조건이라 원문을 보게 해요
+      return Evaluation.unknown(c, c.question(), "원문 조건을 확인해 주세요");
     }
     return Evaluation.decided(c, answer == c.metWhen(), c.question());
   }

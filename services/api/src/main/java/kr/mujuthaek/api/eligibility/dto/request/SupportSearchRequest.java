@@ -6,22 +6,18 @@ import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import java.util.List;
-import java.util.Map;
-import java.util.UUID;
-import kr.mujuthaek.api.eligibility.rule.frame.Answer;
 
 /**
- * 사업 지원(창업지원 사업) 맞춤 목록 요청 (POST /supports/search). 판정 입력이 섞여서 POST예요.
+ * 사업 지원(창업지원 사업) 맞춤 목록 요청 (POST /supports/search). 판정 입력이 섞여서 POST예요. 공고마다 묻는 예/아니요 답은 받지 않아요
+ * (2026-10-29 결정).
  *
  * @param applicant 판정 입력 (사업 입력은 business). 비우면 모든 사업이 확인 필요예요
  * @param sort RECOMMENDED(기본: 지원 가능 → 확인 필요 → 지원 불가, 같으면 마감 임박) · DEADLINE(마감 임박)
- * @param answers 사업 ID → 질문(판정 결과 questions[].id) → YES · NO. 상세에서 답한 것을 목록 판정에도 써요. 저장하지 않아요
  * @param includeIneligible 지원 불가 사업도 보여줄지 (기본 false)
  */
 public record SupportSearchRequest(
     @Valid Filters filters,
     @Valid JudgmentApplicantRequest applicant,
-    Map<UUID, Map<String, Answer>> answers,
     @Pattern(regexp = "RECOMMENDED|DEADLINE") String sort,
     Boolean includeIneligible,
     String cursor,

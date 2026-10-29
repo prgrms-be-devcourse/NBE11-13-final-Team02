@@ -8,7 +8,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.api.TestcontainersConfiguration;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -19,7 +18,7 @@ import kr.mujuthaek.api.eligibility.model.MatchResult;
 import kr.mujuthaek.api.eligibility.model.MissingInput;
 import kr.mujuthaek.api.eligibility.model.NoticeCandidate;
 import kr.mujuthaek.api.eligibility.rule.Eligibility;
-import kr.mujuthaek.api.eligibility.rule.frame.Answer;
+import kr.mujuthaek.api.eligibility.rule.Verdict;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -149,6 +148,20 @@ class MatchQueryServiceTest {
     return JSON.readValue(json, JudgmentApplicantRequest.class);
   }
 
+  /** 공통·대상군 조건을 「다음 중 하나」 안쪽까지 펼쳐요. */
+  private static List<JudgmentResult.Criterion> criteria(JudgmentResult result) {
+    List<JudgmentResult.Criterion> all = new java.util.ArrayList<>();
+    java.util.ArrayDeque<JudgmentResult.Criterion> todo =
+        new java.util.ArrayDeque<>(result.common());
+    result.groups().forEach(g -> todo.addAll(g.criteria()));
+    while (!todo.isEmpty()) {
+      JudgmentResult.Criterion c = todo.poll();
+      all.add(c);
+      c.options().forEach(o -> todo.addAll(o.criteria()));
+    }
+    return all;
+  }
+
   private static List<UUID> ids(MatchResult result) {
     return result.items().stream().map(MatchResult.Item::noticeId).toList();
   }
@@ -183,7 +196,7 @@ class MatchQueryServiceTest {
     String individual =
         """
         {"business": {"applicantType": "INDIVIDUAL"}, "statuses": ["SOCIAL_ENTERPRISE"]}""";
-    assertThat(matches.judgeBusinessSpaceAll(applicant(individual), null))
+    assertThat(matches.judgeBusinessSpaceAll(applicant(individual)))
         .singleElement()
         .satisfies(
             i -> {
@@ -193,46 +206,39 @@ class MatchQueryServiceTest {
             });
 
     // 공간 하나의 판정: 조건별 결과까지
-    var one = matches.judgeBusinessSpace(SEONGDONG, applicant(individual), null).orElseThrow();
+    var one = matches.judgeBusinessSpace(SEONGDONG, applicant(individual)).orElseThrow();
     assertThat(one.notice().title()).isEqualTo("성동 안심상가");
     assertThat(one.judgment().field()).isEqualTo("BUSINESS_SPACE");
     assertThat(one.judgment().result()).isEqualTo(Eligibility.INELIGIBLE);
 
-    // 질문(사회적 가치 정관)에 답하면 그 조건이 정해져요. 답은 판정 결과의 questions[].id로 줘요
+    // 질문 조건(사회적 가치 정관)은 공고마다 묻지 않고 원문 확인이에요 (2026-10-29 결정)
     String corp =
         """
         {"business": {"applicantType": "CORPORATION", "hasSite": true, "siteRegionCode": "1120011500"},
          "statuses": ["SOCIAL_ENTERPRISE"]}""";
-    var asked = matches.judgeBusinessSpace(SEONGDONG, applicant(corp), null).orElseThrow();
-    assertThat(asked.judgment().questions())
-        .extracting(JudgmentResult.Question::id)
-        .contains("social-value-articles");
-    var answered =
-        matches
-            .judgeBusinessSpace(
-                SEONGDONG, applicant(corp), Map.of("social-value-articles", Answer.NO))
-            .orElseThrow();
-    assertThat(answered.judgment().questions())
-        .filteredOn(q -> q.id().equals("social-value-articles"))
-        .extracting(JudgmentResult.Question::answer)
-        .containsExactly(Answer.NO);
-
-    // 목록도 공간별 답을 받아요: 답이 실리면 목록 판정의 그 공간 결과도 같아져요
-    var listed =
-        matches.judgeBusinessSpaceAll(
-            applicant(corp), Map.of(SEONGDONG, Map.of("social-value-articles", Answer.NO)));
-    assert listed.size() == 1;
-    org.assertj.core.api.Assertions.assertThat(listed.getFirst().status())
-        .isEqualTo(answered.judgment().result());
+    var corporation = matches.judgeBusinessSpace(SEONGDONG, applicant(corp)).orElseThrow();
+    assertThat(criteria(corporation.judgment()))
+        .filteredOn(c -> c.id().equals("social-value-articles"))
+        .singleElement()
+        .satisfies(
+            c -> {
+              assertThat(c.result()).isEqualTo(Verdict.UNKNOWN);
+              assertThat(c.reason()).isEqualTo("원문 조건을 확인해 주세요");
+            });
+    // 목록 판정도 상세와 같은 결과예요
+    assertThat(matches.judgeBusinessSpaceAll(applicant(corp)))
+        .singleElement()
+        .extracting(MatchResult.Item::status)
+        .isEqualTo(corporation.judgment().result());
 
     // 열린 사업공간이 아니면(주거 공고 ID) 찾을 수 없어요
-    assertThat(matches.judgeBusinessSpace(JEONSE, null, null)).isEmpty();
+    assertThat(matches.judgeBusinessSpace(JEONSE, null)).isEmpty();
   }
 
   @Test
   void supportSearchKeepsIneligibleProgramsAndJudgesOneProgram() {
     String tooOld = "{\"business\": {\"history\": [{\"openedOn\": \"2023-10-16\"}]}}";
-    assertThat(matches.judgeStartupSupportAll(applicant(tooOld), null))
+    assertThat(matches.judgeStartupSupportAll(applicant(tooOld)))
         .singleElement()
         .satisfies(
             i -> {
@@ -240,11 +246,11 @@ class MatchQueryServiceTest {
               assertThat(i.status()).isEqualTo(Eligibility.INELIGIBLE);
             });
 
-    var one = matches.judgeStartupSupport(GVC, applicant(tooOld), null).orElseThrow();
+    var one = matches.judgeStartupSupport(GVC, applicant(tooOld)).orElseThrow();
     assertThat(one.notice().detailUrl()).isEqualTo("https://example.org/programs/gvc");
     assertThat(one.judgment().field()).isEqualTo("STARTUP_SUPPORT");
     assertThat(one.judgment().result()).isEqualTo(Eligibility.INELIGIBLE);
-    assertThat(matches.judgeStartupSupport(SEONGDONG, null, null)).isEmpty();
+    assertThat(matches.judgeStartupSupport(SEONGDONG, null)).isEmpty();
   }
 
   @Test
@@ -298,7 +304,6 @@ class MatchQueryServiceTest {
     assertThat(jeonse.rank()).isNull();
     assertThat(jeonse.groups()).isNotEmpty();
     assertThat(jeonse.missingInputs()).isEmpty();
-    assertThat(jeonse.openQuestions()).isZero();
 
     // 틀이 없는 공고: 확인 필요 + 자격 조건 정리 중, 전국 공고라 regionCodes가 비어 있어요
     MatchResult.Item noFrame = result.items().get(1);
@@ -315,7 +320,6 @@ class MatchQueryServiceTest {
     assertThat(seoripul.regionCodes()).containsExactly("1165010800", "1165010700");
     assertThat(seoripul.groups()).isNotEmpty();
     assertThat(seoripul.missingInputs()).extracting(MissingInput::field).contains("birthDate");
-    assertThat(seoripul.openQuestions()).isEqualTo(1);
 
     // 다른 분야 틀이 들어간 공고는 오류로 끊지 않고 확인 필요로 둬요
     MatchResult.Item badFrame = result.items().get(3);

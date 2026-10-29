@@ -83,26 +83,6 @@ public record Applicant(
         null);
   }
 
-  /** 같은 입력에 질문 답만 바꾼 것 (목록에서 공간·사업마다 다른 답을 쓸 때). */
-  public Applicant withAnswers(Map<String, Answer> given) {
-    return new Applicant(
-        birthDate,
-        korean,
-        residenceRegionCode,
-        residenceMonths,
-        maritalStatus,
-        marriedOn,
-        childBirthDates,
-        expectingChild,
-        household,
-        subscription,
-        business,
-        statuses,
-        restrictions,
-        given,
-        birthMonth);
-  }
-
   /** 아무것도 넣지 않은 입력. 이 공고에 무엇이 필요한지 먼저 물어볼 때 써요. */
   public static Applicant empty() {
     return new Applicant(

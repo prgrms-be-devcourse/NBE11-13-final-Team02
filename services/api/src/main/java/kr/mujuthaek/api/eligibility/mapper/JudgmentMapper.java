@@ -49,9 +49,6 @@ public final class JudgmentMapper {
                     new JudgmentResult.Note(
                         n.kind().name(), n.groupId(), n.text(), n.quote(), n.page()))
             .toList(),
-        j.questions().stream()
-            .map(q -> new JudgmentResult.Question(q.id(), q.text(), q.answer(), q.purpose().name()))
-            .toList(),
         missingInputs(j.missingInputs()));
   }
 
