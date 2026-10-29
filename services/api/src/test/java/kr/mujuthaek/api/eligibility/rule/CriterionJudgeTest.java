@@ -116,8 +116,20 @@ class CriterionJudgeTest {
     Item boundary = judgeIncome(c, applicant().household(1).income(urban, 80, 90).build());
     assertThat(boundary.status()).isEqualTo(UNKNOWN);
     assertThat(boundary.reason()).isEqualTo(Bands.BOUNDARY);
-    assertThat(judgeIncome(c, applicant().household(2).income(urban, 0, 10).build()).needs())
-        .containsExactly("applicant.householdIncome"); // 2인이면 가구 소득이 필요해요
+    // 2인인데 본인 소득만: 0~10% × 2인 5,000,000 = ~500,000 ≤ 4,693,016 → 가구 소득은 몰라서 원문 확인
+    Item ownOnly = judgeIncome(c, applicant().household(2).income(urban, 0, 10).build());
+    assertThat(ownOnly.status()).isEqualTo(UNKNOWN);
+    assertThat(ownOnly.reason()).isEqualTo(Bands.HOUSEHOLD_INCOME_UNKNOWN);
+    assertThat(ownOnly.needs()).isEmpty();
+    // 본인 소득만 100~110% = 5,000,000~ → 가구 소득은 더 크니까 불충족
+    Item ownOver = judgeIncome(c, applicant().household(2).income(urban, 100, 110).build());
+    assertThat(ownOver.status()).isEqualTo(NOT_MET);
+    assertThat(ownOver.reason()).isEqualTo(Bands.OWN_INCOME_OVER);
+    // 소득을 아예 안 넣었으면 원문 확인
+    Item noIncome = judgeIncome(c, applicant().household(2).build());
+    assertThat(noIncome.status()).isEqualTo(UNKNOWN);
+    assertThat(noIncome.reason()).isEqualTo(Bands.NO_INCOME);
+    assertThat(noIncome.needs()).containsExactly("applicant.householdIncome");
     assertThat(
             judgeIncome(c, applicant().household(3).householdIncome(urban, 0, 10).build()).reason())
         .contains("세대원 수");

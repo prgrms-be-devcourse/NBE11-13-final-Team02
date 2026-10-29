@@ -248,28 +248,38 @@ public final class CriterionJudge {
           c.printedTable().isEmpty() ? "그해 기준 금액을 아직 준비하지 못했어요" : "공고 표에 이 세대원 수의 기준 금액이 없어요";
       return item(c, "INCOME", label, UNKNOWN, why, List.of(), threshold, null);
     }
-    if (bands == null || bands.isEmpty()) {
-      return item(c, "INCOME", label, UNKNOWN, "소득을 넣으면 판정돼요", List.of(need), threshold, null);
-    }
-    // 공고의 기준 종류로 받은 구간을 먼저, 없으면(공고 표만 있는 조건 등) 받은 다른 기준으로
     String key = benchmarkKey(c.standard());
-    Bands.Range monthly = null;
-    for (String k : key == null ? bands.keySet() : List.of(key)) {
-      Bands.Range pct = bands.get(k);
-      Integer userYear = a.incomeYearOf(k) != null ? a.incomeYearOf(k) : year;
-      Long base = pct == null || userYear == null ? null : benchmarks.monthlyWon(k, userYear, size);
-      if (base != null) {
-        monthly = pct.times(base / 100.0);
-        break;
-      }
+    Map<String, Bands.Range> own = a.personalIncome();
+    if ((bands == null || bands.isEmpty())
+        && !"APPLICANT".equals(c.basis())
+        && own != null
+        && !own.isEmpty()) {
+      // 2인 이상인데 가구 소득 없이 본인 소득만 받았어요. 가구 소득은 본인 소득보다 작을 수 없어서
+      // 본인 소득만으로 넘으면 불충족이고, 아니면 가구 소득을 따로 받지 않고 원문을 보게 해요 (2026-10-29 QA)
+      Bands.Range ownMonthly = monthlyIncome(own, key, a, year, size, benchmarks);
+      return ownMonthly != null && ownMonthly.atMost(monthlyLimit) == NOT_MET
+          ? item(c, "INCOME", label, NOT_MET, Bands.OWN_INCOME_OVER, List.of(), threshold, null)
+          : item(
+              c,
+              "INCOME",
+              label,
+              UNKNOWN,
+              Bands.HOUSEHOLD_INCOME_UNKNOWN,
+              List.of(),
+              threshold,
+              null);
     }
+    if (bands == null || bands.isEmpty()) {
+      return item(c, "INCOME", label, UNKNOWN, Bands.NO_INCOME, List.of(need), threshold, null);
+    }
+    Bands.Range monthly = monthlyIncome(bands, key, a, year, size, benchmarks);
     if (monthly == null) {
       return item(
           c,
           "INCOME",
           label,
           UNKNOWN,
-          key != null && !bands.containsKey(key) ? "소득을 넣으면 판정돼요" : "그해 기준 금액을 아직 준비하지 못했어요",
+          key != null && !bands.containsKey(key) ? Bands.NO_INCOME : "그해 기준 금액을 아직 준비하지 못했어요",
           key != null && !bands.containsKey(key) ? List.of(need) : List.of(),
           threshold,
           null);
@@ -282,6 +292,25 @@ public final class CriterionJudge {
           case UNKNOWN -> Bands.BOUNDARY;
         };
     return item(c, "INCOME", label, status, reason, List.of(), threshold, null);
+  }
+
+  /** 받은 소득 % 구간을 월 금액 구간으로: 공고의 기준 종류로 받은 구간을 먼저, 없으면(공고 표만 있는 조건 등) 받은 다른 기준으로. */
+  private static Bands.Range monthlyIncome(
+      Map<String, Bands.Range> bands,
+      String key,
+      Applicant a,
+      Integer year,
+      int size,
+      IncomeBenchmarks benchmarks) {
+    for (String k : key == null ? bands.keySet() : List.of(key)) {
+      Bands.Range pct = bands.get(k);
+      Integer userYear = a.incomeYearOf(k) != null ? a.incomeYearOf(k) : year;
+      Long base = pct == null || userYear == null ? null : benchmarks.monthlyWon(k, userYear, size);
+      if (base != null) {
+        return pct.times(base / 100.0);
+      }
+    }
+    return null;
   }
 
   /** 판정 입력의 소득 구간 키 (도시근로자 소득 두 이름은 하나로). 기준 종류가 없으면 null. */

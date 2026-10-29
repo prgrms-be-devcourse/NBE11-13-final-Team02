@@ -205,7 +205,11 @@ public final class BenefitJudge {
     boolean personal = "PERSONAL".equals(text(c, "basis"));
     Map<String, Bands.Range> bands = personal ? a.personalIncome() : a.householdIncomeOrSelf();
     Bands.Range pct = bands == null ? null : bands.get(MEDIAN);
-    if (pct == null) return need(c, "소득을 넣으면 판정돼요", "applicant.income");
+    if (pct == null && !personal) {
+      Bands.Range own = median(a.personalIncome());
+      if (own != null) return ownIncomeOnly(c, own.atMost(max));
+    }
+    if (pct == null) return need(c, Bands.NO_INCOME, "applicant.income");
     if (!personal || Integer.valueOf(1).equals(a.householdSize())) {
       return income(c, pct.atMost(max));
     }
@@ -227,17 +231,36 @@ public final class BenefitJudge {
     boolean household = "HOUSEHOLD".equals(text(c, "basis"));
     Map<String, Bands.Range> bands = household ? a.householdIncomeOrSelf() : a.personalIncome();
     Bands.Range pct = bands == null ? null : bands.get(MEDIAN);
-    if (pct == null) return need(c, "소득을 넣으면 판정돼요", "applicant.income");
+    boolean ownOnly = false;
+    if (pct == null && household) {
+      pct = median(a.personalIncome());
+      ownOnly = pct != null;
+    }
+    if (pct == null) return need(c, Bands.NO_INCOME, "applicant.income");
     if (a.householdSize() == null) {
       return need(c, "세대원 수를 넣으면 판정돼요", "applicant.householdSize");
     }
     Long base = benchmarks.monthlyWon(MEDIAN, yearOf(a, today), a.householdSize());
     if (base == null) return unknown(c, "그해 기준 금액을 아직 준비하지 못했어요");
-    return income(c, pct.times(base * 12 / 100.0).atMost(max * 10_000.0));
+    Status status = pct.times(base * 12 / 100.0).atMost(max * 10_000.0);
+    return ownOnly ? ownIncomeOnly(c, status) : income(c, status);
   }
 
   private static Item income(Condition c, Status s) {
     return item(c, s, s == UNKNOWN ? Bands.BOUNDARY : reason(s, "소득이 기준을 넘어요"), List.of());
+  }
+
+  /**
+   * 가구 소득 기준인데 본인 소득만 받았을 때 (2인 이상 가구). 가구 소득은 본인 소득보다 작을 수 없어서 본인 소득만으로 넘으면 불충족, 아니면 원문을 보게 해요.
+   */
+  private static Item ownIncomeOnly(Condition c, Status own) {
+    return own == NOT_MET
+        ? item(c, NOT_MET, Bands.OWN_INCOME_OVER, List.of())
+        : unknown(c, Bands.HOUSEHOLD_INCOME_UNKNOWN);
+  }
+
+  private static Bands.Range median(Map<String, Bands.Range> bands) {
+    return bands == null ? null : bands.get(MEDIAN);
   }
 
   private static Item asset(Condition c, Applicant a) {
