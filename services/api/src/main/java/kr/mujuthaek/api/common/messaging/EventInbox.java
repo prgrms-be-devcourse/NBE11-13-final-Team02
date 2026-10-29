@@ -63,6 +63,26 @@ public class EventInbox {
       int schemaVersion,
       Class<T> payloadType,
       BiConsumer<EventEnvelope, T> handler) {
+    EventEnvelope envelope = readChecked(message, eventType, schemaVersion);
+    if (alreadyProcessed(envelope)) {
+      log.info("이미 처리한 이벤트라 건너뛰어요: {} {}", envelope.eventType(), envelope.eventId());
+      return;
+    }
+    T payload = payload(envelope, payloadType);
+    handler.accept(envelope, payload);
+    markProcessed(envelope);
+  }
+
+  /**
+   * 봉투를 읽어 payload만 돌려줘요. 처리 기록(processed_events)은 보지도 남기지도 않아요 — 받는 쪽이 따로 거를 때 써요 (예: area 적재는 같은
+   * 파일이면 eventId가 같아서, 실패한 파일을 다시 올려도 처리되게 파일 기준으로 걸러요). 읽지 못하면 handleOnce와 같이 실패 큐로 보내요.
+   */
+  public <T> T readPayload(
+      Message message, String eventType, int schemaVersion, Class<T> payloadType) {
+    return payload(readChecked(message, eventType, schemaVersion), payloadType);
+  }
+
+  private EventEnvelope readChecked(Message message, String eventType, int schemaVersion) {
     EventEnvelope envelope = read(message);
     if (!eventType.equals(envelope.eventType()) || envelope.schemaVersion() != schemaVersion) {
       throw reject(
@@ -77,13 +97,7 @@ public class EventInbox {
               + ")",
           null);
     }
-    if (alreadyProcessed(envelope)) {
-      log.info("이미 처리한 이벤트라 건너뛰어요: {} {}", envelope.eventType(), envelope.eventId());
-      return;
-    }
-    T payload = payload(envelope, payloadType);
-    handler.accept(envelope, payload);
-    markProcessed(envelope);
+    return envelope;
   }
 
   EventEnvelope read(Message message) {

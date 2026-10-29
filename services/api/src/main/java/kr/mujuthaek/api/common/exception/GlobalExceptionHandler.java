@@ -5,9 +5,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Locale;
+import kr.mujuthaek.api.common.alert.OpsAlert;
 import kr.mujuthaek.api.common.logging.SensitiveFields;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
@@ -39,11 +41,30 @@ class GlobalExceptionHandler {
   private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
   private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
+  /** 처리하지 못한 오류·5xx를 슬랙으로 알려요. 시험에서 new로 만들면 없어요. */
+  private final OpsAlert alert;
+
+  GlobalExceptionHandler() {
+    this(null);
+  }
+
+  @Autowired
+  GlobalExceptionHandler(OpsAlert alert) {
+    this.alert = alert;
+  }
+
   /** errors[] 한 칸. reason은 어긴 검사 이름(Min → MIN, NotNull → NOT_NULL). */
   record FieldProblem(String field, String reason) {}
 
   @ExceptionHandler(CustomException.class)
   ProblemDetail handle(CustomException e, HttpServletRequest request) {
+    if (e.errorCode().status().is5xxServerError()) {
+      // 다른 서비스(검수·수집기·알림 서버) 연결 실패 같은 서버 쪽 문제. 코드별로 묶어 알려요
+      notify(
+          "api.5xx:" + e.errorCode().name(),
+          e.errorCode().name() + " " + request.getMethod() + " " + request.getRequestURI(),
+          e.errorCode().message());
+    }
     return problem(e.errorCode(), e.getMessage(), request);
   }
 
@@ -117,6 +138,10 @@ class GlobalExceptionHandler {
         request.getMethod(),
         request.getRequestURI(),
         SensitiveFields.masked(e));
+    notify(
+        "api.unhandled:" + e.getClass().getName(),
+        "처리하지 못한 오류 " + request.getMethod() + " " + request.getRequestURI(),
+        e.getClass().getSimpleName());
     ProblemDetail problem =
         problem(ErrorCode.INTERNAL_ERROR, ErrorCode.INTERNAL_ERROR.message(), request);
     problem.setProperty("timestamp", OffsetDateTime.now(SEOUL).withNano(0).toString());
@@ -136,6 +161,12 @@ class GlobalExceptionHandler {
     ProblemDetail problem = problem(code, code.message(), request);
     problem.setStatus(status.value());
     return problem;
+  }
+
+  private void notify(String kind, String title, String detail) {
+    if (alert != null) {
+      alert.send(kind, title, detail);
+    }
   }
 
   static ProblemDetail problem(ErrorCode code, String detail, HttpServletRequest request) {

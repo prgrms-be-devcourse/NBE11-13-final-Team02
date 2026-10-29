@@ -2,23 +2,19 @@ package kr.mujuthaek.api.area.event;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 import java.nio.charset.StandardCharsets;
-import java.time.LocalDate;
 import java.util.UUID;
 import kr.mujuthaek.api.TestDatabase;
-import kr.mujuthaek.api.area.domain.AreaLoadReport;
-import kr.mujuthaek.api.area.domain.AreaSource;
-import kr.mujuthaek.api.area.service.AreaSourceLoadService;
+import kr.mujuthaek.api.area.repository.AreaLoadQueue;
+import kr.mujuthaek.api.area.service.AreaLoadWorker;
 import kr.mujuthaek.api.common.messaging.EventInbox;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
 import org.springframework.amqp.AmqpRejectAndDontRequeueException;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
@@ -28,62 +24,87 @@ import tools.jackson.databind.json.JsonMapper;
 class AreaSourceReadyListenerTest {
 
   private final JdbcTemplate jdbc = new JdbcTemplate(TestDatabase.dataSource());
-  private final AreaSourceLoadService loads = mock(AreaSourceLoadService.class);
+  private final AreaLoadWorker worker = mock(AreaLoadWorker.class);
   private final AreaSourceReadyListener listener =
-      new AreaSourceReadyListener(new EventInbox(JsonMapper.builder().build(), jdbc), loads);
+      new AreaSourceReadyListener(
+          new EventInbox(JsonMapper.builder().build(), jdbc), new AreaLoadQueue(jdbc), worker);
+
+  @BeforeEach
+  void clean() {
+    jdbc.update("delete from area.load_runs where source = 'STORES' and load_scope = '강원'");
+  }
 
   @Test
-  void loadsTheFileNamedInTheEvent() {
-    when(loads.load(any())).thenReturn(AreaLoadReport.skipped(UUID.randomUUID()));
+  void queuesTheFileAndWakesTheWorker_withoutLoadingHere() {
+    listener.on(message(UUID.randomUUID(), "STORES", "강원"));
+
+    assertThat(statuses()).isEqualTo("PENDING");
+    assertThat(
+            jdbc.queryForObject(
+                "select file_key || '|' || data_date from area.load_runs where load_scope = '강원'",
+                String.class))
+        .isEqualTo("area/STORES/2026-06-30/stores_gangwon.csv|2026-06-30");
+    verify(worker).wake();
+  }
+
+  @Test
+  void sameFileWhileWaiting_isNotQueuedTwice() {
+    UUID id = UUID.randomUUID();
+    listener.on(message(id, "STORES", "강원"));
+    listener.on(message(id, "STORES", "강원"));
+
+    assertThat(statuses()).isEqualTo("PENDING");
+    verify(worker, times(1)).wake();
+  }
+
+  @Test
+  void alreadyLoadedFile_isRecordedAsSkipped() {
+    insert("SUCCEEDED");
 
     listener.on(message(UUID.randomUUID(), "STORES", "강원"));
 
-    var command = ArgumentCaptor.forClass(AreaSourceLoadService.Command.class);
-    verify(loads).load(command.capture());
-    assertThat(command.getValue())
-        .isEqualTo(
-            new AreaSourceLoadService.Command(
-                AreaSource.STORES,
-                "강원",
-                "area/STORES/2026-06-30/stores_gangwon.csv",
-                "ab".repeat(32),
-                LocalDate.of(2026, 6, 30),
-                false));
+    assertThat(statuses()).isEqualTo("SKIPPED,SUCCEEDED");
+    verify(worker, never()).wake();
   }
 
   @Test
-  void fileProblemsAreRecordedAndNotRetried() {
+  void failedFileSentAgain_isQueuedAgain_evenWithTheSameEventId() {
     UUID id = UUID.randomUUID();
-    when(loads.load(any())).thenReturn(AreaLoadReport.failed(UUID.randomUUID(), "칸이 없어요"));
+    insert("FAILED");
+    jdbc.update(
+        "insert into common.processed_events (event_id, event_type) values (?, 'area.source.ready')",
+        id);
 
     listener.on(message(id, "STORES", "강원"));
-    listener.on(message(id, "STORES", "강원"));
 
-    verify(loads, times(1)).load(any());
-    assertThat(processed(id)).isTrue();
-  }
-
-  @Test
-  void connectionErrorsAreNotRecorded_soTheMessageIsRetried() {
-    UUID id = UUID.randomUUID();
-    when(loads.load(any())).thenThrow(new IllegalStateException("S3 연결 끊김"));
-
-    assertThatThrownBy(() -> listener.on(message(id, "STORES", "강원")))
-        .isInstanceOf(IllegalStateException.class);
-    assertThat(processed(id)).isFalse();
+    assertThat(statuses()).isEqualTo("FAILED,PENDING");
   }
 
   @Test
   void unknownSourceGoesStraightToTheDeadLetterQueue() {
     assertThatThrownBy(() -> listener.on(message(UUID.randomUUID(), "SUPERMARKET", "ALL")))
         .isInstanceOf(AmqpRejectAndDontRequeueException.class);
-    verify(loads, never()).load(any());
+    verify(worker, never()).wake();
   }
 
-  private boolean processed(UUID id) {
+  @Test
+  void scopedSourceWithoutScope_goesStraightToTheDeadLetterQueue() {
+    assertThatThrownBy(() -> listener.on(message(UUID.randomUUID(), "STORES", "")))
+        .isInstanceOf(AmqpRejectAndDontRequeueException.class);
+  }
+
+  private String statuses() {
     return jdbc.queryForObject(
-            "select count(*) from common.processed_events where event_id = ?", Integer.class, id)
-        == 1;
+        "select string_agg(status, ',' order by status) from area.load_runs where load_scope = '강원'",
+        String.class);
+  }
+
+  private void insert(String status) {
+    jdbc.update(
+        "insert into area.load_runs (source, load_scope, file_key, file_sha256, data_date, status)"
+            + " values ('STORES', '강원', 'area/x.csv', ?, date '2026-06-30', ?)",
+        "ab".repeat(32),
+        status);
   }
 
   private static Message message(UUID id, String source, String scope) {
