@@ -119,10 +119,11 @@ public class TrafficService {
     this.logs = logs;
     this.props = props;
     this.clock = clock;
-    this.serverDaily = new RecentCache<>(SERVER_TTL, clock);
-    this.botsCache = new RecentCache<>(SERVER_TTL, clock);
-    this.gaReports = new RecentCache<>(props.ga().cacheTtl(), clock);
-    this.realtimeReports = new RecentCache<>(REALTIME_TTL, clock);
+    this.serverDaily = new RecentCache<>(SERVER_TTL, clock, this::serverDailyNow);
+    this.botsCache = new RecentCache<>(SERVER_TTL, clock, this::botsNow);
+    this.gaReports =
+        new RecentCache<>(props.ga().cacheTtl(), clock, days -> fetchGa(days, clock.instant()));
+    this.realtimeReports = new RecentCache<>(REALTIME_TTL, clock, any -> fetchRealtime());
   }
 
   private static ReportSpec item(String dimension, String metric) {
@@ -135,18 +136,19 @@ public class TrafficService {
   /** 개요·유입·이용 흐름(GA)과 서버 숫자. 서버 숫자는 1분 안이면 지난 집계를 써요. */
   public TrafficResponse traffic(int days) {
     Instant now = clock.instant();
+    return new TrafficResponse(now, days, gaReport(days), serverDaily.get(days));
+  }
+
+  private List<RequestLogStore.ServerDaily> serverDailyNow(int days) {
+    Instant now = clock.instant();
     LocalDate today = LocalDate.ofInstant(now, RequestLogStore.KST);
     Instant from = today.minusDays(days - 1L).atStartOfDay(RequestLogStore.KST).toInstant();
-    return new TrafficResponse(
-        now,
-        days,
-        gaReport(days, now),
-        serverDaily.get(days, () -> logs.daily(from, now.plusSeconds(1))));
+    return logs.daily(from, now.plusSeconds(1));
   }
 
   /** 봇·보안. 1분 안이면 지난 집계를 그대로 줘요(asOf가 그 집계 시각). */
   public BotTrafficResponse bots(int days) {
-    return botsCache.get(days, () -> botsNow(days));
+    return botsCache.get(days);
   }
 
   private BotTrafficResponse botsNow(int days) {
@@ -165,12 +167,12 @@ public class TrafficService {
         logs.loginFailures(from, to, 30));
   }
 
-  private TrafficResponse.Ga gaReport(int days, Instant now) {
+  private TrafficResponse.Ga gaReport(int days) {
     if (!ga.configured()) {
       return TrafficResponse.Ga.off("GA가 연결되지 않았어요(속성 ID·서비스 계정 키 설정 필요)");
     }
     try {
-      TrafficResponse.Ga result = gaReports.get(days, () -> fetchGa(days, now));
+      TrafficResponse.Ga result = gaReports.get(days);
       lastGa.put(days, result);
       return result;
     } catch (RuntimeException failure) {
@@ -206,7 +208,7 @@ public class TrafficService {
       return RealtimeResponse.off("GA가 연결되지 않았어요(속성 ID·서비스 계정 키 설정 필요)");
     }
     try {
-      RealtimeResponse result = realtimeReports.get(true, this::fetchRealtime);
+      RealtimeResponse result = realtimeReports.get(true);
       lastRealtime = result;
       return result;
     } catch (RuntimeException failure) {

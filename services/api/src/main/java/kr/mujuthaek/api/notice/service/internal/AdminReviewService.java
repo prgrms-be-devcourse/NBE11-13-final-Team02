@@ -82,7 +82,7 @@ public class AdminReviewService {
   public AdminReviewService(ExtractionReviewClient client, Clock clock) {
     this.client = client;
     this.clock = clock;
-    this.urgentCache = new RecentCache<>(URGENT_TTL, clock);
+    this.urgentCache = new RecentCache<>(URGENT_TTL, clock, this::urgentNow);
   }
 
   /**
@@ -93,14 +93,14 @@ public class AdminReviewService {
     if (days < 0 || days > 30) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "days는 0~30 사이예요");
     }
-    LocalDate limit = LocalDate.now(clock.withZone(SEOUL)).plusDays(days);
-    return urgentCache.get(
-        limit,
-        () ->
-            items(client.list(PENDING)).stream()
-                .filter(i -> i.applyEndsOn() != null && !i.applyEndsOn().isAfter(limit))
-                .sorted(Comparator.comparing(Item::applyEndsOn))
-                .toList());
+    return urgentCache.get(LocalDate.now(clock.withZone(SEOUL)).plusDays(days));
+  }
+
+  private List<Item> urgentNow(LocalDate limit) {
+    return items(client.list(PENDING)).stream()
+        .filter(i -> i.applyEndsOn() != null && !i.applyEndsOn().isAfter(limit))
+        .sorted(Comparator.comparing(Item::applyEndsOn))
+        .toList();
   }
 
   /** 대기 목록. reason이 있으면 그 묶음만. */

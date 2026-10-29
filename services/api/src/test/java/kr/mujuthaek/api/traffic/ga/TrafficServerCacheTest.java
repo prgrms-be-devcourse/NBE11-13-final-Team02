@@ -91,7 +91,7 @@ class TrafficServerCacheTest {
   }
 
   @Test
-  void 서버_숫자는_1분_안에는_다시_세지_않고_지나면_다시_센다() {
+  void 서버_숫자는_1분_안에는_다시_세지_않고_지나면_지난_값을_주며_뒤에서_다시_센다() throws Exception {
     var service = service();
 
     BotTrafficResponse first = service.bots(7);
@@ -103,11 +103,27 @@ class TrafficServerCacheTest {
     assertThat(dailyCalls).hasValue(1);
 
     clock.plus(Duration.ofSeconds(2)); // 처음 집계부터 1분 넘음
-    assertThat(service.bots(7)).isNotSameAs(first);
+    // 지난 값을 바로 주고(기다리지 않음) 뒤에서 새로 세요
+    assertThat(service.bots(7)).isSameAs(first);
+    BotTrafficResponse next = waitForNew(() -> service.bots(7), first);
+    assertThat(next).isNotSameAs(first);
     assertThat(botCalls).hasValue(2);
     // 기간이 다르면 따로 세요
     service.bots(30);
     assertThat(botCalls).hasValue(3);
+  }
+
+  /** 뒤에서 새로 센 값이 들어올 때까지 (최대 3초). */
+  private static <T> T waitForNew(java.util.function.Supplier<T> read, T old)
+      throws InterruptedException {
+    for (int i = 0; i < 60; i++) {
+      T now = read.get();
+      if (now != old) {
+        return now;
+      }
+      Thread.sleep(50);
+    }
+    return read.get();
   }
 
   @Test
