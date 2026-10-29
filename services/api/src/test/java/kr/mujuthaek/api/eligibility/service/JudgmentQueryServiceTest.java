@@ -105,6 +105,31 @@ class JudgmentQueryServiceTest {
   }
 
   @Test
+  void businessAgeQuestionIsJudgedFromTheBusinessHistory() throws Exception {
+    // 2026-10-29 QA: 「창업 7년 이내」가 업력을 넣어도 질문으로만 남아 확인 필요였어요
+    JsonNode frame =
+        JSON.readTree(
+            """
+            {"schema":"business-space-judgment.v1","rawPostId":"p","rawVersion":1,"referenceDate":"2026-10-28",
+             "common":[],"preferences":[],"notes":[],
+             "groups":[{"id":"young","name":"창업 7년 이내 기업","criteria":[
+               {"id":"registered","kind":"BUSINESS_REGISTRATION","require":"REGISTERED","closedWithinYears":null},
+               {"id":"age-7y","kind":"ASK","question":"사업을 시작한 날(법인은 설립등기일)부터 7년 이내인가요?","metWhen":"YES"}]}]}""");
+
+    JudgmentResult result =
+        judgments.judgeBusinessSpace(
+            frame,
+            applicant("{\"business\": {\"history\": [{\"openedOn\": \"2024-03-01\"}]}}"),
+            null);
+
+    assertThat(result.result()).isEqualTo(Eligibility.ELIGIBLE);
+    assertThat(result.questions()).isEmpty(); // 공고마다 묻지 않아요
+    JudgmentResult.Criterion age = result.groups().getFirst().criteria().get(1);
+    assertThat(age.kind()).isEqualTo("BUSINESS_AGE");
+    assertThat(age.result()).isEqualTo(Verdict.MET);
+  }
+
+  @Test
   void businessSpaceJudgesTheYangsanNotice() throws Exception {
     JudgmentApplicantRequest applicant =
         applicant(

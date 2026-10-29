@@ -484,6 +484,46 @@ class RulesTest {
         .isEqualTo(Verdict.NOT_MET);
   }
 
+  @Test
+  void businessAgeYearsSetsTheOpenedRangeFromTheReferenceDay() {
+    // 기준일 2026-10-28. 추출의 opened_range와 같아요: 이내는 N년 전 같은 날부터, 미만은 그다음 날부터, 이상은 그날까지, 초과는 그 전날까지
+    LocalDate day = LocalDate.of(2026, 10, 28);
+    FrameJudge judge =
+        new FrameJudge(
+            (k, y, p, s) -> OptionalLong.empty(), (d, region, area) -> OptionalLong.empty());
+    var within = new Criterion.BusinessAgeYears(meta("within"), 7, Criterion.YearsRule.WITHIN);
+    var under = new Criterion.BusinessAgeYears(meta("under"), 3, Criterion.YearsRule.UNDER);
+    var atLeast = new Criterion.BusinessAgeYears(meta("at-least"), 3, Criterion.YearsRule.AT_LEAST);
+    var over = new Criterion.BusinessAgeYears(meta("over"), 3, Criterion.YearsRule.OVER);
+
+    assertThat(judge.evaluate(within, openedOn("2019-10-28"), day).verdict())
+        .isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(within, openedOn("2019-10-27"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+    assertThat(judge.evaluate(under, openedOn("2023-10-28"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+    assertThat(judge.evaluate(under, openedOn("2023-10-29"), day).verdict()).isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(atLeast, openedOn("2023-10-28"), day).verdict())
+        .isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(atLeast, openedOn("2023-10-29"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+    assertThat(judge.evaluate(over, openedOn("2023-10-27"), day).verdict()).isEqualTo(Verdict.MET);
+    assertThat(judge.evaluate(over, openedOn("2023-10-28"), day).verdict())
+        .isEqualTo(Verdict.NOT_MET);
+
+    var met = judge.evaluate(within, openedOn("2024-03-01"), day);
+    assertThat(met.criterion().kind()).isEqualTo("BUSINESS_AGE");
+    assertThat(met.summary()).isEqualTo("창업 7년 이내 · 개업일 2019-10-28 ~ 2026-10-28 (둘 다 포함)");
+    // 사업 정보를 안 넣었으면 사업 이력을 넣어 달라고 해요
+    var empty = judge.evaluate(within, withBusiness(business(null, null, null, null)), day);
+    assertThat(empty.verdict()).isEqualTo(Verdict.UNKNOWN);
+    assertThat(empty.missing()).containsExactly(Input.BUSINESS_HISTORY);
+  }
+
+  private static Applicant openedOn(String day) {
+    return withBusiness(business(null, null, List.of(record(day, null)), null));
+  }
+
   // ── 공고 단위 ──
 
   @Test
