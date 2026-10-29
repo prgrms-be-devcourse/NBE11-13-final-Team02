@@ -11,6 +11,7 @@ import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.util.HexFormat;
 import java.util.Map;
+import java.util.UUID;
 import kr.mujuthaek.api.area.AreaTestDatabase;
 import kr.mujuthaek.api.area.domain.AreaLoadReport;
 import kr.mujuthaek.api.area.domain.AreaLoadRequest;
@@ -49,6 +50,31 @@ class PostgresAreaBaseDataLoaderTest {
         .isEqualTo("37.5665,126.9780");
     assertThat(one("select substring(id::text,15,1) from area.facilities limit 1")).isEqualTo("7");
     assertThat(one("select status from area.load_runs")).isEqualTo("SUCCEEDED");
+  }
+
+  @Test
+  void loadRun_continuesTheQueuedRun_andSkipsItWhenTheFileAlreadySucceeded() throws Exception {
+    LocalDate date = LocalDate.of(2026, 6, 30);
+    var req =
+        new AreaLoadRequest(AreaSource.BUS_STOP, "ALL", "area/x.csv", "q".repeat(64), date, false);
+    UUID first = UUID.fromString("01a00000-0000-7000-8000-000000000001");
+    UUID second = UUID.fromString("01a00000-0000-7000-8000-000000000002");
+    exec(runningRow(first));
+
+    AreaLoadReport r;
+    try (InputStream in = Files.newInputStream(fixture("bus_stop.csv"))) {
+      r = loader.loadRun(first, req, in);
+    }
+    assertThat(r.runId()).isEqualTo(first);
+    assertThat(r.status()).isEqualTo(AreaLoadReport.Status.SUCCEEDED);
+
+    // 같은 파일 요청이 그사이 또 꺼내졌어도 이미 성공했으니 건너뛰어요
+    exec(runningRow(second));
+    try (InputStream in = Files.newInputStream(fixture("bus_stop.csv"))) {
+      assertThat(loader.loadRun(second, req, in).status()).isEqualTo(AreaLoadReport.Status.SKIPPED);
+    }
+    assertThat(one("select string_agg(status, ',' order by id) from area.load_runs"))
+        .isEqualTo("SUCCEEDED,SKIPPED");
   }
 
   @Test
@@ -375,6 +401,15 @@ class PostgresAreaBaseDataLoaderTest {
                 "select emd from area.address_points"
                     + " where address_id = '26110101300600100000100002'"))
         .isNotEqualTo("옛이름");
+  }
+
+  private static String runningRow(UUID id) {
+    return "insert into area.load_runs (id, source, load_scope, file_key, file_sha256, data_date, status)"
+        + " values ('"
+        + id
+        + "', 'BUS_STOP', 'ALL', 'area/x.csv', '"
+        + "q".repeat(64)
+        + "', date '2026-06-30', 'RUNNING')";
   }
 
   static AreaLoadReport load(

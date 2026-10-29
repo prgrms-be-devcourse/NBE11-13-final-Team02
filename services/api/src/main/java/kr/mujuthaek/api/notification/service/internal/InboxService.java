@@ -110,7 +110,9 @@ public class InboxService {
     return new NotificationItemResponse(
         e.id(),
         e.type(),
-        new NotificationItemResponse.Target(e.targetType(), e.targetId()),
+        e.targetType() == null
+            ? null
+            : new NotificationItemResponse.Target(e.targetType(), e.targetId()),
         e.title(),
         e.body(),
         e.linkPath(),

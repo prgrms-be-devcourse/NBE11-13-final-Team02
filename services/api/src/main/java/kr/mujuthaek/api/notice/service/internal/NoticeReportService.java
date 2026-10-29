@@ -10,6 +10,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.benefit.service.BenefitQueryService;
 import kr.mujuthaek.api.benefit.service.BenefitSummary;
 import kr.mujuthaek.api.common.event.BenefitReportAnswered;
+import kr.mujuthaek.api.common.event.GeneralReportAnswered;
 import kr.mujuthaek.api.common.event.NoticeReportAnswered;
 import kr.mujuthaek.api.common.event.ProgramReportAnswered;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -17,6 +18,7 @@ import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.id.UuidV7;
 import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
+import kr.mujuthaek.api.notice.dto.request.GeneralReportRequest;
 import kr.mujuthaek.api.notice.dto.request.NoticeReportRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReportDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportListResponse;
@@ -42,6 +44,11 @@ public class NoticeReportService {
   static final int DAILY_LIMIT = 20;
 
   static final List<String> STATUSES = List.of("NEW", "DOING", "DONE");
+
+  /** 일반 제보 종류: 빠진 공고·정책, 틀린 정보, 화면 오류, 기타 */
+  static final List<String> GENERAL_KINDS =
+      List.of("MISSING_NOTICE", "WRONG_INFO", "APP_ERROR", "ETC");
+
   private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
   private static final int LIST_LIMIT = 100;
 
@@ -79,6 +86,9 @@ public class NoticeReportService {
     if (report.benefitPolicyId() != null) {
       return openBenefitReview(report, admin);
     }
+    if (report.noticeId() == null && report.rawPolicyId() == null) {
+      throw new CustomException(ErrorCode.CONFLICT, "일반 제보는 「고치기」가 없어요. 확인 뒤 처리 끝으로 답해 주세요");
+    }
     if (report.noticeId() == null) {
       throw new CustomException(
           ErrorCode.CONFLICT, "창업지원 사업은 아직 「고치기」를 지원하지 않아요. 확인 뒤 처리 끝으로 답해 주세요");
@@ -115,12 +125,13 @@ public class NoticeReportService {
   /**
    * 회원의 주거·복지 정책(혜택) 제보. 추출 서비스에 정제 결과가 있는 정책에만 받고, 제목은 그때 받아 둬요(api에 혜택 표가 아직 없어요).
    *
-   * @param policyId 정책 원본 ID (policy.extracted의 rawPolicyId)
+   * @param targetId 정책 원본 ID (policy.extracted의 rawPolicyId) 또는 혜택 ID (혜택 화면이 쓰는 ID, 원본 ID로 바꿔요)
    *     <p>추출 서비스에서 제목을 받는 동안 DB 연결을 잡지 않도록 트랜잭션 없이 처리해요(넣기는 한 문장).
    */
   public NoticeReportCreatedResponse reportBenefit(
-      UUID policyId, NoticeReportRequest request, String reporter) {
+      UUID targetId, NoticeReportRequest request, String reporter) {
     UUID reporterId = reporterId(reporter);
+    UUID policyId = benefits.findRawPolicyId(targetId).orElse(targetId);
     if (blank(request.reportedValue()) && blank(request.note())) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "맞는 값이나 설명 중 하나는 적어 주세요");
     }
@@ -241,6 +252,41 @@ public class NoticeReportService {
     return new NoticeReportCreatedResponse(id, "NEW");
   }
 
+  /**
+   * 회원의 일반 제보: 공고·혜택·사업에 묶이지 않은 제보(빠진 공고·정책, 틀린 정보, 화면 오류, 기타). 대상 칸은 모두 비워 두고, 같은 종류끼리 묶지 않아요(내용이
+   * 매번 달라요). 하루 제보 수 상한은 다른 제보와 같이 세요.
+   */
+  @Transactional
+  public NoticeReportCreatedResponse reportGeneral(GeneralReportRequest request, String reporter) {
+    UUID reporterId = reporterId(reporter);
+    String kind = request.field().trim();
+    if (!GENERAL_KINDS.contains(kind)) {
+      throw new CustomException(
+          ErrorCode.VALIDATION_FAILED, "field는 MISSING_NOTICE·WRONG_INFO·APP_ERROR·ETC 중 하나예요");
+    }
+    Instant now = clock.instant();
+    Instant todayStart = LocalDate.ofInstant(now, SEOUL).atStartOfDay(SEOUL).toInstant();
+    if (reports.countSince(reporterId, todayStart) >= DAILY_LIMIT) {
+      throw new CustomException(ErrorCode.RATE_LIMITED, "제보는 하루에 " + DAILY_LIMIT + "건까지 보낼 수 있어요");
+    }
+    UUID id = UuidV7.next();
+    reports.insert(
+        new NoticeReportRepository.Row(
+            id,
+            null,
+            null,
+            null,
+            null,
+            reporterId,
+            kind,
+            trim(request.currentValue()),
+            null,
+            request.note().trim(),
+            trim(request.screen()),
+            now));
+    return new NoticeReportCreatedResponse(id, "NEW");
+  }
+
   /** 관리자 목록 (최근 것부터 최대 100건). status가 없으면 모두. */
   @Transactional(readOnly = true)
   public AdminReportListResponse list(String status) {
@@ -310,6 +356,14 @@ public class NoticeReportService {
         reports.finish(ids, request.result().name(), reply, admin, clock.instant());
     if (reply != null) {
       for (Report done : finished) {
+        if (done.noticeId() == null
+            && done.rawPolicyId() == null
+            && done.benefitPolicyId() == null) {
+          events.publishEvent(
+              new GeneralReportAnswered(
+                  done.id(), done.reporterId(), done.field(), done.result(), reply));
+          continue;
+        }
         events.publishEvent(
             done.noticeId() != null
                 ? new NoticeReportAnswered(
@@ -359,7 +413,11 @@ public class NoticeReportService {
         r.id(),
         r.status(),
         r.screen(),
-        r.noticeId() != null ? "NOTICE" : r.benefitPolicyId() != null ? "BENEFIT" : "PROGRAM",
+        r.noticeId() != null
+            ? "NOTICE"
+            : r.benefitPolicyId() != null
+                ? "BENEFIT"
+                : r.rawPolicyId() != null ? "PROGRAM" : "GENERAL",
         r.noticeId(),
         r.rawPolicyId(),
         r.benefitPolicyId(),

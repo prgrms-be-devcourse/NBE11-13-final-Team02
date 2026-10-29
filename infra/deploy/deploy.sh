@@ -38,6 +38,24 @@ cd "$BASE"
 [ -f .env ] || { echo "$BASE/.env가 없어요" >&2; exit 1; }
 touch versions.env
 
+# 빠지면 화면 일부가 안 되는 키를 이름만 확인해요(값은 출력하지 않아요). 배포는 막지 않고 경고만 해요.
+#   EXTRACTION_REVIEW_TOKEN: api ↔ 검수 API(extraction:8092). 없으면 다른 컨테이너 요청이 401 → 관리자 검수 503
+#   COLLECTOR_ADMIN_TOKEN:   api ↔ 수집기 관리자 API(collector:8093, 운영만). 없으면 수집 현황 503
+#   SLACK_WEBHOOK_URL:       운영 오류 알림(api·수집기·추출기). 없으면 알림 없이 로그만
+check_keys() {
+  local key missing=()
+  for key in "$@"; do
+    grep -qE "^${key}=.+" .env || missing+=("$key")
+  done
+  if [ ${#missing[@]} -gt 0 ]; then
+    echo "경고: .env(ENV_FILE)에 값이 없는 키: ${missing[*]} (README 「서비스 사이 연결」)" >&2
+  fi
+}
+case "$ENVIRONMENT" in
+  prod) check_keys EXTRACTION_REVIEW_TOKEN COLLECTOR_ADMIN_TOKEN SLACK_WEBHOOK_URL ;;
+  dev) check_keys EXTRACTION_REVIEW_TOKEN SLACK_WEBHOOK_URL ;;
+esac
+
 compose() {
   docker compose -f "compose.$ENVIRONMENT.yml" --env-file .env --env-file versions.env "$@"
 }

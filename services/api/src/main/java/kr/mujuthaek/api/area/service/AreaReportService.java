@@ -14,10 +14,12 @@ import kr.mujuthaek.api.area.dto.request.AreaReportResolveRequest;
 import kr.mujuthaek.api.area.dto.response.AreaReportResponse;
 import kr.mujuthaek.api.area.repository.AreaReportRepository;
 import kr.mujuthaek.api.area.repository.AreaReportRepository.Report;
+import kr.mujuthaek.api.common.dto.response.MyReportResponse;
 import kr.mujuthaek.api.common.event.AreaReportAnswered;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.common.id.UuidV7;
+import kr.mujuthaek.api.common.text.ScreenPaths;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -188,6 +190,29 @@ public class AreaReportService {
             r ->
                 new Handled(
                     r.id(), r.noticeId(), r.field(), r.result(), r.handledBy(), r.handledAt()))
+        .toList();
+  }
+
+  /** 회원이 보낸 생활권 제보 (내 정보의 「내 제보」, 최근 것부터). 공고 제목은 부르는 쪽이 채워요 */
+  @Transactional(readOnly = true)
+  public List<MyReportResponse> mine(UUID reporterId, int limit) {
+    return reports.byReporter(reporterId, limit).stream()
+        .map(
+            r ->
+                new MyReportResponse(
+                    r.id(),
+                    "AREA",
+                    r.noticeId(),
+                    null,
+                    r.field(),
+                    r.reportedValue(),
+                    r.note(),
+                    r.status(),
+                    r.result(),
+                    r.reply(),
+                    r.createdAt(),
+                    r.handledAt(),
+                    ScreenPaths.of("NOTICE", r.noticeId())))
         .toList();
   }
 

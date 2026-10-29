@@ -134,3 +134,42 @@ jobs:
             for service in $SERVICES; do
               ./deploy.sh dev "$service" "$VERSION"
             done
+
+  notify:
+    name: 슬랙 알림
+    needs: [changes, build, deploy]
+    # 바뀐 서비스·설정이 없어 배포하지 않았으면 알리지 않아요
+    if: >-
+      always() && needs.changes.result != 'skipped'
+      && (needs.changes.outputs.services != '[]' || needs.changes.outputs.deploy-files == 'true' || needs.changes.result == 'failure')
+    runs-on: ubuntu-latest
+    environment: development # ENV_FILE 안의 SLACK_WEBHOOK_URL을 쓰려고
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+      - env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          CHANGES: ${{ needs.changes.result }}
+          BUILD: ${{ needs.build.result }}
+          DEPLOY: ${{ needs.deploy.result }}
+          SERVICES: ${{ needs.changes.outputs.services }}
+          VERSION: ${{ needs.changes.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          services="$(printf '%s' "${SERVICES:-[]}" | jq -r 'if length == 0 then "설정만" else join(", ") end' 2>/dev/null || echo "?")"
+          if [ "$CHANGES" = failure ] || [ "$BUILD" = failure ]; then
+            result=":x: 빌드 실패 (배포하지 않았어요)"
+          elif [ "$DEPLOY" = success ]; then
+            result=":white_check_mark: 배포 완료"
+          elif [ "$DEPLOY" = failure ]; then
+            result=":x: 배포 실패 (헬스체크에 실패한 서비스는 deploy.sh가 이전 버전으로 되돌렸어요)"
+          else
+            result=":white_circle: 취소·건너뜀 (deploy: ${DEPLOY:-없음})"
+          fi
+          text="$(printf '[dev] %s\n서비스: %s · 버전: %s\n%s · %s\n%s' \
+            "$result" "$services" "$VERSION" "${COMMIT%%$'\n'*}" "$ACTOR" "$RUN_URL")"
+          .github/scripts/slack-notify.sh "$text"

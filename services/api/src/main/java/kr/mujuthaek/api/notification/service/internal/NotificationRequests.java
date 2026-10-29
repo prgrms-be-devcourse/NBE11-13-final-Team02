@@ -9,6 +9,7 @@ import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.api.common.id.UuidV7;
 import kr.mujuthaek.api.common.messaging.Outbox;
+import kr.mujuthaek.api.common.text.ScreenPaths;
 import kr.mujuthaek.api.notification.repository.InboxRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -117,6 +118,9 @@ public class NotificationRequests {
       if (recipients.isEmpty()) {
         continue; // 모두 알림함에만 (기기·이메일 없음 또는 이 종류를 끔)
       }
+      if (targetType == null) {
+        continue; // 가리킬 대상이 없는 알림(일반 제보 답변)은 알림함에만. 알림 서버 요청은 대상이 있어야 해요
+      }
       Map<String, Object> payload = new LinkedHashMap<>();
       payload.put("type", type);
       payload.put("dedupKey", dedupKey);
@@ -173,23 +177,14 @@ public class NotificationRequests {
     };
   }
 
-  /**
-   * 누르면 갈 PWA 화면. 창업지원 사업은 사업 지원 상세(/business/support/{id}), 사업공간 모집은 사업공간
-   * 상세(/business/spaces/{id}) — 맞춤 목록(/supports, /spaces)과 같은 정책 ID
-   */
+  /** 누르면 갈 PWA 화면 ({@link ScreenPaths#of}) */
   static String linkPath(String targetType, UUID id) {
-    return switch (targetType) {
-          case "NOTICE" -> "/notices/";
-          case "STARTUP_SUPPORT" -> "/business/support/";
-          case "SPACE_RECRUITMENT" -> "/business/spaces/";
-          default -> "/benefits/";
-        }
-        + id;
+    return ScreenPaths.of(targetType, id);
   }
 
-  /** 공고 화면: 사업공간 공고는 사업공간 상세(/business/spaces/{id}), 주거 공고는 공고 상세(/notices/{id}) */
+  /** 공고 화면 ({@link ScreenPaths#notice}) */
   static String noticeLink(UUID noticeId, String field) {
-    return ("BUSINESS_SPACE".equals(field) ? "/business/spaces/" : "/notices/") + noticeId;
+    return ScreenPaths.notice(noticeId, field);
   }
 
   /** 알림 문구의 {종류} */

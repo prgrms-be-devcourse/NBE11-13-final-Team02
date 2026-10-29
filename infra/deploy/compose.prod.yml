@@ -4,9 +4,11 @@
 # DB는 RDS, 원본 파일은 S3(S3_ENDPOINT 빈 값, 인증은 EC2 IAM 역할)라 이 파일에는 없어요.
 name: mujuthaek
 
+# 로그는 서버 디스크에만 있어요(밖으로 보내지 않음). 컨테이너마다 50MB × 6개(300MB)까지 돌려써요: 장애 원인을 며칠 거슬러 볼 수 있게.
+# 큰 오류는 슬랙으로도 알려요(SLACK_WEBHOOK_URL, README 「운영 알림·로그」)
 x-logging: &logging
   driver: json-file
-  options: { max-size: "10m", max-file: "3" }
+  options: { max-size: "50m", max-file: "6" }
 
 x-app: &app
   env_file: .env
@@ -61,7 +63,11 @@ services:
     image: ${IMAGE_PREFIX:-ghcr.io/prgrms-be-devcourse/nbe11-13-final-team02}/api:${API_TAG:?versions.env에 API_TAG가 없어요}
     mem_limit: 1200m
     environment:
+      MUJUTHAEK_ENV: prod               # 슬랙 알림 머리 [prod api]
       NOTIFICATION_SERVER_URL: http://notification:8081
+      # 같은 compose 안의 서비스 주소. 없으면 api 컨테이너 안의 localhost로 불러 연결이 거부돼요(관리자 검수·수집 현황 503)
+      EXTRACTION_REVIEW_URL: http://extraction:8092
+      COLLECTOR_ADMIN_URL: http://collector:8093
     ports: ["127.0.0.1:8080:8080"]
 
   notification:
@@ -77,6 +83,7 @@ services:
     mem_limit: 400m
     environment:
       SERVICE_NAME: collector
+      MUJUTHAEK_ENV: prod
       DB_URL: ${COLLECTOR_DB_URL}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_HOST:-rabbitmq}:5672/
 
@@ -86,6 +93,7 @@ services:
     mem_limit: 500m
     environment:
       SERVICE_NAME: extraction
+      MUJUTHAEK_ENV: prod
       DB_URL: ${EXTRACTION_DB_URL}
       RABBITMQ_URL: amqp://${RABBITMQ_USER}:${RABBITMQ_PASSWORD}@${RABBITMQ_HOST:-rabbitmq}:5672/
 

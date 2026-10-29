@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.time.LocalDate;
+import java.util.UUID;
+import java.util.function.BiFunction;
 import kr.mujuthaek.api.area.domain.AreaLoadReport;
 import kr.mujuthaek.api.area.domain.AreaLoadRequest;
 import kr.mujuthaek.api.area.domain.AreaSource;
@@ -59,12 +61,25 @@ public class AreaSourceLoadService {
 
   /** 파일 문제(칸 없음, 잘린 파일 등)는 FAILED 결과로, S3·DB 연결 문제는 예외로 알려요. */
   public AreaLoadReport load(Command c) {
+    return load(c, loader::load);
+  }
+
+  /**
+   * 대기열에서 꺼낸 실행 기록(RUNNING, {@link AreaLoadWorker})을 이어 써서 적재해요. 결과와 예외는 {@link #load(Command)}와
+   * 같아요.
+   */
+  public AreaLoadReport loadQueued(UUID runId, Command c) {
+    return load(c, (request, in) -> loader.loadRun(runId, request, in));
+  }
+
+  private AreaLoadReport load(
+      Command c, BiFunction<AreaLoadRequest, InputStream, AreaLoadReport> loadFile) {
     var request =
         new AreaLoadRequest(
             c.source(), c.scope(), c.s3Key(), c.sha256(), c.dataDate(), c.allowShrink());
     AreaLoadReport report;
     try (InputStream in = files.open(c.s3Key())) {
-      report = loader.load(request, in);
+      report = loadFile.apply(request, in);
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }

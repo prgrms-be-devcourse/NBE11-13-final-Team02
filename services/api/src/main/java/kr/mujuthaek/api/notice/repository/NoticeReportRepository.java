@@ -26,7 +26,10 @@ public class NoticeReportRepository {
           + " r.started_at, r.handled_at, r.review_job_id, (select count(*) from notice.notice_reports g where"
           + " g.notice_id is not distinct from r.notice_id and g.raw_policy_id is not distinct from"
           + " r.raw_policy_id and g.benefit_policy_id is not distinct from r.benefit_policy_id"
-          + " and g.field = r.field and g.status <> 'DONE') as open_in_group";
+          + " and g.field = r.field and g.status <> 'DONE'"
+          // 일반 제보(대상 없음)는 묶지 않아요: 같은 종류라도 내용이 매번 달라요
+          + " and num_nonnulls(r.notice_id, r.raw_policy_id, r.benefit_policy_id) = 1) as"
+          + " open_in_group";
 
   private final JdbcClient jdbc;
 
@@ -44,11 +47,11 @@ public class NoticeReportRepository {
         .optional();
   }
 
-  /** 판정 틀이 있는 창업지원 사업의 이름 (없으면 비어 있음). */
+  /** 판정 틀이 있는 창업지원 사업·사업공간 모집의 이름 (없으면 비어 있음). */
   public Optional<String> programTitle(UUID rawPolicyId) {
     return jdbc.sql(
-            "select title from notice.policy_judgments where raw_policy_id = :id and field ="
-                + " 'STARTUP_SUPPORT'")
+            "select title from notice.policy_judgments where raw_policy_id = :id and field in"
+                + " ('STARTUP_SUPPORT', 'SPACE_RECRUITMENT')")
         .param("id", rawPolicyId)
         .query(String.class)
         .optional();
@@ -103,6 +106,19 @@ public class NoticeReportRepository {
         .list();
   }
 
+  /** 한 회원이 보낸 제보 (최근 것부터) */
+  public List<Report> byReporter(UUID reporterId, int limit) {
+    return jdbc.sql(
+            "select "
+                + COLUMNS
+                + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
+                + " where r.reporter_id = :r order by r.created_at desc limit :limit")
+        .param("r", reporterId)
+        .param("limit", limit)
+        .query(NoticeReportRepository::report)
+        .list();
+  }
+
   public List<Report> list(String status, int limit) {
     return jdbc.sql(
             "select "
@@ -127,8 +143,13 @@ public class NoticeReportRepository {
         .optional();
   }
 
-  /** 같은 대상(공고·사업·혜택 정책)·칸의 다른 제보 (오래된 것부터). */
+  /** 같은 대상(공고·사업·혜택 정책)·칸의 다른 제보 (오래된 것부터). 일반 제보(대상 없음)는 묶지 않아요. */
   public List<Report> sameGroup(Report target, UUID except) {
+    if (target.noticeId() == null
+        && target.rawPolicyId() == null
+        && target.benefitPolicyId() == null) {
+      return List.of();
+    }
     return sameGroup(
         target.noticeId(), target.rawPolicyId(), target.benefitPolicyId(), target.field(), except);
   }

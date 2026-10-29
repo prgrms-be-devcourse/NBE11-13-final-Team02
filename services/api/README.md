@@ -97,8 +97,10 @@ src/main/java/kr/mujuthaek/api/
 
 | 하는 일 | 요청 | 비고 |
 | --- | --- | --- |
-| 관심 공고·정책 저장·지우기 | `PUT`·`DELETE /api/users/me/favorites/{notice\|benefit\|space-recruitment}/{id}` | 204. 없는 대상 404 `FAVORITE_TARGET_NOT_FOUND`, 200개 넘으면 409 `FAVORITE_LIMIT_EXCEEDED`. 합쳐진 공고는 남은 공고로 저장 |
-| 내 관심 목록 | `GET /api/users/me/favorites[?targetType=&cursor=&size=]` | 최근 저장한 것부터 `{targetType, targetId, createdAt}` |
+| 관심 공고·정책 저장·지우기 | `PUT`·`DELETE /api/users/me/favorites/{notice\|benefit\|startup-support\|space-recruitment}/{id}` | 204. 없는 대상 404 `FAVORITE_TARGET_NOT_FOUND`, 200개 넘으면 409 `FAVORITE_LIMIT_EXCEEDED`. 합쳐진 공고는 남은 공고로 저장 |
+| 내 관심 목록 | `GET /api/users/me/favorites[?targetType=&cursor=&size=]` | 최근 저장한 것부터 `{targetType, targetId, createdAt, title, organization, status, applyStart, applyEnd, linkPath}`. 대상이 사라졌으면 title·status가 null |
+| 내 제보 | `GET /api/users/me/reports` | 공고·혜택·창업지원 사업·생활권·일반 제보를 합쳐 최근 100건 `{items: [{id, kind(NOTICE·BENEFIT·PROGRAM·AREA·GENERAL), targetId, targetTitle, field, reportedValue, note, status, result, reply, createdAt, handledAt, linkPath}]}` |
+| 일반 제보 | `POST /api/v1/reports` (로그인) | 공고에 묶이지 않은 제보 `{field: MISSING_NOTICE·WRONG_INFO·APP_ERROR·ETC, note(필수), screen?, currentValue?}` → `{id, status}`. 관리자 제보 목록에 `GENERAL`, 같은 종류끼리 묶지 않아요. 답은 알림함에만(푸시·메일 없음) 남고 `/me?tab=reports`로 가요 |
 | 관심 조건 | `GET`·`PUT`·`DELETE /api/users/me/interests/{housing\|business\|support}` | 지역은 시군구 5자리·시도 전체 xx000 (common.regions의 유효한 코드, 30개까지). `saved: false`면 저장 전이라 새 소식 알림을 받지 않아요 |
 | 알림 설정 | `GET`·`PUT /api/users/me/notification-settings` | `{newNotice, newSupport, deadline, correction, followUp, quietEnabled}`. 저장 전에는 모두 켬·조용한 시간 끔. 끈 종류도 알림함에는 남아요 |
 

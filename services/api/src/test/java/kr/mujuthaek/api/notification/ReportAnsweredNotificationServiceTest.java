@@ -96,6 +96,29 @@ class ReportAnsweredNotificationServiceTest {
   }
 
   @Test
+  void generalReportAnswerStaysInTheInboxOnlyAndOpensMyReports() {
+    int sent =
+        service.onAnswered(
+            new kr.mujuthaek.api.common.event.GeneralReportAnswered(
+                reportId, reporter, "MISSING_NOTICE", "FIXED", SECRET_REPLY));
+
+    // 가리킬 대상이 없어 알림 서버 요청(푸시·메일)은 만들지 않고 알림함에만 남겨요
+    assertThat(sent).isZero();
+    org.mockito.Mockito.verify(outbox, org.mockito.Mockito.never())
+        .add(
+            org.mockito.ArgumentMatchers.anyString(),
+            org.mockito.ArgumentMatchers.anyInt(),
+            org.mockito.ArgumentMatchers.any());
+    InboxRepository.NewEntry entry = onlyInboxEntry();
+    assertThat(entry.userId()).isEqualTo(reporter);
+    assertThat(entry.targetType()).isNull();
+    assertThat(entry.targetId()).isNull();
+    assertThat(entry.linkPath()).isEqualTo("/me?tab=reports");
+    assertThat(entry.title()).isEqualTo("제보 답변이 도착했어요");
+    assertThat(entry.body()).doesNotContain(SECRET_REPLY);
+  }
+
+  @Test
   void areaReportUsesTheNoticeTitleAndTheMergedNotice() {
     UUID asked = UUID.randomUUID();
     UUID remaining = UUID.randomUUID();
@@ -164,6 +187,32 @@ class ReportAnsweredNotificationServiceTest {
     assertThat(payload.get("linkPath")).isEqualTo("/business/support/" + program);
     assertThat(payload.get("target")).isEqualTo(Map.of("type", "STARTUP_SUPPORT", "id", program));
     assertThat(payload.get("title")).isEqualTo("제보 답변: 예비창업패키지");
+  }
+
+  @Test
+  void spaceRecruitmentReportLinksToTheSpace() {
+    UUID space = UUID.randomUUID();
+    when(notices.findPolicySummary(space))
+        .thenReturn(
+            Optional.of(
+                new PolicySummary(
+                    space,
+                    1,
+                    "SPACE_RECRUITMENT",
+                    "창업센터 입주 모집",
+                    null,
+                    "APPLYING",
+                    null,
+                    null,
+                    List.of(),
+                    null)));
+
+    service.onAnswered(
+        new ProgramReportAnswered(reportId, space, reporter, "모집 기간", "FIXED", "고쳤어요", null));
+
+    Map<String, Object> payload = onlyPayload();
+    assertThat(payload.get("linkPath")).isEqualTo("/business/spaces/" + space);
+    assertThat(payload.get("target")).isEqualTo(Map.of("type", "SPACE_RECRUITMENT", "id", space));
   }
 
   @Test

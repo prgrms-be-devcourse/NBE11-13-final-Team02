@@ -95,3 +95,37 @@ def test_from_env_reads_env_then_env_file_in_name_order(monkeypatch, tmp_path):
     assert notifier.enabled and notifier.timeout == 2  # 빈 환경 변수는 없는 것으로 보고 파일 값을 써요
     monkeypatch.delenv("COMMON_SLACK")
     assert not SlackNotifier.from_env("COMMON_SLACK").enabled
+
+
+def test_quiet_alerts_send_once_per_window_and_count_the_rest():
+    from mujuthaek_platform.slack import QuietAlerts, SlackNotifier
+
+    sent: list[str] = []
+
+    class Fake(SlackNotifier):
+        def send(self, text: str) -> bool:
+            sent.append(text)
+            return True
+
+    now = [0.0]
+    alerts = QuietAlerts(Fake("https://example.invalid/hook"), "extraction", environment="prod", clock=lambda: now[0])
+
+    assert alerts.send("dlq:policy", "정책 메시지를 실패 큐로 보냈어요", "AI_FAILED")
+    assert not alerts.send("dlq:policy", "정책 메시지를 실패 큐로 보냈어요")
+    assert not alerts.send("dlq:policy", "정책 메시지를 실패 큐로 보냈어요")
+    assert alerts.send("dlq:notice", "다른 종류")
+    now[0] = 600.0
+    assert alerts.send("dlq:policy", "정책 메시지를 실패 큐로 보냈어요")
+
+    assert sent[0] == "[prod extraction] 정책 메시지를 실패 큐로 보냈어요\n```AI_FAILED```"
+    assert sent[2] == "[prod extraction] 정책 메시지를 실패 큐로 보냈어요 (지난 알림 뒤 같은 일 2번 더)"
+
+
+def test_quiet_alerts_swallow_send_failures():
+    from mujuthaek_platform.slack import QuietAlerts, SlackError, SlackNotifier
+
+    class Broken(SlackNotifier):
+        def send(self, text: str) -> bool:
+            raise SlackError("슬랙 응답 500")
+
+    assert not QuietAlerts(Broken("https://example.invalid/hook"), "collector").send("k", "t")

@@ -7,9 +7,11 @@ import kr.mujuthaek.api.benefit.service.BenefitQueryService;
 import kr.mujuthaek.api.benefit.service.BenefitSummary;
 import kr.mujuthaek.api.common.event.AreaReportAnswered;
 import kr.mujuthaek.api.common.event.BenefitReportAnswered;
+import kr.mujuthaek.api.common.event.GeneralReportAnswered;
 import kr.mujuthaek.api.common.event.NoticeReportAnswered;
 import kr.mujuthaek.api.common.event.ProgramReportAnswered;
 import kr.mujuthaek.api.common.event.ReportAnswered;
+import kr.mujuthaek.api.common.text.ScreenPaths;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
 import kr.mujuthaek.api.notice.service.NoticeSummary;
 import kr.mujuthaek.api.notice.service.PolicySummary;
@@ -73,7 +75,11 @@ public class ReportAnsweredNotificationService {
     String outcome = "FIXED".equals(event.result()) ? "확인하고 고쳤어요." : "확인했어요. 원문과 같아 그대로 두었어요.";
     return requests.write(
         TYPE,
-        t.type() + ":" + t.id() + ":ANSWERED:" + t.kind() + ":" + event.reportId(),
+        (t.type() == null ? "GENERAL" : t.type() + ":" + t.id())
+            + ":ANSWERED:"
+            + t.kind()
+            + ":"
+            + event.reportId(),
         t.type(),
         t.id(),
         t.linkPath(),
@@ -86,6 +92,9 @@ public class ReportAnsweredNotificationService {
     return switch (event) {
       case NoticeReportAnswered e -> notice("NOTICE", e.noticeId(), e.targetTitle(), "");
       case AreaReportAnswered e -> notice("AREA", e.noticeId(), e.targetTitle(), "생활권 ");
+      // 일반 제보는 가리킬 대상이 없어요: 알림함에만 남기고 누르면 내 정보의 제보 탭으로
+      case GeneralReportAnswered e ->
+          Optional.of(new Target("GENERAL", null, null, null, "", ScreenPaths.MY_REPORTS));
       case BenefitReportAnswered e ->
           benefits
               .findSummaryByRawPolicyId(e.policyId())
@@ -99,21 +108,19 @@ public class ReportAnsweredNotificationService {
                           title(e.targetTitle(), () -> benefitTitle(e.policyId())),
                           "",
                           NotificationRequests.linkPath("BENEFIT", id)));
-      case ProgramReportAnswered e ->
-          Optional.of(
-              new Target(
-                  "PROGRAM",
-                  "STARTUP_SUPPORT",
-                  e.programId(),
-                  title(
-                      e.targetTitle(),
-                      () ->
-                          notices
-                              .findPolicySummary(e.programId())
-                              .map(PolicySummary::title)
-                              .orElse(null)),
-                  "",
-                  NotificationRequests.linkPath("STARTUP_SUPPORT", e.programId())));
+      case ProgramReportAnswered e -> {
+        // 창업지원 사업은 사업 지원 상세, 사업공간 모집은 사업공간 상세로
+        Optional<PolicySummary> summary = notices.findPolicySummary(e.programId());
+        String type = summary.map(PolicySummary::field).orElse("STARTUP_SUPPORT");
+        yield Optional.of(
+            new Target(
+                "PROGRAM",
+                type,
+                e.programId(),
+                title(e.targetTitle(), () -> summary.map(PolicySummary::title).orElse(null)),
+                "",
+                NotificationRequests.linkPath(type, e.programId())));
+      }
     };
   }
 

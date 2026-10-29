@@ -84,3 +84,27 @@ jobs:
       - name: collector 테스트
         working-directory: services/collector
         run: uv run --frozen pytest -q  # 실제 DB 테스트(test_storage_postgres)는 COLLECTOR_TEST_DB_URL이 없어서 건너뛰어요
+
+  notify:
+    name: 슬랙 알림 (dev·main 실패)
+    needs: [api, notification, python]
+    # PR이 아니라 dev·main에 올라간 뒤 깨졌을 때만 알려요
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: development # ENV_FILE 안의 SLACK_WEBHOOK_URL을 쓰려고
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+      - env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          RESULTS: "api ${{ needs.api.result }} · notification ${{ needs.notification.result }} · python ${{ needs.python.result }}"
+          BRANCH: ${{ github.ref_name }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMIT: ${{ github.event.head_commit.message }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          text="$(printf '[CI] :x: %s 브랜치 검사 실패\n%s\n%s · %s\n%s' \
+            "$BRANCH" "$RESULTS" "${COMMIT%%$'\n'*}" "$ACTOR" "$RUN_URL")"
+          .github/scripts/slack-notify.sh "$text"

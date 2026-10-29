@@ -15,6 +15,8 @@
 - 웹훅 주소 자체가 비밀이라 로그·예외 문구·repr 어디에도 넣지 않아요.
 - 표준 라이브러리(urllib)만 쓰고, 기본 시간 제한은 5초예요. 연결 실패·시간 초과·HTTP 오류는 모두 SlackError로 내요.
 - 같은 알림을 한 번만 보내는 일(예: 달마다 한 번)은 부르는 쪽이 정해요(extraction cost_alert.py는 DB 기록으로 막아요).
+- 운영 오류 알림은 QuietAlerts로 보내요: 같은 종류는 10분에 한 번만, 머리에 [환경 서비스]를 붙이고,
+  실패해도 예외를 내지 않아요. api(Spring OpsAlert)와 같은 웹훅·같은 규칙이에요.
 """
 
 from __future__ import annotations
@@ -24,13 +26,16 @@ import logging
 import os
 import re
 import threading
+import time
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 DEFAULT_ENV_NAME = "SLACK_WEBHOOK_URL"
 DEFAULT_TIMEOUT_SECONDS = 5.0
+ENVIRONMENT_ENV_NAME = "MUJUTHAEK_ENV"  # 알림 머리의 환경 이름(prod · dev). 없으면 local
+DEFAULT_QUIET_SECONDS = 600.0
 
 
 class SlackError(RuntimeError):
@@ -110,3 +115,56 @@ class SlackNotifier:
                 return
             self._warned = True
         log.warning("슬랙 웹훅 주소(%s)가 없어 슬랙 알림을 보내지 않아요", self.env_name or "설정 안 됨")
+
+
+class QuietAlerts:
+    """운영 오류 알림. 같은 종류(kind)는 quiet초 안에 한 번만 보내고, 그동안 생긴 횟수는 다음 알림에 붙여요.
+    보내지 못해도 경고 로그 한 줄로 끝나요(알림이 본 작업을 막지 않게). 내용에 개인 정보·비밀 값을 넣지 마세요."""
+
+    def __init__(
+        self,
+        notifier: SlackNotifier,
+        service: str,
+        environment: str | None = None,
+        quiet_seconds: float = DEFAULT_QUIET_SECONDS,
+        clock: Callable[[], float] = time.monotonic,
+    ):
+        self.notifier = notifier
+        self.prefix = f"[{environment or os.getenv(ENVIRONMENT_ENV_NAME) or 'local'} {service}]"
+        self.quiet_seconds = quiet_seconds
+        self._clock = clock
+        self._windows: dict[str, tuple[float, int]] = {}  # kind → (보낸 시각, 그 뒤 못 보낸 횟수)
+        self._lock = threading.Lock()
+
+    @classmethod
+    def from_env(
+        cls, service: str, name: str | Sequence[str] = DEFAULT_ENV_NAME, env_file: Path | str | None = None
+    ) -> QuietAlerts:
+        return cls(SlackNotifier.from_env(name, env_file), service)
+
+    def take(self, kind: str, title: str, detail: str | None = None) -> str | None:
+        """보낼 차례면 글을, 아직 조용히 할 때면 None을 돌려줘요(횟수만 세요)."""
+        now = self._clock()
+        with self._lock:
+            sent_at, suppressed = self._windows.get(kind, (None, 0))
+            if sent_at is not None and now - sent_at < self.quiet_seconds:
+                self._windows[kind] = (sent_at, suppressed + 1)
+                return None
+            self._windows[kind] = (now, 0)
+        text = f"{self.prefix} {title}"
+        if suppressed:
+            text += f" (지난 알림 뒤 같은 일 {suppressed}번 더)"
+        if detail:
+            text += f"\n```{detail.strip()[:2000]}```"
+        return text
+
+    def send(self, kind: str, title: str, detail: str | None = None) -> bool:
+        """보냈으면 True. 조용히 할 때·주소가 없을 때·실패했을 때는 False."""
+        text = self.take(kind, title, detail)
+        if text is None:
+            return False
+        try:
+            return self.notifier.send(text)
+        except SlackError as error:
+            log.warning("슬랙 알림을 보내지 못했어요: %s", error)
+            return False
