@@ -82,9 +82,8 @@ public final class CriterionJudge {
           case Ask x -> item(x, "ASK", x.question(), UNKNOWN, x.question(), List.of(), null, null);
         };
     if (c.basics().inReview()) {
-      String why = c.basics().reviewReason();
-      return withStatus(
-          item, UNKNOWN, "공고 조건을 확인하는 중이에요" + (why == null ? "" : " (" + why + ")"), List.of());
+      // 확인 필요로만 둬요. 검수 이유(reviewReason)는 관리자용 설명이라 회원 화면에 문구로 보이지 않게 해요(2026-10-29 QA)
+      return withStatus(item, UNKNOWN, null, List.of());
     }
     return item;
   }

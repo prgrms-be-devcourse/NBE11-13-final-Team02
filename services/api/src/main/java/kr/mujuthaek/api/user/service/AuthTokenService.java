@@ -5,6 +5,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.HexFormat;
@@ -30,7 +31,8 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * <ul>
  *   <li>access token: JWT (HS256). sub = 회원 ID, role, nickname. 서버에 저장하지 않아요
- *   <li>refresh token: 무작위 32바이트. DB에는 SHA-256 해시만. 재발급할 때마다 새 값으로 바꿔요(회전), 쓴 값은 지워요
+ *   <li>refresh token: 무작위 32바이트. DB에는 SHA-256 해시만. 재발급할 때마다 새 값으로 바꿔요(회전). 쓴 값은 {@link
+ *       #ROTATED_GRACE} 동안만 더 받아 주고, 그 뒤로는 받지 않아요
  * </ul>
  */
 @Service
@@ -38,6 +40,13 @@ public class AuthTokenService {
 
   public static final String ROLE_CLAIM = "role";
   public static final String NICKNAME_CLAIM = "nickname";
+
+  /**
+   * 바꾼 refresh token을 더 받아 주는 시간. 새로고침을 빠르게 하거나 탭 여러 개가 함께 연장하면, 먼저 간 요청이 바꾼 새 쿠키를 브라우저가 받기 전에 늦은
+   * 요청이 옛 쿠키를 들고 와요(응답을 받기 전에 페이지를 떠나면 새 쿠키를 아예 못 받기도 해요). 그때 로그아웃되지 않게 잠깐은 옛 값으로도 연장해 줘요
+   * (2026-10-29).
+   */
+  public static final Duration ROTATED_GRACE = Duration.ofSeconds(30);
 
   private final JwtEncoder jwtEncoder;
   private final JwtProperties props;
@@ -86,11 +95,11 @@ public class AuthTokenService {
   }
 
   /**
-   * refresh token으로 새 access token 발급. refresh token도 새로 바꾸고 쓴 값은 지워요. 권한·닉네임은 DB의 지금 값을 써요
-   * (ADMIN으로 바꾸면 다음 재발급부터 적용).
+   * refresh token으로 새 access token 발급. refresh token도 새로 바꿔요. 권한·닉네임은 DB의 지금 값을 써요 (ADMIN으로 바꾸면 다음
+   * 재발급부터 적용).
    *
-   * <p>같은 쿠키로 재발급이 동시에 오면(탭 두 개, 페이지를 열 때 API 두 개) 지운 줄 수로 먼저 온 하나만 새 토큰을 받아요. 늦은 쪽은 409 CONFLICT —
-   * 쿠키를 지우지 않아서 먼저 온 쪽이 받은 새 쿠키가 남고, 프론트는 원래 요청을 한 번 다시 보내면 돼요.
+   * <p>쓴 값은 지우지 않고 바꾼 시각만 적어요. 같은 값이 {@link #ROTATED_GRACE} 안에 다시 오면(새로고침 연타, 탭 여러 개가 동시에 연장) 그 요청도
+   * 새 토큰을 받아요. 그 뒤에 오면 401이에요. 동시에 온 요청끼리도 둘 다 새 토큰을 받고, 브라우저에는 마지막에 받은 쿠키가 남아요(어느 쪽이든 유효).
    */
   @Transactional(noRollbackFor = CustomException.class) // 만료된 값도 지운 채로 401을 보내요
   public TokenPair refresh(String rawRefreshToken) {
@@ -100,10 +109,15 @@ public class AuthTokenService {
         refreshTokens
             .findByTokenHash(tokenHash)
             .orElseThrow(() -> new CustomException(ErrorCode.INVALID_REFRESH_TOKEN));
-    if (refreshTokens.deleteByTokenHash(tokenHash) == 0) {
-      throw new CustomException(ErrorCode.CONFLICT, "다른 요청이 먼저 로그인을 연장했어요. 다시 시도해 주세요");
-    }
     if (saved.expired(now)) {
+      refreshTokens.deleteByTokenHash(tokenHash);
+      throw new CustomException(ErrorCode.INVALID_REFRESH_TOKEN);
+    }
+    Instant rotatedAt = saved.getRotatedAt();
+    if (rotatedAt == null && refreshTokens.markRotated(tokenHash, now) == 0) {
+      rotatedAt = now; // 동시에 온 다른 요청이 방금 바꿨어요
+    }
+    if (rotatedAt != null && rotatedAt.plus(ROTATED_GRACE).isBefore(now)) {
       throw new CustomException(ErrorCode.INVALID_REFRESH_TOKEN);
     }
     User user =
@@ -131,10 +145,11 @@ public class AuthTokenService {
     refreshTokens.deleteByUserId(userId);
   }
 
-  /** 만료된 refresh token 정리. */
+  /** 만료된 refresh token과, 바꾼 지 오래돼 더는 받지 않는 값 정리. */
   @Transactional
   public int deleteExpired() {
-    return refreshTokens.deleteExpired(clock.instant());
+    Instant now = clock.instant();
+    return refreshTokens.deleteExpired(now, now.minus(ROTATED_GRACE));
   }
 
   /** 이용 정지 중이면 로그인·재발급을 막아요 (정지할 때 로그인도 모두 끊어요). */

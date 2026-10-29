@@ -55,6 +55,11 @@ BIRTH_YEAR_AGE = re.compile(
     r"출생\s*연도|(?:19|20)\d{2}\s*년생|(?:19|20)\d{2}[^\n]{0,40}?(?:이후|이전|부터|까지|~)\s*출생|(?:19|20)\d{2}[^\n]{0,40}?출생(?:자|한\s*(?:청년|사람|자|분|주민))"
 )
 NO_AGE_LIMIT = re.compile(r"(?:연령|나이)\s*(?:기준|제한)?\s*(?:미적용|없음|무관|제한\s*없)")
+# 주택 소유 조건(무주택·무주택 기간·생애 최초 구입)은 근거 문장이 주택 소유를 말할 때만 씁니다. 「일정한 주거 없이 노숙…」(행려자·부랑인)처럼
+# 노숙(홈리스)을 말하는 문장으로 무주택을 채우면 노숙인 혜택이 무주택자 혜택이 돼요(2026-10-29 사용자 결정, 혜택 264개 중 2건).
+# 「주거」는 노숙 문장에도 나와서 넣지 않고, 「집」은 「모집」·「수집」과 헷갈리지 않게 뒤에 오는 말까지 봐요
+OWNERSHIP_TYPES = {"HOMELESS", "HOMELESS_YEARS", "FIRST_HOME"}
+OWNERSHIP_WORDS = re.compile(r"주택|자가|아파트|분양|청약|소유|내\s*집|(?<![모수])집\s*(?:이|을|없|마련|장만)")
 
 
 def _norm(text: str | None) -> str:
@@ -566,6 +571,10 @@ def build_payload(payload: dict[str, Any], reading: BenefitReading, rules: RuleR
             if ai_value(item, regions) is not None:
                 reasons.append("LOW_CONFIDENCE")
         value = ai_value(item, regions) if evidence_ok else None
+        if value is not None and item["type"] in OWNERSHIP_TYPES and not OWNERSHIP_WORDS.search(item["evidence"]):
+            # 근거가 주택 소유를 말하지 않으면 틀린 값일 수 있어 핵심 값이어도 비우고 검수로(누락보다 틀린 값이 더 나빠요)
+            value = None
+            reasons.append("LOW_CONFIDENCE")
         had_value = value is not None and item["type"] not in TEXT_ONLY
         if value is not None and _norm(item["evidence"]) in leftover and any(item.get(k) for k in WON_FIELDS):
             if item["type"] in CORE:

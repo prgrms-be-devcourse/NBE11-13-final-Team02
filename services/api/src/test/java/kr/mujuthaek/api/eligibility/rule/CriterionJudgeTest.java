@@ -353,7 +353,7 @@ class CriterionJudgeTest {
     var reviewing = new Judgment.Age(new Basics("c2", null, null, true, "나이 표기가 두 가지"), 19, 39);
     Item item = judge(reviewing, applicant().birthMonth(1997, 3).build());
     assertThat(item.status()).isEqualTo(UNKNOWN);
-    assertThat(item.reason()).contains("확인하는 중", "나이 표기가 두 가지");
+    assertThat(item.reason()).isNull(); // 검수 이유는 관리자용이라 회원 화면 문구로 내보내지 않아요
     assertThat(item.evidence()).isNull();
   }
 

@@ -296,6 +296,37 @@ class NoticeReportServiceTest {
   }
 
   @Test
+  void benefitReportUsesTheBenefitTitleHereWithoutAskingExtraction() {
+    // 운영 결과를 받아 쓰는 개발 서버처럼 추출 서비스에 그 정책이 없어도 이 서버에 혜택이 있으면 제보를 받아요(2026-10-29 QA)
+    UUID policy = UUID.randomUUID();
+    UUID benefitId = UUID.randomUUID();
+    org.mockito.Mockito.when(benefits.findRawPolicyId(benefitId))
+        .thenReturn(java.util.Optional.of(policy));
+    org.mockito.Mockito.when(benefits.findSummaryByRawPolicyId(policy))
+        .thenReturn(
+            java.util.Optional.of(
+                new kr.mujuthaek.api.benefit.service.BenefitSummary(
+                    benefitId,
+                    "HOUSING",
+                    1,
+                    "가상 이사비 지원",
+                    "가상구청",
+                    "OPEN",
+                    null,
+                    null,
+                    true,
+                    "NATIONWIDE",
+                    java.util.List.of(),
+                    null)));
+
+    UUID id =
+        service.reportBenefit(benefitId, deposit("공고문 2쪽"), UUID.randomUUID().toString()).id();
+
+    assertThat(service.detail(id).report().noticeTitle()).isEqualTo("가상 이사비 지원");
+    reviewServer.verify(); // 추출 서비스에는 묻지 않았어요
+  }
+
+  @Test
   void benefitPoliciesAreReportedReopenedAsBenefitReviewsAndAnswered() {
     UUID policy = UUID.randomUUID();
     UUID missing = UUID.fromString(policy.toString().replace('0', '1'));

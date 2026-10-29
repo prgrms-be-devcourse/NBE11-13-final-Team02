@@ -12,7 +12,7 @@ from typing import Any
 
 from mujuthaek_extraction.model import ExtractionModel, ModelError, ModelRequest, StopReason
 
-PROMPT_VERSION = "benefit/v4"
+PROMPT_VERSION = "benefit/v5"  # v5(2026-10-29): 무주택(주택 소유)과 노숙(홈리스)을 나눔
 CALL_NAME = "benefit_reading"
 MAX_TEXT = 60000  # 글이 이보다 길면 앞부분만 보냅니다. 잘렸으면 TEXT_TRUNCATED
 MAX_OUTPUT_TOKENS = 8000
@@ -187,6 +187,9 @@ conditions: 신청 자격 조건 하나씩. 조건이 없으면 빈 목록(「�
   RESIDENCE: regionNames (지금 살아야 하는 지역 이름, 「대구광역시」「전북특별자치도 무주군」). RESIDENCE_MONTHS: months(거주 개월 이상), regionNames
   MOVE_IN: regionNames(전입할 지역), months(전입 후 N개월 안 신청). 지금 다른 곳에 살아도 전입하면 대상인 경우
   HOMELESS: basis (PERSON 본인 무주택, HOUSEHOLD 세대원 모두 무주택). HOMELESS_YEARS: min (무주택 N년 이상). FIRST_HOME: 생애 최초 주택 구입
+    HOMELESS·HOMELESS_YEARS·FIRST_HOME은 주택 소유 여부(무주택·주택 보유·생애 최초 구입)를 말할 때만 씁니다.
+    노숙·거리 생활·「일정한 주거 없이」·행려자·부랑인·쉼터나 시설 거주·주거 취약 같은 상태는 주택 소유가 아니므로 OTHER로 담습니다
+    (영어 homeless는 노숙인 뜻이라 헷갈리기 쉬워요)
   LEASE: leaseKinds (MONTHLY 월세, JEONSE 전세), depositMaxWon(임차 보증금 상한), monthlyMaxWon(월세 상한)
     보증부 월세(보증금이 있는 월세)는 MONTHLY만. 글에 전세와 월세가 모두 대상이라고 적혀 있을 때만 둘 다 넣습니다
   EMPLOYMENT: values (EMPLOYED 재직, SELF_EMPLOYED 자영업, UNEMPLOYED 미취업, FREELANCER, DAILY_WORKER 일용, SHORT_TERM 단기, STARTUP 창업, OTHER)
