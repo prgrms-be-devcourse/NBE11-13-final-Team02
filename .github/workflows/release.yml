@@ -186,3 +186,43 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "$TAG" --generate-notes
+
+  notify:
+    name: 슬랙 알림
+    needs: [meta, test, build, deploy]
+    if: always() && needs.meta.result != 'skipped'
+    runs-on: ubuntu-latest
+    environment: production # ENV_FILE 안의 SLACK_WEBHOOK_URL을 쓰려고
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: .github/scripts
+      - env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          ENV_FILE: ${{ secrets.ENV_FILE }}
+          META: ${{ needs.meta.result }}
+          TEST: ${{ needs.test.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY: ${{ needs.deploy.result }}
+          TARGET: ${{ needs.meta.outputs.target }}
+          VERSION: ${{ needs.meta.outputs.version }}
+          BUILD: ${{ needs.meta.outputs.build }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          kind="릴리즈"
+          [ "$BUILD" = false ] && kind="되돌리기(이미 있는 이미지)"
+          if [ "$META" = failure ]; then
+            result=":x: 서비스·버전을 읽지 못했어요"
+          elif [ "$TEST" = failure ] || [ "$BUILD_RESULT" = failure ]; then
+            result=":x: 테스트·빌드 실패 (배포하지 않았어요)"
+          elif [ "$DEPLOY" = success ]; then
+            result=":white_check_mark: 운영 배포 완료"
+          elif [ "$DEPLOY" = failure ]; then
+            result=":rotating_light: 운영 배포 실패 (헬스체크에 실패한 서비스는 deploy.sh가 이전 버전으로 되돌렸어요)"
+          else
+            result=":white_circle: 취소·건너뜀 (deploy: ${DEPLOY:-없음})"
+          fi
+          text="$(printf '[prod] %s\n%s · 서비스: %s · 버전: %s\n%s · %s' \
+            "$result" "$kind" "${TARGET:-?}" "${VERSION:-?}" "$ACTOR" "$RUN_URL")"
+          .github/scripts/slack-notify.sh "$text"

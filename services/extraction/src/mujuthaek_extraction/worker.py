@@ -50,6 +50,7 @@ from mujuthaek_extraction.store import DuplicateEvent, JobStore
 from mujuthaek_extraction.usage import log_fields
 from mujuthaek_platform import broker, db, outbox
 from mujuthaek_platform.events import new_event
+from mujuthaek_platform.slack import QuietAlerts, SlackNotifier
 
 log = logging.getLogger(__name__)
 EXCHANGE = outbox.EXCHANGE
@@ -121,16 +122,43 @@ def replay_dlq(channel, dlq: str, queue: str, limit: int) -> int:
     return moved
 
 
-def finish_policy(channel, delivery_tag: int, decision: str, body: bytes, properties: Any = None) -> None:
+def finish_policy(channel, delivery_tag: int, decision: str, body: bytes, properties: Any = None, reason: str | None = None) -> None:
     """정책 메시지의 결정을 큐에 알립니다. .dlq면 본문을 POLICY_DLQ로 옮긴 뒤 ack합니다(정책 큐에는 dead-letter 인자가 없어
-    reject하면 메시지가 사라짐). 옮기기가 실패하면 예외가 나서 ack하지 않으므로 연결이 끊긴 뒤 메시지가 다시 옵니다."""
+    reject하면 메시지가 사라짐). 옮기기가 실패하면 예외가 나서 ack하지 않으므로 연결이 끊긴 뒤 메시지가 다시 옵니다.
+    .dlq로 옮길 때 실패 이유를 헤더(x-error-reason·x-failed-at)에 남겨, 쌓인 메시지만 봐도 왜 실패했는지 알 수 있게 합니다."""
     if decision == "ack":
         channel.basic_ack(delivery_tag)
     elif decision == "requeue":
         channel.basic_nack(delivery_tag, requeue=True)
     else:
-        channel.basic_publish(exchange="", routing_key=POLICY_DLQ, body=body, properties=properties)
+        channel.basic_publish(exchange="", routing_key=POLICY_DLQ, body=body, properties=failure_properties(properties, reason))
         channel.basic_ack(delivery_tag)
+
+
+def failure_properties(properties: Any, reason: str | None) -> Any:
+    """원래 속성에 실패 이유 헤더를 더한 복사본(원래 헤더는 그대로 둡니다)."""
+    import pika
+
+    base = properties if properties is not None else pika.BasicProperties()
+    headers = dict(getattr(base, "headers", None) or {})
+    headers["x-error-reason"] = (reason or "UNKNOWN")[:300]
+    headers["x-failed-at"] = datetime.now(UTC).isoformat(timespec="seconds")
+    return pika.BasicProperties(
+        content_type=base.content_type,
+        content_encoding=base.content_encoding,
+        delivery_mode=base.delivery_mode or 2,
+        message_id=base.message_id,
+        timestamp=base.timestamp,
+        type=base.type,
+        app_id=base.app_id,
+        correlation_id=base.correlation_id,
+        headers=headers,
+    )
+
+
+def _note(why: list[str] | None, reason: str) -> None:
+    if why is not None:
+        why.append(reason)
 
 
 class BudgetExhausted(Exception):
@@ -494,9 +522,10 @@ def relay_loop(settings: Settings, stop: threading.Event, health: Health | None 
 CONSUMER_BEAT_SECONDS = 30
 
 
-def judge_message(settings: Settings, processor: Processor, raw_event: dict[str, Any], retries: RetryCounter) -> str:
+def judge_message(settings: Settings, processor: Processor, raw_event: dict[str, Any], retries: RetryCounter, why: list[str] | None = None) -> str:
     """정책 수집 이벤트 하나 → "ack"·"requeue"·"dlq". 창업지원·사업공간이면 판정 틀 이벤트를 넣고 ack, 전체 비용 상한·DB 장애·AI 일시
-    실패면 requeue, AI 일시 실패가 retries.limit번 이어지거나 AI 영구 실패로 틀을 못 만들었거나 계약 위반이면 .dlq."""
+    실패면 requeue, AI 일시 실패가 retries.limit번 이어지거나 AI 영구 실패로 틀을 못 만들었거나 계약 위반이면 .dlq.
+    why를 주면 .dlq일 때 이유 코드(AI_RETRY_EXHAUSTED:코드 · AI_FAILED:코드 · ERROR:예외 종류)를 넣습니다."""
     payload = raw_event.get("payload") if isinstance(raw_event.get("payload"), dict) else {}
     benefit = payload.get("field") in BENEFIT_FIELDS and getattr(settings, "benefit_enabled", False)
     if payload.get("field") not in POLICY_FIELDS and not benefit:  # 혜택 정제가 꺼져 있으면 BENEFIT: 비용 장부·DB를 열지 않고 넘김
@@ -525,6 +554,7 @@ def judge_message(settings: Settings, processor: Processor, raw_event: dict[str,
     except AiUnavailable as reason:
         if retries.fail(key):
             log.warning("AI 호출이 연속으로 일시 실패해 .dlq로 보냅니다", extra={"code": str(reason), "failures": retries.limit, **trace})
+            _note(why, f"AI_RETRY_EXHAUSTED:{reason}")
             return "dlq"
         log.warning("AI 호출이 일시적으로 실패해 잠시 뒤 큐로 되돌립니다", extra={"code": str(reason), **trace})
         time.sleep(DB_RETRY_SECONDS)
@@ -532,14 +562,16 @@ def judge_message(settings: Settings, processor: Processor, raw_event: dict[str,
     except AiFailed as reason:
         retries.clear(key)
         log.warning("AI가 정책 글을 읽지 못했고 구간 칸 규칙으로도 판정 틀을 만들지 못해 .dlq로 보냅니다", extra={"code": str(reason), **trace})
+        _note(why, f"AI_FAILED:{reason}")
         return "dlq"
     except _db_errors():
         log.exception("DB를 쓸 수 없어 잠시 뒤 큐로 되돌립니다")
         time.sleep(DB_RETRY_SECONDS)
         return "requeue"
-    except Exception:
+    except Exception as error:
         retries.clear(key)
         log.exception("판정 틀을 만들지 못했습니다. .dlq로 보냅니다")
+        _note(why, f"ERROR:{type(error).__name__}")
         return "dlq"
     retries.clear(key)
     return "ack"
@@ -551,6 +583,7 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
     channel = connection.channel()
     declare(channel)
     channel.basic_qos(prefetch_count=1)
+    alerts = QuietAlerts(SlackNotifier(settings.slack_webhook_url), "extraction")  # 실패 큐로 보낼 때 운영 알림
 
     def finish(delivery_tag: int, decision: str) -> None:
         if decision == "ack":
@@ -584,9 +617,11 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
         except ValueError:
             log.warning("JSON 이벤트가 아니어서 .dlq로 보냅니다")
             decision = "dlq"
-        except Exception:
+            alerts.send("dlq:notice", f"공고 메시지를 실패 큐로 보냈어요 ({DLQ})", "INVALID_EVENT")
+        except Exception as error:
             log.exception("저장 실패. .dlq로 보냅니다")
             decision = "dlq"
+            alerts.send("dlq:notice", f"공고 메시지를 실패 큐로 보냈어요 ({DLQ})", f"ERROR:{type(error).__name__}")
         connection.add_callback_threadsafe(functools.partial(finish, delivery_tag, decision))
 
     def on_message(_channel, method, _properties, body: bytes) -> None:
@@ -596,15 +631,26 @@ def consume(settings: Settings, processor: Processor, health: Health | None = No
 
     def judge(delivery_tag: int, body: bytes, properties: Any = None) -> None:
         """정책 수집 이벤트 하나를 judge_message로 처리하고 그 결정(ack·requeue·.dlq)을 연결 스레드로 넘깁니다."""
+        why: list[str] = []
+        raw_event: Any = None
         try:
             raw_event = json.loads(body)
             if not isinstance(raw_event, dict):
                 raise ValueError("이벤트가 객체가 아닙니다.")
-            decision = judge_message(settings, processor, raw_event, retries)
-        except Exception:
+            decision = judge_message(settings, processor, raw_event, retries, why)
+        except Exception as error:
             log.exception("판정 틀을 만들지 못했습니다. .dlq로 보냅니다")
             decision = "dlq"
-        connection.add_callback_threadsafe(functools.partial(finish_policy, channel, delivery_tag, decision, body, properties))
+            why.append("INVALID_EVENT" if isinstance(error, ValueError) else f"ERROR:{type(error).__name__}")
+        reason = why[-1] if why else None
+        if decision == "dlq":
+            payload = raw_event.get("payload") if isinstance(raw_event, dict) and isinstance(raw_event.get("payload"), dict) else {}
+            alerts.send(
+                "dlq:policy",
+                f"정책 메시지를 실패 큐로 보냈어요 ({POLICY_DLQ})",
+                f"{reason} · {payload.get('field')} rawPolicyId={payload.get('rawPolicyId')} v{payload.get('version')}",
+            )
+        connection.add_callback_threadsafe(functools.partial(finish_policy, channel, delivery_tag, decision, body, properties, reason))
 
     def on_policy(_channel, method, properties, body: bytes) -> None:
         threading.Thread(target=judge, args=(method.delivery_tag, body, properties), daemon=True).start()

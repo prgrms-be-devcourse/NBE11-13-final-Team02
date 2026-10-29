@@ -12,6 +12,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -26,6 +27,8 @@ import kr.mujuthaek.api.area.domain.AreaLoadRequest;
 import kr.mujuthaek.api.area.domain.AreaSource;
 import org.postgresql.copy.CopyManager;
 import org.postgresql.core.BaseConnection;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -47,11 +50,26 @@ public final class PostgresAreaBaseDataLoader {
   private static final String SQL_DIR = "area/load/";
   private static final int SHRINK_GUARD_MIN_ROWS = 100;
 
+  /** 적재 한 번의 SQL이 이보다 오래 걸리면 끊고 FAILED로 끝내요 (DB·S3가 멈춰 끝없이 기다리지 않게). */
+  static final Duration DEFAULT_STATEMENT_TIMEOUT = Duration.ofMinutes(90);
+
+  /** 같은 원천·범위 잠금이나 테이블 잠금을 이보다 오래 기다리지 않아요. */
+  static final Duration LOCK_TIMEOUT = Duration.ofMinutes(10);
+
   private final DataSource dataSource;
+  private final Duration statementTimeout;
   private final Map<String, String> sqlCache = new ConcurrentHashMap<>();
 
   public PostgresAreaBaseDataLoader(DataSource dataSource) {
+    this(dataSource, DEFAULT_STATEMENT_TIMEOUT);
+  }
+
+  @Autowired
+  public PostgresAreaBaseDataLoader(
+      DataSource dataSource,
+      @Value("${mujuthaek.area.load.statement-timeout:90m}") Duration statementTimeout) {
     this.dataSource = dataSource;
+    this.statementTimeout = statementTimeout;
   }
 
   /** 원천 파일 내용을 반영해요. 파일 문제는 FAILED 결과로, DB 연결 문제는 예외로 알려요. */
@@ -61,22 +79,57 @@ public final class PostgresAreaBaseDataLoader {
       if (alreadySucceeded(conn, request)) {
         return AreaLoadReport.skipped(insertRun(conn, request, "SKIPPED"));
       }
-      UUID runId = insertRun(conn, request, "RUNNING");
-      try {
-        conn.setAutoCommit(false);
-        AreaLoadReport report = loadInTransaction(conn, request, runId, content);
-        finishRun(conn, report);
-        conn.commit();
-        return report;
-      } catch (Exception e) {
-        conn.rollback();
-        conn.setAutoCommit(true);
-        String message = describe(e);
-        failRun(conn, runId, message);
-        return AreaLoadReport.failed(runId, message);
-      }
+      return run(conn, request, insertRun(conn, request, "RUNNING"), content);
     } catch (SQLException e) {
       throw new AreaLoadException("적재 기록을 남기지 못했어요: " + e.getMessage(), e);
+    }
+  }
+
+  /**
+   * 대기열에서 꺼낸 실행 기록(RUNNING)을 이어 써요. 그사이 같은 파일이 성공했으면 SKIPPED로 닫아요.
+   *
+   * @param runId {@link AreaLoadQueue#claimNext()}가 RUNNING으로 바꾼 기록
+   */
+  public AreaLoadReport loadRun(UUID runId, AreaLoadRequest request, InputStream content) {
+    try (Connection conn = dataSource.getConnection()) {
+      conn.setAutoCommit(true);
+      if (alreadySucceeded(conn, request)) {
+        skipRun(conn, runId);
+        return AreaLoadReport.skipped(runId);
+      }
+      return run(conn, request, runId, content);
+    } catch (SQLException e) {
+      throw new AreaLoadException("적재 기록을 남기지 못했어요: " + e.getMessage(), e);
+    }
+  }
+
+  private AreaLoadReport run(
+      Connection conn, AreaLoadRequest request, UUID runId, InputStream content)
+      throws SQLException {
+    try {
+      conn.setAutoCommit(false);
+      limitTime(conn);
+      AreaLoadReport report = loadInTransaction(conn, request, runId, content);
+      finishRun(conn, report);
+      conn.commit();
+      return report;
+    } catch (Exception e) {
+      conn.rollback();
+      conn.setAutoCommit(true);
+      String message = describe(e);
+      failRun(conn, runId, message);
+      return AreaLoadReport.failed(runId, message);
+    }
+  }
+
+  /** 이 트랜잭션에만 시간 제한을 걸어요 (커넥션을 풀에 돌려줄 때 남지 않게 set_config(…, true)). */
+  private void limitTime(Connection conn) throws SQLException {
+    try (PreparedStatement ps =
+        conn.prepareStatement(
+            "select set_config('statement_timeout', ?, true), set_config('lock_timeout', ?, true)")) {
+      ps.setString(1, statementTimeout.toMillis() + "ms");
+      ps.setString(2, LOCK_TIMEOUT.toMillis() + "ms");
+      ps.execute();
     }
   }
 
@@ -225,6 +278,15 @@ public final class PostgresAreaBaseDataLoader {
       ps.setInt(8, r.rowsDeleted());
       ps.setString(9, toJson(r.rejectReasons()));
       ps.setObject(10, r.runId());
+      ps.executeUpdate();
+    }
+  }
+
+  private static void skipRun(Connection conn, UUID runId) throws SQLException {
+    try (PreparedStatement ps =
+        conn.prepareStatement(
+            "update area.load_runs set status = 'SKIPPED', finished_at = now() where id = ?")) {
+      ps.setObject(1, runId);
       ps.executeUpdate();
     }
   }

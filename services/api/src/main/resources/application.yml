@@ -24,9 +24,12 @@ spring:
     listener:
       simple:
         default-requeue-rejected: false # 실패 메시지는 무한 재시도 대신 실패 큐로
-        retry:                          # 연결 오류 같은 예외는 몇 번 더 해 보고 실패 큐로 (2초 → 4초)
+        # 한 번에 미리 받아 두는 메시지 수 (기본 250). 많이 받아 두면 앞 메시지가 오래 걸릴 때 뒤 메시지가 ack 없이 쌓여
+        # RabbitMQ consumer_timeout(30분)에 채널이 닫혀요. 오래 걸리는 일(area 적재)은 대기열로 떼었어요
+        prefetch: 10
+        retry:                          # 연결 오류 같은 예외는 두 번 더 해 보고 실패 큐로 (2초 → 4초)
           enabled: true
-          max-attempts: 3
+          max-retries: 2                # Boot 4부터 max-attempts는 읽지 않아요 (처음 1번 + 다시 2번)
           initial-interval: 2s
           multiplier: 2
     publisher-confirm-type: correlated  # 아웃박스: 브로커가 받았다고 답해야 보낸 것으로 쳐요
@@ -121,7 +124,13 @@ mujuthaek:
       credentials-file: ${GA_CREDENTIALS_FILE:}  # 서비스 계정 키(JSON) 경로. 저장소 밖에 둬요
       cache-ttl: 1h                     # 같은 기간 보고서를 다시 묻지 않는 시간(GA 호출 한도)
       timeout: 10s
+  ops-alert:                            # 운영 슬랙 알림 (처리 못 한 오류, 실패 큐, area 적재 실패·멈춤, 다른 서비스 연결 실패)
+    webhook-url: ${SLACK_WEBHOOK_URL:${EXTRACTION_SLACK_WEBHOOK_URL:}}  # 추출 서비스 비용 알림과 같은 웹훅. 비면 보내지 않아요
+    environment: ${MUJUTHAEK_ENV:local} # 메시지 머리 [prod api]
+    quiet: 10m                          # 같은 종류는 이 시간 안에 한 번만 (그동안 횟수는 다음 알림에)
   area:
+    load:
+      statement-timeout: 90m            # 적재 SQL 하나가 이보다 오래 걸리면 끊고 실패로 (멈춘 채 기다리지 않게)
     score-version: "2026.1"             # area.score_rules의 생활권 점수 규칙 버전. 바꾸면 전체 다시 계산
     juso-search:                        # 도로명주소 검색 API. 키가 비면 부르지 않아요 (주소 사전으로만 찾음)
       base-url: https://business.juso.go.kr/addrlink/addrLinkApi.do
