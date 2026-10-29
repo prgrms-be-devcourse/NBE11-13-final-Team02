@@ -169,6 +169,47 @@ def test_rank_items_become_their_own_groups_and_an_umbrella_group_is_asked():
     assert {g["name"]: g["rank"] for g in frame["groups"]} == {"저소득계층": None, "1순위 일반 장애인": 1, "2순위": 2}
 
 
+def test_income_tier_groups_fold_into_each_target_group_instead_of_standing_alone():
+    # 실측 2026-10-29 구로구 도전숙: 나이·거주는 「청년창업인」에, 소득·자산은 「월평균소득 50% 이하 …」 구간 대상군에만 있어
+    # 부산 거주 66세 세대원도 소득만 맞으면 공고 전체 「지원 가능」. 구간은 대상이 아니라 대상이 갖출 소득 기준 중 하나예요
+    youth = "청년창업인"
+    low = "월평균소득 50% 이하 및 자산·자동차 기준 충족"
+    mid = "월평균소득 50% 초과 ~100% 이하"
+    items = [
+        item("age", "AGE", "만 19세 이상 39세 이하", atom("AGE_YEARS", "BETWEEN", [19, 39], subject="APPLICANT", unit="YEARS"), groups=[youth]),
+        item("income-50", "INCOME", "월평균소득 50% 이하", atom("INCOME_BENCHMARK_PERCENT", "LTE", 50, benchmark=URBAN), groups=[low]),
+        item("assets", "ASSETS", "총자산 2억4천5백만원 이하", atom("TOTAL_ASSETS_KRW", "LTE", 245_000_000, unit="KRW"), groups=[low]),
+        item("car", "CAR_ASSETS", "자동차 4,542만원 이하", atom("CAR_ASSETS_KRW", "LTE", 45_420_000, unit="KRW"), groups=[low]),
+        item("income-100", "INCOME", "월평균소득 50% 초과 100% 이하", atom("INCOME_BENCHMARK_PERCENT", "LTE", 100, benchmark=URBAN), groups=[mid]),
+    ]
+    frame = build_judgment(candidate(items, target_groups=[youth]))
+
+    assert [g["name"] for g in frame["groups"]] == [youth]  # 구간 대상군은 없어지고
+    [group] = frame["groups"]
+    age, tiers = group["criteria"]
+    assert age["kind"] == "AGE"
+    assert tiers["kind"] == "ANY_OF"  # 대상마다 「구간 중 하나」로 붙어요
+    assert [(o["label"], [c["kind"] for c in o["criteria"]]) for o in tiers["options"]] == [
+        (low, ["INCOME", "ASSET", "CAR"]),
+        (mid, ["INCOME"]),
+    ]
+    ids = [c["id"] for c in criteria(frame)]
+    assert len(ids) == len(set(ids))
+    assert frame_errors(frame) == []
+
+
+def test_single_income_tier_becomes_a_plain_condition_of_each_target():
+    youth = item("age", "AGE", "만 19~39세", atom("AGE_YEARS", "BETWEEN", [19, 39], subject="APPLICANT", unit="YEARS"), groups=["청년"])
+    newly = item("married", "MARRIAGE", "혼인 7년 이내", groups=["신혼부부"])
+    income = item("income", "INCOME", "소득 70% 이하", atom("INCOME_BENCHMARK_PERCENT", "LTE", 70, benchmark=URBAN), groups=["소득 70% 이하"])
+    frame = build_judgment(candidate([youth, newly, income], target_groups=["청년", "신혼부부"]))
+
+    by_name = {g["name"]: [c["kind"] for c in g["criteria"]] for g in frame["groups"]}
+    assert set(by_name) == {"청년", "신혼부부"}
+    assert by_name["청년"][-1] == "INCOME" and by_name["신혼부부"][-1] == "INCOME"
+    assert frame_errors(frame) == []
+
+
 def test_group_rank_comes_only_from_one_clear_rank_in_the_name():
     from mujuthaek_extraction.judgment.frame import rank_of
 

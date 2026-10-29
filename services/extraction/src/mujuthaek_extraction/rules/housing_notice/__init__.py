@@ -49,6 +49,9 @@ v29(2026-10-23): v28 + 프론트 요청 — 일정의 접수 방법(정해진 �
   한 칸만 표시된 요일표는 단정하지 않고 timeNote에 원문.
   v29 고침 6(2026-10-24, 게시 전이라 같은 파일을 고침. 여섯 번째 시험 채점의 일반 규칙): 인용은 고치거나 두 곳을 합치지 않기,
   한 칸의 날짜·장소는 원문 순서대로 짝짓기, 분양가와 계약금·잔금은 같은 요금안.
+v30(2026-10-29): v29 + 순위·계층·소득 구간마다 기준이 달라도 모든 신청자에게 같은 조건(나이·거주지·무주택·국적 등)은 대상 표시를 비움.
+  실측: 구로구 도전숙에서 나이·거주가 「청년창업인」에만 붙어 「월평균소득 50% 이하」 구간에는 소득만 남아 66세·부산도 지원 가능.
+  (판정 틀도 소득 구간 대상군을 대상마다 「구간 중 하나」로 접어요, judgment/frame.py _fold_income_tiers)
 v19(2026-10-18): v18 + 선착순 공고의 접수 일정은 먼저 오는 서류 제출로,
     소득은 비율과 금액표가 함께면 비율로(19-6), 기본·금회 완화 조건은 적용하는 쪽만 STRUCTURED(19-7).
 v18(2026-10-18): v17 + 짧게 적힌 서류(신분증·인감도장·기타서류 등) 빠짐없이, 순위·계층 정의 속 나이(65세 이상)도 AGE 조건으로(19-5).
@@ -61,7 +64,7 @@ v13(2026-10-17): v12 + 분양 발코니 확장·유상옵션(합계 행) 금액�
 v12(2026-10-17): v11 + 가구원 수별 소득·자산 기준은 기본값 조건 + REPLACE 예외(when: HOUSEHOLD_MEMBER_COUNT)로(19-2).
 v11(2026-10-17): 구조 방식 — 표 아래 열 제목 줄·행마다 읽기 도움 줄(↳)을 프로그램이 붙임(intake/pdf_reader.render). 값 종류는 ↳ 줄의 열 제목으로.
     v10은 RULES_V10으로 남김(롤백 스위치 EXTRACTION_METHOD=legacy, method.py).
-프롬프트 파일은 지금 쓰는 v29, 바로 앞 v28(롤백용), 이전 방식(legacy) 롤백용 v10만 둡니다(위 이력은 무엇이 왜 바뀌었는지 기록으로 남김).
+프롬프트 파일은 지금 쓰는 v30, 바로 앞 v29(롤백용), 이전 방식(legacy) 롤백용 v10만 둡니다(위 이력은 무엇이 왜 바뀌었는지 기록으로 남김).
 """
 
 from dataclasses import replace
@@ -312,8 +315,8 @@ _CONDITIONS = CallSpec(  # 나눠 부르지 않을 때(large_text_chars 설정)�
 # 구조 방식(EXTRACTION_METHOD=structured, 기본): 표에 열 제목 줄·행 읽기 도움 줄(↳)이 붙은 글자를 받습니다.
 RULES = replace(
     RULES_V10,
-    prompt_version="v29",
-    prompt_path=Path(__file__).with_name("prompt.v29.md"),
+    prompt_version="v30",
+    prompt_path=Path(__file__).with_name("prompt.v30.md"),
     calls=(_STRUCTURE, _SCHEDULES, _CONDITIONS),
     split_calls=(("conditions", (_ELIGIBILITY, _SELECTION, _DOCUMENTS)),),
     supply_tables=True,

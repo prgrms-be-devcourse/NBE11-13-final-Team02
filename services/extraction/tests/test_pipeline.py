@@ -179,7 +179,7 @@ def test_extraction_method_switch_keeps_the_previous_way(monkeypatch):
     from mujuthaek_extraction import pipeline
     from mujuthaek_extraction.method import extraction_method
 
-    assert pipeline.RULES_BY_METHOD["structured"]["HOUSING"].prompt_version == "v29"
+    assert pipeline.RULES_BY_METHOD["structured"]["HOUSING"].prompt_version == "v30"
     assert pipeline.RULES_BY_METHOD["legacy"]["HOUSING"].prompt_version == "v10"
     monkeypatch.delenv("EXTRACTION_METHOD", raising=False)
     assert extraction_method() == "structured"
