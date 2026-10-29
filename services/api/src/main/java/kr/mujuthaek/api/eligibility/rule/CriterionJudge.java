@@ -51,6 +51,12 @@ public final class CriterionJudge {
   private static final Set<String> TARGET_GROUP_STATUSES =
       Set.of("UNIVERSITY_STUDENT", "JOB_SEEKER");
 
+  /** 추출은 예외를 「기본 기준」 길 하나 + 예외 길(원문 질문)들의 ANY_OF로 줘요 (extraction judgment/frame.py _exceptions). */
+  private static final String BASE_OPTION = "기본 기준";
+
+  /** 「다음 중 하나」 이름이 이보다 길면 첫 길과 나머지 수만 보여요. 길마다 이름과 결과는 options에 그대로 있어요. */
+  private static final int ANY_OF_LABEL_MAX = 60;
+
   private CriterionJudge() {}
 
   public static Item judge(Criterion c, Applicant a, LocalDate referenceDate) {
@@ -556,24 +562,43 @@ public final class CriterionJudge {
       }
     }
     Status status = Status.any(options.stream().map(Item.OptionResult::status).toList());
+    boolean exceptions = options.size() > 1 && BASE_OPTION.equals(options.getFirst().label());
     String reason =
         switch (status) {
           case MET -> null;
           case NOT_MET -> "어느 기준에도 맞지 않아요";
-          case UNKNOWN -> "기준 중 하나에 맞는지 확인이 필요해요";
+          // 기본 기준에 걸리고 남은 건 드문 예외라 입력을 더 받지 않고 원문을 보게 해요 (2026-10-29 QA)
+          case UNKNOWN ->
+              exceptions && options.getFirst().status() == NOT_MET
+                  ? "예외에 해당하는지 원문을 확인해 주세요"
+                  : "기준 중 하나에 맞는지 확인이 필요해요";
         };
-    String label =
-        "다음 중 하나 · "
-            + String.join(" / ", c.options().stream().map(Judgment.Option::label).toList());
     return item(
         c,
         "ANY_OF",
-        label,
+        anyOfLabel(options, exceptions),
         status,
         reason,
         status == UNKNOWN ? List.copyOf(needs) : List.of(),
         null,
         options);
+  }
+
+  /**
+   * 「다음 중 하나」 조건 이름. 예외 묶음이면 기본 기준 이름 + 예외 수, 아니면 길 이름을 잇되 길면 첫 길 + 나머지 수 (2026-10-29 QA: 무주택 예외
+   * 11가지가 한 줄로 이어져 829자가 됐어요).
+   */
+  private static String anyOfLabel(List<Item.OptionResult> options, boolean exceptions) {
+    int others = options.size() - 1;
+    if (exceptions) {
+      List<Item> base = options.getFirst().items();
+      return (base.size() == 1 ? base.getFirst().label() : BASE_OPTION) + " (예외 " + others + "가지)";
+    }
+    String all =
+        "다음 중 하나 · " + String.join(" / ", options.stream().map(Item.OptionResult::label).toList());
+    return all.length() <= ANY_OF_LABEL_MAX || others == 0
+        ? all
+        : "다음 중 하나 · " + options.getFirst().label() + " 외 " + others + "가지";
   }
 
   /** 상한이 바뀌는 조건에 해당하는지. 입력으로 알 수 없으면 null. */
