@@ -214,6 +214,37 @@ def _superseded_by(job_id: Any, raw_post_id: Any, version: Any) -> dict[str, Any
     return {"jobId": str(job_id), "rawPostId": str(raw_post_id) if raw_post_id else None, "version": version}
 
 
+# 관리자 검수 사유 → 작업 상태 (api AdminReviewService.reason과 같은 규칙: 사람 검수 대기 MUST, 원본 자료 문제 FORMAT, 그 밖 CHECK)
+REVIEW_REASON_SQL = {
+    "MUST": "j.status = 'IN_REVIEW'",
+    "FORMAT": "j.status = 'INTAKE_REVIEW'",
+    "CHECK": "j.status not in ('IN_REVIEW', 'INTAKE_REVIEW')",
+}
+
+
+def _review_filter(status: str, reason: str | None, after: tuple[str, str] | None) -> tuple[str, tuple[Any, ...]]:
+    """공고 검수 목록·건수의 조건(review_queue r, extraction_jobs j)."""
+    where, params = "r.status = %s", (status,)
+    if reason is not None:
+        where += " and " + REVIEW_REASON_SQL[reason]
+    if after is not None:
+        where += " and (r.created_at, r.job_id) > (%s::timestamptz, %s::uuid)"
+        params += after
+    return where, params
+
+
+def _benefit_review_filter(status: str, reported: bool | None, after: tuple[str, str] | None) -> tuple[str, tuple[Any, ...]]:
+    """혜택 검수 목록·건수의 조건(benefit_reviews v)."""
+    where, params = "v.status = %s", (status,)
+    if reported is not None:
+        where += " and (v.opened_by is not null) = %s"
+        params += (reported,)
+    if after is not None:
+        where += " and (v.created_at, v.id) > (%s::timestamptz, %s::uuid)"
+        params += after
+    return where, params
+
+
 def _newer_published(cur, raw_post_id: str | None, raw_version: Any) -> bool:
     if not raw_post_id or not isinstance(raw_version, int):
         return False
@@ -355,17 +386,22 @@ class JobStore:
                 )
         return True
 
-    def benefit_review_count(self, status: str = "PENDING") -> int:
-        """그 상태의 혜택 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토)."""
-        return int(self.conn.execute("select count(*) from benefit_reviews where status = %s", (status,)).fetchone()[0])
+    def benefit_review_count(self, status: str = "PENDING", reported: bool | None = None) -> int:
+        """그 상태의 혜택 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토). reported면 정책 제보로 다시 연 건만(false면 그 밖)."""
+        where, params = _benefit_review_filter(status, reported, None)
+        return int(self.conn.execute(f"select count(*) from benefit_reviews v where {where}", params).fetchone()[0])
 
-    def benefit_reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
-        """혜택 검수 목록(오래된 것부터). applyEndsOn은 결과의 신청 마감일, reported는 정책 제보로 다시 연 건인지."""
+    def benefit_reviews(
+        self, status: str = "PENDING", limit: int = 50, reported: bool | None = None, after: tuple[str, str] | None = None
+    ) -> list[dict[str, Any]]:
+        """혜택 검수 목록(오래된 것부터, 같은 시각이면 검수 ID 순). applyEndsOn은 결과의 신청 마감일, reported는 정책 제보로 다시 연 건인지.
+        after는 (queuedAt, reviewId) — 이 건 다음부터 이어 받아요(관리자 검수 무한 스크롤, 2026-10-29)."""
+        where, params = _benefit_review_filter(status, reported, after)
         rows = self.conn.execute(
             "select v.id, v.raw_policy_id, v.raw_version, r.source_code, r.policy_id, r.title, v.status, v.reasons, v.created_at, v.decided_at,"
             " r.payload->'schedule'->>'applyEnd', (r.payload->>'relevant')::boolean, v.opened_by is not null"
-            " from benefit_reviews v join benefit_results r on r.id = v.result_id where v.status = %s order by v.created_at limit %s",
-            (status, limit),
+            f" from benefit_reviews v join benefit_results r on r.id = v.result_id where {where} order by v.created_at, v.id limit %s",
+            (*params, limit),
         ).fetchall()
         keys = ("reviewId", "rawPolicyId", "rawVersion", "sourceCode", "policyId", "title", "reviewStatus", "reasons", "queuedAt", "decidedAt")
         keys += ("applyEndsOn", "relevant", "reported")
@@ -470,13 +506,16 @@ class JobStore:
         self.conn.execute("delete from extraction_claims where raw_post_id = %s and raw_version = %s and owner = %s", (raw_post_id, raw_version, owner))
 
     # ---- 검수 ----
-    def review_count(self, status: str = "PENDING") -> int:
-        """그 상태의 공고 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토)."""
-        return int(self.conn.execute("select count(*) from review_queue where status = %s", (status,)).fetchone()[0])
+    def review_count(self, status: str = "PENDING", reason: str | None = None) -> int:
+        """그 상태의 공고 검수 전체 건수(목록은 limit에서 잘리므로 따로 셉니다, 2026-10-25 검토). reason은 MUST·CHECK·FORMAT(REVIEW_REASON_SQL)."""
+        where, params = _review_filter(status, reason, None)
+        return int(self.conn.execute(f"select count(*) from review_queue r join extraction_jobs j on j.id = r.job_id where {where}", params).fetchone()[0])
 
-    def reviews(self, status: str = "PENDING", limit: int = 50) -> list[dict[str, Any]]:
-        """그 상태의 검수 목록(오래된 것부터). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다.
-        applyEndsOn은 후보의 신청(APPLICATION) 일정 중 가장 이른 끝 날짜예요(관리자 개요의 「마감이 가까운 검수 대기」, 2026-10-25)."""
+    def reviews(self, status: str = "PENDING", limit: int = 50, reason: str | None = None, after: tuple[str, str] | None = None) -> list[dict[str, Any]]:
+        """그 상태의 검수 목록(오래된 것부터, 같은 시각이면 작업 ID 순). 기본 PENDING에는 대체된(SUPERSEDED) 건이 없습니다.
+        applyEndsOn은 후보의 신청(APPLICATION) 일정 중 가장 이른 끝 날짜예요(관리자 개요의 「마감이 가까운 검수 대기」, 2026-10-25).
+        reason은 관리자 사유(MUST·CHECK·FORMAT), after는 (queuedAt, jobId) — 이 건 다음부터 이어 받아요(관리자 검수 무한 스크롤, 2026-10-29)."""
+        where, params = _review_filter(status, reason, after)
         rows = self.conn.execute(
             "select j.id, j.raw_post_id, j.raw_version, j.source_code, j.status, r.status, r.reasons, r.created_at, j.candidate->'notice'->>'title',"
             " j.raw_event->'payload'->>'title', r.decided_at,"
@@ -484,8 +523,8 @@ class JobStore:
             " then j.candidate->'schedules' else '[]'::jsonb end) s"
             " where s->'kinds' ? 'APPLICATION' and s->'endsAt'->>'value' ~ '^\\d{4}-\\d{2}-\\d{2}'),"
             " r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
-            " from review_queue r join extraction_jobs j on j.id = r.job_id where r.status = %s order by r.created_at limit %s",
-            (status, limit),
+            f" from review_queue r join extraction_jobs j on j.id = r.job_id where {where} order by r.created_at, r.job_id limit %s",
+            (*params, limit),
         ).fetchall()
         keys = ("jobId", "rawPostId", "rawVersion", "sourceCode", "jobStatus", "reviewStatus", "reasons", "queuedAt", "title", "sourceTitle", "decidedAt")
         keys += ("applyEndsOn",)
