@@ -159,6 +159,38 @@ class SecurityIntegrationTest {
   }
 
   @Test
+  void reviewQueueNeedsTheReviewPermissionOfEveryKindAsked() throws Exception {
+    LoginUser user = login("2099");
+    var claimsAdmin = new LoginUser(user.userId(), user.nickname(), "ADMIN");
+    jdbc.update("update account.users set role = 'ADMIN' where id = ?", user.userId());
+    jdbc.update(
+        "insert into account.admin_permissions (user_id, permission) values (?, 'BENEFIT_REVIEW')",
+        user.userId());
+
+    // 혜택 검수 권한만 있으면 혜택만 볼 수 있어요 (권한을 지나면 검수 API 연결 결과라 403만 아니면 돼요)
+    mvc.perform(
+            get("/api/admin/reviews/queue")
+                .param("kinds", "BENEFIT")
+                .header("Authorization", bearer(claimsAdmin)))
+        .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(403));
+    mvc.perform(
+            get("/api/admin/reviews/queue")
+                .param("kinds", "NOTICE,BENEFIT")
+                .header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+    mvc.perform(get("/api/admin/reviews/queue").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            get("/api/admin/reviews/queue")
+                .param("kinds", "ANY")
+                .header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+
+    jdbc.update("delete from account.admin_permissions where user_id = ?", user.userId());
+    jdbc.update("update account.users set role = 'USER' where id = ?", user.userId());
+  }
+
+  @Test
   void suspendedUserCannotLoginOrWrite() throws Exception {
     LoginUser user = login("2004");
     String token = bearer(user);

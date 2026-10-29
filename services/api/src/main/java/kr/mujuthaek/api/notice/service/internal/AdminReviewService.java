@@ -29,6 +29,7 @@ import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.LogEntry;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Source;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse.Item;
+import kr.mujuthaek.api.notice.dto.response.AdminReviewQueueResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewStatsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewStatsResponse.Window;
 import org.springframework.stereotype.Service;
@@ -97,6 +98,130 @@ public class AdminReviewService {
     List<Item> shown =
         reason == null ? all : all.stream().filter(i -> reason.equals(i.reason())).toList();
     return new AdminReviewListResponse(ExtractionReviewClient.total(page), shown);
+  }
+
+  /** 대기열 한 페이지 최대 건수. */
+  public static final int QUEUE_MAX_SIZE = 100;
+
+  private static final Comparator<AdminReviewQueueResponse.Item> QUEUE_ORDER =
+      Comparator.comparing(
+              AdminReviewQueueResponse.Item::queuedAt,
+              Comparator.nullsLast(Comparator.naturalOrder()))
+          .thenComparing(AdminReviewQueueResponse.Item::kind)
+          .thenComparing(AdminReviewQueueResponse.Item::id);
+
+  /**
+   * 검수 대기열 한 페이지 (관리자 검수 무한 스크롤, 2026-10-29): 공고·혜택 검수를 들어온 시각 순으로 섞어 size건. 쪽마다 size건씩 받아 섞고, 보낸
+   * 건까지를 쪽마다 커서에 적어요(못 보낸 건은 다음 페이지에 다시 받아요). reason이 FORMAT이면 혜택은 없고, MUST면 혜택은 정책 제보로 다시 연 건만이에요.
+   *
+   * @param kinds 보여 줄 종류 NOTICE·BENEFIT를 쉼표로 (null이면 둘 다). 종류마다 권한이 달라 보안 설정이 이 값으로 권한을 봐요
+   */
+  public AdminReviewQueueResponse queue(String kinds, String reason, String cursor, int size) {
+    if (reason != null && !REASONS.contains(reason)) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "reason은 MUST·CHECK·FORMAT 중 하나예요");
+    }
+    if (size < 1 || size > QUEUE_MAX_SIZE) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "size는 1~" + QUEUE_MAX_SIZE + " 사이예요");
+    }
+    List<String> wanted =
+        kinds == null || kinds.isBlank()
+            ? List.of("NOTICE", "BENEFIT")
+            : Arrays.stream(kinds.split(",")).map(String::trim).toList();
+    if (wanted.isEmpty() || !Set.of("NOTICE", "BENEFIT").containsAll(wanted)) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "kinds는 NOTICE·BENEFIT 중에서 골라요");
+    }
+    ReviewQueueCursor at = ReviewQueueCursor.decode(cursor);
+    boolean withNotices = wanted.contains("NOTICE");
+    boolean withBenefits = wanted.contains("BENEFIT") && !"FORMAT".equals(reason);
+    Boolean reported = reason == null ? null : "MUST".equals(reason);
+    JsonNode notices =
+        !withNotices || at.notice().done()
+            ? null
+            : client.reviewPage(reason, at.notice().after(), size);
+    JsonNode benefits =
+        !withBenefits || at.benefit().done()
+            ? null
+            : client.benefitReviewPage(reported, at.benefit().after(), size);
+    List<AdminReviewQueueResponse.Item> fetchedNotices = noticeQueueItems(notices);
+    List<AdminReviewQueueResponse.Item> fetchedBenefits = benefitQueueItems(benefits);
+    List<AdminReviewQueueResponse.Item> sent =
+        java.util.stream.Stream.concat(fetchedNotices.stream(), fetchedBenefits.stream())
+            .sorted(QUEUE_ORDER)
+            .limit(size)
+            .toList();
+    ReviewQueueCursor.Side nextNotice =
+        withNotices
+            ? nextSide(at.notice(), notices, fetchedNotices, sent)
+            : ReviewQueueCursor.Side.DONE;
+    ReviewQueueCursor.Side nextBenefit =
+        withBenefits
+            ? nextSide(at.benefit(), benefits, fetchedBenefits, sent)
+            : ReviewQueueCursor.Side.DONE;
+    String next =
+        nextNotice.done() && nextBenefit.done()
+            ? null
+            : new ReviewQueueCursor(nextNotice, nextBenefit).encode();
+    int total = ExtractionReviewClient.total(notices) + ExtractionReviewClient.total(benefits);
+    return new AdminReviewQueueResponse(total, sent, next);
+  }
+
+  /** 한 쪽의 다음 위치: 받은 것을 다 보냈고 검수 API도 더 없다고 하면 끝, 아니면 이번에 보낸 마지막 건 다음부터. */
+  private static ReviewQueueCursor.Side nextSide(
+      ReviewQueueCursor.Side side,
+      JsonNode page,
+      List<AdminReviewQueueResponse.Item> fetched,
+      List<AdminReviewQueueResponse.Item> sent) {
+    if (side.done()) {
+      return side;
+    }
+    List<AdminReviewQueueResponse.Item> mine = sent.stream().filter(fetched::contains).toList();
+    boolean more =
+        mine.size() < fetched.size() || (page != null && page.path("hasMore").asBoolean(false));
+    if (!more) {
+      return ReviewQueueCursor.Side.DONE;
+    }
+    if (mine.isEmpty()) {
+      return side;
+    }
+    AdminReviewQueueResponse.Item last = mine.getLast();
+    return new ReviewQueueCursor.Side(
+        new ExtractionReviewClient.After(last.queuedAt().toInstant(), last.id()), false);
+  }
+
+  private static List<AdminReviewQueueResponse.Item> noticeQueueItems(JsonNode page) {
+    return items(page == null ? null : page.get("items")).stream()
+        .map(
+            i ->
+                new AdminReviewQueueResponse.Item(
+                    "NOTICE",
+                    i.id(),
+                    i.reason(),
+                    i.title(),
+                    i.sourceCode(),
+                    i.rawVersion(),
+                    i.receivedAt()))
+        .toList();
+  }
+
+  /** 혜택 검수는 정책 제보로 다시 연 건(reported)이 MUST, 그 밖은 CHECK예요(화면의 혜택 사유와 같아요). */
+  private static List<AdminReviewQueueResponse.Item> benefitQueueItems(JsonNode page) {
+    JsonNode rows = page == null ? null : page.get("items");
+    List<AdminReviewQueueResponse.Item> out = new ArrayList<>();
+    if (rows == null || !rows.isArray()) {
+      return out;
+    }
+    for (JsonNode row : rows) {
+      out.add(
+          new AdminReviewQueueResponse.Item(
+              "BENEFIT",
+              text(row.path("reviewId")),
+              row.path("reported").asBoolean(false) ? "MUST" : "CHECK",
+              text(row.path("title")),
+              text(row.path("sourceCode")),
+              integer(row.path("rawVersion")),
+              time(row.path("queuedAt"))));
+    }
+    return out;
   }
 
   public AdminReviewCountsResponse counts() {

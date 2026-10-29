@@ -145,6 +145,9 @@ class SecurityConfig {
         .access(
             admin.anyOf(
                 USERS_VIEW, ADMIN_APPOINT, PERMISSION_GRANT, PERMISSION_REVOKE, USERS_SUSPEND))
+        // 검수 대기열은 공고·혜택을 섞어요. 보낸 kinds마다 그 검수 권한을 봐요(아래 /api/admin/reviews/** 보다 먼저)
+        .requestMatchers(HttpMethod.GET, "/api/admin/reviews/queue")
+        .access(admin.reviewQueue())
         .requestMatchers("/api/admin/reviews/**")
         .access(admin.anyOf(NOTICE_REVIEW))
         .requestMatchers("/api/admin/benefit-reviews/**")
