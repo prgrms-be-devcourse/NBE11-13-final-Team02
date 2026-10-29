@@ -12,6 +12,8 @@ import tools.jackson.databind.JsonNode;
 /**
  * extraction.completed의 judgment(contracts/schemas/housing-judgment.v1.json)를 판정 엔진 모델로 바꿔요.
  *
+ * <p>소득 구간 대상군은 대상 대상군의 「구간 중 하나」 조건으로 접어요({@link IncomeTiers}).
+ *
  * <p>모르는 조건 종류가 오면(계약이 늘었는데 판정이 아직 모를 때) 그 조건은 "직접 확인" 질문(ASK)으로 바꿔서, 판정이 조용히 지원 가능으로 나오지 않게 해요.
  */
 public final class JudgmentReader {
@@ -24,7 +26,9 @@ public final class JudgmentReader {
       groups.add(new Judgment.Group(text(g, "id"), text(g, "name"), criteria(g.path("criteria"))));
     }
     return new Judgment(
-        LocalDate.parse(text(j, "referenceDate")), criteria(j.path("common")), groups);
+        LocalDate.parse(text(j, "referenceDate")),
+        criteria(j.path("common")),
+        IncomeTiers.fold(groups));
   }
 
   static List<Criterion> criteria(JsonNode array) {
