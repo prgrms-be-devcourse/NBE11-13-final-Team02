@@ -27,6 +27,9 @@ migrations/<서비스> deploy.sh가 그 버전 이미지에서 꺼낸 Flyway 파
 
 ## 이후 배포 · 롤백
 - 운영: `git tag api-v1.2.1 && git push origin api-v1.2.1` → 테스트 → 이미지 → 배포 → 릴리즈 노트
+- 운영 (손으로): Actions › Release › Run workflow (브랜치 `main`, 서비스, 버전, **빌드 켬**) → 테스트 → 이미지 → 배포 → 태그 · 릴리즈 노트
+  - 태그는 서비스 하나면 `api-v0.2.1`, 전체(all)면 `v0.2.1`. 배포한 main 커밋에 달고, 바뀐 PR 목록을 붙여요
+  - **새 버전은 빌드를 켜요.** 빌드 끔은 이미 만든 버전으로 되돌릴 때만이에요 (없는 버전이면 이미지를 못 받아 배포가 실패하고 이전 버전으로 돌아가요). 되돌리기는 태그·노트를 남기지 않아요
 - 롤백: Actions → Release → 서비스와 **이미 있는 버전**, build 끔. 또는 서버에서 `./deploy.sh prod api v1.2.0`
 - deploy.sh는 헬스체크(api·notification `/actuator/health`, 파이썬은 Docker healthcheck, 최대 3분)가 실패하면 이전 태그로 되돌리고 실패로 끝나요.
   **DB 마이그레이션은 되돌리지 않아요** — 새 컬럼을 지우는 변경은 두 번에 나눠 올려요
