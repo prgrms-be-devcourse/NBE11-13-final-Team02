@@ -9,6 +9,7 @@ import kr.mujuthaek.api.notice.dto.response.AdminReviewCountsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse;
+import kr.mujuthaek.api.notice.dto.response.AdminReviewQueueResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewStatsResponse;
 import kr.mujuthaek.api.notice.service.internal.AdminReviewService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RestController;
  *
  * <pre>
  * GET  /api/admin/reviews?reason=MUST|CHECK|FORMAT   대기 목록
+ * GET  /api/admin/reviews/queue?kinds=NOTICE,BENEFIT&amp;reason=&amp;cursor=&amp;size=50  대기열 한 페이지: 공고·혜택 검수를 들어온 시각 순으로 (다음은 nextCursor, kinds마다 그 검수 권한)
  * GET  /api/admin/reviews/counts                     대기 건수 · 가장 오래된 시각
  * GET  /api/admin/reviews/stats?days=7               처리 통계 (최근 days일 · 오늘)
  * GET  /api/admin/reviews/urgent?days=3              마감이 가까운 검수 대기
@@ -47,6 +49,15 @@ class AdminReviewController {
   @GetMapping
   AdminReviewListResponse list(@RequestParam(required = false) String reason) {
     return reviews.pending(reason);
+  }
+
+  @GetMapping("/queue")
+  AdminReviewQueueResponse queue(
+      @RequestParam(required = false) String kinds,
+      @RequestParam(required = false) String reason,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(defaultValue = "50") int size) {
+    return reviews.queue(kinds, reason, cursor, size);
   }
 
   @GetMapping("/counts")

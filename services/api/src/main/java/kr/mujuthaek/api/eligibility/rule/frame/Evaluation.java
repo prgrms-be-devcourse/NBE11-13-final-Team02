@@ -56,10 +56,14 @@ public record Evaluation(
     return unknown(criterion, summary, reason, List.of(missing));
   }
 
-  /** 가공하면서 확신이 없었던 조건: 계산한 기준은 보여주되 판정은 확인 필요. */
+  /**
+   * 가공하면서 확신이 없었던 조건: 계산한 기준은 보여주되 충족은 확인 필요로 낮춰요. 입력만으로 걸리는 불충족은 그대로 둬요. 검수 이유(reviewReason)는 관리자용
+   * 설명이라 회원 화면에 문구로 내보내지 않아요 (2026-10-29 QA)
+   */
   Evaluation inReview() {
-    String why = criterion.meta().reviewReason();
-    String text = why == null || why.isBlank() ? "검수 중인 조건이에요" : "검수 중인 조건이에요: " + why;
-    return new Evaluation(criterion, Verdict.UNKNOWN, summary, text, List.of(), options);
+    if (verdict == Verdict.NOT_MET) {
+      return this;
+    }
+    return new Evaluation(criterion, Verdict.UNKNOWN, summary, null, List.of(), options);
   }
 }

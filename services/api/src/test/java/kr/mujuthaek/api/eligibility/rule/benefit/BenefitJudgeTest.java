@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import kr.mujuthaek.api.eligibility.rule.Applicant;
 import kr.mujuthaek.api.eligibility.rule.ApplicantBuilder;
+import kr.mujuthaek.api.eligibility.rule.Bands;
 import kr.mujuthaek.api.eligibility.rule.IncomeBenchmarks;
 import kr.mujuthaek.api.eligibility.rule.Item;
 import kr.mujuthaek.api.eligibility.rule.Overall;
@@ -31,6 +32,14 @@ class BenefitJudgeTest {
     return BenefitJudge.judge(List.of(c), false, a, TODAY, MEDIAN).groups().getFirst().status();
   }
 
+  private static Item item(Condition c, Applicant a) {
+    return BenefitJudge.judge(List.of(c), false, a, TODAY, MEDIAN)
+        .groups()
+        .getFirst()
+        .items()
+        .getFirst();
+  }
+
   private static ApplicantBuilder a() {
     return new ApplicantBuilder();
   }
@@ -53,6 +62,30 @@ class BenefitJudgeTest {
         .isEqualTo(Status.NOT_MET);
     assertThat(one(income, a().household(1).income("MEDIAN_INCOME", 170, 190).build()))
         .isEqualTo(Status.UNKNOWN);
+  }
+
+  @Test
+  void 가구_소득_기준인데_본인_소득만_있으면_넘을_때만_불충족_아니면_원문_확인() {
+    Condition pct = c("INCOME_MEDIAN_PCT", Map.of("max", 180, "basis", "HOUSEHOLD"), 1);
+    Item under = item(pct, a().household(2).income("MEDIAN_INCOME", 90, 100).build());
+    assertThat(under.status()).isEqualTo(Status.UNKNOWN);
+    assertThat(under.reason()).isEqualTo(Bands.HOUSEHOLD_INCOME_UNKNOWN);
+    assertThat(under.needs()).isEmpty();
+    Item over = item(pct, a().household(2).income("MEDIAN_INCOME", 200, 210).build());
+    assertThat(over.status()).isEqualTo(Status.NOT_MET);
+    assertThat(over.reason()).isEqualTo(Bands.OWN_INCOME_OVER);
+
+    // 연 5,000만 원 이하: 2인 90~100% = 월 360만~400만 → 연 4,320만~4,800만 → 가구는 몰라요
+    Condition amount = c("INCOME_AMOUNT", Map.of("max", 5000, "basis", "HOUSEHOLD"), 1);
+    assertThat(item(amount, a().household(2).income("MEDIAN_INCOME", 90, 100).build()).reason())
+        .isEqualTo(Bands.HOUSEHOLD_INCOME_UNKNOWN);
+    // 2인 110~120% = 연 5,280만~5,760만 → 본인만으로 넘어요
+    assertThat(one(amount, a().household(2).income("MEDIAN_INCOME", 110, 120).build()))
+        .isEqualTo(Status.NOT_MET);
+
+    Item none = item(pct, a().household(2).build());
+    assertThat(none.status()).isEqualTo(Status.UNKNOWN);
+    assertThat(none.reason()).isEqualTo(Bands.NO_INCOME);
   }
 
   @Test

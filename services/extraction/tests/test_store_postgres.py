@@ -753,3 +753,38 @@ def test_newer_benefit_version_supersedes_the_pending_review_and_blocks_old_appr
     store.save_benefit(raw2, event2)
     assert store.benefit_reviews() == [] and [r["reviewId"] for r in store.benefit_reviews("SUPERSEDED")] == [old["reviewId"]]
     assert benefit_service(store).benefit_decide(old["reviewId"], "APPROVED", {})[0] == 409
+
+
+def test_review_list_pages_by_cursor_and_filters_by_reason(store):
+    # 관리자 검수 무한 스크롤(2026-10-29): 오래된 순으로 limit건씩, 앞 페이지 마지막 건(afterAt·afterId) 다음부터 이어 받아요
+    jobs = [store.save(notice_event(1, str(uuid.uuid4())), held(f"r{i}")) for i in range(5)]
+    service = ReviewService(session_of(store), new_event)
+
+    status, first = service.list("PENDING", "2")
+    assert status == 200 and [i["jobId"] for i in first["items"]] == jobs[:2] and first["hasMore"] and first["total"] == 5
+    last = first["items"][-1]
+    status, second = service.list("PENDING", "2", None, str(last["queuedAt"]), last["jobId"])
+    assert status == 200 and [i["jobId"] for i in second["items"]] == jobs[2:4] and second["hasMore"]
+    last = second["items"][-1]
+    status, third = service.list("PENDING", "2", None, str(last["queuedAt"]), last["jobId"])
+    assert [i["jobId"] for i in third["items"]] == jobs[4:] and not third["hasMore"]
+
+    # 사유: held()는 사람 검수 대기(IN_REVIEW) → MUST. CHECK·FORMAT에는 없어요
+    assert service.list("PENDING", None, "MUST")[1]["total"] == 5
+    status, check = service.list("PENDING", None, "CHECK")
+    assert status == 200 and check["items"] == [] and check["total"] == 0 and not check["hasMore"]
+
+
+def test_benefit_review_list_pages_by_cursor_and_filters_reported(store):
+    policies = [str(uuid.uuid4()) for _ in range(3)]
+    for policy in policies:
+        store.save_benefit(*benefit_event(policy, 1, needs_review=True, policyId=policy.replace("-", "")[:20]))
+    service = benefit_service(store)
+
+    status, first = service.benefit_list("PENDING", "2")
+    assert status == 200 and [i["rawPolicyId"] for i in first["items"]] == policies[:2] and first["hasMore"] and first["total"] == 3
+    last = first["items"][-1]
+    status, rest = service.benefit_list("PENDING", "2", None, str(last["queuedAt"]), last["reviewId"])
+    assert [i["rawPolicyId"] for i in rest["items"]] == policies[2:] and not rest["hasMore"]
+    assert service.benefit_list("PENDING", None, "true")[1]["total"] == 0
+    assert service.benefit_list("PENDING", None, "false")[1]["total"] == 3

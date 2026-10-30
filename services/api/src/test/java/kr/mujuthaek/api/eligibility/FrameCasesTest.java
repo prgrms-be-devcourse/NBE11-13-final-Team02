@@ -179,7 +179,7 @@ class FrameCasesTest {
             e ->
                 assertThat(found(byId, e.getKey()).reason())
                     .as("이유 " + e.getKey())
-                    .isEqualTo(e.getValue().stringValue()));
+                    .isEqualTo(e.getValue().isNull() ? null : e.getValue().stringValue()));
     expect
         .path("criterionMissing")
         .properties()

@@ -116,8 +116,20 @@ class CriterionJudgeTest {
     Item boundary = judgeIncome(c, applicant().household(1).income(urban, 80, 90).build());
     assertThat(boundary.status()).isEqualTo(UNKNOWN);
     assertThat(boundary.reason()).isEqualTo(Bands.BOUNDARY);
-    assertThat(judgeIncome(c, applicant().household(2).income(urban, 0, 10).build()).needs())
-        .containsExactly("applicant.householdIncome"); // 2인이면 가구 소득이 필요해요
+    // 2인인데 본인 소득만: 0~10% × 2인 5,000,000 = ~500,000 ≤ 4,693,016 → 가구 소득은 몰라서 원문 확인
+    Item ownOnly = judgeIncome(c, applicant().household(2).income(urban, 0, 10).build());
+    assertThat(ownOnly.status()).isEqualTo(UNKNOWN);
+    assertThat(ownOnly.reason()).isEqualTo(Bands.HOUSEHOLD_INCOME_UNKNOWN);
+    assertThat(ownOnly.needs()).isEmpty();
+    // 본인 소득만 100~110% = 5,000,000~ → 가구 소득은 더 크니까 불충족
+    Item ownOver = judgeIncome(c, applicant().household(2).income(urban, 100, 110).build());
+    assertThat(ownOver.status()).isEqualTo(NOT_MET);
+    assertThat(ownOver.reason()).isEqualTo(Bands.OWN_INCOME_OVER);
+    // 소득을 아예 안 넣었으면 원문 확인
+    Item noIncome = judgeIncome(c, applicant().household(2).build());
+    assertThat(noIncome.status()).isEqualTo(UNKNOWN);
+    assertThat(noIncome.reason()).isEqualTo(Bands.NO_INCOME);
+    assertThat(noIncome.needs()).containsExactly("applicant.householdIncome");
     assertThat(
             judgeIncome(c, applicant().household(3).householdIncome(urban, 0, 10).build()).reason())
         .contains("세대원 수");
@@ -345,7 +357,7 @@ class CriterionJudgeTest {
   }
 
   @Test
-  void askAndInReviewAreAlwaysToBeChecked() {
+  void askIsAlwaysToBeCheckedAndInReviewOnlyHoldsBackMet() {
     Item ask = judge(new Judgment.Ask(B, "예술인임을 증명할 수 있나요?", "YES"), Applicant.empty());
     assertThat(ask.status()).isEqualTo(UNKNOWN);
     assertThat(ask.reason()).isEqualTo("예술인임을 증명할 수 있나요?");
@@ -353,8 +365,66 @@ class CriterionJudgeTest {
     var reviewing = new Judgment.Age(new Basics("c2", null, null, true, "나이 표기가 두 가지"), 19, 39);
     Item item = judge(reviewing, applicant().birthMonth(1997, 3).build());
     assertThat(item.status()).isEqualTo(UNKNOWN);
-    assertThat(item.reason()).contains("확인하는 중", "나이 표기가 두 가지");
+    assertThat(item.reason()).isNull(); // 검수 이유는 관리자용이라 회원 화면 문구로 내보내지 않아요
     assertThat(item.evidence()).isNull();
+    // 검수 중이어도 입력만으로 걸리면 불충족 그대로 (2026-10-29 QA: 집 있는 사람이 무주택 조건에서 확인 필요로 남던 것)
+    Item over = judge(reviewing, applicant().birthMonth(1980, 3).build());
+    assertThat(over.status()).isEqualTo(NOT_MET);
+    assertThat(over.reason()).isEqualTo("나이 기준에 맞지 않아요");
+    // 입력이 없으면 지금처럼 확인 필요이고 입력을 따로 묻지 않아요
+    Item empty = judge(reviewing, Applicant.empty());
+    assertThat(empty.status()).isEqualTo(UNKNOWN);
+    assertThat(empty.needs()).isEmpty();
+  }
+
+  @Test
+  void exceptionBundleIsNamedByItsBaseCriterionAndLeavesExceptionsToTheSource() {
+    // 2026-10-29 QA: 강북구 신혼부부의 무주택 예외 11가지가 이름 한 줄로 이어져 829자였어요
+    var c =
+        new Judgment.AnyOf(
+            B,
+            List.of(
+                new Judgment.Option("기본 기준", List.of(new Judgment.Homeless(B, "HOUSEHOLD", null))),
+                new Judgment.Option(
+                    "상속으로 주택 공유지분을 취득했지만 부적격 통보일부터 3개월 이내에 처분하면 무주택으로 인정해요.",
+                    List.of(new Judgment.Ask(B, "다음 예외에 해당하나요? 「상속으로 …」", "YES"))),
+                new Judgment.Option(
+                    "공고에 열거된 비수도권 오래된 단독주택은 무주택으로 인정해요.",
+                    List.of(new Judgment.Ask(B, "다음 예외에 해당하나요? 「사용승인 후 20년 …」", "YES")))));
+
+    Item owner = judge(c, applicant().homeOwner(true).build());
+    assertThat(owner.label()).isEqualTo("무주택 · 세대 전원 (예외 2가지)");
+    assertThat(owner.status()).isEqualTo(UNKNOWN);
+    assertThat(owner.reason()).isEqualTo("예외에 해당하는지 원문을 확인해 주세요");
+    assertThat(owner.options()).hasSize(3); // 길마다 이름과 결과는 그대로 줘요
+    assertThat(judge(c, applicant().homeOwner(false).build()).status()).isEqualTo(MET);
+    // 기본 기준을 아직 모르면 지금처럼 입력을 받아요
+    Item empty = judge(c, Applicant.empty());
+    assertThat(empty.reason()).isEqualTo("기준 중 하나에 맞는지 확인이 필요해요");
+    assertThat(empty.needs()).isNotEmpty();
+  }
+
+  @Test
+  void longAnyOfLabelShowsTheFirstOptionAndHowManyMore() {
+    var youth = new Judgment.Age(B, 19, 39);
+    var shortOne =
+        new Judgment.AnyOf(
+            B,
+            List.of(
+                new Judgment.Option("월평균소득 50% 이하", List.of(youth)),
+                new Judgment.Option("월평균소득 50% 초과 ~100% 이하", List.of(youth))));
+    assertThat(judge(shortOne, Applicant.empty()).label())
+        .isEqualTo("다음 중 하나 · 월평균소득 50% 이하 / 월평균소득 50% 초과 ~100% 이하");
+
+    var longOne =
+        new Judgment.AnyOf(
+            B,
+            List.of(
+                new Judgment.Option("자녀가 있고 같은 세대별 주민등록표등본에 자녀가 등재된 미성년 세대주", List.of(youth)),
+                new Judgment.Option("형제자매를 부양해야 하는 미성년 세대주", List.of(youth)),
+                new Judgment.Option("외국인 부모가 대리 신청하는 한부모가족", List.of(youth))));
+    assertThat(judge(longOne, Applicant.empty()).label())
+        .isEqualTo("다음 중 하나 · 자녀가 있고 같은 세대별 주민등록표등본에 자녀가 등재된 미성년 세대주 외 2가지");
   }
 
   @Test

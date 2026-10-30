@@ -159,6 +159,38 @@ class SecurityIntegrationTest {
   }
 
   @Test
+  void reviewQueueNeedsTheReviewPermissionOfEveryKindAsked() throws Exception {
+    LoginUser user = login("2099");
+    var claimsAdmin = new LoginUser(user.userId(), user.nickname(), "ADMIN");
+    jdbc.update("update account.users set role = 'ADMIN' where id = ?", user.userId());
+    jdbc.update(
+        "insert into account.admin_permissions (user_id, permission) values (?, 'BENEFIT_REVIEW')",
+        user.userId());
+
+    // 혜택 검수 권한만 있으면 혜택만 볼 수 있어요 (권한을 지나면 검수 API 연결 결과라 403만 아니면 돼요)
+    mvc.perform(
+            get("/api/admin/reviews/queue")
+                .param("kinds", "BENEFIT")
+                .header("Authorization", bearer(claimsAdmin)))
+        .andExpect(result -> assertThat(result.getResponse().getStatus()).isNotEqualTo(403));
+    mvc.perform(
+            get("/api/admin/reviews/queue")
+                .param("kinds", "NOTICE,BENEFIT")
+                .header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+    mvc.perform(get("/api/admin/reviews/queue").header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+    mvc.perform(
+            get("/api/admin/reviews/queue")
+                .param("kinds", "ANY")
+                .header("Authorization", bearer(claimsAdmin)))
+        .andExpect(status().isForbidden());
+
+    jdbc.update("delete from account.admin_permissions where user_id = ?", user.userId());
+    jdbc.update("update account.users set role = 'USER' where id = ?", user.userId());
+  }
+
+  @Test
   void suspendedUserCannotLoginOrWrite() throws Exception {
     LoginUser user = login("2004");
     String token = bearer(user);
@@ -246,7 +278,7 @@ class SecurityIntegrationTest {
   }
 
   @Test
-  void refreshRotatesTokenAndOldOneStopsWorking() throws Exception {
+  void refreshRotatesTokenAndOldOneStillWorksBriefly() throws Exception {
     LoginUser user = login("2005");
     var first = new Cookie(RefreshTokenCookies.NAME, tokens.issue(user).refreshToken());
 
@@ -264,10 +296,40 @@ class SecurityIntegrationTest {
 
     mvc.perform(get("/api/users/me").header("Authorization", "Bearer " + access))
         .andExpect(status().isOk());
-    mvc.perform(post("/api/auth/refresh").cookie(first)) // 이미 쓴 값은 다시 못 써요
-        .andExpect(status().isUnauthorized())
-        .andExpect(jsonPath("$.code").value("INVALID_REFRESH_TOKEN"));
+    // 바꾼 지 얼마 안 된 옛 값은 다시 와도 새 토큰을 받아요(새로고침 연타·탭 여러 개). 그 뒤로는 못 써요(AuthTokenServiceTest)
+    MvcResult late =
+        mvc.perform(post("/api/auth/refresh").cookie(first)).andExpect(status().isOk()).andReturn();
+    assertThat(refreshCookie(late).getValue()).isNotEqualTo(first.getValue());
     mvc.perform(post("/api/auth/refresh").cookie(second)).andExpect(status().isOk());
+  }
+
+  @Test
+  void refreshesWithTheSameCookieAtOnceAllSucceed() throws Exception {
+    // 새로고침 연타·탭 여러 개: 같은 쿠키로 연장이 한꺼번에 와도 모두 새 토큰을 받아요(예전에는 늦은 쪽이 409·401로 로그아웃)
+    LoginUser user = login("2098");
+    var cookie = new Cookie(RefreshTokenCookies.NAME, tokens.issue(user).refreshToken());
+    var start = new java.util.concurrent.CountDownLatch(1);
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(5);
+    try {
+      var results = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
+      for (int i = 0; i < 5; i++) {
+        results.add(
+            pool.submit(
+                () -> {
+                  start.await();
+                  return mvc.perform(post("/api/auth/refresh").cookie(cookie))
+                      .andReturn()
+                      .getResponse()
+                      .getStatus();
+                }));
+      }
+      start.countDown();
+      for (var result : results) {
+        assertThat(result.get()).isEqualTo(200);
+      }
+    } finally {
+      pool.shutdownNow();
+    }
   }
 
   @Test

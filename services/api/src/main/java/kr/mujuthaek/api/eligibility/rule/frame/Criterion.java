@@ -38,6 +38,7 @@ public sealed interface Criterion {
       case BusinessRegistration ignored -> "BUSINESS_REGISTRATION";
       case BusinessCareer ignored -> "BUSINESS_CAREER";
       case BusinessAge ignored -> "BUSINESS_AGE";
+      case BusinessAgeYears ignored -> "BUSINESS_AGE";
       case Closure ignored -> "CLOSURE";
       case Revenue ignored -> "REVENUE";
       case Industry ignored -> "INDUSTRY";
@@ -52,7 +53,7 @@ public sealed interface Criterion {
    * @param id 틀 안에서 유일한 ID. 질문(ASK)의 답도 이 ID로 받아요
    * @param quote 근거 원문
    * @param page 근거 쪽
-   * @param inReview 가공하면서 확신이 없었던 조건. 계산하지 않고 확인 필요로 둬요
+   * @param inReview 가공하면서 확신이 없었던 조건. 계산해서 불충족이면 그대로, 아니면 확인 필요로 둬요
    * @param asOf 이 조건만 기준일이 다를 때 그 날짜 (창업지원 틀). 없으면 틀의 referenceDate
    */
   record Meta(
@@ -184,6 +185,25 @@ public sealed interface Criterion {
 
   /** 업력: 기준일에 영업 중인 사업의 개업일(법인은 설립등기일)이 openedFrom~openedTo 안 (둘 다 포함). */
   record BusinessAge(Meta meta, LocalDate openedFrom, LocalDate openedTo) implements Criterion {}
+
+  /**
+   * 업력을 기준일에서 센 햇수로만 아는 조건. 추출이 「사업을 시작한 날(법인은 설립등기일)부터 N년 이내인가요?」 같은 질문으로 준 것을 틀을 읽을 때
+   * 바꿔요(FrameReader). 판정할 때 기준일로 개업일 범위를 정해 업력처럼 봐요. 날짜 정하는 법은 추출의 opened_range와 같아요: N년 이내 = N년 전
+   * 같은 날~기준일, 미만 = 그다음 날부터, 이상 = ~N년 전 같은 날, 초과 = ~그 전날.
+   */
+  record BusinessAgeYears(Meta meta, int years, YearsRule rule) implements Criterion {
+
+    /** 이 기준일로 정한 개업일 범위. */
+    public BusinessAge on(LocalDate day) {
+      LocalDate back = day.minusYears(years);
+      return switch (rule) {
+        case WITHIN -> new BusinessAge(meta, back, day);
+        case UNDER -> new BusinessAge(meta, back.plusDays(1), day);
+        case AT_LEAST -> new BusinessAge(meta, null, back);
+        case OVER -> new BusinessAge(meta, null, back.minusDays(1));
+      };
+    }
+  }
 
   /** 폐업 이력: 폐업일이 closedFrom~closedTo(null이면 기준일)인 사업이 NONE이면 없어야, ANY면 있어야 충족. */
   record Closure(Meta meta, ClosureMode mode, LocalDate closedFrom, LocalDate closedTo)
@@ -317,6 +337,17 @@ public sealed interface Criterion {
     REGISTERED,
     NOT_REGISTERED,
     CLOSED
+  }
+
+  enum YearsRule {
+    /** N년 이내 (N년 전 같은 날 포함). */
+    WITHIN,
+    /** N년이 지나지 않음 (미만). */
+    UNDER,
+    /** N년 이상 지남. */
+    AT_LEAST,
+    /** N년이 넘게 지남 (초과). */
+    OVER
   }
 
   enum ClosureMode {

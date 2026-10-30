@@ -20,6 +20,15 @@ public final class Bands {
   /** 구간이 기준 경계에 걸쳐서 판정할 수 없을 때의 이유. */
   public static final String BOUNDARY = "구간 경계라 확인이 필요해요";
 
+  /** 소득 조건인데 소득을 받지 않았을 때의 이유. 입력을 더 받게 하지 않고 원문을 보게 해요 (2026-10-29 QA). */
+  public static final String NO_INCOME = "원문 조건을 확인해 주세요";
+
+  /** 가구 소득 기준인데 가구 소득 없이 본인 소득만 받았을 때(2인 이상 가구)의 이유. */
+  public static final String HOUSEHOLD_INCOME_UNKNOWN = "가구 전체 소득 기준이에요. 원문 조건을 확인해 주세요";
+
+  /** 본인 소득만으로도 가구 소득 상한을 넘을 때의 이유. 가구 소득은 본인 소득보다 작을 수 없어요. */
+  public static final String OWN_INCOME_OVER = "본인 소득만으로도 기준을 넘어요";
+
   /**
    * 금액·비율 구간 (gt 초과 ~ le 이하). 한쪽이 null이면 그쪽은 열려 있어요 (gt null = 0부터).
    *

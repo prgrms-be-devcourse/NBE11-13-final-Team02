@@ -36,7 +36,7 @@ def test_three_calls_assemble_to_same_candidate_as_one_response():
     assert [r.call_name for r in model.requests] == ["structure", "schedules", "conditions"]
     assert result.failed_calls == []
     assert assemble(result.parts, source).candidate == assemble([ai_part(data)], source).candidate
-    assert {a.prompt_version for a in result.attempts} == {f"housing_notice/v29/{n}" for n in CALL_SECTIONS}
+    assert {a.prompt_version for a in result.attempts} == {f"housing_notice/v30/{n}" for n in CALL_SECTIONS}
 
 
 def test_request_has_source_and_structure_but_no_trusted_identifiers():

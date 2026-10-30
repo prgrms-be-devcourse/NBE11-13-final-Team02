@@ -40,7 +40,7 @@ class SupportController {
         .cacheControl(CacheControl.noStore())
         .body(
             request == null
-                ? supports.evaluate(id, null, null)
-                : supports.evaluate(id, request.applicant(), request.answers()));
+                ? supports.evaluate(id, null)
+                : supports.evaluate(id, request.applicant()));
   }
 }

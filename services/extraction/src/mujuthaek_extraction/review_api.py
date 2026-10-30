@@ -2,6 +2,7 @@
 
   GET  /health                       상태 (워커의 큐 소비·발행·다시 처리 중 하나라도 신호가 끊기면 503)
   GET  /reviews?status=PENDING       검수 목록 (PENDING·APPROVED·REJECTED·SUPERSEDED). 기본 PENDING에는 대체된 건이 없습니다
+                                     &reason=MUST·CHECK·FORMAT로 거르고 &afterAt=&afterId=(앞 페이지 마지막 건)부터 이어 받아요(hasMore)
                                      SUPERSEDED: 같은 공고의 새 버전(또는 정정공고)이 발행되어 대체된 건, supersededBy에 대체한 작업·공고·버전
   GET  /reviews/{jobId}              검수 상세 (표준 공고 후보·이슈·받은 이벤트)
   POST /reviews/{jobId}/approve      승인 → extraction.completed(reviewStatus APPROVED) 다시 발행
@@ -18,7 +19,7 @@
 
 혜택(주거·이주 정책) 검수 (2026-10-25): 확인 필요(needsReview) 정제 결과와 정책 제보로 다시 연 결과. 결과는 이미 발행돼 있고
 (policy.extracted, quality.needsReview=true), 처리하면 고친 결과를 reprocess=true(알림 없음)로 다시 발행합니다.
-  GET  /benefit-reviews?status=PENDING          목록 (PENDING·APPROVED·REJECTED·SUPERSEDED)
+  GET  /benefit-reviews?status=PENDING          목록 (PENDING·APPROVED·REJECTED·SUPERSEDED) · &reported=true·false · &afterAt=&afterId= 이어 받기(hasMore)
   GET  /benefit-reviews/{reviewId}              상세 (payload: 정제 결과, source: 받은 원본 payload)
   POST /benefit-reviews/{reviewId}/approve      승인 → 확인 필요를 풀어 다시 발행. 본문(선택): {"edits": [{"path": "/conditions/0/value", "value": …}],
                                                 "note": "메모", "reviewer": "검수자"}. 원본·버전·출처·품질 칸은 못 바꿉니다
@@ -42,6 +43,7 @@ import re
 import uuid
 from collections.abc import Callable
 from contextlib import AbstractContextManager
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -49,7 +51,7 @@ from urllib.parse import parse_qs, urlparse
 from mujuthaek_extraction.assemble.details import upgrade_stored
 from mujuthaek_extraction.contracts import tools
 from mujuthaek_extraction.publish import approved_payload
-from mujuthaek_extraction.store import SUPERSEDED, superseded_message
+from mujuthaek_extraction.store import REVIEW_REASON_SQL, SUPERSEDED, superseded_message
 
 log = logging.getLogger(__name__)
 CANDIDATE_SCHEMA = "schemas/extracted-notice.v1.json"
@@ -139,6 +141,23 @@ def _list_limit(raw: str | None) -> int | None:
     return int(raw) if raw.isdigit() and 1 <= int(raw) <= MAX_LIST_LIMIT else None
 
 
+def _list_after(at: str | None, item_id: str | None) -> tuple[str, str] | None | str:
+    """이어 받기 칸(afterAt 들어온 시각, afterId 그 건 ID): 둘 다 없으면 처음부터(None), 둘 중 하나만 있거나 형식이 틀리면 오류 글."""
+    if at is None and item_id is None:
+        return None
+    if at is None or item_id is None:
+        return "afterAt과 afterId는 함께 보내야 합니다."
+    try:
+        return datetime.fromisoformat(at).isoformat(), str(uuid.UUID(item_id))
+    except ValueError:
+        return "afterAt은 ISO 시각, afterId는 UUID여야 합니다."
+
+
+def _page(items: list[dict[str, Any]], size: int) -> tuple[list[dict[str, Any]], bool]:
+    """size+1건을 받아 size건과 더 있는지를 나눠요."""
+    return items[:size], len(items) > size
+
+
 class ReviewService:
     """HTTP와 분리한 검수 동작. store_session은 JobStore를 여는 컨텍스트입니다(요청마다 DB 연결)."""
 
@@ -197,15 +216,29 @@ class ReviewService:
         log.info("검수 다시 열기", extra={"jobId": opened["jobId"], "reopened": opened["reopened"]})
         return 200, opened
 
-    def list(self, status: str, limit: str | None = None) -> tuple[int, Any]:
-        """검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 그 상태의 전체 건수 total. 건수는 목록 길이가 아니라 total을 쓰세요(2026-10-25 검토)."""
+    def list(
+        self,
+        status: str,
+        limit: str | None = None,
+        reason: str | None = None,
+        after_at: str | None = None,
+        after_id: str | None = None,
+    ) -> tuple[int, Any]:
+        """검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 그 조건의 전체 건수 total. 건수는 목록 길이가 아니라 total을 쓰세요(2026-10-25 검토).
+        reason(MUST·CHECK·FORMAT)으로 거르고, afterAt·afterId(앞 페이지 마지막 건)부터 이어 받아요. hasMore면 다음 페이지가 있어요."""
         if status not in REVIEW_LIST_STATUSES:
             return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
         size = _list_limit(limit)
         if size is None:
             return 400, {"error": f"limit은 1~{MAX_LIST_LIMIT} 사이 정수입니다."}
+        if reason is not None and reason not in REVIEW_REASON_SQL:
+            return 400, {"error": "reason은 " + "·".join(REVIEW_REASON_SQL) + " 중 하나입니다."}
+        after = _list_after(after_at, after_id)
+        if isinstance(after, str):
+            return 400, {"error": after}
         with self.store_session() as store:
-            return 200, {"items": store.reviews(status, size), "total": store.review_count(status)}
+            items, more = _page(store.reviews(status, size + 1, reason, after), size)
+            return 200, {"items": items, "total": store.review_count(status, reason), "hasMore": more}
 
     def detail(self, job_id: str) -> tuple[int, Any]:
         with self.store_session() as store:
@@ -271,15 +304,30 @@ class ReviewService:
         return 200, {"jobId": job_id, "reviewStatus": "REJECTED"}
 
     # ---- 혜택 검수 (2026-10-25) ----
-    def benefit_list(self, status: str, limit: str | None = None) -> tuple[int, Any]:
-        """혜택 검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 전체 건수 total."""
+    def benefit_list(
+        self,
+        status: str,
+        limit: str | None = None,
+        reported: str | None = None,
+        after_at: str | None = None,
+        after_id: str | None = None,
+    ) -> tuple[int, Any]:
+        """혜택 검수 목록(오래된 것부터 limit건, 기본·최대 1000)과 그 조건의 전체 건수 total.
+        reported(true·false)로 정책 제보로 다시 연 건을 거르고, afterAt·afterId부터 이어 받아요. hasMore면 다음 페이지가 있어요."""
         if status not in REVIEW_LIST_STATUSES:
             return 400, {"error": "status는 " + "·".join(REVIEW_LIST_STATUSES) + " 중 하나입니다."}
         size = _list_limit(limit)
         if size is None:
             return 400, {"error": f"limit은 1~{MAX_LIST_LIMIT} 사이 정수입니다."}
+        if reported not in (None, "true", "false"):
+            return 400, {"error": "reported는 true·false 중 하나입니다."}
+        after = _list_after(after_at, after_id)
+        if isinstance(after, str):
+            return 400, {"error": after}
+        flag = None if reported is None else reported == "true"
         with self.store_session() as store:
-            return 200, {"items": store.benefit_reviews(status, size), "total": store.benefit_review_count(status)}
+            items, more = _page(store.benefit_reviews(status, size + 1, flag, after), size)
+            return 200, {"items": items, "total": store.benefit_review_count(status, flag), "hasMore": more}
 
     def benefit_detail(self, review_id: str) -> tuple[int, Any]:
         with self.store_session() as store:
@@ -421,8 +469,10 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
             if not self._allowed():
                 return self._send(401, {"error": "인증이 필요합니다."})
             if url.path == "/reviews":
-                query = parse_qs(url.query)
-                return self._send(*service.list(query.get("status", ["PENDING"])[0], query.get("limit", [None])[0]))
+                query = {k: v[0] for k, v in parse_qs(url.query).items()}
+                return self._send(
+                    *service.list(query.get("status", "PENDING"), query.get("limit"), query.get("reason"), query.get("afterAt"), query.get("afterId"))
+                )
             if url.path == "/reviews/activity":
                 query = parse_qs(url.query)
                 return self._send(*service.activity(query.get("days", [None])[0], query.get("limit", [None])[0]))
@@ -431,8 +481,10 @@ def handler_for(service: ReviewService, token: str | None = None, health: Any = 
             if url.path == "/costs":
                 return self._send(*service.costs(parse_qs(url.query).get("month", [None])[0]))
             if url.path == "/benefit-reviews":
-                query = parse_qs(url.query)
-                return self._send(*service.benefit_list(query.get("status", ["PENDING"])[0], query.get("limit", [None])[0]))
+                query = {k: v[0] for k, v in parse_qs(url.query).items()}
+                return self._send(
+                    *service.benefit_list(query.get("status", "PENDING"), query.get("limit"), query.get("reported"), query.get("afterAt"), query.get("afterId"))
+                )
             match = REVIEW_PATH.match(url.path)
             if match and not match[2]:
                 job_id = self._job_id(match)

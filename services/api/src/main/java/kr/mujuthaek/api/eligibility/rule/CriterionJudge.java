@@ -30,8 +30,8 @@ import kr.mujuthaek.api.eligibility.rule.Judgment.WelfareStatus;
 /**
  * 판정 틀의 조건 하나를 판정해요 (MET · NOT_MET · UNKNOWN).
  *
- * <p>입력이 비었거나, 검수 중(inReview)이거나, 지금 입력 칸으로는 알 수 없는 조건(거주 기간, 청약 예치금, 부모 소득 …)은 UNKNOWN이고 이유와 필요한
- * 입력(needs)을 같이 줘요. 사용자가 보낸 값은 결과에 넣지 않아요.
+ * <p>입력이 비었거나, 검수 중(inReview)인데 불충족이 아니거나, 지금 입력 칸으로는 알 수 없는 조건(거주 기간, 청약 예치금, 부모 소득 …)은 UNKNOWN이고
+ * 이유와 필요한 입력(needs)을 같이 줘요. 사용자가 보낸 값은 결과에 넣지 않아요.
  */
 public final class CriterionJudge {
 
@@ -50,6 +50,12 @@ public final class CriterionJudge {
 
   private static final Set<String> TARGET_GROUP_STATUSES =
       Set.of("UNIVERSITY_STUDENT", "JOB_SEEKER");
+
+  /** 추출은 예외를 「기본 기준」 길 하나 + 예외 길(원문 질문)들의 ANY_OF로 줘요 (extraction judgment/frame.py _exceptions). */
+  private static final String BASE_OPTION = "기본 기준";
+
+  /** 「다음 중 하나」 이름이 이보다 길면 첫 길과 나머지 수만 보여요. 길마다 이름과 결과는 options에 그대로 있어요. */
+  private static final int ANY_OF_LABEL_MAX = 60;
 
   private CriterionJudge() {}
 
@@ -81,10 +87,10 @@ public final class CriterionJudge {
           case AnyOf x -> anyOf(x, a, referenceDate, benchmarks);
           case Ask x -> item(x, "ASK", x.question(), UNKNOWN, x.question(), List.of(), null, null);
         };
-    if (c.basics().inReview()) {
-      String why = c.basics().reviewReason();
-      return withStatus(
-          item, UNKNOWN, "공고 조건을 확인하는 중이에요" + (why == null ? "" : " (" + why + ")"), List.of());
+    if (c.basics().inReview() && item.status() != NOT_MET) {
+      // 검수 중이면 충족을 확인 필요로 낮춰요. 입력만으로 걸리는 불충족(집 있음, 나이 초과 …)은 그대로 둬요 (2026-10-29 QA).
+      // 검수 이유(reviewReason)는 관리자용 설명이라 회원 화면에 문구로 보이지 않게 해요(2026-10-29 QA)
+      return withStatus(item, UNKNOWN, null, List.of());
     }
     return item;
   }
@@ -249,28 +255,38 @@ public final class CriterionJudge {
           c.printedTable().isEmpty() ? "그해 기준 금액을 아직 준비하지 못했어요" : "공고 표에 이 세대원 수의 기준 금액이 없어요";
       return item(c, "INCOME", label, UNKNOWN, why, List.of(), threshold, null);
     }
-    if (bands == null || bands.isEmpty()) {
-      return item(c, "INCOME", label, UNKNOWN, "소득을 넣으면 판정돼요", List.of(need), threshold, null);
-    }
-    // 공고의 기준 종류로 받은 구간을 먼저, 없으면(공고 표만 있는 조건 등) 받은 다른 기준으로
     String key = benchmarkKey(c.standard());
-    Bands.Range monthly = null;
-    for (String k : key == null ? bands.keySet() : List.of(key)) {
-      Bands.Range pct = bands.get(k);
-      Integer userYear = a.incomeYearOf(k) != null ? a.incomeYearOf(k) : year;
-      Long base = pct == null || userYear == null ? null : benchmarks.monthlyWon(k, userYear, size);
-      if (base != null) {
-        monthly = pct.times(base / 100.0);
-        break;
-      }
+    Map<String, Bands.Range> own = a.personalIncome();
+    if ((bands == null || bands.isEmpty())
+        && !"APPLICANT".equals(c.basis())
+        && own != null
+        && !own.isEmpty()) {
+      // 2인 이상인데 가구 소득 없이 본인 소득만 받았어요. 가구 소득은 본인 소득보다 작을 수 없어서
+      // 본인 소득만으로 넘으면 불충족이고, 아니면 가구 소득을 따로 받지 않고 원문을 보게 해요 (2026-10-29 QA)
+      Bands.Range ownMonthly = monthlyIncome(own, key, a, year, size, benchmarks);
+      return ownMonthly != null && ownMonthly.atMost(monthlyLimit) == NOT_MET
+          ? item(c, "INCOME", label, NOT_MET, Bands.OWN_INCOME_OVER, List.of(), threshold, null)
+          : item(
+              c,
+              "INCOME",
+              label,
+              UNKNOWN,
+              Bands.HOUSEHOLD_INCOME_UNKNOWN,
+              List.of(),
+              threshold,
+              null);
     }
+    if (bands == null || bands.isEmpty()) {
+      return item(c, "INCOME", label, UNKNOWN, Bands.NO_INCOME, List.of(need), threshold, null);
+    }
+    Bands.Range monthly = monthlyIncome(bands, key, a, year, size, benchmarks);
     if (monthly == null) {
       return item(
           c,
           "INCOME",
           label,
           UNKNOWN,
-          key != null && !bands.containsKey(key) ? "소득을 넣으면 판정돼요" : "그해 기준 금액을 아직 준비하지 못했어요",
+          key != null && !bands.containsKey(key) ? Bands.NO_INCOME : "그해 기준 금액을 아직 준비하지 못했어요",
           key != null && !bands.containsKey(key) ? List.of(need) : List.of(),
           threshold,
           null);
@@ -283,6 +299,25 @@ public final class CriterionJudge {
           case UNKNOWN -> Bands.BOUNDARY;
         };
     return item(c, "INCOME", label, status, reason, List.of(), threshold, null);
+  }
+
+  /** 받은 소득 % 구간을 월 금액 구간으로: 공고의 기준 종류로 받은 구간을 먼저, 없으면(공고 표만 있는 조건 등) 받은 다른 기준으로. */
+  private static Bands.Range monthlyIncome(
+      Map<String, Bands.Range> bands,
+      String key,
+      Applicant a,
+      Integer year,
+      int size,
+      IncomeBenchmarks benchmarks) {
+    for (String k : key == null ? bands.keySet() : List.of(key)) {
+      Bands.Range pct = bands.get(k);
+      Integer userYear = a.incomeYearOf(k) != null ? a.incomeYearOf(k) : year;
+      Long base = pct == null || userYear == null ? null : benchmarks.monthlyWon(k, userYear, size);
+      if (base != null) {
+        return pct.times(base / 100.0);
+      }
+    }
+    return null;
   }
 
   /** 판정 입력의 소득 구간 키 (도시근로자 소득 두 이름은 하나로). 기준 종류가 없으면 null. */
@@ -527,24 +562,43 @@ public final class CriterionJudge {
       }
     }
     Status status = Status.any(options.stream().map(Item.OptionResult::status).toList());
+    boolean exceptions = options.size() > 1 && BASE_OPTION.equals(options.getFirst().label());
     String reason =
         switch (status) {
           case MET -> null;
           case NOT_MET -> "어느 기준에도 맞지 않아요";
-          case UNKNOWN -> "기준 중 하나에 맞는지 확인이 필요해요";
+          // 기본 기준에 걸리고 남은 건 드문 예외라 입력을 더 받지 않고 원문을 보게 해요 (2026-10-29 QA)
+          case UNKNOWN ->
+              exceptions && options.getFirst().status() == NOT_MET
+                  ? "예외에 해당하는지 원문을 확인해 주세요"
+                  : "기준 중 하나에 맞는지 확인이 필요해요";
         };
-    String label =
-        "다음 중 하나 · "
-            + String.join(" / ", c.options().stream().map(Judgment.Option::label).toList());
     return item(
         c,
         "ANY_OF",
-        label,
+        anyOfLabel(options, exceptions),
         status,
         reason,
         status == UNKNOWN ? List.copyOf(needs) : List.of(),
         null,
         options);
+  }
+
+  /**
+   * 「다음 중 하나」 조건 이름. 예외 묶음이면 기본 기준 이름 + 예외 수, 아니면 길 이름을 잇되 길면 첫 길 + 나머지 수 (2026-10-29 QA: 무주택 예외
+   * 11가지가 한 줄로 이어져 829자가 됐어요).
+   */
+  private static String anyOfLabel(List<Item.OptionResult> options, boolean exceptions) {
+    int others = options.size() - 1;
+    if (exceptions) {
+      List<Item> base = options.getFirst().items();
+      return (base.size() == 1 ? base.getFirst().label() : BASE_OPTION) + " (예외 " + others + "가지)";
+    }
+    String all =
+        "다음 중 하나 · " + String.join(" / ", options.stream().map(Item.OptionResult::label).toList());
+    return all.length() <= ANY_OF_LABEL_MAX || others == 0
+        ? all
+        : "다음 중 하나 · " + options.getFirst().label() + " 외 " + others + "가지";
   }
 
   /** 상한이 바뀌는 조건에 해당하는지. 입력으로 알 수 없으면 null. */

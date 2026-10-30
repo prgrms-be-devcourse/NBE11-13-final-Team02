@@ -14,7 +14,7 @@ public record Judgment(LocalDate referenceDate, List<Criterion> common, List<Gro
 
   public record Group(String id, String name, List<Criterion> criteria) {}
 
-  /** 모든 조건이 같이 가진 칸. inReview면 판정하지 않고 "확인 필요"로 둬요. */
+  /** 모든 조건이 같이 가진 칸. inReview면 불충족만 그대로 두고 나머지는 "확인 필요"로 둬요. */
   public record Basics(
       String id, String quote, Integer page, boolean inReview, String reviewReason) {}
 

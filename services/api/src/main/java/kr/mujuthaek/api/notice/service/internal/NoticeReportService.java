@@ -135,19 +135,11 @@ public class NoticeReportService {
     if (blank(request.reportedValue()) && blank(request.note())) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "맞는 값이나 설명 중 하나는 적어 주세요");
     }
-    String title;
-    try {
-      title = extraction.benefit(policyId.toString()).path("title").asString();
-    } catch (CustomException e) {
-      if (e.errorCode() == ErrorCode.NOTICE_REVIEW_NOT_FOUND) {
-        throw new CustomException(ErrorCode.NOT_FOUND, "정책을 찾을 수 없어요");
-      }
-      if (e.errorCode() == ErrorCode.NOTICE_REVIEW_UNAVAILABLE) {
-        // 회원에게 「검수 서버」라는 내부 사정 대신 제보를 지금 받을 수 없다고 알려요
-        throw new CustomException(
-            ErrorCode.NOTICE_REVIEW_UNAVAILABLE, "지금은 정책 제보를 받을 수 없어요. 잠시 뒤에 다시 보내 주세요");
-      }
-      throw e;
+    // 제목은 이 서버의 혜택에서 먼저 찾아요. 예전에는 늘 추출 서비스에 물어서, 그쪽에 결과가 없는 환경(운영 결과를 받아 쓰는 개발 서버)에서는
+    // 혜택 제보가 모두 404였어요(2026-10-29 QA). 이 서버에 없을 때만 추출 서비스에 물어요
+    String title = benefits.findSummaryByRawPolicyId(policyId).map(b -> b.title()).orElse(null);
+    if (title == null) {
+      title = extractionBenefitTitle(policyId);
     }
     Instant now = clock.instant();
     Instant todayStart = LocalDate.ofInstant(now, SEOUL).atStartOfDay(SEOUL).toInstant();
@@ -174,6 +166,23 @@ public class NoticeReportService {
       throw new CustomException(ErrorCode.CONFLICT, "같은 칸에 보낸 제보를 아직 확인하고 있어요");
     }
     return new NoticeReportCreatedResponse(id, "NEW");
+  }
+
+  /** 이 서버에 없는 정책의 제목을 추출 서비스에서 찾아요. 거기에도 없으면 404. */
+  private String extractionBenefitTitle(UUID policyId) {
+    try {
+      return extraction.benefit(policyId.toString()).path("title").asString();
+    } catch (CustomException e) {
+      if (e.errorCode() == ErrorCode.NOTICE_REVIEW_NOT_FOUND) {
+        throw new CustomException(ErrorCode.NOT_FOUND, "정책을 찾을 수 없어요");
+      }
+      if (e.errorCode() == ErrorCode.NOTICE_REVIEW_UNAVAILABLE) {
+        // 회원에게 「검수 서버」라는 내부 사정 대신 제보를 지금 받을 수 없다고 알려요
+        throw new CustomException(
+            ErrorCode.NOTICE_REVIEW_UNAVAILABLE, "지금은 정책 제보를 받을 수 없어요. 잠시 뒤에 다시 보내 주세요");
+      }
+      throw e;
+    }
   }
 
   /** 회원 제보 받기. 로그인한 회원만, 공개된 공고에만. */

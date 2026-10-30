@@ -1,6 +1,8 @@
 package kr.mujuthaek.api.user.security;
 
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.List;
+import java.util.function.BiPredicate;
 import java.util.function.Predicate;
 import kr.mujuthaek.api.user.domain.AdminPermission;
 import kr.mujuthaek.api.user.service.AdminAccess;
@@ -45,7 +47,35 @@ class AdminAuthorization {
     return check(a -> a.isSuper() && a.active());
   }
 
+  /**
+   * 검수 대기열(GET /api/admin/reviews/queue, 공고·혜택을 섞어 보여 줘요): kinds에 적은 종류마다 그 검수 권한이 있어야 해요(NOTICE →
+   * NOTICE_REVIEW, BENEFIT → BENEFIT_REVIEW). kinds가 없으면 둘 다, 모르는 종류가 있으면 막아요.
+   */
+  AuthorizationManager<RequestAuthorizationContext> reviewQueue() {
+    return check(
+        (a, request) -> {
+          String kinds = request.getParameter("kinds");
+          List<String> wanted =
+              kinds == null || kinds.isBlank()
+                  ? List.of("NOTICE", "BENEFIT")
+                  : List.of(kinds.split(",")).stream().map(String::trim).toList();
+          return wanted.stream()
+              .allMatch(
+                  k ->
+                      switch (k) {
+                        case "NOTICE" -> a.has(AdminPermission.NOTICE_REVIEW);
+                        case "BENEFIT" -> a.has(AdminPermission.BENEFIT_REVIEW);
+                        default -> false;
+                      });
+        });
+  }
+
   private AuthorizationManager<RequestAuthorizationContext> check(Predicate<AdminAccess> rule) {
+    return check((access, request) -> rule.test(access));
+  }
+
+  private AuthorizationManager<RequestAuthorizationContext> check(
+      BiPredicate<AdminAccess, HttpServletRequest> rule) {
     return (authentication, context) -> {
       var auth = authentication.get();
       if (auth == null || !(auth.getPrincipal() instanceof LoginUser user)) {
@@ -59,7 +89,7 @@ class AdminAuthorization {
         access = admins.access(user.userId());
         request.setAttribute(ATTRIBUTE, access);
       }
-      return new AuthorizationDecision(rule.test(access));
+      return new AuthorizationDecision(rule.test(access, request));
     };
   }
 }
