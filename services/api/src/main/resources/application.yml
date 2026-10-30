@@ -160,6 +160,12 @@ springdoc:
     urls-primary-name: user              # 처음 열면 사용자 API부터 보여요
     persist-authorization: true         # 새로 고쳐도 넣어 둔 access token을 기억해요 (그 브라우저에만)
 
+server:
+  compression:                          # JSON 응답을 gzip으로 (관리자 목록·공고 상세가 수백 KB, 2026-10-30 부하 시험)
+    enabled: true
+    min-response-size: 1KB              # 작은 응답은 그대로. 이야기 실시간(text/event-stream)은 기본 대상이 아니라 압축하지 않아요
+    mime-types: application/json,application/problem+json,text/plain
+
 management:
   endpoints:
     web:

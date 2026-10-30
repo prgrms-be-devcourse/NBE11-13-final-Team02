@@ -9,6 +9,7 @@ import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReportDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportListResponse;
+import kr.mujuthaek.api.notice.dto.response.AdminReportQueueResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportReviewResponse;
 
 @Tag(
@@ -32,6 +33,24 @@ public interface AdminReportApiSpec {
 
   @Operation(summary = "상태별 제보 건수", description = "사이드바 숫자예요.")
   AdminReportListResponse.Counts counts();
+
+  @Operation(
+      summary = "제보 대기열 한 페이지",
+      description =
+          "공고·혜택·사업·일반 제보와 생활권 제보를 한 목록으로 섞어, 들어온 시각 최신순으로 size건 줘요(무한 스크롤). "
+              + "상태마다 따로 받아요. kind가 REPORT면 /api/admin/reports/{id}, AREA면 /api/admin/area-reports/{id}로 상세를 봐요. "
+              + "응답의 nextCursor를 다음 요청의 cursor로 그대로 넘기면 이어서 받아요(null이면 끝). "
+              + "상태별 건수는 /api/admin/reports/counts와 /api/admin/area-reports/counts예요.")
+  @ApiResponse(responseCode = "200", description = "대기열 한 페이지")
+  @ApiResponse(
+      responseCode = "400",
+      description =
+          "VALIDATION_FAILED — status가 NEW·DOING·DONE이 아니거나, size가 1~100 밖이거나, cursor가 올바르지 않아요")
+  AdminReportQueueResponse queue(
+      @Parameter(description = "처리 상태 NEW(처리 전) · DOING(처리 중) · DONE(끝남). 기본 NEW", example = "NEW")
+          String status,
+      @Parameter(description = "이전 응답의 nextCursor. 첫 요청이면 비워요") String cursor,
+      @Parameter(description = "한 번에 받을 개수 (기본 20, 1~100)", example = "20") int size);
 
   @Operation(
       summary = "제보 상세",

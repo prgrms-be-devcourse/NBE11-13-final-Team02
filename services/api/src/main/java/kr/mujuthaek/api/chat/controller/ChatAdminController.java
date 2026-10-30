@@ -43,6 +43,12 @@ class ChatAdminController implements ChatAdminApiSpec {
   }
 
   @Override
+  @GetMapping("/reports/counts")
+  public ChatReportResponse.Counts counts() {
+    return admin.counts();
+  }
+
+  @Override
   @PatchMapping("/messages/{id}")
   public ResponseEntity<Void> review(
       @PathVariable UUID id,

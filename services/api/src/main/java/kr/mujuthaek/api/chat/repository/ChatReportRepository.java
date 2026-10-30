@@ -77,6 +77,16 @@ public class ChatReportRepository {
             .addValue("at", at));
   }
 
+  /** 검토 전 신고가 걸린 글 수 (관리자 사이드바 숫자). review_status 인덱스로 세요. */
+  public int pendingMessages() {
+    Integer n =
+        jdbc.queryForObject(
+            "select count(distinct message_id) from chat.message_reports where review_status = 'PENDING'",
+            new MapSqlParameterSource(),
+            Integer.class);
+    return n == null ? 0 : n;
+  }
+
   /** 검토 상태별 신고를 최신순으로. before가 있으면 그 신고보다 오래된 것만 (커서). */
   public List<ReportRow> page(ReviewStatus status, UUID before, int limit) {
     return jdbc.query(

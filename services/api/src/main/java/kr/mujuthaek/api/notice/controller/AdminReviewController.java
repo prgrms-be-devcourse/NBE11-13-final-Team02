@@ -33,12 +33,6 @@ class AdminReviewController implements AdminReviewApiSpec {
   }
 
   @Override
-  @GetMapping
-  public AdminReviewListResponse list(@RequestParam(required = false) String reason) {
-    return reviews.pending(reason);
-  }
-
-  @Override
   @GetMapping("/queue")
   public AdminReviewQueueResponse queue(
       @RequestParam(required = false) String kinds,

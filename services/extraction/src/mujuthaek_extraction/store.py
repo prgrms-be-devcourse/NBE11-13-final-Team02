@@ -399,7 +399,7 @@ class JobStore:
         where, params = _benefit_review_filter(status, reported, after)
         rows = self.conn.execute(
             "select v.id, v.raw_policy_id, v.raw_version, r.source_code, r.policy_id, r.title, v.status, v.reasons, v.created_at, v.decided_at,"
-            " r.payload->'schedule'->>'applyEnd', (r.payload->>'relevant')::boolean, v.opened_by is not null"
+            " r.list_apply_end, r.list_relevant, v.opened_by is not null"
             f" from benefit_reviews v join benefit_results r on r.id = v.result_id where {where} order by v.created_at, v.id limit %s",
             (*params, limit),
         ).fetchall()
@@ -517,11 +517,9 @@ class JobStore:
         reason은 관리자 사유(MUST·CHECK·FORMAT), after는 (queuedAt, jobId) — 이 건 다음부터 이어 받아요(관리자 검수 무한 스크롤, 2026-10-29)."""
         where, params = _review_filter(status, reason, after)
         rows = self.conn.execute(
-            "select j.id, j.raw_post_id, j.raw_version, j.source_code, j.status, r.status, r.reasons, r.created_at, j.candidate->'notice'->>'title',"
-            " j.raw_event->'payload'->>'title', r.decided_at,"
-            " (select min(left(s->'endsAt'->>'value', 10)) from jsonb_array_elements(case when jsonb_typeof(j.candidate->'schedules') = 'array'"
-            " then j.candidate->'schedules' else '[]'::jsonb end) s"
-            " where s->'kinds' ? 'APPLICATION' and s->'endsAt'->>'value' ~ '^\\d{4}-\\d{2}-\\d{2}'),"
+            # 제목·원문 제목·신청 마감일은 저장할 때 채워 둔 칸에서 읽어요(건마다 큰 JSON을 풀지 않게, V202610301300)
+            "select j.id, j.raw_post_id, j.raw_version, j.source_code, j.status, r.status, r.reasons, r.created_at, j.list_title,"
+            " j.list_source_title, r.decided_at, j.list_apply_ends_on,"
             " r.superseded_by_job_id, r.superseded_by_raw_post_id, r.superseded_by_version"
             f" from review_queue r join extraction_jobs j on j.id = r.job_id where {where} order by r.created_at, r.job_id limit %s",
             (*params, limit),
@@ -670,19 +668,19 @@ class JobStore:
         rows = self.conn.execute(
             "select kind, id, title, action, at, who, note from ("
             # 공고 검수 처리 (지금 상태)
-            " select 'NOTICE' kind, j.id::text id, coalesce(j.candidate->'notice'->>'title', j.raw_event->'payload'->>'title') title,"
+            " select 'NOTICE' kind, j.id::text id, coalesce(j.list_title, j.list_source_title) title,"
             " case when r.status = 'REJECTED' then 'REJECTED' when r.edited then 'EDITED_APPROVED' else 'APPROVED' end action,"
             " r.decided_at at, r.decided_by who, r.note note"
             " from review_queue r join extraction_jobs j on j.id = r.job_id"
             " where r.status in ('APPROVED', 'REJECTED') and r.decided_at is not null"
             # 다시 열기 전에 했던 처리
-            " union all select 'NOTICE', j.id::text, coalesce(j.candidate->'notice'->>'title', j.raw_event->'payload'->>'title'),"
+            " union all select 'NOTICE', j.id::text, coalesce(j.list_title, j.list_source_title),"
             " case when h.status = 'REJECTED' then 'REJECTED' when h.edited then 'EDITED_APPROVED' else 'APPROVED' end,"
             " h.decided_at, h.decided_by, h.note"
             " from review_history h join extraction_jobs j on j.id = h.job_id"
             " where h.status in ('APPROVED', 'REJECTED') and h.decided_at is not null"
             # 다시 열기
-            " union all select 'NOTICE', j.id::text, coalesce(j.candidate->'notice'->>'title', j.raw_event->'payload'->>'title'),"
+            " union all select 'NOTICE', j.id::text, coalesce(j.list_title, j.list_source_title),"
             " 'REOPENED', h.archived_at, h.reopened_by, h.reopen_note"
             " from review_history h join extraction_jobs j on j.id = h.job_id where h.reopened_by is not null"
             # 혜택 검수 처리

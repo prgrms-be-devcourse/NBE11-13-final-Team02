@@ -7,7 +7,9 @@ import kr.mujuthaek.api.notice.controller.spec.AdminReportApiSpec;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReportDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportListResponse;
+import kr.mujuthaek.api.notice.dto.response.AdminReportQueueResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportReviewResponse;
+import kr.mujuthaek.api.notice.service.internal.AdminReportQueueService;
 import kr.mujuthaek.api.notice.service.internal.NoticeReportService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,9 +25,11 @@ import org.springframework.web.bind.annotation.RestController;
 class AdminReportController implements AdminReportApiSpec {
 
   private final NoticeReportService reports;
+  private final AdminReportQueueService queue;
 
-  AdminReportController(NoticeReportService reports) {
+  AdminReportController(NoticeReportService reports, AdminReportQueueService queue) {
     this.reports = reports;
+    this.queue = queue;
   }
 
   @Override
@@ -38,6 +42,15 @@ class AdminReportController implements AdminReportApiSpec {
   @GetMapping("/counts")
   public AdminReportListResponse.Counts counts() {
     return reports.counts();
+  }
+
+  @Override
+  @GetMapping("/queue")
+  public AdminReportQueueResponse queue(
+      @RequestParam(defaultValue = "NEW") String status,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(defaultValue = "20") int size) {
+    return queue.queue(status, cursor, size);
   }
 
   @Override

@@ -788,3 +788,34 @@ def test_benefit_review_list_pages_by_cursor_and_filters_reported(store):
     assert [i["rawPolicyId"] for i in rest["items"]] == policies[2:] and not rest["hasMore"]
     assert service.benefit_list("PENDING", None, "true")[1]["total"] == 0
     assert service.benefit_list("PENDING", None, "false")[1]["total"] == 3
+
+
+def test_review_api_pool_reuses_connections_and_caps_concurrency():
+    """검수 API 연결 풀: 동시 요청이 max_size를 넘어도 실패하지 않고 기다렸다 처리하며, 연결은 그 수까지만 열어요."""
+    import threading
+    from types import SimpleNamespace
+
+    from mujuthaek_extraction.worker import pooled_store_session, review_pool
+
+    pool = review_pool(SimpleNamespace(db_url=DB_URL, review_db_pool=2))
+    seen, errors = set(), []
+
+    def one():
+        try:
+            with pooled_store_session(pool) as s:
+                seen.add(s.conn.info.backend_pid)
+                assert s.conn.autocommit
+                s.conn.execute("select pg_sleep(0.2)")
+        except Exception as e:  # noqa: BLE001
+            errors.append(e)
+
+    try:
+        threads = [threading.Thread(target=one) for _ in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        assert errors == []
+        assert 1 <= len(seen) <= 2  # 연결 두 개를 돌려 써요
+    finally:
+        pool.close()

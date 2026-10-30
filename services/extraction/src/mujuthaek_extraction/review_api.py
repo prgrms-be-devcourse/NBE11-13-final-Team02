@@ -159,7 +159,7 @@ def _page(items: list[dict[str, Any]], size: int) -> tuple[list[dict[str, Any]],
 
 
 class ReviewService:
-    """HTTP와 분리한 검수 동작. store_session은 JobStore를 여는 컨텍스트입니다(요청마다 DB 연결)."""
+    """HTTP와 분리한 검수 동작. store_session은 JobStore를 여는 컨텍스트입니다(실행 중에는 연결 풀에서 빌려요)."""
 
     def __init__(
         self,

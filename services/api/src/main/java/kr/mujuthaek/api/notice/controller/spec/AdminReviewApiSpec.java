@@ -23,25 +23,12 @@ import kr.mujuthaek.api.notice.dto.response.AdminReviewStatsResponse;
 public interface AdminReviewApiSpec {
 
   @Operation(
-      summary = "공고 검수 대기 목록",
-      description = "대기 중인 공고 검수를 줘요. reason을 주면 그 묶음만 주고, total은 거르기 전 건수예요.")
-  @ApiResponse(responseCode = "200", description = "대기 목록")
-  @ApiResponse(
-      responseCode = "400",
-      description = "VALIDATION_FAILED — reason이 MUST·CHECK·FORMAT 중 하나가 아니에요")
-  @ApiResponse(responseCode = "503", description = "NOTICE_REVIEW_UNAVAILABLE — 검수 서버에 연결하지 못했어요")
-  AdminReviewListResponse list(
-      @Parameter(
-              description =
-                  "사유 묶음: MUST(공개 전 꼭 볼 것) · CHECK(공개됐지만 보류한 칸이 있음) · FORMAT(원본 자료 문제). 비우면 전부")
-          String reason);
-
-  @Operation(
       summary = "검수 대기열 한 페이지",
       description =
           "공고·혜택 검수를 들어온 시각 순(오래된 것부터)으로 섞어 size건 줘요. 응답의 nextCursor를 다음 요청의 cursor로 넘기면 "
               + "이어서 받아요(null이면 끝). total은 첫 페이지(cursor 없이)에서만 정확해요. "
-              + "reason이 FORMAT이면 혜택은 없고, MUST면 혜택은 정책 제보로 다시 연 건만이에요.")
+              + "reason이 FORMAT이면 혜택은 없고, MUST면 혜택은 정책 제보로 다시 연 건만이에요. "
+              + "첫 페이지(cursor 없이)는 5초 동안 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 받아요.")
   @ApiResponse(responseCode = "200", description = "대기열 한 페이지")
   @ApiResponse(
       responseCode = "400",
@@ -60,7 +47,11 @@ public interface AdminReviewApiSpec {
       @Parameter(description = "이전 응답의 nextCursor. 첫 요청이면 비워요") String cursor,
       @Parameter(description = "한 번에 받을 개수 (기본 50, 1~100)") int size);
 
-  @Operation(summary = "공고 검수 대기 건수", description = "대기 건수와 가장 오래 기다린 건이 들어온 시각(대기가 없으면 null)을 줘요.")
+  @Operation(
+      summary = "공고 검수 대기 건수",
+      description =
+          "대기 건수와 가장 오래 기다린 건이 들어온 시각(대기가 없으면 null)을 줘요. "
+              + "5초 동안은 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 세요.")
   @ApiResponse(responseCode = "200", description = "대기 건수")
   @ApiResponse(responseCode = "503", description = "NOTICE_REVIEW_UNAVAILABLE — 검수 서버에 연결하지 못했어요")
   AdminReviewCountsResponse counts();
@@ -77,7 +68,9 @@ public interface AdminReviewApiSpec {
 
   @Operation(
       summary = "마감이 가까운 공고 검수 대기",
-      description = "신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건을 마감이 이른 것부터 줘요. 마감을 모르는 건은 빠져요.")
+      description =
+          "신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건을 마감이 이른 것부터 줘요. 마감을 모르는 건은 빠져요. "
+              + "1분 동안은 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 받아요.")
   @ApiResponse(responseCode = "200", description = "마감이 가까운 대기 건")
   @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED — days가 0~30 밖이에요")
   @ApiResponse(responseCode = "503", description = "NOTICE_REVIEW_UNAVAILABLE — 검수 서버에 연결하지 못했어요")

@@ -86,6 +86,7 @@ class Settings:
     review_host: str = "127.0.0.1"  # 검수 API에는 인증이 없어 기본은 이 컴퓨터에서만 열립니다 (Docker에서는 0.0.0.0)
     review_port: int = 8092
     review_token: str | None = None  # 있으면 검수 API에 Bearer 토큰 필요, 없으면 같은 컴퓨터 요청만 (로그에 남기지 않음)
+    review_db_pool: int = 8  # 검수 API DB 연결 풀 최대 (EXTRACTION_REVIEW_DB_POOL). 넘는 요청은 빈 연결을 기다려요
     relay_seconds: float = 2.0
     retry_seconds: float = 300  # 자료 대기·실패 다시 처리 간격의 기준(5분 → 10분 → 20분 …)
     max_attempts: int = 6  # 이벤트 하나를 처리하는 최대 횟수
@@ -142,6 +143,7 @@ class Settings:
             review_host=os.getenv("EXTRACTION_REVIEW_HOST", "127.0.0.1"),
             review_port=int(os.getenv("EXTRACTION_REVIEW_PORT", "8092")),
             review_token=os.getenv("EXTRACTION_REVIEW_TOKEN") or None,
+            review_db_pool=int(os.getenv("EXTRACTION_REVIEW_DB_POOL", "8")),
             relay_seconds=float(os.getenv("EXTRACTION_RELAY_SECONDS", "2")),
             retry_seconds=float(os.getenv("EXTRACTION_RETRY_SECONDS", "300")),
             max_attempts=int(os.getenv("EXTRACTION_MAX_ATTEMPTS", "6")),

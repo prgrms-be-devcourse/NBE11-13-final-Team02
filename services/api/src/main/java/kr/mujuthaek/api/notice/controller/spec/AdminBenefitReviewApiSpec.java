@@ -7,8 +7,8 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import java.security.Principal;
 import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
+import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewCountsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewDetailResponse;
-import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
 
 @Tag(
@@ -18,17 +18,13 @@ import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
             + "추출 서비스 혜택 검수 API를 이 서버가 대신 불러요. 권한 BENEFIT_REVIEW가 있는 관리자만 부를 수 있어요.")
 public interface AdminBenefitReviewApiSpec {
 
-  @Operation(summary = "혜택 검수 목록", description = "그 상태의 혜택 검수를 오래 기다린 것부터 줘요.")
-  @ApiResponse(responseCode = "200", description = "검수 목록")
-  @ApiResponse(
-      responseCode = "400",
-      description = "VALIDATION_FAILED — status가 PENDING·APPROVED·REJECTED·SUPERSEDED 중 하나가 아니에요")
+  @Operation(
+      summary = "혜택 검수 대기 건수",
+      description =
+          "사이드바·개요에 쓰는 대기 건수만 줘요(목록 전체를 받지 않아요). " + "5초 동안은 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 세요.")
+  @ApiResponse(responseCode = "200", description = "대기 건수 (benefitPending)")
   @ApiResponse(responseCode = "503", description = "NOTICE_REVIEW_UNAVAILABLE — 검수 서버에 연결하지 못했어요")
-  AdminBenefitReviewListResponse list(
-      @Parameter(
-              description =
-                  "검수 상태 PENDING · APPROVED · REJECTED · SUPERSEDED (대소문자 무관). 비우면 PENDING")
-          String status);
+  AdminBenefitReviewCountsResponse counts();
 
   @Operation(
       summary = "혜택 검수 상세",

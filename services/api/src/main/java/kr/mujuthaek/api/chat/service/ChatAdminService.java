@@ -44,6 +44,11 @@ public class ChatAdminService {
   }
 
   /** 검토 상태별 신고 (최신순). */
+  /** 검토 전 신고가 걸린 글 수 (사이드바 숫자). 신고 목록을 받아 세지 않게 따로 세요. */
+  public ChatReportResponse.Counts counts() {
+    return new ChatReportResponse.Counts(reports.pendingMessages());
+  }
+
   public CursorPageResponse<ChatReportResponse> reports(
       ReviewStatus status, String cursor, Integer size) {
     CursorQuery query = CursorQuery.of(cursor, size, SORT);

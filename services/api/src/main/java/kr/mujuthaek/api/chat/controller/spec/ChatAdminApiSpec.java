@@ -33,6 +33,11 @@ public interface ChatAdminApiSpec {
       @Parameter(description = "한 번에 받을 개수 (기본 20, 1~100)", example = "20") Integer size);
 
   @Operation(
+      summary = "검토 전 신고 글 수",
+      description = "사이드바 숫자예요. 검토 전 신고가 걸린 글 수이고, 같은 글에 신고가 여러 건이면 한 글로 세요.")
+  ChatReportResponse.Counts counts();
+
+  @Operation(
       summary = "신고된 메시지 처리",
       description =
           "action이 KEEP_HIDDEN이면 관리자 가림(HIDDEN_ADMIN)으로 두고, 보이던 메시지였으면 SSE message.hidden이 가요. "

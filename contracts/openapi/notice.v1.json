@@ -342,49 +342,6 @@
         }
       }
     },
-    "/api/admin/reviews": {
-      "get": {
-        "tags": [
-          "admin-review"
-        ],
-        "operationId": "listAdminReviews",
-        "summary": "검수 대기 목록",
-        "parameters": [
-          {
-            "name": "reason",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/AdminReviewReason"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "대기 목록",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdminReviewList"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/AdminForbidden"
-          },
-          "403": {
-            "$ref": "#/components/responses/AdminForbidden"
-          },
-          "503": {
-            "$ref": "#/components/responses/ReviewUnavailable"
-          }
-        }
-      }
-    },
     "/api/admin/reviews/queue": {
       "get": {
         "tags": [
@@ -894,6 +851,73 @@
                 }
               }
             }
+          },
+          "401": {
+            "$ref": "#/components/responses/AdminForbidden"
+          },
+          "403": {
+            "$ref": "#/components/responses/AdminForbidden"
+          }
+        }
+      }
+    },
+    "/api/admin/reports/queue": {
+      "get": {
+        "tags": [
+          "notice-report"
+        ],
+        "operationId": "pageAdminReportQueue",
+        "summary": "제보 대기열 한 페이지 (공고·혜택·사업 제보와 생활권 제보를 최신순으로, 무한 스크롤)",
+        "description": "상태마다 따로 받아요. 다음 페이지는 응답의 nextCursor를 cursor로 보내요. 상태별 건수는 /api/admin/reports/counts와 /api/admin/area-reports/counts예요.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "NEW",
+                "DOING",
+                "DONE"
+              ],
+              "default": "NEW"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "description": "앞 페이지의 nextCursor (없으면 가장 새것부터)",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "대기열 한 페이지",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminReportQueue"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/AdminForbidden"
@@ -1515,44 +1539,24 @@
         }
       }
     },
-    "/api/admin/benefit-reviews": {
+    "/api/admin/benefit-reviews/counts": {
       "get": {
         "tags": [
           "admin-benefit-review"
         ],
-        "operationId": "listAdminBenefitReviews",
-        "summary": "혜택(주거·이주 정책) 검수 목록",
-        "description": "추출 서비스의 혜택 정제 결과 중 확인 필요(needsReview)와 정책 제보로 다시 연 건. 오래 기다린 것부터.",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "PENDING",
-                "APPROVED",
-                "REJECTED",
-                "SUPERSEDED"
-              ],
-              "default": "PENDING"
-            }
-          }
-        ],
+        "operationId": "countAdminBenefitReviews",
+        "summary": "혜택 검수 대기 건수 (사이드바·개요)",
+        "description": "목록 전체를 받지 않고 건수만 줘요(추출 서비스의 total).",
         "responses": {
           "200": {
-            "description": "검수 목록",
+            "description": "대기 건수",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/AdminBenefitReviewList"
+                  "$ref": "#/components/schemas/AdminBenefitReviewCounts"
                 }
               }
             }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
           },
           "401": {
             "$ref": "#/components/responses/AdminForbidden"
@@ -3682,26 +3686,6 @@
           }
         }
       },
-      "AdminReviewList": {
-        "type": "object",
-        "required": [
-          "total",
-          "items"
-        ],
-        "properties": {
-          "total": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "사유로 거르기 전 대기 건수(오래된 것부터 최대 50건)"
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AdminReviewItem"
-            }
-          }
-        }
-      },
       "AdminReviewQueue": {
         "type": "object",
         "required": [
@@ -3796,6 +3780,18 @@
               "null"
             ],
             "format": "date-time"
+          }
+        }
+      },
+      "AdminBenefitReviewCounts": {
+        "type": "object",
+        "required": [
+          "benefitPending"
+        ],
+        "properties": {
+          "benefitPending": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },
@@ -4476,6 +4472,180 @@
           }
         }
       },
+      "AdminReportQueueItem": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "status",
+          "screen",
+          "targetType",
+          "noticeId",
+          "programId",
+          "benefitPolicyId",
+          "benefitId",
+          "title",
+          "field",
+          "currentValue",
+          "reportedValue",
+          "summary",
+          "createdAt",
+          "groupCount",
+          "result",
+          "noticeLocationId"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "REPORT",
+              "AREA"
+            ],
+            "description": "REPORT 공고·혜택·사업·일반 제보(/api/admin/reports/{id}) · AREA 생활권 제보(/api/admin/area-reports/{id})"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "NEW",
+              "DOING",
+              "DONE"
+            ],
+            "description": "NEW 새 제보 · DOING 처리 중 · DONE 처리 끝"
+          },
+          "screen": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "targetType": {
+            "type": "string",
+            "enum": [
+              "NOTICE",
+              "PROGRAM",
+              "BENEFIT",
+              "GENERAL",
+              "AREA"
+            ],
+            "description": "NOTICE 공고 제보 · PROGRAM 창업지원 사업·사업공간 모집 제보 · BENEFIT 주거·복지 정책(혜택) 제보 · GENERAL 일반 제보(대상 없음) · AREA 생활권 제보"
+          },
+          "noticeId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "공고 제보면 공고 ID (사업이면 null)"
+          },
+          "programId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "사업 제보면 창업지원 사업 ID(rawPolicyId) (공고면 null)"
+          },
+          "field": {
+            "type": "string"
+          },
+          "currentValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reportedValue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "summary": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "설명 앞부분"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "groupCount": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "같은 공고·칸의 처리 전 제보 수(이 제보 포함, 끝난 제보면 0)"
+          },
+          "result": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "FIXED",
+              "KEPT",
+              null
+            ],
+            "description": "FIXED 고침 · KEPT 원문대로 그대로 둠"
+          },
+          "benefitPolicyId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "혜택 정책 제보면 정책 원본 ID (그 밖이면 null). 「고치기」는 혜택 검수로 이어져요"
+          },
+          "benefitId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "혜택 화면(/benefits/{id})에 쓰는 혜택 ID. 원본 정책 ID와 달라요. 혜택 제보가 아니거나 아직 저장 전이면 null"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "무엇에 대한 제보인지: 공고·사업·혜택 이름, 생활권 제보는 「공고 이름 · 단지 이름」. 일반 제보나 못 찾으면 null"
+          },
+          "noticeLocationId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "생활권 제보가 가리키는 단지(공고 위치) ID, 그 밖이면 null"
+          }
+        }
+      },
+      "AdminReportQueue": {
+        "type": "object",
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AdminReportQueueItem"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "다음 페이지 위치, 다 받았으면 null"
+          }
+        }
+      },
       "AdminReportDetail": {
         "type": "object",
         "description": "제보 상세. 제보한 회원이 누구인지는 보여 주지 않음",
@@ -5073,113 +5243,6 @@
               "$ref": "#/components/schemas/Evidence"
             },
             "description": "이 안내의 근거 원문"
-          }
-        }
-      },
-      "AdminBenefitReviewItem": {
-        "type": "object",
-        "description": "혜택 검수 한 건",
-        "required": [
-          "id",
-          "rawPolicyId",
-          "rawVersion",
-          "sourceCode",
-          "policyId",
-          "title",
-          "status",
-          "reasons",
-          "reported",
-          "relevant",
-          "applyEndsOn",
-          "queuedAt",
-          "decidedAt"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "rawPolicyId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "정책 원본 ID (버전이 바뀌어도 같음)"
-          },
-          "rawVersion": {
-            "type": "integer"
-          },
-          "sourceCode": {
-            "type": "string",
-            "description": "출처 (youth 온통청년 등)"
-          },
-          "policyId": {
-            "type": "string",
-            "description": "출처의 정책 번호"
-          },
-          "title": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "PENDING",
-              "APPROVED",
-              "REJECTED",
-              "SUPERSEDED"
-            ]
-          },
-          "reasons": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "EVIDENCE_NOT_FOUND",
-                "LOW_CONFIDENCE",
-                "NO_DOCUMENT",
-                "RULE_AI_CONFLICT",
-                "TEXT_TRUNCATED",
-                "REPORTED"
-              ]
-            },
-            "description": "확인할 이유. LOW_CONFIDENCE는 기본 기준·전형별 값처럼 확실하지 않은 핵심 값을 채운 것, REPORTED는 정책 제보로 다시 연 것"
-          },
-          "reported": {
-            "type": "boolean"
-          },
-          "relevant": {
-            "type": "boolean",
-            "description": "주거·이주 혜택으로 판정했는지 (false면 서비스에 안 보임)"
-          },
-          "applyEndsOn": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date"
-          },
-          "queuedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "decidedAt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          }
-        }
-      },
-      "AdminBenefitReviewList": {
-        "type": "object",
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AdminBenefitReviewItem"
-            }
           }
         }
       },
