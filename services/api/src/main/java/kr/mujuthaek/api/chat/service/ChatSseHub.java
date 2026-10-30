@@ -44,7 +44,13 @@ public class ChatSseHub {
                   return room.isEmpty() ? null : room;
                 });
     emitter.onCompletion(leave);
-    emitter.onTimeout(leave);
+    // 타임아웃이면 정상으로 닫아요. 그냥 두면 스프링이 타임아웃 오류(503)로 끝내 「처리하지 못한 오류」 알림이 가요.
+    // 브라우저 EventSource는 끝난 연결에 다시 붙고, Last-Event-ID로 놓친 메시지부터 받아요
+    emitter.onTimeout(
+        () -> {
+          leave.run();
+          emitter.complete();
+        });
     emitter.onError(error -> leave.run());
     try {
       emitter.send(SseEmitter.event().comment("connected"));
