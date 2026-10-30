@@ -107,5 +107,33 @@ services:
     volumes:
       - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 
+  # 성능 테스트 때만 켜요(profile perf, deploy.sh는 띄우지 않아요). 노트북 Prometheus가 SSH 터널로 읽어요 (perf/README.md)
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    profiles: [perf]
+    mem_limit: 64m
+    logging: *logging
+    pid: host
+    command: ["--path.rootfs=/host"]
+    volumes:
+      - /:/host:ro,rslave
+    ports: ["127.0.0.1:9100:9100"]
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    profiles: [perf]
+    mem_limit: 150m
+    logging: *logging
+    command:
+      - --docker_only=true
+      - --housekeeping_interval=15s
+      - --disable_metrics=percpu,sched,tcp,udp,disk,diskIO,hugetlb,referenced_memory,cpu_topology,resctrl
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    ports: ["127.0.0.1:9101:8080"]
+
 volumes:
   rabbitmq-data:

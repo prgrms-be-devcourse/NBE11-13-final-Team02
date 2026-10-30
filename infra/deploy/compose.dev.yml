@@ -58,6 +58,7 @@ services:
       # 같은 compose 안의 서비스 주소. 없으면 api 컨테이너 안의 localhost로 불러 연결이 거부돼요(관리자 검수·수집 현황 503)
       EXTRACTION_REVIEW_URL: http://extraction:8092
       # 개발 서버에는 수집기가 없어서 수집 현황 화면은 503이 정상이에요
+      OPS_ALERT_IGNORE_CODES: NOTICE_COLLECTOR_UNAVAILABLE  # 그 503은 슬랙으로 알리지 않아요
     ports: ["127.0.0.1:8080:8080"]
 
   notification:

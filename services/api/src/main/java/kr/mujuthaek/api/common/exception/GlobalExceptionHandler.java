@@ -20,6 +20,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
@@ -58,7 +59,8 @@ class GlobalExceptionHandler {
 
   @ExceptionHandler(CustomException.class)
   ProblemDetail handle(CustomException e, HttpServletRequest request) {
-    if (e.errorCode().status().is5xxServerError()) {
+    if (e.errorCode().status().is5xxServerError()
+        && (alert == null || !alert.ignores(e.errorCode().name()))) {
       // 다른 서비스(검수·수집기·알림 서버) 연결 실패 같은 서버 쪽 문제. 코드별로 묶어 알려요
       notify(
           "api.5xx:" + e.errorCode().name(),
@@ -122,6 +124,12 @@ class GlobalExceptionHandler {
   @ExceptionHandler(NoResourceFoundException.class)
   ProblemDetail handle(NoResourceFoundException e, HttpServletRequest request) {
     return problem(ErrorCode.NOT_FOUND, ErrorCode.NOT_FOUND.message(), request);
+  }
+
+  /** 받는 쪽이 먼저 연결을 끊은 비동기 응답(채팅 SSE 등: 탭을 닫거나 화면을 떠남). 보낼 곳이 없어 응답하지 않고, 서버 오류도 아니라 알리지 않아요. */
+  @ExceptionHandler(AsyncRequestNotUsableException.class)
+  void handleDisconnected(AsyncRequestNotUsableException e, HttpServletRequest request) {
+    log.debug("받는 쪽이 연결을 끊었어요: {} {}", request.getMethod(), request.getRequestURI());
   }
 
   @ExceptionHandler(Exception.class)

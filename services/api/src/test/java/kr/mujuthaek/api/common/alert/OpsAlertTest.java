@@ -23,7 +23,8 @@ class OpsAlertTest {
   void sameKindIsSentOncePerQuietWindow_andTheSkippedCountRidesOnTheNextOne() {
     var clock = new MutableClock();
     var alert =
-        new OpsAlert(new OpsAlertProperties(null, "prod", Duration.ofMinutes(10)), json, clock);
+        new OpsAlert(
+            new OpsAlertProperties(null, "prod", Duration.ofMinutes(10), null), json, clock);
 
     assertThat(alert.take("a", "검수 API 연결 실패", null)).isEqualTo("[prod api] 검수 API 연결 실패");
     assertThat(alert.take("a", "검수 API 연결 실패", null)).isNull();
@@ -33,6 +34,16 @@ class OpsAlertTest {
     clock.now = clock.now.plus(Duration.ofMinutes(10));
     assertThat(alert.take("a", "검수 API 연결 실패", "ConnectException"))
         .isEqualTo("[prod api] 검수 API 연결 실패 (지난 알림 뒤 같은 일 2번 더)\n```ConnectException```");
+  }
+
+  @Test
+  void ignoreCodesComeFromConfig() {
+    var properties =
+        new OpsAlertProperties(null, "dev", null, java.util.Set.of("NOTICE_COLLECTOR_UNAVAILABLE"));
+
+    assertThat(properties.ignores("NOTICE_COLLECTOR_UNAVAILABLE")).isTrue();
+    assertThat(properties.ignores("NOTICE_REVIEW_UNAVAILABLE")).isFalse();
+    assertThat(new OpsAlertProperties(null, null, null, null).ignoreCodes()).isEmpty();
   }
 
   @Test
@@ -49,7 +60,7 @@ class OpsAlertTest {
     server.start();
     try {
       String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/hook";
-      var alert = new OpsAlert(new OpsAlertProperties(url, "dev", null), json);
+      var alert = new OpsAlert(new OpsAlertProperties(url, "dev", null, null), json);
 
       alert.send("area.load.failed:STORES", "area 적재 실패: STORES 강원", "칸이 없어요");
 
@@ -64,11 +75,12 @@ class OpsAlertTest {
 
   @Test
   void withoutWebhook_nothingIsSent_andPropertiesHideTheUrl() {
-    var properties = new OpsAlertProperties("", null, null);
+    var properties = new OpsAlertProperties("", null, null, null);
     assertThat(properties.enabled()).isFalse();
     assertThat(properties.environment()).isEqualTo("local");
     assertThat(
-            new OpsAlertProperties("https://hooks.slack.com/services/x", "prod", null).toString())
+            new OpsAlertProperties("https://hooks.slack.com/services/x", "prod", null, null)
+                .toString())
         .doesNotContain("hooks.slack.com");
     new OpsAlert(properties, json).send("k", "t", null);
   }
