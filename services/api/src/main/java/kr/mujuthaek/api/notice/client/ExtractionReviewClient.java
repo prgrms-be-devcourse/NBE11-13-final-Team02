@@ -58,11 +58,6 @@ public class ExtractionReviewClient {
     return body == null ? null : body.get("items");
   }
 
-  /** 공고 검수 목록 응답 전체 {items, total}. 건수는 목록 길이 대신 {@link #total}로 읽어요(2026-10-25 검토). */
-  public JsonNode page(String status) {
-    return listBody("/reviews", status);
-  }
-
   /**
    * 대기 중인 공고 검수의 건수와 가장 오래된 한 건만 {items(0~1건), total}. 숫자·남은 건수만 필요할 때 목록 전체(최대 1000건)를 받지 않게
    * 해요(2026-10-29 부하 시험: 전체 목록 조회가 DB를 가장 많이 썼어요). total은 추출 서비스가 따로 세요.
@@ -203,12 +198,6 @@ public class ExtractionReviewClient {
   /** 반려. 발행하지 않아요. */
   public JsonNode reject(String jobId, String note, String reviewer) {
     return post(jobId, "reject", body(note, reviewer));
-  }
-
-  /** 혜택(주거·이주 정책) 검수 목록. 응답의 items 배열. */
-  public JsonNode benefitList(String status) {
-    JsonNode body = listBody("/benefit-reviews", status);
-    return body == null ? null : body.get("items");
   }
 
   /** 혜택 검수 상세: payload(정제 결과)·source(받은 원본). */

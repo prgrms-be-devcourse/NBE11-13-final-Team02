@@ -95,32 +95,15 @@ class AdminReviewServiceTest {
   }
 
   @Test
-  void pendingGroupsReasonsByJobStatusAndFallsBackToSourceTitle() {
+  void itemsGroupReasonsByJobStatusAndFallBackToSourceTitle() {
+    // 목록 항목 만들기(사유 묶음·제목 대신 원문 제목·이슈 수)는 급한 검수로 확인해요 (대기 전체 목록 API는 2026-10-30에 지웠어요)
     var service = service();
     expectList(1);
-    var list = service.pending(null);
-    assertThat(list.total()).isEqualTo(3);
-    assertThat(list.items())
+    var items = service.urgent(30);
+    assertThat(items)
         .extracting(i -> i.reason() + " " + i.title() + " " + i.issueCount())
-        .containsExactly("MUST 가상 행복주택 2", "CHECK 가상 국민임대 1", "FORMAT 가상 장기전세 0");
-    assertThat(list.items().get(0).receivedAt())
-        .isEqualTo(OffsetDateTime.parse("2026-10-24T21:00:00.5Z"));
-  }
-
-  @Test
-  void pendingFiltersByReasonButKeepsTotal() {
-    var service = service();
-    expectList(1);
-    var list = service.pending("FORMAT");
-    assertThat(list.total()).isEqualTo(3);
-    assertThat(list.items()).extracting(i -> i.id()).containsExactly(C);
-  }
-
-  @Test
-  void unknownReasonIsRejectedWithoutCallingExtraction() {
-    var service = service();
-    assertThatThrownBy(() -> service.pending("LOW")).isInstanceOf(CustomException.class);
-    server.verify();
+        .containsExactly("CHECK 가상 국민임대 1", "MUST 가상 행복주택 2");
+    assertThat(items.get(1).receivedAt()).isEqualTo(OffsetDateTime.parse("2026-10-24T21:00:00.5Z"));
   }
 
   @Test

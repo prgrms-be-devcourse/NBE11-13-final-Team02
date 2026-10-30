@@ -9,7 +9,6 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import java.time.Duration;
-import java.time.LocalDate;
 import java.util.List;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
@@ -64,27 +63,6 @@ class AdminBenefitReviewServiceTest {
             withSuccess("{\"total\":1500,\"items\":[" + ITEM + "]}", MediaType.APPLICATION_JSON));
     assertThat(service.counts().benefitPending()).isEqualTo(1500);
     server.verify();
-  }
-
-  @Test
-  void listMapsTheExtractionItems() {
-    server
-        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1000"))
-        .andRespond(withSuccess("{\"items\":[" + ITEM + "]}", MediaType.APPLICATION_JSON));
-    var item = service.list(null).items().get(0);
-    assertThat(item.id()).isEqualTo(REVIEW);
-    assertThat(item.reasons()).containsExactly("LOW_CONFIDENCE", "REPORTED");
-    assertThat(item.reported()).isTrue();
-    assertThat(item.applyEndsOn()).isEqualTo(LocalDate.of(2026, 11, 30));
-    assertThat(item.queuedAt().getHour()).isEqualTo(3);
-  }
-
-  @Test
-  void unknownStatusIsRefusedBeforeCalling() {
-    assertThatThrownBy(() -> service.list("DONE"))
-        .isInstanceOf(CustomException.class)
-        .extracting(e -> ((CustomException) e).errorCode())
-        .isEqualTo(ErrorCode.VALIDATION_FAILED);
   }
 
   @Test

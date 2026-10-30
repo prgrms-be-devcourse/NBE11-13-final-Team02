@@ -29,7 +29,6 @@ import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Field;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Issue;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.LogEntry;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Source;
-import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse.Item;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewQueueResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewStatsResponse;
@@ -101,18 +100,6 @@ public class AdminReviewService {
         .filter(i -> i.applyEndsOn() != null && !i.applyEndsOn().isAfter(limit))
         .sorted(Comparator.comparing(Item::applyEndsOn))
         .toList();
-  }
-
-  /** 대기 목록. reason이 있으면 그 묶음만. */
-  public AdminReviewListResponse pending(String reason) {
-    if (reason != null && !REASONS.contains(reason)) {
-      throw new CustomException(ErrorCode.VALIDATION_FAILED, "reason은 MUST·CHECK·FORMAT 중 하나예요");
-    }
-    JsonNode page = client.page(PENDING);
-    List<Item> all = items(page == null ? null : page.get("items"));
-    List<Item> shown =
-        reason == null ? all : all.stream().filter(i -> reason.equals(i.reason())).toList();
-    return new AdminReviewListResponse(ExtractionReviewClient.total(page), shown);
   }
 
   /** 대기열 한 페이지 최대 건수. */

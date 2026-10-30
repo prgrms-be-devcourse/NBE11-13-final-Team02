@@ -342,49 +342,6 @@
         }
       }
     },
-    "/api/admin/reviews": {
-      "get": {
-        "tags": [
-          "admin-review"
-        ],
-        "operationId": "listAdminReviews",
-        "summary": "검수 대기 목록",
-        "parameters": [
-          {
-            "name": "reason",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "$ref": "#/components/schemas/AdminReviewReason"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "대기 목록",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdminReviewList"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/AdminForbidden"
-          },
-          "403": {
-            "$ref": "#/components/responses/AdminForbidden"
-          },
-          "503": {
-            "$ref": "#/components/responses/ReviewUnavailable"
-          }
-        }
-      }
-    },
     "/api/admin/reviews/queue": {
       "get": {
         "tags": [
@@ -1511,57 +1468,6 @@
           },
           "500": {
             "$ref": "#/components/responses/InternalError"
-          }
-        }
-      }
-    },
-    "/api/admin/benefit-reviews": {
-      "get": {
-        "tags": [
-          "admin-benefit-review"
-        ],
-        "operationId": "listAdminBenefitReviews",
-        "summary": "혜택(주거·이주 정책) 검수 목록",
-        "description": "추출 서비스의 혜택 정제 결과 중 확인 필요(needsReview)와 정책 제보로 다시 연 건. 오래 기다린 것부터.",
-        "parameters": [
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "PENDING",
-                "APPROVED",
-                "REJECTED",
-                "SUPERSEDED"
-              ],
-              "default": "PENDING"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "검수 목록",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AdminBenefitReviewList"
-                }
-              }
-            }
-          },
-          "400": {
-            "$ref": "#/components/responses/BadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/AdminForbidden"
-          },
-          "403": {
-            "$ref": "#/components/responses/AdminForbidden"
-          },
-          "503": {
-            "$ref": "#/components/responses/ReviewUnavailable"
           }
         }
       }
@@ -3713,26 +3619,6 @@
           }
         }
       },
-      "AdminReviewList": {
-        "type": "object",
-        "required": [
-          "total",
-          "items"
-        ],
-        "properties": {
-          "total": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "사유로 거르기 전 대기 건수(오래된 것부터 최대 50건)"
-          },
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AdminReviewItem"
-            }
-          }
-        }
-      },
       "AdminReviewQueue": {
         "type": "object",
         "required": [
@@ -5116,113 +5002,6 @@
               "$ref": "#/components/schemas/Evidence"
             },
             "description": "이 안내의 근거 원문"
-          }
-        }
-      },
-      "AdminBenefitReviewItem": {
-        "type": "object",
-        "description": "혜택 검수 한 건",
-        "required": [
-          "id",
-          "rawPolicyId",
-          "rawVersion",
-          "sourceCode",
-          "policyId",
-          "title",
-          "status",
-          "reasons",
-          "reported",
-          "relevant",
-          "applyEndsOn",
-          "queuedAt",
-          "decidedAt"
-        ],
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "rawPolicyId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "정책 원본 ID (버전이 바뀌어도 같음)"
-          },
-          "rawVersion": {
-            "type": "integer"
-          },
-          "sourceCode": {
-            "type": "string",
-            "description": "출처 (youth 온통청년 등)"
-          },
-          "policyId": {
-            "type": "string",
-            "description": "출처의 정책 번호"
-          },
-          "title": {
-            "type": "string"
-          },
-          "status": {
-            "type": "string",
-            "enum": [
-              "PENDING",
-              "APPROVED",
-              "REJECTED",
-              "SUPERSEDED"
-            ]
-          },
-          "reasons": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "enum": [
-                "EVIDENCE_NOT_FOUND",
-                "LOW_CONFIDENCE",
-                "NO_DOCUMENT",
-                "RULE_AI_CONFLICT",
-                "TEXT_TRUNCATED",
-                "REPORTED"
-              ]
-            },
-            "description": "확인할 이유. LOW_CONFIDENCE는 기본 기준·전형별 값처럼 확실하지 않은 핵심 값을 채운 것, REPORTED는 정책 제보로 다시 연 것"
-          },
-          "reported": {
-            "type": "boolean"
-          },
-          "relevant": {
-            "type": "boolean",
-            "description": "주거·이주 혜택으로 판정했는지 (false면 서비스에 안 보임)"
-          },
-          "applyEndsOn": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date"
-          },
-          "queuedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "decidedAt": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          }
-        }
-      },
-      "AdminBenefitReviewList": {
-        "type": "object",
-        "required": [
-          "items"
-        ],
-        "properties": {
-          "items": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AdminBenefitReviewItem"
-            }
           }
         }
       },

@@ -1,20 +1,15 @@
 package kr.mujuthaek.api.notice.service.internal;
 
-import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import kr.mujuthaek.api.common.exception.CustomException;
-import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest.FieldEdit;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewCountsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewDetailResponse;
-import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.JsonNode;
@@ -28,29 +23,10 @@ import tools.jackson.databind.JsonNode;
 @Service
 public class AdminBenefitReviewService {
 
-  private static final Set<String> STATUSES =
-      Set.of("PENDING", "APPROVED", "REJECTED", "SUPERSEDED");
-
   private final ExtractionReviewClient client;
 
   public AdminBenefitReviewService(ExtractionReviewClient client) {
     this.client = client;
-  }
-
-  public AdminBenefitReviewListResponse list(String status) {
-    String wanted = status == null || status.isBlank() ? "PENDING" : status.trim().toUpperCase();
-    if (!STATUSES.contains(wanted)) {
-      throw new CustomException(
-          ErrorCode.VALIDATION_FAILED, "status는 PENDING·APPROVED·REJECTED·SUPERSEDED 중 하나예요");
-    }
-    List<AdminBenefitReviewListResponse.Item> items = new ArrayList<>();
-    JsonNode rows = client.benefitList(wanted);
-    if (rows != null) {
-      for (JsonNode row : rows) {
-        items.add(item(row));
-      }
-    }
-    return new AdminBenefitReviewListResponse(items);
   }
 
   /** 대기 건수(사이드바·개요). 건수만 받아요. */
@@ -116,24 +92,6 @@ public class AdminBenefitReviewService {
 
   private int remaining() {
     return ExtractionReviewClient.total(client.benefitPendingHead());
-  }
-
-  static AdminBenefitReviewListResponse.Item item(JsonNode row) {
-    String applyEnd = text(row.path("applyEndsOn"));
-    return new AdminBenefitReviewListResponse.Item(
-        text(row.path("reviewId")),
-        text(row.path("rawPolicyId")),
-        row.path("rawVersion").asInt(),
-        text(row.path("sourceCode")),
-        text(row.path("policyId")),
-        text(row.path("title")),
-        text(row.path("reviewStatus")),
-        strings(row.path("reasons")),
-        row.path("reported").asBoolean(false),
-        row.path("relevant").asBoolean(true),
-        applyEnd == null ? null : LocalDate.parse(applyEnd),
-        AdminReviewService.time(row.path("queuedAt")),
-        AdminReviewService.time(row.path("decidedAt")));
   }
 
   private static String blankToNull(String value) {
