@@ -72,16 +72,42 @@ public class AdminReviewService {
    */
   static final Duration URGENT_TTL = Duration.ofMinutes(1);
 
+  /**
+   * 검수 대기열 첫 페이지는 5초 동안 다시 써요. 관리자 여럿이 검수 화면을 열 때마다 추출 DB에 같은 첫 페이지를 묻지 않게(2026-10-30 부하 시험: 대기열 첫
+   * 페이지가 추출 DB 시간의 대부분). 이 서버에서 공고 검수를 처리하면 바로 비우고, 혜택 검수 처리는 5초 안에 반영돼요.
+   */
+  static final Duration QUEUE_FIRST_PAGE_TTL = Duration.ofSeconds(5);
+
+  /**
+   * 대기 건수(사이드바·개요)도 5초 동안 다시 써요. 관리자 화면마다 부르는 숫자라 추출 서비스 호출 중 가장 많았어요(2026-10-30 부하 시험 1만여 번). 이
+   * 서버에서 공고 검수를 처리하면 바로 비워요.
+   */
+  static final Duration COUNTS_TTL = Duration.ofSeconds(5);
+
   private final ExtractionReviewClient client;
   private final Clock clock;
 
   /** 마감 기준일(오늘+days)별 결과. 날짜가 키라 자정이 지나면 새로 계산해요. */
   private final RecentCache<LocalDate, List<Item>> urgentCache;
 
+  /** 커서 없는 첫 페이지를 (종류·묶음·크기)별로. */
+  private final RecentCache<QueueKey, AdminReviewQueueResponse> queueFirstPageCache;
+
+  private record QueueKey(List<String> kinds, String reason, int size) {}
+
+  /** 키가 하나뿐인 캐시라 키는 늘 true예요. */
+  private final RecentCache<Boolean, AdminReviewCountsResponse> countsCache;
+
   public AdminReviewService(ExtractionReviewClient client, Clock clock) {
     this.client = client;
     this.clock = clock;
     this.urgentCache = new RecentCache<>(URGENT_TTL, clock, this::urgentNow);
+    this.countsCache = new RecentCache<>(COUNTS_TTL, clock, k -> countsNow());
+    this.queueFirstPageCache =
+        new RecentCache<>(
+            QUEUE_FIRST_PAGE_TTL,
+            clock,
+            k -> queuePage(k.kinds(), k.reason(), ReviewQueueCursor.decode(null), k.size()));
   }
 
   /**
@@ -132,7 +158,15 @@ public class AdminReviewService {
     if (wanted.isEmpty() || !Set.of("NOTICE", "BENEFIT").containsAll(wanted)) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "kinds는 NOTICE·BENEFIT 중에서 골라요");
     }
-    ReviewQueueCursor at = ReviewQueueCursor.decode(cursor);
+    if (cursor == null || cursor.isBlank()) {
+      return queueFirstPageCache.get(
+          new QueueKey(wanted.stream().sorted().distinct().toList(), reason, size));
+    }
+    return queuePage(wanted, reason, ReviewQueueCursor.decode(cursor), size);
+  }
+
+  private AdminReviewQueueResponse queuePage(
+      List<String> wanted, String reason, ReviewQueueCursor at, int size) {
     boolean withNotices = wanted.contains("NOTICE");
     boolean withBenefits = wanted.contains("BENEFIT") && !"FORMAT".equals(reason);
     Boolean reported = reason == null ? null : "MUST".equals(reason);
@@ -226,8 +260,13 @@ public class AdminReviewService {
     return out;
   }
 
-  /** 대기 건수와 가장 오래된 것. 목록은 오래된 것부터라 한 건만 받아요(건수는 total). */
+  /** 대기 건수와 가장 오래된 것. 5초 안이면 지난 결과를 써요({@link #COUNTS_TTL}). */
   public AdminReviewCountsResponse counts() {
+    return countsCache.get(Boolean.TRUE);
+  }
+
+  /** 목록은 오래된 것부터라 한 건만 받아요(건수는 total). */
+  private AdminReviewCountsResponse countsNow() {
     JsonNode page = client.pendingHead();
     List<Item> all = items(page == null ? null : page.get("items"));
     OffsetDateTime oldest =
@@ -377,6 +416,8 @@ public class AdminReviewService {
     }
     client.approve(id, request == null ? null : blankToNull(request.note()), reviewer, edits);
     urgentCache.clear();
+    queueFirstPageCache.clear();
+    countsCache.clear();
     return new AdminReviewDecisionResponse(id, "APPROVED", remaining());
   }
 
@@ -385,6 +426,8 @@ public class AdminReviewService {
       String id, AdminReviewDecisionRequest request, String reviewer) {
     client.reject(id, rejectNote(request), reviewer);
     urgentCache.clear();
+    queueFirstPageCache.clear();
+    countsCache.clear();
     return new AdminReviewDecisionResponse(id, "REJECTED", remaining());
   }
 

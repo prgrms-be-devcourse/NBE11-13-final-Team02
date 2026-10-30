@@ -6,7 +6,9 @@ import java.util.UUID;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReportDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportListResponse;
+import kr.mujuthaek.api.notice.dto.response.AdminReportQueueResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportReviewResponse;
+import kr.mujuthaek.api.notice.service.internal.AdminReportQueueService;
 import kr.mujuthaek.api.notice.service.internal.NoticeReportService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  * <pre>
  * GET  /api/admin/reports?status=NEW|DOING|DONE   목록 · 상태별 건수
  * GET  /api/admin/reports/counts                  상태별 건수 (사이드바)
+ * GET  /api/admin/reports/queue?status=NEW&amp;cursor=&amp;size=20  제보 대기열 한 페이지: 공고·혜택·사업 제보와 생활권 제보를 최신순으로 섞어요 (다음은 nextCursor)
  * GET  /api/admin/reports/{id}                    상세 · 같은 칸의 다른 제보
  * POST /api/admin/reports/{id}/start              처리 시작
  * POST /api/admin/reports/{id}/review             고치기: 공고 결과를 검수로 다시 열기 (검수에서 칸을 고쳐 승인)
@@ -33,9 +36,11 @@ import org.springframework.web.bind.annotation.RestController;
 class AdminReportController {
 
   private final NoticeReportService reports;
+  private final AdminReportQueueService queue;
 
-  AdminReportController(NoticeReportService reports) {
+  AdminReportController(NoticeReportService reports, AdminReportQueueService queue) {
     this.reports = reports;
+    this.queue = queue;
   }
 
   @GetMapping
@@ -46,6 +51,14 @@ class AdminReportController {
   @GetMapping("/counts")
   AdminReportListResponse.Counts counts() {
     return reports.counts();
+  }
+
+  @GetMapping("/queue")
+  AdminReportQueueResponse queue(
+      @RequestParam(defaultValue = "NEW") String status,
+      @RequestParam(required = false) String cursor,
+      @RequestParam(defaultValue = "20") int size) {
+    return queue.queue(status, cursor, size);
   }
 
   @GetMapping("/{id}")

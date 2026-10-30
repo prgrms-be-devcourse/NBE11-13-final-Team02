@@ -93,6 +93,22 @@ public class AreaReportRepository {
         .list();
   }
 
+  /** 그 상태의 제보를 최신순으로 limit건. before(들어온 시각·ID)가 있으면 그 건 다음(더 오래된 것)부터 (관리자 제보 대기열). */
+  public List<Report> page(String status, OffsetDateTime beforeAt, UUID beforeId, int limit) {
+    return jdbc.sql(
+            "select "
+                + COLUMNS
+                + " from area.area_reports r where r.status = :status and (cast(:beforeAt as"
+                + " timestamptz) is null or (r.created_at, r.id) < (cast(:beforeAt as timestamptz),"
+                + " cast(:beforeId as uuid))) order by r.created_at desc, r.id desc limit :limit")
+        .param("status", status)
+        .param("beforeAt", beforeAt)
+        .param("beforeId", beforeId)
+        .param("limit", limit)
+        .query(AreaReportRepository::report)
+        .list();
+  }
+
   public List<Report> list(String status, int limit) {
     return jdbc.sql(
             "select "

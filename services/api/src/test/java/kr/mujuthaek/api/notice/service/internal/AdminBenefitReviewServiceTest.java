@@ -22,6 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.test.web.client.ExpectedCount;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import tools.jackson.databind.node.JsonNodeFactory;
@@ -52,7 +53,9 @@ class AdminBenefitReviewServiceTest {
     service =
         new AdminBenefitReviewService(
             new ExtractionReviewClient(
-                new ExtractionReviewProperties(BASE, "t", Duration.ofSeconds(1)), builder));
+                new ExtractionReviewProperties(BASE, "t", Duration.ofSeconds(1)), builder),
+            java.time.Clock.fixed(
+                java.time.Instant.parse("2026-10-25T03:00:00Z"), java.time.ZoneOffset.UTC));
   }
 
   @Test
@@ -62,6 +65,26 @@ class AdminBenefitReviewServiceTest {
         .andRespond(
             withSuccess("{\"total\":1500,\"items\":[" + ITEM + "]}", MediaType.APPLICATION_JSON));
     assertThat(service.counts().benefitPending()).isEqualTo(1500);
+    server.verify();
+  }
+
+  @Test
+  void countsAreReusedBrieflyAndRefetchedAfterADecision() {
+    // 받을 요청 차례: 건수 → 반려 → 남은 건수 → (처리했으니) 건수 다시. 더 받으면 가짜 서버가 실패시켜요
+    server
+        .expect(requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1"))
+        .andRespond(withSuccess("{\"total\":2,\"items\":[]}", MediaType.APPLICATION_JSON));
+    server
+        .expect(requestTo(BASE + "/benefit-reviews/" + REVIEW + "/reject"))
+        .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
+    server
+        .expect(ExpectedCount.times(2), requestTo(BASE + "/benefit-reviews?status=PENDING&limit=1"))
+        .andRespond(withSuccess("{\"total\":1,\"items\":[]}", MediaType.APPLICATION_JSON));
+
+    assertThat(service.counts().benefitPending()).isEqualTo(2);
+    assertThat(service.counts().benefitPending()).isEqualTo(2);
+    service.reject(REVIEW, null, "admin-1");
+    assertThat(service.counts().benefitPending()).isEqualTo(1);
     server.verify();
   }
 

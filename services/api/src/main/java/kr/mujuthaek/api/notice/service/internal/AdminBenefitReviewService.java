@@ -1,10 +1,13 @@
 package kr.mujuthaek.api.notice.service.internal;
 
+import java.time.Clock;
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import kr.mujuthaek.api.common.cache.RecentCache;
 import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest.FieldEdit;
@@ -23,15 +26,24 @@ import tools.jackson.databind.JsonNode;
 @Service
 public class AdminBenefitReviewService {
 
+  /** 대기 건수는 5초 동안 다시 써요(공고 검수 숫자와 같은 이유, {@link AdminReviewService#COUNTS_TTL}). 처리하면 바로 비워요. */
+  static final Duration COUNTS_TTL = AdminReviewService.COUNTS_TTL;
+
   private final ExtractionReviewClient client;
 
-  public AdminBenefitReviewService(ExtractionReviewClient client) {
+  /** 키가 하나뿐인 캐시라 키는 늘 true예요. */
+  private final RecentCache<Boolean, AdminBenefitReviewCountsResponse> countsCache;
+
+  public AdminBenefitReviewService(ExtractionReviewClient client, Clock clock) {
     this.client = client;
+    this.countsCache =
+        new RecentCache<>(
+            COUNTS_TTL, clock, k -> new AdminBenefitReviewCountsResponse(remaining()));
   }
 
   /** 대기 건수(사이드바·개요). 건수만 받아요. */
   public AdminBenefitReviewCountsResponse counts() {
-    return new AdminBenefitReviewCountsResponse(remaining());
+    return countsCache.get(Boolean.TRUE);
   }
 
   public AdminBenefitReviewDetailResponse detail(String id) {
@@ -73,6 +85,7 @@ public class AdminBenefitReviewService {
       }
     }
     client.benefitDecide(id, "approve", note(request, false), reviewer, edits);
+    countsCache.clear();
     return new AdminReviewDecisionResponse(id, "APPROVED", remaining());
   }
 
@@ -80,6 +93,7 @@ public class AdminBenefitReviewService {
   public AdminReviewDecisionResponse reject(
       String id, AdminReviewDecisionRequest request, String reviewer) {
     client.benefitDecide(id, "reject", note(request, true), reviewer, null);
+    countsCache.clear();
     return new AdminReviewDecisionResponse(id, "REJECTED", remaining());
   }
 

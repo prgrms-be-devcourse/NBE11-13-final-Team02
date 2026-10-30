@@ -38,6 +38,12 @@ class ChatAdminController {
     return admin.reports(status, cursor, size);
   }
 
+  /** 검토 전 신고가 걸린 글 수 (사이드바 숫자). */
+  @GetMapping("/reports/counts")
+  ChatReportResponse.Counts counts() {
+    return admin.counts();
+  }
+
   /** 가림 유지(KEEP_HIDDEN) 또는 다시 보이기(RESTORE). */
   @PatchMapping("/messages/{id}")
   ResponseEntity<Void> review(

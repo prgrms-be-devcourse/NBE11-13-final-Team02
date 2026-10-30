@@ -116,6 +116,24 @@ class AdminReviewServiceTest {
   }
 
   @Test
+  void countsAreReusedBrieflyAndRefetchedAfterADecision() {
+    var service = service();
+    // 받을 요청 차례: 건수 → 반려 → 남은 건수 → (처리했으니) 건수 다시. 더 받으면 가짜 서버가 실패시켜요
+    expectHead();
+    server
+        .expect(requestTo(BASE + "/reviews/" + B + "/reject"))
+        .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
+    expectHead();
+    expectHead();
+
+    var first = service.counts();
+    assertThat(service.counts()).isSameAs(first);
+    service.reject(B, null, "admin-1");
+    assertThat(service.counts()).isNotSameAs(first);
+    server.verify();
+  }
+
+  @Test
   void detailUsesCandidateTitleAndRawEvent() {
     var service = service();
     server

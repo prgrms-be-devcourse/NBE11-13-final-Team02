@@ -392,6 +392,14 @@ class ChatApiTest {
     List<String> contents =
         JsonPath.read(body(pending), "$.items[?(@.messageId == '" + id + "')].message.content");
     assertThat(contents).hasSize(3).allMatch(c -> c.equals("광고 링크 http://example.com"));
+    // 사이드바 숫자: 신고 3건이 걸린 글은 한 글로 세요
+    Integer pendingMessages =
+        jdbc.queryForObject(
+            "select count(distinct message_id) from chat.message_reports where review_status = 'PENDING'",
+            Integer.class);
+    mvc.perform(get("/api/admin/chat/reports/counts").header("Authorization", bearer(admin)))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pendingMessages").value(pendingMessages));
 
     review(id, admin, "RESTORE");
     messageAt(room)

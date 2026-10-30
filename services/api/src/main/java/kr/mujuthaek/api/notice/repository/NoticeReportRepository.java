@@ -123,6 +123,26 @@ public class NoticeReportRepository {
         .list();
   }
 
+  /**
+   * 관리자 제보 대기열 한 쪽: 그 상태의 제보를 최신순으로 limit건. before(들어온 시각·ID)가 있으면 그 건 다음(더 오래된 것)부터. (status,
+   * created_at desc) 인덱스를 써요.
+   */
+  public List<Report> page(String status, OffsetDateTime beforeAt, UUID beforeId, int limit) {
+    return jdbc.sql(
+            "select "
+                + COLUMNS
+                + " from notice.notice_reports r left join notice.notices n on n.id = r.notice_id left join notice.policy_judgments p on p.raw_policy_id = r.raw_policy_id"
+                + " where r.status = :status and (cast(:beforeAt as timestamptz) is null"
+                + " or (r.created_at, r.id) < (cast(:beforeAt as timestamptz), cast(:beforeId as uuid)))"
+                + " order by r.created_at desc, r.id desc limit :limit")
+        .param("status", status)
+        .param("beforeAt", beforeAt)
+        .param("beforeId", beforeId)
+        .param("limit", limit)
+        .query(NoticeReportRepository::report)
+        .list();
+  }
+
   public List<Report> list(String status, int limit) {
     return jdbc.sql(
             "select "

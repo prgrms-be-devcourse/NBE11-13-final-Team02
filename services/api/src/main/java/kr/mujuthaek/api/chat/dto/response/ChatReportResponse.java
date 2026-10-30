@@ -31,4 +31,11 @@ public record ChatReportResponse(
    */
   public record Message(
       String authorNickname, String content, MessageStatus status, int reportCount) {}
+
+  /**
+   * 관리자 사이드바 숫자.
+   *
+   * @param pendingMessages 검토 전 신고가 걸린 글 수 (같은 글의 신고 여러 건은 한 글)
+   */
+  public record Counts(int pendingMessages) {}
 }
