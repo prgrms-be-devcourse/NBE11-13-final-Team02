@@ -24,7 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
  * 관리자 검수 화면 API (ADMIN만, SecurityConfig의 /api/admin/**). 추출 서비스 검수 API를 이 서버가 대신 불러요.
  *
  * <pre>
- * GET  /api/admin/reviews?reason=MUST|CHECK|FORMAT   대기 목록
  * GET  /api/admin/reviews/queue?kinds=NOTICE,BENEFIT&amp;reason=&amp;cursor=&amp;size=50  대기열 한 페이지: 공고·혜택 검수를 들어온 시각 순으로 (다음은 nextCursor, kinds마다 그 검수 권한)
  * GET  /api/admin/reviews/counts                     대기 건수 · 가장 오래된 시각
  * GET  /api/admin/reviews/stats?days=7               처리 통계 (최근 days일 · 오늘)
@@ -44,11 +43,6 @@ class AdminReviewController {
 
   AdminReviewController(AdminReviewService reviews) {
     this.reviews = reviews;
-  }
-
-  @GetMapping
-  AdminReviewListResponse list(@RequestParam(required = false) String reason) {
-    return reviews.pending(reason);
   }
 
   @GetMapping("/queue")

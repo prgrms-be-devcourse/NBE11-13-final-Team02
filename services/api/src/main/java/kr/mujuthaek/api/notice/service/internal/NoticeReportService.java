@@ -417,7 +417,8 @@ public class NoticeReportService {
         .orElseThrow(() -> new CustomException(ErrorCode.NOTICE_REPORT_NOT_FOUND));
   }
 
-  private AdminReportListResponse.Item item(Report r) {
+  /** 목록 한 줄 (관리자 제보 대기열도 같이 써요). */
+  AdminReportListResponse.Item item(Report r) {
     return new AdminReportListResponse.Item(
         r.id(),
         r.status(),
