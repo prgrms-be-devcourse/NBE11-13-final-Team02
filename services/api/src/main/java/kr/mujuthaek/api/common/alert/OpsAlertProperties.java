@@ -24,10 +24,6 @@ public record OpsAlertProperties(
     ignoreCodes = ignoreCodes == null ? Set.of() : Set.copyOf(ignoreCodes);
   }
 
-  public OpsAlertProperties(String webhookUrl, String environment, Duration quiet) {
-    this(webhookUrl, environment, quiet, Set.of());
-  }
-
   /** 이 오류 코드는 알리지 않아요. */
   public boolean ignores(String code) {
     return ignoreCodes.contains(code);
