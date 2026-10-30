@@ -59,4 +59,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true      # 서버 쪽 p95·p99를 Prometheus에서 계산해요

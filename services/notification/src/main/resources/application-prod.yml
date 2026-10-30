@@ -2,12 +2,13 @@
 server:
   forward-headers-strategy: framework
 
-# 운영은 health만 열어요 (nginx도 /actuator/health 말고는 막아요)
+# 운영은 health와 prometheus만 열어요. nginx가 /actuator/health 말고는 막고 포트도 127.0.0.1에만 묶여 있어
+# prometheus는 서버 안(SSH 터널)에서만 읽혀요
 management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,prometheus
   endpoint:
     health:
       show-details: never

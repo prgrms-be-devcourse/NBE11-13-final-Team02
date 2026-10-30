@@ -27,6 +27,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.springframework.boot:spring-boot-starter-amqp")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus") // 성능 테스트 지표 (/actuator/prometheus, 서버 안에서만)
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-client") // 소셜 로그인 (카카오·네이버·구글)
     implementation("org.springframework.boot:spring-boot-starter-security-oauth2-resource-server") // JWT 발급·검증 (Nimbus)
     implementation("org.flywaydb:flyway-database-postgresql")
