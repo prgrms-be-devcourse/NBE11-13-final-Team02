@@ -8,6 +8,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 import kr.mujuthaek.notification.delivery.DeliveryRepository.DueDelivery;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,6 +42,9 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>보내고 결과를 적기 전에 서버가 죽으면, 맡은 시간이 지난 뒤 다른 서버가 다시 보내요 (최소 한 번: 드물게 한 번 더 갈 수 있어요). 한 번에 조금씩(묶음
  * batch-size개, 낱개 batch-size개) 맡아요.
+ *
+ * <p>맡은 줄은 회원끼리 동시에 보내요 (가상 스레드, 최대 concurrency개). 시간 대부분이 푸시 서비스 응답을 기다리는 것이라, 한 명씩 기다리면 1만 명에 응답
+ * 시간 × 1만이 걸려요. 동시 수를 제한해서 DB 연결·푸시 서비스 한도를 넘지 않게 해요.
  */
 @Component
 public class DeliveryWorker {
@@ -53,27 +59,60 @@ public class DeliveryWorker {
   private final Map<Channel, NotificationChannel> channels = new EnumMap<>(Channel.class);
   private final TransactionTemplate tx;
   private final int batchSize;
+  private final int concurrency;
 
   public DeliveryWorker(
       DeliveryRepository deliveries,
       DeliverySchedule schedule,
       List<NotificationChannel> channels,
       TransactionTemplate tx,
-      @Value("${notification.delivery.batch-size:20}") int batchSize) {
+      @Value("${notification.delivery.batch-size:100}") int batchSize,
+      @Value("${notification.delivery.concurrency:50}") int concurrency) {
     this.deliveries = deliveries;
     this.schedule = schedule;
     channels.forEach(channel -> this.channels.put(channel.channel(), channel));
     this.tx = tx;
     this.batchSize = batchSize;
+    this.concurrency = Math.max(1, concurrency);
   }
 
   /** 한 번 돌고, 맡은 발송 줄 수를 돌려줘요 */
   public int runOnce() {
     List<List<DueDelivery>> groups = tx.execute(s -> claim());
-    for (List<DueDelivery> group : groups) {
-      deliver(group);
-    }
+    deliverAll(groups);
     return groups.stream().mapToInt(List::size).sum();
+  }
+
+  /** 맡은 묶음들을 동시에 보내요 (한 번에 concurrency개까지). 모두 끝나야 돌아가요 */
+  private void deliverAll(List<List<DueDelivery>> groups) {
+    if (groups.size() <= 1 || concurrency == 1) {
+      groups.forEach(this::deliverSafely);
+      return;
+    }
+    Semaphore slots = new Semaphore(concurrency);
+    try (ExecutorService pool = Executors.newVirtualThreadPerTaskExecutor()) {
+      for (List<DueDelivery> group : groups) {
+        slots.acquireUninterruptibly();
+        pool.submit(
+            () -> {
+              try {
+                deliverSafely(group);
+              } finally {
+                slots.release();
+              }
+            });
+      }
+    } // 여기서 모두 끝날 때까지 기다려요
+  }
+
+  /** 결과를 적다가 DB 오류가 나도 다른 회원 발송은 계속해요. 그 줄은 맡은 시간이 지나면 다시 보내요 */
+  private void deliverSafely(List<DueDelivery> group) {
+    try {
+      deliver(group);
+    } catch (RuntimeException e) {
+      DueDelivery first = group.getFirst();
+      log.warn("발송 결과를 적지 못했어요: userId={}, channel={}", first.userId(), first.channel(), e);
+    }
   }
 
   /** 보낼 줄을 맡아요. 조용한 시간이면 맡지 않고 08:00으로 미뤄요 */
