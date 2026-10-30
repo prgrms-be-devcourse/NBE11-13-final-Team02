@@ -15,6 +15,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import kr.mujuthaek.notification.TestcontainersConfiguration;
 import kr.mujuthaek.notification.delivery.email.EmailMessage;
@@ -60,6 +61,9 @@ public class DeliveryFlowTest {
   @Autowired MutableClock clock;
   @Autowired RecordingEmailSender email;
   @Autowired RecordingPushSender push;
+  @Autowired DeliveryRepository deliveries;
+  @Autowired DeliverySchedule schedule;
+  @Autowired List<NotificationChannel> channels;
 
   @BeforeEach
   void setUp() {
@@ -342,6 +346,65 @@ public class DeliveryFlowTest {
     assertThat(worker.runOnce()).isEqualTo(1);
     assertThat(push.sent).hasSize(1);
     assertThat(status(Channel.PUSH)).containsExactly("SENT");
+  }
+
+  @Test
+  void recipientsAreSentAtTheSameTimeNotOneByOne() {
+    // 푸시 서비스가 느려도(200ms) 한 명씩 기다리지 않고 회원끼리 동시에 보내요
+    AtomicInteger most = trackInFlight(Duration.ofMillis(200));
+    for (int i = 0; i < 10; i++) {
+      request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:" + i, pushTo("u" + i));
+    }
+
+    assertThat(worker.runOnce()).isEqualTo(10);
+
+    assertThat(most.get()).isGreaterThan(1);
+    assertThat(push.sent).hasSize(10);
+    assertThat(status(Channel.PUSH)).hasSize(10).containsOnly("SENT");
+  }
+
+  @Test
+  void sendsNoMoreThanConcurrencyAtOnce() {
+    DeliveryWorker limited = new DeliveryWorker(deliveries, schedule, channels, tx, 100, 2);
+    AtomicInteger most = trackInFlight(Duration.ofMillis(100));
+    for (int i = 0; i < 6; i++) {
+      request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:" + i, pushTo("u" + i));
+    }
+
+    assertThat(limited.runOnce()).isEqualTo(6);
+
+    assertThat(most.get()).isEqualTo(2);
+    assertThat(status(Channel.PUSH)).hasSize(6).containsOnly("SENT");
+  }
+
+  @Test
+  void oneRecipientFailingDoesNotStopTheOthers() {
+    push.statuses.put(device("bad").endpoint(), new ArrayDeque<>(List.of(400)));
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:1", pushTo("bad"));
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:2", pushTo("ok1"));
+    request(NotificationType.CORRECTED, "NOTICE:X:CORRECTED:3", pushTo("ok2"));
+
+    worker.runOnce();
+
+    assertThat(status(Channel.PUSH)).containsExactly("FAILED", "SENT", "SENT");
+  }
+
+  /** 보내는 데 took만큼 걸리게 하고, 동시에 보내는 중이던 가장 많은 수를 세요 */
+  private AtomicInteger trackInFlight(Duration took) {
+    AtomicInteger now = new AtomicInteger();
+    AtomicInteger most = new AtomicInteger();
+    push.onSend =
+        () -> {
+          most.accumulateAndGet(now.incrementAndGet(), Math::max);
+          try {
+            Thread.sleep(took);
+          } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+          } finally {
+            now.decrementAndGet();
+          }
+        };
+    return most;
   }
 
   private static Recipient pushTo(String... names) {
