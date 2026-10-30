@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2034
 # perf 스크립트들이 같이 쓰는 설정과 서버 접속. source 해서 써요
 set -euo pipefail
 
@@ -38,3 +39,39 @@ remote_sql() {
 remote_versions() {
   remote "cat $REMOTE_DIR/versions.env"
 }
+
+# 더미 데이터(perf/seed)를 넣는 곳. local = 노트북 infra의 api DB, dev = dev 서버 .env의 api_dev(RDS)
+# prod(api DB)에는 여기서도, perf/seed/sql/guard.sql에서도 막아요
+LOCAL_DB_HOST="${LOCAL_DB_HOST:-127.0.0.1}"
+LOCAL_DB_PORT="${LOCAL_DB_PORT:-5432}"
+LOCAL_DB_NAME="${LOCAL_DB_NAME:-api_fe}"
+LOCAL_DB_USER="${LOCAL_DB_USER:-api_app}"
+DEV_EC2_HOST="${DEV_EC2_HOST:-}"
+DEV_DB_NAME=api_dev
+
+# 표준 입력의 SQL을 대상 DB에 돌려요. 나머지 인자는 psql에 그대로 넘겨요(--csv 등)
+#   target_sql <local|dev> [psql 옵션…]
+target_sql() {
+  local target="$1"; shift
+  case "$target" in
+    local)
+      if [ -z "${LOCAL_DB_PASSWORD:-}" ] && [ -f "$PERF_DIR/../infra/.env" ]; then
+        LOCAL_DB_PASSWORD="$(sed -n 's/^API_DB_PASSWORD=//p' "$PERF_DIR/../infra/.env" | tail -1)"
+      fi
+      [ "$LOCAL_DB_NAME" != api ] || { echo "LOCAL_DB_NAME=api 는 쓰지 않아요(운영과 같은 이름)" >&2; return 1; }
+      PGPASSWORD="${LOCAL_DB_PASSWORD:-}" psql -h "$LOCAL_DB_HOST" -p "$LOCAL_DB_PORT" -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" \
+        -X -q -v ON_ERROR_STOP=1 "$@" -f -
+      ;;
+    dev)
+      [ -n "$DEV_EC2_HOST" ] || { echo "perf/.env에 DEV_EC2_HOST(dev 서버)를 채워 주세요" >&2; return 1; }
+      [ "$DEV_EC2_HOST" != "$EC2_HOST" ] || { echo "DEV_EC2_HOST가 운영 서버($EC2_HOST)와 같아요. 거부해요" >&2; return 1; }
+      # 서버 .env의 DB 이름이 api_dev가 아니면 psql을 띄우지 않아요
+      EC2_HOST="$DEV_EC2_HOST" remote "cd $REMOTE_DIR && docker run --rm -i --env-file .env postgres:16-alpine sh -c '
+        url=\"\${API_DB_URL#jdbc:}\"; db=\"\${url##*/}\"; db=\"\${db%%\\?*}\"
+        [ \"\$db\" = \"$DEV_DB_NAME\" ] || { echo \"dev 서버 DB가 $DEV_DB_NAME 이 아니에요(\$db). 거부해요\" >&2; exit 3; }
+        PGPASSWORD=\"\$API_DB_PASSWORD\" psql \"\$url\" -U \"\${API_DB_USER:-api_app}\" -X -q -v ON_ERROR_STOP=1 $* -f -'"
+      ;;
+    *) echo "대상은 local 또는 dev예요: $target" >&2; return 1 ;;
+  esac
+}
+
