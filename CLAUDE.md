@@ -18,3 +18,4 @@ cd services/collector && uv run ruff check && uv run pytest        # 수집기 �
 - `eligibility/rule`은 스프링·JPA 없는 순수 자바로 유지한다
 - 마이그레이션은 기존 파일을 고치지 말고 `V<yyyyMMddHHmm>__<module>_<desc>.sql`로 새로 만든다
 - 사용자 소득·자산·나이는 저장하거나 로그에 남기지 않는다
+- API 설명은 컨트롤러가 아니라 `.../spec/<이름>ApiSpec` 인터페이스(@Tag·@Operation·@ApiResponse)에 쓰고, 컨트롤러가 그걸 implements 한다. 로컬 문서는 http://localhost:8080/swagger-ui.html. spec·@Tag·@Operation(summary)을 빠뜨리거나 태그 이름이 겹치면 `ApiSpecConventionTest`가 실패한다(실제로 나는 오류의 @ApiResponse는 시험이 못 잡으니 리뷰에서 본다)

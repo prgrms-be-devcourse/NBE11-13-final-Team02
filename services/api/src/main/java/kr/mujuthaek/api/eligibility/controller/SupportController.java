@@ -2,6 +2,7 @@ package kr.mujuthaek.api.eligibility.controller;
 
 import jakarta.validation.Valid;
 import java.util.UUID;
+import kr.mujuthaek.api.eligibility.controller.spec.SupportApiSpec;
 import kr.mujuthaek.api.eligibility.dto.request.SpaceEvaluateRequest;
 import kr.mujuthaek.api.eligibility.dto.request.SupportSearchRequest;
 import kr.mujuthaek.api.eligibility.dto.response.SupportEvaluationResponse;
@@ -14,12 +15,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 사업 지원 맞춤 목록 POST /api/v1/supports/search 와 사업 하나의 판정 POST /api/v1/supports/{id}/evaluate. 판정 입력은
- * 저장하지 않고 응답도 캐시하지 않아요.
- */
+/** 사업 지원 맞춤 목록·판정 (설명은 {@link SupportApiSpec}). */
 @RestController
-class SupportController {
+class SupportController implements SupportApiSpec {
 
   private final SupportSearchService supports;
 
@@ -27,14 +25,16 @@ class SupportController {
     this.supports = supports;
   }
 
+  @Override
   @PostMapping("/api/v1/supports/search")
-  ResponseEntity<SupportSearchResponse> search(@Valid @RequestBody SupportSearchRequest request) {
+  public ResponseEntity<SupportSearchResponse> search(
+      @Valid @RequestBody SupportSearchRequest request) {
     return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(supports.search(request));
   }
 
-  /** 본문은 사업공간 판정과 같아요 ({"applicant": …}). */
+  @Override
   @PostMapping("/api/v1/supports/{id}/evaluate")
-  ResponseEntity<SupportEvaluationResponse> evaluate(
+  public ResponseEntity<SupportEvaluationResponse> evaluate(
       @PathVariable UUID id, @Valid @RequestBody(required = false) SpaceEvaluateRequest request) {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.noStore())

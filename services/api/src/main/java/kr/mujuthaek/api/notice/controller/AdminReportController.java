@@ -3,6 +3,7 @@ package kr.mujuthaek.api.notice.controller;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.UUID;
+import kr.mujuthaek.api.notice.controller.spec.AdminReportApiSpec;
 import kr.mujuthaek.api.notice.dto.request.AdminReportResolveRequest;
 import kr.mujuthaek.api.notice.dto.response.AdminReportDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReportListResponse;
@@ -16,21 +17,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 관리자 제보 화면 API (ADMIN만). 공고 제보만 다뤄요 — 혜택·생활권 제보는 각 담당 모듈이에요.
- *
- * <pre>
- * GET  /api/admin/reports?status=NEW|DOING|DONE   목록 · 상태별 건수
- * GET  /api/admin/reports/counts                  상태별 건수 (사이드바)
- * GET  /api/admin/reports/{id}                    상세 · 같은 칸의 다른 제보
- * POST /api/admin/reports/{id}/start              처리 시작
- * POST /api/admin/reports/{id}/review             고치기: 공고 결과를 검수로 다시 열기 (검수에서 칸을 고쳐 승인)
- * POST /api/admin/reports/{id}/resolve            처리 끝 { "result": "FIXED", "reply": "…", "group": true }
- * </pre>
- */
+/** 관리자 제보 화면 API (설명은 {@link AdminReportApiSpec}). */
 @RestController
 @RequestMapping("/api/admin/reports")
-class AdminReportController {
+class AdminReportController implements AdminReportApiSpec {
 
   private final NoticeReportService reports;
 
@@ -38,33 +28,39 @@ class AdminReportController {
     this.reports = reports;
   }
 
+  @Override
   @GetMapping
-  AdminReportListResponse list(@RequestParam(required = false) String status) {
+  public AdminReportListResponse list(@RequestParam(required = false) String status) {
     return reports.list(status);
   }
 
+  @Override
   @GetMapping("/counts")
-  AdminReportListResponse.Counts counts() {
+  public AdminReportListResponse.Counts counts() {
     return reports.counts();
   }
 
+  @Override
   @GetMapping("/{id}")
-  AdminReportDetailResponse detail(@PathVariable UUID id) {
+  public AdminReportDetailResponse detail(@PathVariable UUID id) {
     return reports.detail(id);
   }
 
+  @Override
   @PostMapping("/{id}/start")
-  AdminReportDetailResponse start(@PathVariable UUID id, Principal principal) {
+  public AdminReportDetailResponse start(@PathVariable UUID id, Principal principal) {
     return reports.start(id, admin(principal));
   }
 
+  @Override
   @PostMapping("/{id}/review")
-  AdminReportReviewResponse review(@PathVariable UUID id, Principal principal) {
+  public AdminReportReviewResponse review(@PathVariable UUID id, Principal principal) {
     return reports.openReview(id, admin(principal));
   }
 
+  @Override
   @PostMapping("/{id}/resolve")
-  AdminReportDetailResponse resolve(
+  public AdminReportDetailResponse resolve(
       @PathVariable UUID id,
       @Valid @RequestBody AdminReportResolveRequest request,
       Principal principal) {

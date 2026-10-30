@@ -59,6 +59,7 @@ services:
       EXTRACTION_REVIEW_URL: http://extraction:8092
       # 개발 서버에는 수집기가 없어서 수집 현황 화면은 503이 정상이에요
       OPS_ALERT_IGNORE_CODES: NOTICE_COLLECTOR_UNAVAILABLE  # 그 503은 슬랙으로 알리지 않아요
+      API_DOCS_ENABLED: "true"         # API 문서(스웨거) /swagger-ui.html. 운영은 꺼져 있어요
     ports: ["127.0.0.1:8080:8080"]
 
   notification:
