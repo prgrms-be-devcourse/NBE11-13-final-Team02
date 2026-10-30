@@ -36,6 +36,16 @@ class OpsAlertTest {
   }
 
   @Test
+  void ignoreCodesComeFromConfig() {
+    var properties =
+        new OpsAlertProperties(null, "dev", null, java.util.Set.of("NOTICE_COLLECTOR_UNAVAILABLE"));
+
+    assertThat(properties.ignores("NOTICE_COLLECTOR_UNAVAILABLE")).isTrue();
+    assertThat(properties.ignores("NOTICE_REVIEW_UNAVAILABLE")).isFalse();
+    assertThat(new OpsAlertProperties(null, null, null).ignoreCodes()).isEmpty();
+  }
+
+  @Test
   void postsTheTextToTheWebhook() throws Exception {
     BlockingQueue<String> bodies = new ArrayBlockingQueue<>(1);
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);

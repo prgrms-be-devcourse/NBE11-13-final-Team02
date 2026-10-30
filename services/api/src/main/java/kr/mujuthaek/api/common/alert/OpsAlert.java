@@ -56,6 +56,11 @@ public class OpsAlert {
     this.http = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
   }
 
+  /** 이 환경에서 알리지 않을 오류 코드인지 (mujuthaek.ops-alert.ignore-codes). */
+  public boolean ignores(String code) {
+    return properties.ignores(code);
+  }
+
   /** 종류별로 묶는 창: 마지막으로 보낸 시각과 그 뒤 못 보낸 횟수. */
   private record Window(Instant sentAt, int suppressed) {}
 
