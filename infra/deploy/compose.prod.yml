@@ -68,6 +68,7 @@ services:
       # 같은 compose 안의 서비스 주소. 없으면 api 컨테이너 안의 localhost로 불러 연결이 거부돼요(관리자 검수·수집 현황 503)
       EXTRACTION_REVIEW_URL: http://extraction:8092
       COLLECTOR_ADMIN_URL: http://collector:8093
+      API_DOCS_ENABLED: "false"         # API 문서(스웨거)는 운영에서 꺼요. prod 프로필 기본값과 같지만, 프로필 설정이 빠져도 꺼지게
     ports: ["127.0.0.1:8080:8080"]
 
   notification:
