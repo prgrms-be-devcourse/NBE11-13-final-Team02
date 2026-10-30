@@ -15,6 +15,7 @@
   python -m mujuthaek_collector area-upload --source BUS_STOP --data-date 2025-10-31 --file … [--scope 강원]
                                                           생활권·상권 원천 파일을 S3 area/에 올리고 적재 요청 보내기
   python -m mujuthaek_collector area-upload --manifest area/area_manifest.csv --skip-upload
+  python -m mujuthaek_collector area-upload --manifest area/area_manifest_address.csv --skip-upload --resend   빠진 적재 다시 요청
                                                           이미 올린 파일 목록으로 적재 요청만 보내기
 
 스케줄 (서울 시간). 운영 서버는 낮(09~18시, 11/7부터 10~19시)에만 켜져 있어서 하루 한 번 작업은 모두 11시대예요
@@ -337,13 +338,16 @@ def area_upload(args: argparse.Namespace, settings: Settings) -> int:
     files = make_file_store(settings)
     try:
         if args.manifest:
-            result = command.from_manifest(files, store.conn, Path(args.manifest))
+            result = command.from_manifest(files, store.conn, Path(args.manifest), args.resend)
         else:
             data_date = date.fromisoformat(args.data_date)
-            result = command.upload_file(files, store.conn, args.source, data_date, Path(args.file), args.scope)
+            result = command.upload_file(files, store.conn, args.source, data_date, Path(args.file), args.scope, args.resend)
     finally:
         store.close()
-    print(f"올림 {result.uploaded}개, 적재 요청 기록 {result.recorded}건 (같은 파일은 다시 올리거나 기록하지 않아요)")
+    if args.resend:
+        print(f"올림 {result.uploaded}개, 적재 요청 다시 보냄 {result.recorded}건 (이미 적재한 파일은 api가 SKIPPED로 걸러요)")
+    else:
+        print(f"올림 {result.uploaded}개, 적재 요청 기록 {result.recorded}건 (같은 파일은 다시 올리거나 기록하지 않아요)")
     if result.archived:
         print(f"보관만 하는 원본 {result.archived}줄은 적재 대상이 아니라 건너뛰었어요")
     for problem in result.problems:
@@ -425,6 +429,11 @@ def main(argv: list[str] | None = None) -> None:
     area.add_argument("--scope", help="상가정보는 시도 이름 (강원, 경기, 전남광주 …), 도로명주소는 시도 코드 (11, 36110 …)")
     area.add_argument("--manifest", help="이미 올린 파일 목록 CSV (--skip-upload와 같이)")
     area.add_argument("--skip-upload", action="store_true", help="올리지 않고 S3 sha256 메타데이터만 확인해 적재 요청만 보내기")
+    area.add_argument(
+        "--resend",
+        action="store_true",
+        help="이미 보낸 적재 요청도 다시 보내기 (브로커가 메시지를 잃어 빠진 적재가 있을 때. 이미 적재한 파일은 api가 건너뛰어요)",
+    )
     args = parser.parse_args(argv)
     if args.command == "area-upload":
         if args.manifest and not args.skip_upload:
