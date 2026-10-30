@@ -4,6 +4,8 @@ set -euo pipefail
 
 PERF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# 명령줄의 BASE_URL이 perf/.env보다 먼저예요(BASE_URL=http://<dev> perf/run.sh … 로 대상만 바꿔요)
+CLI_BASE_URL="${BASE_URL:-}"
 if [ -f "$PERF_DIR/.env" ]; then
   set -a
   # shellcheck disable=SC1091
@@ -11,7 +13,7 @@ if [ -f "$PERF_DIR/.env" ]; then
   set +a
 fi
 
-BASE_URL="${BASE_URL:-http://3.37.131.73}"
+BASE_URL="${CLI_BASE_URL:-${BASE_URL:-http://3.37.131.73}}"
 EC2_HOST="${EC2_HOST:-3.37.131.73}"
 SSH_USER="${SSH_USER:-ubuntu}"
 SSH_KEY="${SSH_KEY:-}"
@@ -75,3 +77,33 @@ target_sql() {
   esac
 }
 
+# BASE_URL의 호스트로 대상을 정해요: prod · dev · local
+perf_target() {
+  local host="${BASE_URL#*://}"
+  host="${host%%[:/]*}"
+  case "$host" in
+    "$EC2_HOST") echo prod ;;
+    localhost | 127.0.0.1) echo local ;;
+    *)
+      if [ -n "$DEV_EC2_HOST" ] && [ "$host" = "$DEV_EC2_HOST" ]; then echo dev; else
+        echo "BASE_URL($BASE_URL)이 운영(EC2_HOST)·dev(DEV_EC2_HOST)·localhost 중 어디인지 모르겠어요" >&2
+        return 1
+      fi
+      ;;
+  esac
+}
+
+# 대상에 맞게 SSH·CloudWatch 설정을 바꿔요. dev는 서버가 따로라 SSH·EC2 지표가 그쪽으로 가요(RDS는 운영과 같아요)
+use_target() {
+  TARGET="$1"
+  if [ "$TARGET" = dev ]; then
+    EC2_HOST="$DEV_EC2_HOST"
+    EC2_INSTANCE_ID="${DEV_EC2_INSTANCE_ID:-}"
+    export EC2_HOST EC2_INSTANCE_ID
+  fi
+}
+
+# 대상 api DB에 SQL(표준 입력)을 돌려 CSV로 내요. prod·dev = 서버 .env의 DB, local = target_sql local
+db_sql() {
+  if [ "$TARGET" = local ]; then target_sql local --csv; else remote_sql; fi
+}

@@ -1,10 +1,11 @@
 import http from 'k6/http';
 import { check, group, sleep } from 'k6';
 import { Counter } from 'k6/metrics';
-import { BASE_URL } from './config.js';
+import { BASE_URL, MIX } from './config.js';
 
 // data/data.json은 fetch-data.sh로 운영에서 한 번 뽑아 둔 값이에요. 개선 전후에 같은 파일을 써야 비교가 돼요
-const data = JSON.parse(open('../data/data.json'));
+// 더미(perf/seed)로 잴 때는 DATA_FILE=seed.json (perf/seed/k6-data.sh로 만든 것)
+const data = JSON.parse(open(`../data/${__ENV.DATA_FILE || 'data.json'}`));
 
 export const serverErrors = new Counter('server_errors');
 
@@ -53,6 +54,7 @@ export const requests = {
     post('/api/v1/benefits/search', { filters: regionFilter(), size: 20 }, 'search', 'benefits/search'),
   spaceSearch: () => post('/api/v1/spaces/search', { size: 20 }, 'search', 'spaces/search'),
   supportSearch: () => post('/api/v1/supports/search', { size: 20 }, 'search', 'supports/search'),
+  benefitDetail: () => get(`/api/v1/benefits/${pick(data.benefitIds)}`, 'search', 'benefits/{id}'),
 
   criteria: () => get('/api/v1/eligibility/criteria', 'lookup', 'eligibility/criteria'),
   benefitJudge: () =>
@@ -86,13 +88,18 @@ export const requests = {
 
 const r = requests;
 
+// 더미 데이터에만 혜택 id가 있어요. 운영 기준(data.json)일 때는 흐름이 예전 그대로예요
+const sideSearches = data.benefitIds
+  ? [r.benefitSearch, r.spaceSearch, r.supportSearch, r.benefitDetail]
+  : [r.benefitSearch, r.spaceSearch, r.supportSearch];
+
 export function browse() {
   group('둘러보기', () => {
     for (const step of [r.homeSummary, r.regions, r.noticeSearch, r.noticeMap, r.noticeDetail]) {
       step();
       think();
     }
-    pick([r.benefitSearch, r.spaceSearch, r.supportSearch])();
+    pick(sideSearches)();
     think();
   });
 }
@@ -118,9 +125,9 @@ export function member(token) {
 // 한계 찾기용: 같은 비중으로 요청 하나만 골라 보내요(쉬는 시간 없음)
 export function single(token) {
   const x = Math.random();
-  if (x < 0.6) {
-    pick([r.homeSummary, r.regions, r.noticeSearch, r.noticeMap, r.noticeDetail, r.benefitSearch, r.spaceSearch, r.supportSearch])();
-  } else if (x < 0.85 || !token) {
+  if (x < MIX.browse) {
+    pick([r.homeSummary, r.regions, r.noticeSearch, r.noticeMap, r.noticeDetail, ...sideSearches])();
+  } else if (x < MIX.browse + MIX.judge || !token) {
     pick([r.criteria, r.benefitJudge, r.noticeJudge, r.homeJudge])();
   } else {
     pick([r.me, r.favorites, r.notifications, r.notificationSettings, r.pushKey])(token);

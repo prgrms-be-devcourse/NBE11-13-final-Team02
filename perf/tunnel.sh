@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
 # 서버 지표를 노트북 Prometheus로 가져오는 SSH 터널. 테스트하는 동안 다른 터미널에 켜 둬요(Ctrl+C로 닫아요).
+#   perf/tunnel.sh [prod|dev]   (기본 prod. dev는 perf/.env의 DEV_EC2_HOST)
 #   노트북 18080 → 서버 api 8080, 18081 → notification 8081, 19100 → node-exporter, 19101 → cAdvisor
 source "$(dirname "$0")/lib/common.sh"
+
+case "${1:-prod}" in
+  prod) ;;
+  dev) [ -n "$DEV_EC2_HOST" ] || { echo "perf/.env에 DEV_EC2_HOST를 채워 주세요" >&2; exit 1; }; use_target dev ;;
+  *) sed -n '2,4p' "$0"; exit 1 ;;
+esac
 
 key=()
 [ -n "$SSH_KEY" ] && key=(-i "$SSH_KEY")

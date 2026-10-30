@@ -3,6 +3,8 @@
 
 export const BASE_URL = __ENV.BASE_URL || 'http://3.37.131.73';
 export const TEST = __ENV.TEST || 'smoke';
+// prod = 운영 데이터(data.json), seed = 더미(perf/seed, seed.json + 더미 회원 토큰)
+export const DATA = __ENV.DATA || 'prod';
 
 // API 종류별 응답 시간 목표(ms): 조회 lookup · 목록·검색 search · 판정 judge
 const LATENCY = {
@@ -84,3 +86,51 @@ export const PROFILES = {
     thresholds: { http_req_failed: errorRate(0.05) },
   },
 };
+
+// 더미(회원 10만) 기준 프로필. 위 PROFILES(운영 기준)와 따로 둬요: 운영 기준 결과와 비교가 깨지지 않게
+// 응답 시간·에러율 기준은 같아요
+const hold = (target, minutes) => [
+  { duration: '2m', target },
+  { duration: `${minutes}m`, target },
+  { duration: '1m', target: 0 },
+];
+
+// 100 → 200 → 400 → 600 → 800 → 1,000명, 단계마다 3분(30초 올리고 2분 30초 유지)
+const seedStressStages = [100, 200, 400, 600, 800, 1000].flatMap((target) => [
+  { duration: '30s', target },
+  { duration: '2m30s', target },
+]);
+
+export const SEED_PROFILES = {
+  smoke: PROFILES.smoke,
+  load: {
+    scenario: vus(hold(100, 15)),
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+  },
+  load200: {
+    scenario: vus(hold(200, 15)),
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+  },
+  stress: {
+    scenario: vus(seedStressStages),
+    thresholds: { ...latency(true), http_req_failed: errorRate(0.01, true) },
+  },
+  breakpoint: PROFILES.breakpoint,
+  spike: {
+    scenario: vus([
+      { duration: '30s', target: 20 },
+      { duration: '10s', target: 600 },
+      { duration: '1m', target: 600 },
+      { duration: '10s', target: 20 },
+      { duration: '2m', target: 20 },
+    ]),
+    thresholds: { http_req_failed: errorRate(0.05) },
+  },
+  soak: {
+    scenario: vus(hold(100, 60)),
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+  },
+};
+
+// 흐름 비중(둘러보기 · 판정, 나머지는 로그인). 운영 기준은 60 · 25 · 15, 더미는 로그인 회원이 많아 50 · 25 · 25
+export const MIX = DATA === 'seed' ? { browse: 0.5, judge: 0.25 } : { browse: 0.6, judge: 0.25 };
