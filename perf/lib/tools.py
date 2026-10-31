@@ -27,7 +27,14 @@ STAGE_SECONDS = {"stress": 180, "breakpoint": 120}
 P95_LIMIT = {"lookup": 0.2, "search": 0.5, "judge": 1.0}
 
 
+# 어느 api의 지표인지: prometheus.yml이 로컬 api에는 target="local", 서버 터널에는 target="server"를 붙여요.
+# 결과 폴더의 meta.json 대상에 맞춰 export_prom이 정해요(라벨이 생기기 전 지표는 서버 쪽으로 봐요)
+TARGET_LABEL = 'target!="local"'
+
+
 def prom(path, **params):
+    if "query" in params:
+        params["query"] = params["query"].replace('job="api"', f'job="api",{TARGET_LABEL}')
     url = f"{PROM}/api/v1/{path}?{urllib.parse.urlencode(params)}"
     with urllib.request.urlopen(url, timeout=60) as r:
         body = json.load(r)
@@ -57,7 +64,10 @@ def num(v):
 
 
 def export_prom(out, start, end):
+    global TARGET_LABEL
     out = Path(out)
+    meta = json.loads((out / "meta.json").read_text()) if (out / "meta.json").exists() else {}
+    TARGET_LABEL = 'target="local"' if meta.get("target") == "local" else 'target!="local"'
     w = f"{max(int(end - start), 60)}s"
 
     def by_uri(q):
@@ -117,6 +127,27 @@ def export_prom(out, start, end):
         "hikari_pending_max": num(
             scalar(f'max_over_time(sum(hikaricp_connections_pending{{job="api"}})[{w}:5s])', end)
         ),
+        # 커넥션을 얻기까지 기다린 시간(평균·최대), 구간 동안 GC 멈춤 합계
+        "hikari_acquire_avg_ms": ms(
+            scalar(
+                f'sum(increase(hikaricp_connections_acquire_seconds_sum{{job="api"}}[{w}]))'
+                f' / sum(increase(hikaricp_connections_acquire_seconds_count{{job="api"}}[{w}]))',
+                end,
+            )
+        ),
+        "hikari_acquire_max_ms": ms(
+            scalar(f'max_over_time(max(hikaricp_connections_acquire_seconds_max{{job="api"}})[{w}:5s])', end)
+        ),
+        "api_gc_pause_total_ms": ms(scalar(f'sum(increase(jvm_gc_pause_seconds_sum{{job="api"}}[{w}]))', end)),
+        # 판정 캐시 적중률 (api가 mujuthaek_judging_cache_total{cache, result=hit|miss}을 낼 때만)
+        "judging_cache_hit_ratio": {
+            r["metric"].get("cache"): num(r["value"][1])
+            for r in instant(
+                f'sum by (cache) (increase(mujuthaek_judging_cache_total{{job="api",result="hit"}}[{w}]))'
+                f' / sum by (cache) (increase(mujuthaek_judging_cache_total{{job="api"}}[{w}]))',
+                end,
+            )
+        },
         "containers": {
             r["metric"].get("name"): {"mem_max_bytes": num(r["value"][1])}
             for r in instant(f'max_over_time(container_memory_working_set_bytes{{name=~"mujuthaek-.+"}}[{w}])', end)
@@ -305,7 +336,19 @@ def compare(da, db):
         ("GC 멈춤 최대 (ms)", sa.get("api_gc_pause_max_ms"), sb.get("api_gc_pause_max_ms"), 0),
         ("DB 커넥션 사용 최대", sa.get("hikari_active_max"), sb.get("hikari_active_max"), 0),
         ("DB 커넥션 대기 최대", sa.get("hikari_pending_max"), sb.get("hikari_pending_max"), 0),
+        ("DB 커넥션 얻는 시간 평균 (ms)", sa.get("hikari_acquire_avg_ms"), sb.get("hikari_acquire_avg_ms"), 1),
+        ("DB 커넥션 얻는 시간 최대 (ms)", sa.get("hikari_acquire_max_ms"), sb.get("hikari_acquire_max_ms"), 0),
+        ("GC 멈춤 합계 (ms)", sa.get("api_gc_pause_total_ms"), sb.get("api_gc_pause_total_ms"), 0),
     ]
+    for cache in sorted(set(sa.get("judging_cache_hit_ratio") or {}) | set(sb.get("judging_cache_hit_ratio") or {})):
+        lines.append(
+            (
+                f"판정 캐시 적중률 {cache} (%)",
+                pct((sa.get("judging_cache_hit_ratio") or {}).get(cache)),
+                pct((sb.get("judging_cache_hit_ratio") or {}).get(cache)),
+                1,
+            )
+        )
     la, lb = limit_stage(sta), limit_stage(stb)
     if ma["test"] == "stress":
         lines.append(("한계 VU", num(la and la["vus_max"]), num(lb and lb["vus_max"]), 0))

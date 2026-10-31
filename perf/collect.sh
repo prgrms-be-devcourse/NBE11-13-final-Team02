@@ -26,7 +26,9 @@ curl -sf -o "$OUT/images/00-dashboard.png" \
   "$GRAFANA/render/d/mujuthaek-perf/x?orgId=1&from=$FROM&to=$TO&width=1600&height=$(( (panels + 1) / 2 * 330 + 120 ))&kiosk&tz=Asia%2FSeoul" \
   || warn "대시보드 전체 이미지 실패"
 
-if command -v aws > /dev/null && [ -n "${EC2_INSTANCE_ID:-}${RDS_INSTANCE_ID:-}" ]; then
+if [ "$(jq -r '.target // "prod"' "$OUT/meta.json")" = local ]; then
+  echo "  CloudWatch: 로컬 실행이라 건너뛰어요"
+elif command -v aws > /dev/null && [ -n "${EC2_INSTANCE_ID:-}${RDS_INSTANCE_ID:-}" ]; then
   echo "  CloudWatch → images/cw-*.png, cloudwatch.json"
   iso() { date -u -r "$1" +%Y-%m-%dT%H:%M:%SZ; }
   S=$(iso $((START - 60)))

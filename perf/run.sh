@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 테스트 한 번 = 결과 폴더 하나. k6를 돌리고 그 구간의 숫자·그래프 이미지·느린 쿼리·버전·데이터 양을 다 모아요.
 #   perf/run.sh [--data prod|seed] <smoke|load|load200|soak|stress|breakpoint|spike> ["고친 것 메모"]
-# 대상은 BASE_URL로 정해요: 운영 EC2 = prod, DEV_EC2_HOST = dev, localhost = local(서버 지표·그래프는 건너뛰어요)
+# 대상은 BASE_URL로 정해요: 운영 EC2 = prod, DEV_EC2_HOST = dev, localhost = local(로컬 api 지표도 모아요, CloudWatch만 빠져요)
 # --data seed = 더미(perf/seed) 기준: k6/data/seed.json + 더미 회원 토큰(k6/make-tokens.sh), 더미 기준 프로필(load200은 더미만)
 # 결과: perf/results/<yyyyMMdd-HHmm>_<test>_<api 버전>/ (운영 대상·운영 데이터), 그 밖에는 <test>_<대상>-<데이터>_<api 버전>
 source "$(dirname "$0")/lib/common.sh"
@@ -54,10 +54,17 @@ if [ "$DATA" = seed ]; then
 fi
 
 echo "== 준비 확인 (대상 $TARGET, 데이터 $DATA)"
+PROM_OK=1
 if [ "$TARGET" = local ]; then
-  warn "local: 서버 지표·그래프·CloudWatch는 건너뛰어요(k6 결과와 DB 쪽만 남아요)"
+  # 로컬 api(노트북 8080)도 Prometheus가 긁어요(prometheus.yml api-local, target="local"). CloudWatch만 빠져요
   API_TAG=local
   NOTIFICATION_TAG=local
+  if ! curl -sf "$PROM/-/ready" > /dev/null; then
+    PROM_OK=0; warn "Prometheus가 없어요(docker compose -f perf/docker-compose.yml up -d). 서버 지표·그래프는 빠져요"
+  elif ! curl -sf -o /dev/null "$BASE_URL/actuator/prometheus"; then
+    PROM_OK=0; warn "로컬 api 지표($BASE_URL/actuator/prometheus)가 안 보여요. 서버 지표·그래프는 빠져요"
+  fi
+  curl -sf "$GRAFANA/api/health" > /dev/null || warn "Grafana가 없어요. 그래프 이미지는 빠져요"
 else
   curl -sf "$PROM/-/ready" > /dev/null || { echo "Prometheus가 없어요: docker compose -f perf/docker-compose.yml up -d" >&2; exit 1; }
   curl -sf "$GRAFANA/api/health" > /dev/null || { echo "Grafana가 없어요: docker compose -f perf/docker-compose.yml up -d" >&2; exit 1; }
@@ -137,12 +144,12 @@ cat > "$OUT/meta.json" <<JSON
 }
 JSON
 
-if [ "$TARGET" = local ]; then
-  echo "== local: 서버 지표·그래프 모으기는 건너뛰어요"
-else
+if [ "$PROM_OK" = 1 ]; then
   echo "== 결과 모으기 (Prometheus 마지막 수집을 15초 기다려요)"
   sleep 15
   "$PERF_DIR/collect.sh" "$OUT"
+else
+  echo "== 서버 지표·그래프 모으기는 건너뛰어요 (Prometheus 또는 api 지표가 없어요)"
 fi
 
 echo

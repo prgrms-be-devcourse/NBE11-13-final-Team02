@@ -57,8 +57,11 @@ target_sql() {
   local target="$1"; shift
   case "$target" in
     local)
-      if [ -z "${LOCAL_DB_PASSWORD:-}" ] && [ -f "$PERF_DIR/../infra/.env" ]; then
-        LOCAL_DB_PASSWORD="$(sed -n 's/^API_DB_PASSWORD=//p' "$PERF_DIR/../infra/.env" | tail -1)"
+      if [ -z "${LOCAL_DB_PASSWORD:-}" ]; then
+        # 저장소의 infra/.env (git worktree에서 돌리면 원래 저장소의 것)
+        local infra_env="$PERF_DIR/../infra/.env"
+        [ -f "$infra_env" ] || infra_env="$(git -C "$PERF_DIR" rev-parse --path-format=absolute --git-common-dir 2> /dev/null)/../infra/.env"
+        [ -f "$infra_env" ] && LOCAL_DB_PASSWORD="$(sed -n 's/^API_DB_PASSWORD=//p' "$infra_env" | tail -1)"
       fi
       [ "$LOCAL_DB_NAME" != api ] || { echo "LOCAL_DB_NAME=api 는 쓰지 않아요(운영과 같은 이름)" >&2; return 1; }
       PGPASSWORD="${LOCAL_DB_PASSWORD:-}" psql -h "$LOCAL_DB_HOST" -p "$LOCAL_DB_PORT" -U "$LOCAL_DB_USER" -d "$LOCAL_DB_NAME" \

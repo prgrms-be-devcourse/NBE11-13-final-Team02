@@ -44,6 +44,7 @@ perf/seed/seed.sh local count           # 표별 전체 수와 더미 수
 perf/seed/k6-data.sh local              # k6/data/seed.json (지역·공고·혜택 id 샘플, 지원자 8벌). 넣은 뒤 한 번, 커밋해요
 perf/k6/make-tokens.sh local            # 더미 회원 1~1,000번 토큰 → k6/data/tokens.json (커밋 안 해요, 8시간 유효)
 perf/seed/explain.sh local              # 주요 쿼리 실행 계획 → perf/results/explain/<날짜>_local/summary.md
+docker compose -f perf/docker-compose.yml up -d   # 로컬 api(8080)의 지표도 Prometheus가 긁어요(target="local")
 BASE_URL=http://localhost:8080 perf/run.sh --data seed smoke
 perf/seed/seed.sh local down            # 지우기(자식 표부터, 테스트 중 진짜 회원이 더미에 붙인 관심·알림도) + VACUUM ANALYZE
 ```
@@ -90,6 +91,7 @@ dev는 `local` 대신 `dev`예요. 넣기·지우기 전에 한 번 더 물어�
 | `soak` | 100명 1시간 |
 
 - 흐름 비중: 둘러보기 50 · 판정 25 · 로그인 25(%). 로그인 흐름은 더미 회원 1,000명의 토큰을 VU마다 돌려 써요(관심 등록·해제도 더미 회원이 해요). 둘러보기에 혜택 상세가 더해져요.
+- **로컬 실행도 서버 지표를 모아요.** Prometheus가 노트북 8080의 `/actuator/prometheus`를 `job="api", target="local"`로 긁고, run.sh가 서버 p95·p99, API별 p95, GC 멈춤(최대·합계), DB 커넥션 대기(수·얻는 시간), 힙, 판정 캐시 적중률, Grafana 그래프를 결과 폴더에 남겨요(CloudWatch만 빠져요). 서버 쪽은 `target="server"`라 섞이지 않아요. Prometheus가 다른 저장소 폴더에서 떠 있으면 설정이 옛것이라, 이 폴더의 `perf/docker-compose.yml`로 `up -d` 해요(쌓인 데이터는 볼륨이라 남아요). 로컬 DB에 `pg_stat_statements`가 없으면 느린 쿼리만 빠져요.
 - 결과 폴더는 `<시각>_<test>_<대상>-<데이터>_<api 버전>`(예: `20261031-1400_load_dev-seed_v0.2.1`), meta.json에 `target`·`data`·`data_file`·`member_tokens`가 남아요.
 - dev는 서버 지표 터널을 `perf/tunnel.sh dev`로 열어요. node-exporter·cAdvisor는 운영 compose에만 있어서 dev는 서버 CPU·컨테이너 그래프가 빠져요(api·DB 쪽은 나와요).
 - dev에서 pg_stat_statements는 RDS 인스턴스 전체라 운영 쿼리도 섞여요. `slow_queries.csv`는 그걸 감안해서 봐요.
