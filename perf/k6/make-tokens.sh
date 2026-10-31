@@ -2,6 +2,7 @@
 # 더미 회원(perf/seed) 1~N번의 access token을 미리 만들어요 → perf/k6/data/tokens.json (커밋하지 않아요)
 # 모양은 lib/token.js·api AuthTokenService와 같아요(HS256, iss=mujuthaek-api, sub=회원 id, role USER). 로그인 흐름이 VU마다 돌려 써요
 #   perf/k6/make-tokens.sh <local|dev> [회원 수, 기본 1000] [유효 시간(시간), 기본 8]
+#   FIRST_USER=99901 TOKENS_OUT=… 으로 시작 회원 번호와 파일을 바꿔요 (동시성 시험이 부하 토큰과 다른 회원을 써요)
 # 비밀 값: local = perf/.env LOCAL_JWT_SECRET(비우면 api 기본값), dev = perf/.env DEV_JWT_SECRET
 source "$(dirname "$0")/../lib/common.sh"
 
@@ -15,16 +16,16 @@ case "$TARGET" in
 esac
 [ "$TARGET" = local ] || [ "$SECRET" != "${JWT_SECRET:-}" ] || { echo "DEV_JWT_SECRET이 운영 JWT_SECRET과 같아요. 거부해요" >&2; exit 1; }
 
-OUT="$PERF_DIR/k6/data/tokens.json"
-SECRET="$SECRET" python3 - "$COUNT" "$HOURS" "$TARGET" > "$OUT" <<'PY'
+OUT="${TOKENS_OUT:-$PERF_DIR/k6/data/tokens.json}"
+SECRET="$SECRET" python3 - "$COUNT" "$HOURS" "$TARGET" "${FIRST_USER:-1}" > "$OUT" <<'PY'
 import base64, hashlib, hmac, json, os, sys, time
 
-count, hours, target = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+count, hours, target, first = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3], int(sys.argv[4])
 secret = os.environ["SECRET"].encode()
 b64 = lambda b: base64.urlsafe_b64encode(b).rstrip(b"=").decode()
 now = int(time.time())
 tokens = []
-for n in range(1, count + 1):
+for n in range(first, first + count):
     # perf/seed/sql/guard.sql seed_id(3, n)
     sub = f"5eed0003-0000-7000-8000-{n:012x}"
     claims = {"iss": "mujuthaek-api", "sub": sub, "iat": now, "exp": now + hours * 3600, "role": "USER", "nickname": f"perf-seed-{n}"}
