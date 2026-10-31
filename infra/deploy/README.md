@@ -100,6 +100,24 @@ api는 `area.source.ready`를 받으면 적재하지 않고 **기다림(PENDING)
     from area.load_runs where started_at > now() - interval '2 days' order by started_at desc;
   ```
 
+### 빠진 적재 다시 요청
+`load_runs`에 줄이 없는 파일이 있으면(적재 요청이 큐에서 사라짐) 같은 목록으로 **다시 보내요**. 이미 적재한 파일은 api가 SKIPPED로 거르고,
+기다리거나 도는 중인 파일은 넘어가서 두 번 적재하지 않아요.
+```bash
+C="docker compose -f compose.prod.yml --env-file .env --env-file versions.env exec collector python -m mujuthaek_collector"
+$C area-upload --skip-upload --manifest area/area_manifest_address.csv --resend   # 도로명주소 (다른 목록도 같은 방법)
+```
+- `--resend`가 없으면 같은 파일은 이미 보낸 요청이라 다시 보내지 않아요(eventId가 원천·범위·지문으로 정해져요)
+- 빠진 것 찾기 (api DB): 목록의 범위 중 `select distinct load_scope from area.load_runs where source = 'ADDRESS_ENTRANCE' and status in ('SUCCEEDED','PENDING','RUNNING')`에 없는 것
+
+### RabbitMQ 데이터가 사라질 때 (호스트 이름)
+RabbitMQ는 `rabbit@<호스트 이름>` 폴더에 큐·메시지·shovel 설정을 둬요. compose에서 `hostname: rabbitmq`로 고정해요.
+고정하기 전에는 설정이 바뀐 배포로 컨테이너가 다시 만들어질 때마다 빈 폴더로 시작했어요 (2026-10-29 운영 배포에서 적재 요청 12건과 dev.mirror shovel이 사라짐).
+- `hostname`을 처음 넣는 배포도 노드 이름이 바뀌어 **한 번 더 빈 상태로 시작해요.** 큐가 빈 때(적재·추출이 쉬는 때) 배포하고, 끝나면
+  1. `./shovel.sh prod`(운영) · `./shovel.sh dev`(개발)로 dev.mirror shovel을 다시 만들고
+  2. 빠진 적재가 있으면 위 「빠진 적재 다시 요청」
+- 큐는 api·추출기가 뜰 때 다시 만들어요. 이전 폴더는 볼륨에 남아 있어요(`docker compose exec rabbitmq ls /var/lib/rabbitmq/mnesia`)
+
 ## 서비스 사이 연결
 api가 같은 compose 안의 다른 서비스를 부르는 주소는 compose 파일에 있어요(`EXTRACTION_REVIEW_URL=http://extraction:8092`, 운영만 `COLLECTOR_ADMIN_URL=http://collector:8093`).
 토큰은 ENV_FILE에 같은 값으로 넣어요. 양쪽이 같은 `.env`를 읽어요. `deploy.sh`가 빠진 키 이름을 경고해요(값은 출력하지 않아요)

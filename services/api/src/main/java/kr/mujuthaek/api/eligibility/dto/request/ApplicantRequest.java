@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.eligibility.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.AssertTrue;
 import jakarta.validation.constraints.Max;
@@ -43,9 +44,16 @@ public record ApplicantRequest(
     @Pattern(regexp = "LT_1|1_3|3_5|5_PLUS") String homelessYears,
     @Valid SubscriptionRequest subscription,
     List<@Pattern(regexp = "BASIC_LIVELIHOOD|NEAR_POOR|SINGLE_PARENT") String> welfareStatuses,
-    Map<@Pattern(regexp = "MEDIAN_INCOME|URBAN_WORKER_INCOME") String, @Valid PercentRange> income,
-    Map<@Pattern(regexp = "MEDIAN_INCOME|URBAN_WORKER_INCOME") String, @Valid PercentRange>
-        householdIncome,
+    @Schema(
+            description = "키: MEDIAN_INCOME · URBAN_WORKER_INCOME",
+            example = "{\"MEDIAN_INCOME\": {\"gtPct\": 50, \"lePct\": 100, \"year\": 2026}}")
+        Map<@Pattern(regexp = "MEDIAN_INCOME|URBAN_WORKER_INCOME") String, @Valid PercentRange>
+            income,
+    @Schema(
+            description = "키: MEDIAN_INCOME · URBAN_WORKER_INCOME",
+            example = "{\"MEDIAN_INCOME\": {\"gtPct\": 50, \"lePct\": 100, \"year\": 2026}}")
+        Map<@Pattern(regexp = "MEDIAN_INCOME|URBAN_WORKER_INCOME") String, @Valid PercentRange>
+            householdIncome,
     @Min(2000) @Max(2200) Integer incomeYear,
     @Valid WonRange assets,
     @Valid WonRange car,
@@ -65,8 +73,8 @@ public record ApplicantRequest(
    * @param year 이 구간을 계산한 기준 연도 (criteria의 그 기준 연도). 비우면 incomeYear
    */
   public record PercentRange(
-      @Min(0) @Max(1000) Integer gtPct,
-      @Min(0) @Max(1000) Integer lePct,
+      @Schema(example = "50") @Min(0) @Max(1000) Integer gtPct,
+      @Schema(example = "100") @Min(0) @Max(1000) Integer lePct,
       @Min(2000) @Max(2200) Integer year) {
 
     @AssertTrue(message = "gtPct는 lePct보다 작아야 해요")
@@ -81,7 +89,9 @@ public record ApplicantRequest(
   }
 
   /** 금액 구간 (gtWon 초과 ~ leWon 이하, 원). 한쪽은 비워도 돼요. */
-  public record WonRange(@PositiveOrZero Long gtWon, @PositiveOrZero Long leWon) {
+  public record WonRange(
+      @Schema(example = "100000000") @PositiveOrZero Long gtWon,
+      @Schema(example = "200000000") @PositiveOrZero Long leWon) {
 
     @AssertTrue(message = "gtWon은 leWon보다 작아야 해요")
     boolean isOrdered() {

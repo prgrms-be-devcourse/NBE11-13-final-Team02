@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.notice.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -12,7 +13,10 @@ import jakarta.validation.constraints.Size;
  * @param currentValue 화면에 보인 값이나 오류 코드 (있으면)
  */
 public record GeneralReportRequest(
-    @NotBlank @Size(max = 50) String field,
+    @Schema(allowableValues = {"MISSING_NOTICE", "WRONG_INFO", "APP_ERROR", "ETC"})
+        @NotBlank
+        @Size(max = 50)
+        String field,
     @NotBlank @Size(max = 1000) String note,
     @Size(max = 50) String screen,
     @Size(max = 200) String currentValue) {}

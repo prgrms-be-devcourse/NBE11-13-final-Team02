@@ -31,6 +31,20 @@ class BenefitQueryTest {
   }
 
   @Test
+  void 여러_혜택_요약을_한_번에_읽어도_하나씩_읽은_것과_같다() {
+    UUID id = f.benefit(region("SIDO", "11"));
+    UUID hidden = f.benefit(p -> p.put("relevant", false));
+    UUID missing = UUID.randomUUID();
+
+    var many = f.queries.findSummaries(List.of(id, hidden, missing, id));
+
+    assertThat(many).containsOnlyKeys(id, hidden); // 없는 ID는 빠지고, 숨김은 줘요
+    assertThat(many.get(id)).isEqualTo(f.queries.findSummary(id).orElseThrow());
+    assertThat(many.get(hidden)).isEqualTo(f.queries.findSummary(hidden).orElseThrow());
+    assertThat(f.queries.findSummaries(List.of())).isEmpty();
+  }
+
+  @Test
   void 수집_정책_ID로도_요약을_찾는다() {
     // 혜택 제보 답변 이벤트(BenefitReportAnswered)의 policyId는 수집 정책 ID라서
     UUID raw = UUID.randomUUID();

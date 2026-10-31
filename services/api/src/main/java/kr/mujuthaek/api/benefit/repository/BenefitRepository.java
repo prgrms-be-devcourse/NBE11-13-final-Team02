@@ -78,7 +78,8 @@ public class BenefitRepository {
       String status,
       boolean needsReview,
       List<Support> supports,
-      List<Condition> conditions) {}
+      List<Condition> conditions,
+      Instant updatedAt) {}
 
   public Optional<Saved> findByRawPolicyId(UUID rawPolicyId) {
     return jdbc.sql(
@@ -238,19 +239,82 @@ public class BenefitRepository {
    * BENEFIT만.
    */
   public List<Row> openBenefits(Collection<String> regionCodes) {
+    return openBenefits(regionCodes, null).rows();
+  }
+
+  /**
+   * 판정 후보와, 그중 나이 조건만으로 지원 불가가 확실한 혜택 ID.
+   *
+   * @param rows 판정 후보 (마감일 순). 나이로 걸러진 혜택은 지원 내용·조건을 읽지 않아 비어 있어요
+   * @param ruledOutByAge 나이로 걸러진 혜택 ID
+   */
+  public record Open(List<Row> rows, java.util.Set<UUID> ruledOutByAge) {}
+
+  /**
+   * 판정 후보를 읽으면서 나이 조건만으로 지원 불가가 확실한 혜택을 DB에서 골라요. 그 혜택은 지원 내용·조건을 읽지 않아요(요청마다 열린 혜택 수천 개의 조건을 다 읽고
+   * 판정하던 것을 줄여요).
+   *
+   * <p>BenefitJudge와 같은 규칙만 써요: 안내 조건(EXCLUSIVE·PRIORITY)을 뺀 어느 한 그룹의 조건이 모두 「값을 아는(known) 나이 조건이고
+   * 가장 어린·가장 많은 나이 모두 범위 밖」이면 그 그룹이 불충족이라 혜택 전체가 지원 불가예요 (Bands.ageWithin, min·max는 숫자일 때만 정수로).
+   *
+   * @param ages 지원자 만 나이 [가장 어린, 가장 많은] (Bands.ages). null이면 거르지 않아요
+   */
+  public Open openBenefits(Collection<String> regionCodes, int[] ages) {
+    return openBenefits(regionCodes, ages, r -> false);
+  }
+
+  /**
+   * {@link #openBenefits(Collection, int[])}과 같되, skipLines가 참인 혜택(판정 캐시에 같은 수정 시각으로 이미 있는 것)도 지원
+   * 내용·조건을 읽지 않아요.
+   */
+  public Open openBenefits(
+      Collection<String> regionCodes, int[] ages, java.util.function.Predicate<Row> skipLines) {
     String[] regions = regionCodes.toArray(String[]::new);
+    java.util.Set<UUID> ruledOut = new java.util.HashSet<>();
     List<Row> rows =
         jdbc.sql(
-                "select * from benefit.benefits b where b.field = 'BENEFIT'"
+                "select b.*, "
+                    + AGE_RULED_OUT
+                    + " as ruled_out from benefit.benefits b where b.field = 'BENEFIT'"
                     + " and b.status in ('UPCOMING', 'OPEN') and (cardinality(cast(:regions as"
                     + " text[])) = 0 or b.region_scope = 'NATIONWIDE' or exists (select 1 from"
                     + " unnest(b.region_codes) r, unnest(cast(:regions as text[])) f where r like f"
                     + " || '%' or f like r || '%')) order by b.apply_end nulls last, b.id")
             .param("regions", regions)
-            .query(BenefitRepository::row)
+            .param("young", ages == null ? null : ages[0])
+            .param("old", ages == null ? null : ages[1])
+            .query(
+                (rs, i) -> {
+                  Row r = row(rs, i);
+                  if (rs.getBoolean("ruled_out")) ruledOut.add(r.id());
+                  return r;
+                })
             .list();
-    return withLines(rows);
+    java.util.Set<UUID> skip = new java.util.HashSet<>(ruledOut);
+    rows.stream().filter(skipLines).forEach(r -> skip.add(r.id()));
+    return new Open(withLines(rows, skip), ruledOut);
   }
+
+  /** 정수 값 (BenefitJudge.integer: 숫자일 때만 소수점 아래를 버린 정수, 아니면 없음) */
+  private static String ageBound(String key) {
+    return "(case when jsonb_typeof(c.value -> '%s') = 'number' then trunc((c.value ->> '%s')::numeric) end)"
+        .formatted(key, key);
+  }
+
+  /** 나이 하나가 범위 안인지 (Bands.fits) */
+  private static String fits(String age) {
+    return "((%s is null or %s >= %s) and (%s is null or %s <= %s))"
+        .formatted(ageBound("min"), age, ageBound("min"), ageBound("max"), age, ageBound("max"));
+  }
+
+  private static final String AGE_RULED_OUT =
+      "(cast(:young as integer) is not null and exists (select 1 from benefit.benefit_conditions c"
+          + " where c.benefit_id = b.id and c.type not in ('EXCLUSIVE', 'PRIORITY') group by c.grp"
+          + " having bool_and(c.type = 'AGE' and c.known and not "
+          + fits("cast(:young as integer)")
+          + " and not "
+          + fits("cast(:old as integer)")
+          + ")))";
 
   public Optional<Row> find(UUID id) {
     List<Row> rows =
@@ -258,7 +322,7 @@ public class BenefitRepository {
             .param(id)
             .query(BenefitRepository::row)
             .list();
-    return withLines(rows).stream().findFirst();
+    return withLines(rows, java.util.Set.of()).stream().findFirst();
   }
 
   /** 혜택 하나의 요약 (숨김 포함). */
@@ -275,6 +339,15 @@ public class BenefitRepository {
         .param(id)
         .query(BenefitRepository::summary)
         .optional();
+  }
+
+  /** 혜택 여러 개의 요약을 한 번에 (숨김 포함, 없는 ID는 빠져요). 관심 목록이 한 줄씩 묻지 않게요. */
+  public List<SummaryRow> summaries(Collection<UUID> ids) {
+    if (ids.isEmpty()) return List.of();
+    return jdbc.sql(SUMMARY + " where id = any(?)")
+        .param(ids.toArray(UUID[]::new))
+        .query(BenefitRepository::summary)
+        .list();
   }
 
   /** 수집 정책 ID로 혜택 하나의 요약 (숨김 포함). */
@@ -317,10 +390,10 @@ public class BenefitRepository {
         rs.getString("detail_url"));
   }
 
-  /** 지원 내용·조건 줄을 한 번에 읽어 붙여요 (혜택 수만큼 질의하지 않게). */
-  private List<Row> withLines(List<Row> rows) {
+  /** 지원 내용·조건 줄을 한 번에 읽어 붙여요 (혜택 수만큼 질의하지 않게). skip의 혜택은 읽지 않고 비워 둬요. */
+  private List<Row> withLines(List<Row> rows, java.util.Set<UUID> skip) {
     if (rows.isEmpty()) return rows;
-    UUID[] ids = rows.stream().map(Row::id).toArray(UUID[]::new);
+    UUID[] ids = rows.stream().map(Row::id).filter(id -> !skip.contains(id)).toArray(UUID[]::new);
     Map<UUID, List<Support>> supports = new LinkedHashMap<>();
     jdbc.sql(
             "select * from benefit.benefit_supports where benefit_id = any(?) order by benefit_id,"
@@ -389,7 +462,8 @@ public class BenefitRepository {
                     r.status(),
                     r.needsReview(),
                     supports.getOrDefault(r.id(), List.of()),
-                    conditions.getOrDefault(r.id(), List.of())))
+                    conditions.getOrDefault(r.id(), List.of()),
+                    r.updatedAt()))
         .toList();
   }
 
@@ -420,7 +494,8 @@ public class BenefitRepository {
         rs.getString("status"),
         rs.getBoolean("needs_review"),
         List.of(),
-        List.of());
+        List.of(),
+        rs.getTimestamp("updated_at").toInstant());
   }
 
   private static LocalDate day(ResultSet rs, String column) throws SQLException {

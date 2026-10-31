@@ -3,6 +3,7 @@ package kr.mujuthaek.api.eligibility.controller;
 import jakarta.validation.Valid;
 import java.time.Duration;
 import java.util.UUID;
+import kr.mujuthaek.api.eligibility.controller.spec.EligibilityApiSpec;
 import kr.mujuthaek.api.eligibility.dto.request.EvaluateRequest;
 import kr.mujuthaek.api.eligibility.dto.request.PrepareCostRequest;
 import kr.mujuthaek.api.eligibility.dto.request.SubscriptionScoreRequest;
@@ -24,10 +25,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 판정 API는 /eligibility 아래에 모아요 (판정 경로 B). 로그인 없이 써요. */
+/** 판정 API (설명은 {@link EligibilityApiSpec}). 판정 API는 /eligibility 아래에 모아요 (판정 경로 B). */
 @RestController
 @RequestMapping("/api/v1/eligibility")
-class EligibilityController {
+class EligibilityController implements EligibilityApiSpec {
 
   /** 판정 응답은 사용자 조건으로 계산한 값이라 어디에도 캐시하지 않아요. */
   static final CacheControl NO_STORE = CacheControl.noStore();
@@ -48,35 +49,36 @@ class EligibilityController {
     this.prepareCost = prepareCost;
   }
 
-  /** 보증금으로 준비할 돈 (받을 수 있는 대출 고르기). 저장하지 않아요. */
+  @Override
   @PostMapping("/prepare-cost")
-  ResponseEntity<PrepareCost.Result> prepareCost(@Valid @RequestBody PrepareCostRequest request) {
+  public ResponseEntity<PrepareCost.Result> prepareCost(
+      @Valid @RequestBody PrepareCostRequest request) {
     return ResponseEntity.ok()
         .cacheControl(NO_STORE)
         .body(prepareCost.prepare(request.depositWon(), request.applicant().toApplicant()));
   }
 
-  /** 이 공고에 대한 내 판정 (공급 대상별 결과, 조건별 근거). 저장하지 않아요. */
+  @Override
   @PostMapping("/notices/{id}/evaluate")
-  ResponseEntity<NoticeEvaluationResponse> evaluateNotice(
+  public ResponseEntity<NoticeEvaluationResponse> evaluateNotice(
       @PathVariable UUID id, @Valid @RequestBody EvaluateRequest request) {
     return ResponseEntity.ok()
         .cacheControl(NO_STORE)
         .body(evaluations.evaluate(id, request.applicant().toApplicant()));
   }
 
-  /** 청약 가점 (무주택 기간·부양가족·청약통장 가입 기간). 저장하지 않아요. */
+  @Override
   @PostMapping("/subscription-score")
-  ResponseEntity<SubscriptionScore.Score> subscriptionScore(
+  public ResponseEntity<SubscriptionScore.Score> subscriptionScore(
       @Valid @RequestBody SubscriptionScoreRequest request) {
     return ResponseEntity.ok()
         .cacheControl(NO_STORE)
         .body(scores.score(request.applicant().toInput(), request.referenceDate()));
   }
 
-  /** 판정 기준 금액 (연도별 기준 중위소득, 순위 요건). 하루 캐시. */
+  @Override
   @GetMapping("/criteria")
-  ResponseEntity<CriteriaResponse> criteria(
+  public ResponseEntity<CriteriaResponse> criteria(
       @RequestParam(required = false) Integer year,
       @RequestParam(required = false) String noticeType) {
     return ResponseEntity.ok()

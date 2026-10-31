@@ -102,6 +102,46 @@ public class AreaReportService {
   }
 
   @Transactional(readOnly = true)
+  /** 관리자 제보 대기열(notice가 공고 제보와 섞어 보여요)의 생활권 쪽 한 페이지: 그 상태의 제보를 최신순으로 limit건, before 다음부터. */
+  public List<QueueRow> page(String status, OffsetDateTime beforeAt, UUID beforeId, int limit) {
+    if (!STATUSES.contains(status)) {
+      throw new CustomException(ErrorCode.VALIDATION_FAILED, "status는 NEW·DOING·DONE 중 하나예요");
+    }
+    return reports.page(status, beforeAt, beforeId, limit).stream()
+        .map(AreaReportService::item)
+        .map(
+            i ->
+                new QueueRow(
+                    i.id(),
+                    i.status(),
+                    i.screen(),
+                    i.noticeId(),
+                    i.noticeLocationId(),
+                    i.field(),
+                    i.currentValue(),
+                    i.reportedValue(),
+                    i.summary(),
+                    i.createdAt(),
+                    i.groupCount(),
+                    i.result()))
+        .toList();
+  }
+
+  /** 관리자 제보 대기열의 생활권 제보 한 줄 (목록 한 줄과 같은 칸). */
+  public record QueueRow(
+      UUID id,
+      String status,
+      String screen,
+      UUID noticeId,
+      String noticeLocationId,
+      String field,
+      String currentValue,
+      String reportedValue,
+      String summary,
+      OffsetDateTime createdAt,
+      int groupCount,
+      String result) {}
+
   public AreaReportResponse.Counts counts() {
     int[] c = reports.counts();
     return new AreaReportResponse.Counts(c[0], c[1], c[2]);

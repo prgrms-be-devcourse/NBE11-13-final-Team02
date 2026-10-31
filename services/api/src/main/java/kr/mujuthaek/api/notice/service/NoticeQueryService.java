@@ -400,35 +400,38 @@ public class NoticeQueryService {
         noticeId, current.row().field(), current.row().noticeType(), payload(current));
   }
 
+  /** 판정에 쓰는 공고 내용과 그 버전. */
+  public record VersionedJudgingSource(int version, JudgingSource source) {}
+
+  /** 공고 여러 개의 지금 버전 번호. 판정 캐시(eligibility)가 기억한 판정 틀을 써도 되는지 보려고 먼저 물어요. 숨김·공개 전·없는 공고는 빠져요. */
+  public java.util.Map<UUID, Integer> currentVersions(java.util.Collection<UUID> ids) {
+    return ids.isEmpty() ? java.util.Map.of() : queries.currentVersions(ids);
+  }
+
   /**
-   * 판정에 쓰는 공고 내용 여러 개를 한 번에 (맞춤 목록). 현재 버전 번호만 먼저 묻고, 판정 틀은 공고 ID·버전으로 기억해 둔 것을 써요. 처음 보는 버전만
-   * payload를 한 번에 읽어요. 숨김·공개 전·없는 공고는 빠져요.
+   * 판정에 쓰는 공고 내용 여러 개를 한 번에 (맞춤 목록). 기억하지 않아요: 판정 틀 캐시는 eligibility(JudgingFrames)가 공고 ID·버전으로 가져요.
+   * payload는 판정에 쓰는 칸만 읽어요. 숨김·공개 전·없는 공고는 빠져요.
    */
-  public java.util.Map<UUID, JudgingSource> judgingSources(java.util.Collection<UUID> ids) {
-    java.util.Map<UUID, JudgingSource> found = new java.util.HashMap<>();
+  public java.util.Map<UUID, VersionedJudgingSource> judgingSources(
+      java.util.Collection<UUID> ids) {
+    java.util.Map<UUID, VersionedJudgingSource> found = new java.util.HashMap<>();
     if (ids.isEmpty()) {
       return found;
     }
-    java.util.Map<UUID, Integer> versions = queries.currentVersions(ids);
-    List<UUID> missing = new java.util.ArrayList<>();
-    versions.forEach(
-        (id, version) -> {
-          JudgingSource cached = judgingCache.get(new JudgingKey(id, version));
-          if (cached == null) {
-            missing.add(id);
-          } else {
-            found.put(id, cached);
-          }
-        });
-    if (!missing.isEmpty()) {
-      for (var row : queries.judgingRows(missing)) {
-        JudgingSource source =
-            judgingSource(row.id(), row.field(), row.noticeType(), json.readTree(row.payload()));
-        judgingCache.put(new JudgingKey(row.id(), row.version()), source);
-        found.put(row.id(), source);
-      }
+    for (var row : queries.judgingRows(ids)) {
+      found.put(
+          row.id(),
+          new VersionedJudgingSource(
+              row.version(),
+              judgingSource(
+                  row.id(), row.field(), row.noticeType(), json.readTree(row.payload()))));
     }
     return found;
+  }
+
+  /** 열린 공고 ID (모집 예정·중·상시·모름, 마감 임박순). 판정 캐시를 뜰 때 미리 채우려고 써요. */
+  public List<UUID> openNoticeIds(int limit) {
+    return queries.openNoticeIds(limit);
   }
 
   private static JudgingSource judgingSource(
@@ -449,23 +452,6 @@ public class NoticeQueryService {
         units,
         ELIGIBILITY_COMPLETE.contains(coverage));
   }
-
-  private record JudgingKey(UUID id, int version) {}
-
-  /**
-   * 판정 틀 기억 (공고 ID·버전 → 판정에 쓰는 내용). 공개 데이터만 담아요(사용자 조건·판정 결과는 담지 않아요). 새 버전이 오면 키가 달라져서 옛 값은 오래된
-   * 순으로 밀려나요.
-   */
-  private final java.util.Map<JudgingKey, JudgingSource> judgingCache =
-      java.util.Collections.synchronizedMap(
-          new java.util.LinkedHashMap<>(256, 0.75f, true) {
-            @Override
-            protected boolean removeEldestEntry(java.util.Map.Entry<JudgingKey, JudgingSource> e) {
-              return size() > JUDGING_CACHE_SIZE;
-            }
-          });
-
-  static final int JUDGING_CACHE_SIZE = 2000;
 
   /**
    * 공고 요약 여러 개를 한 번에 (알림 담당 요청: 공고 ID로 제목·마감일 등). 물은 ID → 요약이며 물은 순서를 지켜요. 다른 공고에 합쳐진 공고 ID는 상세
@@ -506,6 +492,17 @@ public class NoticeQueryService {
   public java.util.Optional<PolicySummary> findPolicySummary(UUID policyId) {
     LocalDate today = LocalDate.now(clock);
     return queries.policySummary(policyId).map(row -> policySummary(row, today));
+  }
+
+  /** 정책 여러 개를 한 번에 (관심 목록용). 정책 ID → 요약, 공개 안 된·없는 ID는 빠져요. */
+  public java.util.Map<UUID, PolicySummary> findPolicySummaries(
+      java.util.Collection<UUID> policyIds) {
+    LocalDate today = LocalDate.now(clock);
+    java.util.Map<UUID, PolicySummary> out = new java.util.HashMap<>();
+    for (var row : queries.policySummaries(policyIds.stream().distinct().toList())) {
+      out.put(row.rawPolicyId(), policySummary(row, today));
+    }
+    return out;
   }
 
   /**

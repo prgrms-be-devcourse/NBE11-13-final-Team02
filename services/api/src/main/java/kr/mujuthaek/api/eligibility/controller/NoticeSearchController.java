@@ -1,6 +1,7 @@
 package kr.mujuthaek.api.eligibility.controller;
 
 import jakarta.validation.Valid;
+import kr.mujuthaek.api.eligibility.controller.spec.NoticeSearchApiSpec;
 import kr.mujuthaek.api.eligibility.dto.request.NoticeSearchRequest;
 import kr.mujuthaek.api.eligibility.dto.response.NoticeSearchResponse;
 import kr.mujuthaek.api.eligibility.service.NoticeSearchService;
@@ -11,11 +12,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 맞춤 목록 POST /api/v1/notices/search. 판정이 섞인 목록이라 eligibility에 있어요 (notice는 eligibility를 부를 수 없어서).
- * 판정 입력은 저장하지 않고 응답도 캐시하지 않아요.
+ * 공고 맞춤 목록 (설명은 {@link NoticeSearchApiSpec}). 판정이 섞인 목록이라 eligibility에 있어요 (notice는 eligibility를 부를
+ * 수 없어서).
  */
 @RestController
-class NoticeSearchController {
+class NoticeSearchController implements NoticeSearchApiSpec {
 
   private final NoticeSearchService search;
 
@@ -23,8 +24,10 @@ class NoticeSearchController {
     this.search = search;
   }
 
+  @Override
   @PostMapping("/api/v1/notices/search")
-  ResponseEntity<NoticeSearchResponse> search(@Valid @RequestBody NoticeSearchRequest request) {
+  public ResponseEntity<NoticeSearchResponse> search(
+      @Valid @RequestBody NoticeSearchRequest request) {
     return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(search.search(request));
   }
 }

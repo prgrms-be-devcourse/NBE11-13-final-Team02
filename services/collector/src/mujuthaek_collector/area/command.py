@@ -6,6 +6,7 @@ area-upload --source SUBWAY_STATION --data-date 2026-06-18 --file 역사정보.x
 area-upload --source ADDRESS_ENTRANCE --scope 36110 --data-date 2026-09-30 --file RNENTDATA_2610_36110.txt   (원본 그대로)
 area-upload --manifest area/area_manifest.csv --skip-upload   (이미 S3에 있는 파일: sha256 메타데이터만 확인하고 이벤트만)
 area-upload --manifest area/area_manifest_boundary.csv --skip-upload   (구역 경계 CSV 2개. 원본 zip 줄(REGION_BOUNDARY_RAW)은 건너뜀)
+area-upload --manifest area/area_manifest_address.csv --skip-upload --resend   (이미 보낸 요청도 다시 보내기: 빠진 적재 다시 요청)
 """
 
 import csv
@@ -33,8 +34,8 @@ class Result:
     problems: list[str] = field(default_factory=list)
 
 
-def upload_file(files: FileStore, conn, source: str, data_date: date, path: Path, scope: str | None = None) -> Result:
-    """파일 하나를 올리고 이벤트를 기록해요. 같은 파일이면 올리지도, 다시 기록하지도 않아요."""
+def upload_file(files: FileStore, conn, source: str, data_date: date, path: Path, scope: str | None = None, resend: bool = False) -> Result:
+    """파일 하나를 올리고 이벤트를 기록해요. 같은 파일이면 올리지도, 다시 기록하지도 않아요 (resend면 이벤트는 다시 보내요)."""
     scope = sources.check_scope(source, scope)
     key = sources.s3_key(source, data_date, scope)
     with tempfile.TemporaryDirectory() as tmp:
@@ -46,14 +47,15 @@ def upload_file(files: FileStore, conn, source: str, data_date: date, path: Path
         result = Result(uploaded=int(upload_once(files, key, csv_path, source, data_date, sha)))
         rows = _rows(csv_path, header=not sources.headerless(source))
         event = events.ready_event(source, scope, key, sha, data_date, path.name, rows)
-    result.recorded = int(events.record(conn, event))
+    result.recorded = int(events.record(conn, event, resend))
     return result
 
 
-def from_manifest(files: FileStore, conn, manifest: Path) -> Result:
+def from_manifest(files: FileStore, conn, manifest: Path, resend: bool = False) -> Result:
     """이미 S3에 올린 파일 목록(원천, 범위, S3 키, sha256, 기준일, 원본 이름, 줄 수)으로 이벤트만 기록해요.
     S3 객체가 없거나 sha256 메타데이터가 다르면 그 줄은 건너뛰고 problems에 남겨요.
-    보관만 하는 원본(sources.ARCHIVE_ONLY, 예: 구역의 도형 zip)은 적재 대상이 아니라 세기만 하고 건너뛰어요."""
+    보관만 하는 원본(sources.ARCHIVE_ONLY, 예: 구역의 도형 zip)은 적재 대상이 아니라 세기만 하고 건너뛰어요.
+    resend면 이미 기록한 이벤트도 다시 보내요 (빠진 적재 다시 요청, infra/deploy/README.md)."""
     result = Result()
     with manifest.open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
@@ -75,7 +77,7 @@ def from_manifest(files: FileStore, conn, manifest: Path) -> Result:
                 continue
             rows = int(row["rows"]) if row.get("rows") else None
             event = events.ready_event(source, scope, key, sha, data_date, row.get("fileName") or None, rows)
-            result.recorded += int(events.record(conn, event))
+            result.recorded += int(events.record(conn, event, resend))
     return result
 
 

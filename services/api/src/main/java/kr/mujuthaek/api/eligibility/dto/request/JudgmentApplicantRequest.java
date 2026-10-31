@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.eligibility.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
@@ -20,7 +21,11 @@ import kr.mujuthaek.api.eligibility.rule.frame.Applicant.MaritalStatus;
 public record JudgmentApplicantRequest(
     LocalDate birthDate,
     Boolean korean,
-    String residenceRegionCode,
+    @Schema(
+            description = "법정동코드 2·5·8·10자리",
+            pattern = "^(\\d{2}|\\d{5}|\\d{8}|\\d{10})$",
+            example = "1165000000")
+        String residenceRegionCode,
     Integer residenceMonths,
     MaritalStatus maritalStatus,
     LocalDate marriedOn,
@@ -54,10 +59,16 @@ public record JudgmentApplicantRequest(
   public record BusinessRequest(
       ApplicantType applicantType,
       Boolean hasSite,
-      String siteRegionCode,
+      @Schema(
+              description = "법정동코드 2·5·8·10자리",
+              pattern = "^(\\d{2}|\\d{5}|\\d{8}|\\d{10})$",
+              example = "1165000000")
+          String siteRegionCode,
       List<BusinessRecordRequest> history,
-      String industryCode,
-      Map<Integer, Long> revenueByYear) {}
+      @Schema(description = "업종 코드 5자리", pattern = "^\\d{5}$", example = "47190")
+          String industryCode,
+      @Schema(description = "연도별 매출(원)", example = "{\"2025\": 120000000}")
+          Map<Integer, Long> revenueByYear) {}
 
   public record BusinessRecordRequest(LocalDate openedOn, LocalDate closedOn) {}
 

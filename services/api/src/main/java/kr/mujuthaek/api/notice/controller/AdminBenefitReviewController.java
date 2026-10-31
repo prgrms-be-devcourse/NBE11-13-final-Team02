@@ -3,9 +3,10 @@ package kr.mujuthaek.api.notice.controller;
 import jakarta.validation.Valid;
 import java.security.Principal;
 import java.util.UUID;
+import kr.mujuthaek.api.notice.controller.spec.AdminBenefitReviewApiSpec;
 import kr.mujuthaek.api.notice.dto.request.AdminReviewDecisionRequest;
+import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewCountsResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewDetailResponse;
-import kr.mujuthaek.api.notice.dto.response.AdminBenefitReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDecisionResponse;
 import kr.mujuthaek.api.notice.service.internal.AdminBenefitReviewService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -13,22 +14,12 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 관리자 혜택(주거·이주 정책) 검수 화면 API (ADMIN만, /api/admin/**). 추출 서비스 혜택 검수 API를 이 서버가 대신 불러요.
- *
- * <pre>
- * GET  /api/admin/benefit-reviews?status=PENDING   목록 (PENDING·APPROVED·REJECTED·SUPERSEDED)
- * GET  /api/admin/benefit-reviews/{id}             상세: 정제 결과·받은 원문·처리 기록
- * POST /api/admin/benefit-reviews/{id}/approve     승인 { "note": "…", "edits": [{ "path": "/conditions/0/value", "value": … }] }
- * POST /api/admin/benefit-reviews/{id}/reject      반려(서비스에 안 보이게) { "reason": "OUT_OF_SCOPE", "note": "…" }
- * </pre>
- */
+/** 관리자 혜택(주거·이주 정책) 검수 (설명은 {@link AdminBenefitReviewApiSpec}). */
 @RestController
 @RequestMapping("/api/admin/benefit-reviews")
-class AdminBenefitReviewController {
+class AdminBenefitReviewController implements AdminBenefitReviewApiSpec {
 
   private final AdminBenefitReviewService reviews;
 
@@ -36,26 +27,30 @@ class AdminBenefitReviewController {
     this.reviews = reviews;
   }
 
-  @GetMapping
-  AdminBenefitReviewListResponse list(@RequestParam(required = false) String status) {
-    return reviews.list(status);
+  @Override
+  @GetMapping("/counts")
+  public AdminBenefitReviewCountsResponse counts() {
+    return reviews.counts();
   }
 
+  @Override
   @GetMapping("/{id}")
-  AdminBenefitReviewDetailResponse detail(@PathVariable UUID id) {
+  public AdminBenefitReviewDetailResponse detail(@PathVariable UUID id) {
     return reviews.detail(id.toString());
   }
 
+  @Override
   @PostMapping("/{id}/approve")
-  AdminReviewDecisionResponse approve(
+  public AdminReviewDecisionResponse approve(
       @PathVariable UUID id,
       @Valid @RequestBody(required = false) AdminReviewDecisionRequest request,
       Principal principal) {
     return reviews.approve(id.toString(), request, reviewer(principal));
   }
 
+  @Override
   @PostMapping("/{id}/reject")
-  AdminReviewDecisionResponse reject(
+  public AdminReviewDecisionResponse reject(
       @PathVariable UUID id,
       @Valid @RequestBody(required = false) AdminReviewDecisionRequest request,
       Principal principal) {
