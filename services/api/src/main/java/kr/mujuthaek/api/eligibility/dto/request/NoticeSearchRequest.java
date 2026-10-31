@@ -1,5 +1,7 @@
 package kr.mujuthaek.api.eligibility.dto.request;
 
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -17,10 +19,12 @@ import java.util.List;
 public record NoticeSearchRequest(
     @Valid Filters filters,
     @Valid ApplicantRequest applicant,
-    @Pattern(regexp = "RECOMMENDED|DEADLINE|PREPARE_COST|AREA_SCORE") String sort,
-    Boolean includeIneligible,
+    @Schema(defaultValue = "RECOMMENDED")
+        @Pattern(regexp = "RECOMMENDED|DEADLINE|PREPARE_COST|AREA_SCORE")
+        String sort,
+    @Schema(defaultValue = "false") Boolean includeIneligible,
     String cursor,
-    @Min(1) @Max(100) Integer size) {
+    @Schema(defaultValue = "20") @Min(1) @Max(100) Integer size) {
 
   /**
    * 공개 목록(GET /notices)과 같은 필터. statuses를 비우면 접수예정·접수중이에요.
@@ -28,12 +32,41 @@ public record NoticeSearchRequest(
    * @param keyword 검색어. 띄어쓰기로 나눈 낱말이 모두 제목에 들어 있는 공고만. 비우면 전부
    */
   public record Filters(
-      String field,
-      List<String> regionCodes,
-      String tenure,
-      List<String> noticeTypes,
+      @Schema(
+              allowableValues = {"HOUSING", "BUSINESS_SPACE"},
+              defaultValue = "HOUSING")
+          String field,
+      @ArraySchema(schema = @Schema(pattern = "^[0-9]{2}([0-9]{3})?$", example = "11680"))
+          List<String> regionCodes,
+      @Schema(allowableValues = {"RENT", "BUY"}) String tenure,
+      @ArraySchema(
+              schema =
+                  @Schema(
+                      allowableValues = {
+                        "YOUTH_SAFE_HOUSING",
+                        "PUBLIC_SUPPORT_PRIVATE_RENTAL",
+                        "INTEGRATED_PUBLIC_RENTAL",
+                        "PUBLIC_RENTAL",
+                        "HAPPY_HOUSING",
+                        "NATIONAL_RENTAL",
+                        "PERMANENT_RENTAL",
+                        "PURCHASE_RENTAL",
+                        "JEONSE_RENTAL",
+                        "LONG_TERM_JEONSE",
+                        "PUBLIC_SALE",
+                        "PRIVATE_SALE",
+                        "STARTUP_SPACE",
+                        "SHOP_RENTAL",
+                        "MEETING_ROOM"
+                      }))
+          List<String> noticeTypes,
       List<String> providers,
-      List<String> statuses,
+      @ArraySchema(
+              arraySchema = @Schema(description = "비우면 UPCOMING · APPLYING · ALWAYS · UNKNOWN"),
+              schema =
+                  @Schema(
+                      allowableValues = {"UPCOMING", "APPLYING", "CLOSED", "ALWAYS", "UNKNOWN"}))
+          List<String> statuses,
       @Size(max = 100) String keyword) {}
 
   public Filters filtersOrEmpty() {

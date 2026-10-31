@@ -10,6 +10,7 @@ import kr.mujuthaek.api.area.domain.AreaCriteria;
 import kr.mujuthaek.api.area.domain.SiteDetail;
 import kr.mujuthaek.api.area.domain.SiteScore;
 import kr.mujuthaek.api.area.dto.request.AreaScoreRequest;
+import kr.mujuthaek.api.area.dto.response.AreaScoreResponse;
 import kr.mujuthaek.api.area.service.AreaScoreService;
 import kr.mujuthaek.api.area.service.AreaSiteService;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -49,14 +50,13 @@ class AreaController implements AreaApiSpec {
 
   @Override
   @PostMapping("/score")
-  public ResponseEntity<Map<String, List<SiteScore>>> score(
-      @Valid @RequestBody AreaScoreRequest request) {
+  public ResponseEntity<AreaScoreResponse> score(@Valid @RequestBody AreaScoreRequest request) {
     List<SiteScore> items =
         scores.score(
             request.siteIds(),
             request.priorities() == null ? Map.of() : request.priorities().toMap(),
             request.workplace() == null ? null : request.workplace().toCoordinate());
-    return ResponseEntity.ok().cacheControl(NO_STORE).body(Map.of("items", items));
+    return ResponseEntity.ok().cacheControl(NO_STORE).body(new AreaScoreResponse(items));
   }
 
   @Override

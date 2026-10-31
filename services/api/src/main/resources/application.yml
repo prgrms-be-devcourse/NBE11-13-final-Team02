@@ -157,7 +157,7 @@ springdoc:
   swagger-ui:
     enabled: ${API_DOCS_ENABLED:false}
     tags-sorter: alpha
-    urls-primary-name: user              # 처음 열면 사용자 API부터 보여요
+    urls-primary-name: 사용자 API        # 처음 열면 사용자 API부터 (그룹 이름 user가 아니라 표시 이름 displayName과 맞춰야 해요)
     persist-authorization: true         # 새로 고쳐도 넣어 둔 access token을 기억해요 (그 브라우저에만)
 
 server:

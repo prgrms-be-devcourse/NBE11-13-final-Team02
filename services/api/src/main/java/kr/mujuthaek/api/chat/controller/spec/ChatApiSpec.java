@@ -2,6 +2,9 @@ package kr.mujuthaek.api.chat.controller.spec;
 
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.ExampleObject;
+import io.swagger.v3.oas.annotations.media.Schema;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.UUID;
@@ -137,7 +140,29 @@ public interface ChatApiSpec {
               + "붙자마자 주석 connected, 25초마다 주석 ping이 와요(화면은 무시해요). "
               + "연결은 30분 뒤 정상으로 닫히고 브라우저가 다시 붙어요. "
               + "다시 붙을 때 Last-Event-ID가 있으면 그 메시지 뒤에 온 메시지를 최대 100개까지 message.created로 먼저 보내요.")
-  @ApiResponse(responseCode = "200", description = "이벤트 스트림")
+  @ApiResponse(
+      responseCode = "200",
+      description = "이벤트 스트림 (위 설명의 이벤트가 연결이 닫힐 때까지 이어서 와요)",
+      content =
+          @Content(
+              mediaType = "text/event-stream",
+              schema = @Schema(type = "string"),
+              examples =
+                  @ExampleObject(
+                      value =
+                          """
+                          : connected
+
+                          event: message.created
+                          id: 0193f0c2-6a1e-7c3d-9a4b-2f1e8d7c6b5a
+                          data: {"id":"0193f0c2-6a1e-7c3d-9a4b-2f1e8d7c6b5a","noticeId":"…","content":"…"}
+
+                          event: like.updated
+                          data: {"id":"0193f0c2-6a1e-7c3d-9a4b-2f1e8d7c6b5a","likeCount":3}
+
+                          event: message.hidden
+                          data: {"id":"0193f0c2-6a1e-7c3d-9a4b-2f1e8d7c6b5a"}
+                          """)))
   @ApiResponse(responseCode = "404", description = "NOTICE_NOT_FOUND — 공고가 없거나 공개되지 않았어요")
   SseEmitter stream(
       @Parameter(description = "공고 ID") UUID noticeId,

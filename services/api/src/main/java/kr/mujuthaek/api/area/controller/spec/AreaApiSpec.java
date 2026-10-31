@@ -4,13 +4,11 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import kr.mujuthaek.api.area.domain.AreaCriteria;
 import kr.mujuthaek.api.area.domain.SiteDetail;
-import kr.mujuthaek.api.area.domain.SiteScore;
 import kr.mujuthaek.api.area.dto.request.AreaScoreRequest;
+import kr.mujuthaek.api.area.dto.response.AreaScoreResponse;
 import org.springframework.http.ResponseEntity;
 
 @Tag(
@@ -42,7 +40,7 @@ public interface AreaApiSpec {
       responseCode = "400",
       description =
           "VALIDATION_FAILED — siteIds가 비었거나 50개를 넘거나, 가중치가 0~10 밖이거나, workplace의 lat·lng가 없거나 범위 밖이에요")
-  ResponseEntity<Map<String, List<SiteScore>>> score(AreaScoreRequest request);
+  ResponseEntity<AreaScoreResponse> score(AreaScoreRequest request);
 
   @Operation(
       summary = "점수 기준표와 데이터 출처",
