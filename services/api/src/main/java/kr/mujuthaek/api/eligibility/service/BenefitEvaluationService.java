@@ -43,12 +43,57 @@ public class BenefitEvaluationService {
   private final JsonMapper json;
   private final Clock clock;
 
+  /** 판정 캐시 한 칸: 혜택(지원 내용·조건 포함)과 값을 읽어 둔 조건. */
+  private record Compiled(BenefitForJudgment benefit, List<BenefitJudge.Condition> conditions) {}
+
+  private record Key(UUID id, java.time.Instant updatedAt) {}
+
+  /**
+   * 열린 혜택의 판정 캐시 (혜택 ID·수정 시각 → 지원 내용·읽어 둔 조건). 맞춤 목록·홈 요약이 요청마다 열린 혜택 수천 개의 조건을 DB에서 읽고 값 JSON을 다시
+   * 읽던 것을, 처음 한 번만 해요. 혜택이 바뀌면(새 버전·상태·검수) 수정 시각이 달라져 키가 바뀌므로 옛 값은 쓰지 않아요(오래된 순으로 밀려나요). 공개 데이터만
+   * 담아요. 적중률은 {@code mujuthaek_judging_cache_total{cache="benefit"}}.
+   */
+  private final Map<Key, Compiled> cache;
+
+  private final io.micrometer.core.instrument.Counter hits;
+  private final io.micrometer.core.instrument.Counter misses;
+
   public BenefitEvaluationService(
-      BenefitQueryService benefits, CriteriaService criteria, JsonMapper json, Clock clock) {
+      BenefitQueryService benefits,
+      CriteriaService criteria,
+      JsonMapper json,
+      Clock clock,
+      io.micrometer.core.instrument.MeterRegistry meters,
+      @org.springframework.beans.factory.annotation.Value(
+              "${mujuthaek.judging.benefit-cache-size:20000}")
+          int capacity) {
     this.benefits = benefits;
     this.criteria = criteria;
     this.json = json;
     this.clock = clock;
+    this.cache =
+        java.util.Collections.synchronizedMap(
+            new java.util.LinkedHashMap<>(256, 0.75f, true) {
+              @Override
+              protected boolean removeEldestEntry(Map.Entry<Key, Compiled> e) {
+                return size() > capacity;
+              }
+            });
+    this.hits = counter(meters, "hit");
+    this.misses = counter(meters, "miss");
+    io.micrometer.core.instrument.Gauge.builder("mujuthaek.judging.cache.size", cache, Map::size)
+        .tag("cache", "benefit")
+        .description("판정 캐시에 든 수")
+        .register(meters);
+  }
+
+  private static io.micrometer.core.instrument.Counter counter(
+      io.micrometer.core.instrument.MeterRegistry meters, String result) {
+    return io.micrometer.core.instrument.Counter.builder("mujuthaek.judging.cache")
+        .tag("cache", "benefit")
+        .tag("result", result)
+        .description("판정 캐시 조회 (hit = 기억한 조건을 씀)")
+        .register(meters);
   }
 
   /** 판정한 혜택 한 건. */
@@ -59,15 +104,40 @@ public class BenefitEvaluationService {
    * (BenefitJudge와 같은 규칙이라 결과는 같아요).
    */
   public List<Judged> judgeAll(List<String> regionCodes, Applicant applicant) {
-    var judge = evaluator(applicant);
+    var judge = compiledEvaluator(applicant);
     int[] ages =
         applicant.birthMonth() == null
             ? null
             : Bands.ages(applicant.birthMonth(), LocalDate.now(clock.withZone(KOREA)));
-    var open = benefits.openForJudgment(regionCodes, ages);
+    // 캐시에 같은 수정 시각으로 있는 혜택은 DB가 조건을 읽지 않아요. 그 사이 밀려나도 되게 찾은 것을 이 요청 안에 잡아 둬요
+    Map<UUID, Compiled> cached = new java.util.concurrent.ConcurrentHashMap<>();
+    var open =
+        benefits.openForJudgment(
+            regionCodes,
+            ages,
+            (id, updatedAt) -> {
+              Compiled c = cache.get(new Key(id, updatedAt));
+              if (c != null) cached.put(id, c);
+              return c != null;
+            });
+    hits.increment(cached.size());
     return open.benefits().stream()
-        .map(b -> open.ruledOutByAge().contains(b.id()) ? ruledOutByAge(b) : judge.apply(b))
+        .map(
+            b -> {
+              if (open.ruledOutByAge().contains(b.id())) return ruledOutByAge(b);
+              Compiled c = cached.get(b.id());
+              if (c == null) {
+                misses.increment();
+                c = compile(b);
+                cache.put(new Key(b.id(), b.updatedAt()), c);
+              }
+              return judge.apply(c);
+            })
         .toList();
+  }
+
+  private Compiled compile(BenefitForJudgment b) {
+    return new Compiled(b, b.conditions().stream().map(this::condition).toList());
   }
 
   /** 나이 조건 그룹이 불충족이라 지원 불가 (목록은 지원 불가를 세기만 하고 보여 주지 않아요) */
@@ -104,18 +174,19 @@ public class BenefitEvaluationService {
 
   /** 요청 하나에서 여러 혜택을 판정할 때 기준 소득을 한 번만 읽어요. */
   Function<BenefitForJudgment, Judged> evaluator(Applicant applicant) {
+    var judge = compiledEvaluator(applicant);
+    return b -> judge.apply(compile(b));
+  }
+
+  private Function<Compiled, Judged> compiledEvaluator(Applicant applicant) {
     IncomeBenchmarks benchmarks = criteria.benchmarks();
     LocalDate today = LocalDate.now(clock.withZone(KOREA));
-    return b ->
+    return c ->
         new Judged(
-            b,
+            c.benefit(),
             BenefitJudge.judge(
-                b.conditions().stream().map(this::condition).toList(),
-                b.needsReview(),
-                applicant,
-                today,
-                benchmarks),
-            annualWon(b));
+                c.conditions(), c.benefit().needsReview(), applicant, today, benchmarks),
+            annualWon(c.benefit()));
   }
 
   @SuppressWarnings("unchecked")

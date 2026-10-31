@@ -94,6 +94,10 @@ app:
     vapid-public-key: ${PUSH_VAPID_PUBLIC_KEY:}  # 비어 있으면 구독을 받지 않아요 (공개키 API 503). 만들기: npx web-push generate-vapid-keys
 
 mujuthaek:
+  judging:                              # 판정 캐시 (공고: 판정 모델 한 개 약 4.4KB, 혜택: 지원 내용·읽어 둔 조건). 적중률 mujuthaek_judging_cache_total
+    cache-size: ${JUDGING_CACHE_SIZE:20000}                   # 공고 (ID·버전)
+    benefit-cache-size: ${JUDGING_BENEFIT_CACHE_SIZE:20000}   # 혜택 (ID·수정 시각)
+    prewarm: ${JUDGING_PREWARM:true}    # 뜰 때 열린 공고를 뒤에서 미리 채워요
   s3:                                   # collector와 같은 환경 변수. S3_ENDPOINT를 빈 값으로 주면 AWS S3 (EC2 역할)
     endpoint: ${S3_ENDPOINT:http://localhost:9000}
     bucket: ${S3_BUCKET:mujuthaek-raw}

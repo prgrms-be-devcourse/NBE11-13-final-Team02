@@ -47,7 +47,18 @@ public class BenefitQueryService {
    * @param ages 지원자 만 나이 [가장 어린, 가장 많은]. null이면 거르지 않아요
    */
   public OpenBenefits openForJudgment(Collection<String> regionCodes, int[] ages) {
-    var open = benefits.openBenefits(regionCodes, ages);
+    return openForJudgment(regionCodes, ages, (id, updatedAt) -> false);
+  }
+
+  /**
+   * {@link #openForJudgment(Collection, int[])}과 같되, cached가 참인 혜택(판정 캐시에 같은 ID·수정 시각으로 있는 것)은 지원
+   * 내용·조건을 읽지 않고 비워 둬요. 혜택이 바뀌면 수정 시각이 달라져서 다시 읽어요.
+   */
+  public OpenBenefits openForJudgment(
+      Collection<String> regionCodes,
+      int[] ages,
+      java.util.function.BiPredicate<UUID, java.time.Instant> cached) {
+    var open = benefits.openBenefits(regionCodes, ages, r -> cached.test(r.id(), r.updatedAt()));
     return new OpenBenefits(
         open.rows().stream().map(BenefitQueryService::toJudgment).toList(), open.ruledOutByAge());
   }
@@ -137,6 +148,7 @@ public class BenefitQueryService {
                 c ->
                     new BenefitForJudgment.Condition(
                         c.type(), c.valueJson(), c.group(), c.known(), c.rawText(), c.evidence()))
-            .toList());
+            .toList(),
+        r.updatedAt());
   }
 }
