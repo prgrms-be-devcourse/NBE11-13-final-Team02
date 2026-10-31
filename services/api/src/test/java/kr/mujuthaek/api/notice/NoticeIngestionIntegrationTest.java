@@ -1073,11 +1073,12 @@ class NoticeIngestionIntegrationTest {
                 .single())
         .isEqualTo(1); // 읽을 수 있는 공고는 마감 처리
     assertThat(
-            jdbc.sql("select next_status_check_at > now() from notice.notices where id = :id")
+            jdbc.sql("select next_status_check_at from notice.notices where id = :id")
                 .param("id", broken)
-                .query(Boolean.class)
-                .single())
-        .isTrue(); // 읽지 못한 공고는 하루 뒤로 미룸
+                .query(java.time.OffsetDateTime.class)
+                .single()
+                .toInstant())
+        .isAfter(clock.instant()); // 읽지 못한 공고는 하루 뒤로 미룸 (DB now()가 아니라 시험 시계 기준)
   }
 
   @Test
