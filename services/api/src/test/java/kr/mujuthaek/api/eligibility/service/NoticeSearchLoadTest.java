@@ -85,6 +85,23 @@ class NoticeSearchLoadTest {
   }
 
   @Test
+  void listReadsOnlyTheJudgingPartsButGetsTheSameJudgingInput() {
+    UUID id =
+        f.notice(
+            p -> {
+              schedule(p, "2026-10-01", "2026-11-30");
+              NoticeFixtures.judgment(p, ageFrame(19, 39));
+            });
+
+    // 목록은 payload에서 판정에 쓰는 칸만 읽고, 상세는 payload 전체를 읽어요. 판정 틀(가격·추출 범위 포함)은 같아야 해요
+    JudgingSource fromList = queries(counting).judgingSources(List.of(id)).get(id);
+    JudgingSource fromDetail = queries.judgingSource(id);
+
+    assertThat(fromList.unitTypes()).isNotEmpty();
+    assertThat(fromList).isEqualTo(fromDetail);
+  }
+
+  @Test
   void contractExamplePayloadCountsAsFullyExtracted() {
     UUID id = f.notice(p -> schedule(p, "2026-10-01", "2026-11-30"));
     assertThat(queries.judgingSources(List.of(id)).get(id).eligibilityComplete()).isTrue();

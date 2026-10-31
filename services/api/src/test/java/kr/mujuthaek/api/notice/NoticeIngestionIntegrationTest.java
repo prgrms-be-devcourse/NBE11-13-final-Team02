@@ -786,6 +786,10 @@ class NoticeIngestionIntegrationTest {
     assertThat(summary.applyEnd()).isEqualTo(LocalDate.of(2026, 10, 22));
     assertThat(summary.regionCodes()).isEmpty();
     assertThat(query.findPolicySummary(UUID.randomUUID())).isEmpty();
+    // 관심 목록은 여러 개를 한 번에 읽어요: 하나씩 읽은 것과 같고, 없는·공개 전 정책은 빠져요
+    var many = query.findPolicySummaries(List.of(startupId, UUID.randomUUID()));
+    assertThat(many).containsOnlyKeys(startupId);
+    assertThat(many.get(startupId)).isEqualTo(summary);
 
     // 오늘 10/19: 10/22(D-3) 마감 중 이미 신청 중인 것만
     LocalDate today = LocalDate.of(2026, 10, 19);
@@ -1069,11 +1073,12 @@ class NoticeIngestionIntegrationTest {
                 .single())
         .isEqualTo(1); // 읽을 수 있는 공고는 마감 처리
     assertThat(
-            jdbc.sql("select next_status_check_at > now() from notice.notices where id = :id")
+            jdbc.sql("select next_status_check_at from notice.notices where id = :id")
                 .param("id", broken)
-                .query(Boolean.class)
-                .single())
-        .isTrue(); // 읽지 못한 공고는 하루 뒤로 미룸
+                .query(java.time.OffsetDateTime.class)
+                .single()
+                .toInstant())
+        .isAfter(clock.instant()); // 읽지 못한 공고는 하루 뒤로 미룸 (DB now()가 아니라 시험 시계 기준)
   }
 
   @Test

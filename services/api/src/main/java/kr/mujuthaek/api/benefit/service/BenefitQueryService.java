@@ -32,6 +32,26 @@ public class BenefitQueryService {
         .toList();
   }
 
+  /**
+   * 판정 후보와, 그중 나이 조건만으로 지원 불가가 확실한 혜택(DB에서 골라 지원 내용·조건을 읽지 않은 것).
+   *
+   * @param benefits 판정 후보 (마감일 순). 나이로 걸러진 혜택도 순서대로 들어 있고 지원 내용·조건이 비어 있어요
+   * @param ruledOutByAge 나이로 걸러진 혜택 ID
+   */
+  public record OpenBenefits(
+      List<BenefitForJudgment> benefits, java.util.Set<UUID> ruledOutByAge) {}
+
+  /**
+   * {@link #openForJudgment(Collection)}과 같은 혜택을 주되, 지원자 나이로 지원 불가가 확실한 혜택은 DB에서 골라 조건을 읽지 않아요.
+   *
+   * @param ages 지원자 만 나이 [가장 어린, 가장 많은]. null이면 거르지 않아요
+   */
+  public OpenBenefits openForJudgment(Collection<String> regionCodes, int[] ages) {
+    var open = benefits.openBenefits(regionCodes, ages);
+    return new OpenBenefits(
+        open.rows().stream().map(BenefitQueryService::toJudgment).toList(), open.ruledOutByAge());
+  }
+
   /** 혜택 하나 (숨김이면 없음). */
   public Optional<BenefitForJudgment> forJudgment(UUID id) {
     return benefits.find(id).map(BenefitQueryService::toJudgment);
@@ -40,6 +60,15 @@ public class BenefitQueryService {
   /** 혜택 하나의 요약 (알림용). 숨김(HIDDEN)도 줘요. 없으면 빈 값 */
   public Optional<BenefitSummary> findSummary(UUID id) {
     return benefits.summary(id).map(BenefitQueryService::toSummary);
+  }
+
+  /** 혜택 여러 개의 요약을 한 번에 (관심 목록용). 혜택 ID → 요약, 없는 ID는 빠져요. 숨김(HIDDEN)도 줘요 */
+  public java.util.Map<UUID, BenefitSummary> findSummaries(Collection<UUID> ids) {
+    java.util.Map<UUID, BenefitSummary> out = new java.util.HashMap<>();
+    for (var row : benefits.summaries(ids.stream().distinct().toList())) {
+      out.put(row.id(), toSummary(row));
+    }
+    return out;
   }
 
   /**
