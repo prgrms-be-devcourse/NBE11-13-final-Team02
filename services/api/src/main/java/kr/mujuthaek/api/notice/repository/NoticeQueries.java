@@ -302,6 +302,18 @@ public class NoticeQueries {
         .findFirst();
   }
 
+  /** 공개된 정책 여러 개를 한 번에 (관심 목록용, 검수 대기 틀·숨김은 빼요). 마감된 정책도 줘요. */
+  public List<PolicySummaryRow> policySummaries(java.util.Collection<UUID> rawPolicyIds) {
+    if (rawPolicyIds.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.query(
+        POLICY_SUMMARY_COLUMNS
+            + " where raw_policy_id in (:ids) and review_status <> 'IN_REVIEW' and hidden_at is null",
+        new MapSqlParameterSource("ids", rawPolicyIds),
+        (rs, i) -> policySummaryRow(rs));
+  }
+
   /** 마감일이 dates 중 하나이고 오늘 신청할 수 있는 정책 (검수 대기·아직 시작 전은 빼요). 마감일 순. */
   public List<PolicySummaryRow> openPoliciesClosingOn(
       java.util.Collection<LocalDate> dates, LocalDate today) {

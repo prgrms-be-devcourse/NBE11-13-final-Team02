@@ -42,6 +42,15 @@ public class BenefitQueryService {
     return benefits.summary(id).map(BenefitQueryService::toSummary);
   }
 
+  /** 혜택 여러 개의 요약을 한 번에 (관심 목록용). 혜택 ID → 요약, 없는 ID는 빠져요. 숨김(HIDDEN)도 줘요 */
+  public java.util.Map<UUID, BenefitSummary> findSummaries(Collection<UUID> ids) {
+    java.util.Map<UUID, BenefitSummary> out = new java.util.HashMap<>();
+    for (var row : benefits.summaries(ids.stream().distinct().toList())) {
+      out.put(row.id(), toSummary(row));
+    }
+    return out;
+  }
+
   /**
    * 수집 정책 ID(rawPolicyId)로 혜택 하나의 요약 (알림 담당: BenefitReportAnswered의 policyId가 이 ID라서). 숨김도 줘요. 없으면
    * 빈 값

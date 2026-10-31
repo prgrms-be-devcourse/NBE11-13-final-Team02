@@ -508,6 +508,17 @@ public class NoticeQueryService {
     return queries.policySummary(policyId).map(row -> policySummary(row, today));
   }
 
+  /** 정책 여러 개를 한 번에 (관심 목록용). 정책 ID → 요약, 공개 안 된·없는 ID는 빠져요. */
+  public java.util.Map<UUID, PolicySummary> findPolicySummaries(
+      java.util.Collection<UUID> policyIds) {
+    LocalDate today = LocalDate.now(clock);
+    java.util.Map<UUID, PolicySummary> out = new java.util.HashMap<>();
+    for (var row : queries.policySummaries(policyIds.stream().distinct().toList())) {
+      out.put(row.rawPolicyId(), policySummary(row, today));
+    }
+    return out;
+  }
+
   /**
    * 마감일이 dates 중 하나이고 오늘 신청할 수 있는 창업지원 사업·사업공간 모집 (알림 담당 요청: 관심 정책 마감 D-3·D-1). 검수 대기·아직 시작 전인 정책은
    * 빼요. 마감일 순이에요.

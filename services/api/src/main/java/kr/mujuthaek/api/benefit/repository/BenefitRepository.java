@@ -277,6 +277,15 @@ public class BenefitRepository {
         .optional();
   }
 
+  /** 혜택 여러 개의 요약을 한 번에 (숨김 포함, 없는 ID는 빠져요). 관심 목록이 한 줄씩 묻지 않게요. */
+  public List<SummaryRow> summaries(Collection<UUID> ids) {
+    if (ids.isEmpty()) return List.of();
+    return jdbc.sql(SUMMARY + " where id = any(?)")
+        .param(ids.toArray(UUID[]::new))
+        .query(BenefitRepository::summary)
+        .list();
+  }
+
   /** 수집 정책 ID로 혜택 하나의 요약 (숨김 포함). */
   public Optional<SummaryRow> summaryByRawPolicyId(UUID rawPolicyId) {
     return jdbc.sql(SUMMARY + " where raw_policy_id = ?")
