@@ -2,6 +2,7 @@ package kr.mujuthaek.api.notification.controller;
 
 import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
+import kr.mujuthaek.api.notification.controller.spec.NotificationInboxApiSpec;
 import kr.mujuthaek.api.notification.dto.response.NotificationItemResponse;
 import kr.mujuthaek.api.notification.dto.response.UnreadCountResponse;
 import kr.mujuthaek.api.notification.service.internal.InboxService;
@@ -15,10 +16,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 알림함 (로그인한 회원만, {@code /api/users/**}). 알림은 90일 동안 남아요. */
+/** 알림함 (설명은 {@link NotificationInboxApiSpec}). */
 @RestController
 @RequestMapping("/api/users/me/notifications")
-class NotificationInboxController {
+class NotificationInboxController implements NotificationInboxApiSpec {
 
   private final InboxService inbox;
 
@@ -26,14 +27,9 @@ class NotificationInboxController {
     this.inbox = inbox;
   }
 
-  /**
-   * 내 알림 (최근 것부터).
-   *
-   * @param size 기본 20, 1~100
-   * @param unread true면 안 읽은 것만
-   */
+  @Override
   @GetMapping
-  CursorPageResponse<NotificationItemResponse> list(
+  public CursorPageResponse<NotificationItemResponse> list(
       @AuthenticationPrincipal LoginUser user,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer size,
@@ -41,21 +37,23 @@ class NotificationInboxController {
     return inbox.list(user.userId(), cursor, size, unread);
   }
 
+  @Override
   @GetMapping("/unread-count")
-  UnreadCountResponse unreadCount(@AuthenticationPrincipal LoginUser user) {
+  public UnreadCountResponse unreadCount(@AuthenticationPrincipal LoginUser user) {
     return new UnreadCountResponse(inbox.unreadCount(user.userId()));
   }
 
-  /** 읽음. 이미 읽었어도 204, 내 알림이 아니면 404 */
+  @Override
   @PostMapping("/{id}/read")
-  ResponseEntity<Void> markRead(@AuthenticationPrincipal LoginUser user, @PathVariable UUID id) {
+  public ResponseEntity<Void> markRead(
+      @AuthenticationPrincipal LoginUser user, @PathVariable UUID id) {
     inbox.markRead(user.userId(), id);
     return ResponseEntity.noContent().build();
   }
 
-  /** 모두 읽음 */
+  @Override
   @PostMapping("/read-all")
-  ResponseEntity<Void> markAllRead(@AuthenticationPrincipal LoginUser user) {
+  public ResponseEntity<Void> markAllRead(@AuthenticationPrincipal LoginUser user) {
     inbox.markAllRead(user.userId());
     return ResponseEntity.noContent().build();
   }

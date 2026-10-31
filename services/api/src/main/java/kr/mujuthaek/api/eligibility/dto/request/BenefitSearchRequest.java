@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.eligibility.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -16,9 +17,10 @@ import kr.mujuthaek.api.common.text.Keywords;
 public record BenefitSearchRequest(
     @Valid Filters filters,
     @Valid ApplicantRequest applicant,
-    @Pattern(regexp = "RECOMMENDED|DEADLINE|AMOUNT") String sort,
+    @Schema(defaultValue = "RECOMMENDED") @Pattern(regexp = "RECOMMENDED|DEADLINE|AMOUNT")
+        String sort,
     String cursor,
-    @Min(1) @Max(100) Integer size) {
+    @Schema(defaultValue = "20") @Min(1) @Max(100) Integer size) {
 
   /**
    * @param regionCodes 찾아볼 지역 (시도 2자리 · 시군구 5자리). 비우면 전체, 있으면 전국 혜택 + 그 지역 혜택

@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
+import kr.mujuthaek.api.user.controller.spec.PreferenceApiSpec;
 import kr.mujuthaek.api.user.dto.request.InterestRequests;
 import kr.mujuthaek.api.user.dto.request.NotificationSettingsRequest;
 import kr.mujuthaek.api.user.dto.response.FavoriteResponse;
@@ -29,12 +30,12 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 관심 공고·관심 조건·알림 설정 (contracts/schemas/user-preferences.draft.md 2장). 로그인한 회원만 ({@code
- * /api/users/**}). 알림 대상자를 고르는 데 써요.
+ * 관심 공고·관심 조건·알림 설정 (설명은 {@link PreferenceApiSpec}). 계약은
+ * contracts/schemas/user-preferences.draft.md 2장.
  */
 @RestController
 @RequestMapping("/api/users/me")
-class PreferenceController {
+class PreferenceController implements PreferenceApiSpec {
 
   private final FavoriteService favorites;
   private final InterestService interests;
@@ -47,9 +48,9 @@ class PreferenceController {
     this.settings = settings;
   }
 
-  /** 관심 공고·정책 저장 (이미 있어도 204). 없는 대상은 404, 200개를 넘으면 409 */
+  @Override
   @PutMapping("/favorites/{targetType}/{targetId}")
-  ResponseEntity<Void> addFavorite(
+  public ResponseEntity<Void> addFavorite(
       @AuthenticationPrincipal LoginUser user,
       @PathVariable String targetType,
       @PathVariable UUID targetId) {
@@ -57,8 +58,9 @@ class PreferenceController {
     return ResponseEntity.noContent().build();
   }
 
+  @Override
   @DeleteMapping("/favorites/{targetType}/{targetId}")
-  ResponseEntity<Void> removeFavorite(
+  public ResponseEntity<Void> removeFavorite(
       @AuthenticationPrincipal LoginUser user,
       @PathVariable String targetType,
       @PathVariable UUID targetId) {
@@ -66,9 +68,9 @@ class PreferenceController {
     return ResponseEntity.noContent().build();
   }
 
-  /** 최근 저장한 것부터. targetType으로 거를 수 있어요 */
+  @Override
   @GetMapping("/favorites")
-  CursorPageResponse<FavoriteResponse> favorites(
+  public CursorPageResponse<FavoriteResponse> favorites(
       @AuthenticationPrincipal LoginUser user,
       @RequestParam(required = false) String targetType,
       @RequestParam(required = false) String cursor,
@@ -76,16 +78,18 @@ class PreferenceController {
     return favorites.list(user.userId(), targetType, cursor, size);
   }
 
+  @Override
   @GetMapping("/interests/housing")
-  InterestResponses.Housing housing(@AuthenticationPrincipal LoginUser user) {
+  public InterestResponses.Housing housing(@AuthenticationPrincipal LoginUser user) {
     return interests
         .housing(user.userId())
         .map(h -> housing(true, h))
         .orElse(new InterestResponses.Housing(false, List.of(), true, List.of()));
   }
 
+  @Override
   @PutMapping("/interests/housing")
-  InterestResponses.Housing saveHousing(
+  public InterestResponses.Housing saveHousing(
       @AuthenticationPrincipal LoginUser user, @RequestBody InterestRequests.Housing body) {
     return housing(
         true,
@@ -95,16 +99,18 @@ class PreferenceController {
                 body.regionCodes(), nationwide(body.includeNationwide()), body.noticeTypes())));
   }
 
+  @Override
   @GetMapping("/interests/business")
-  InterestResponses.Business business(@AuthenticationPrincipal LoginUser user) {
+  public InterestResponses.Business business(@AuthenticationPrincipal LoginUser user) {
     return interests
         .business(user.userId())
         .map(b -> business(true, b))
         .orElse(new InterestResponses.Business(false, List.of(), true, List.of(), List.of()));
   }
 
+  @Override
   @PutMapping("/interests/business")
-  InterestResponses.Business saveBusiness(
+  public InterestResponses.Business saveBusiness(
       @AuthenticationPrincipal LoginUser user, @RequestBody InterestRequests.Business body) {
     return business(
         true,
@@ -117,16 +123,18 @@ class PreferenceController {
                 body.startupStages())));
   }
 
+  @Override
   @GetMapping("/interests/support")
-  InterestResponses.Support support(@AuthenticationPrincipal LoginUser user) {
+  public InterestResponses.Support support(@AuthenticationPrincipal LoginUser user) {
     return interests
         .support(user.userId())
         .map(s -> support(true, s))
         .orElse(new InterestResponses.Support(false, List.of(), true, List.of()));
   }
 
+  @Override
   @PutMapping("/interests/support")
-  InterestResponses.Support saveSupport(
+  public InterestResponses.Support saveSupport(
       @AuthenticationPrincipal LoginUser user, @RequestBody InterestRequests.Support body) {
     return support(
         true,
@@ -136,22 +144,24 @@ class PreferenceController {
                 body.regionCodes(), nationwide(body.includeNationwide()), body.supportKinds())));
   }
 
-  /** 그 종류의 새 소식 알림을 그만 받아요 (kind: housing · business · support) */
+  @Override
   @DeleteMapping("/interests/{kind}")
-  ResponseEntity<Void> deleteInterest(
+  public ResponseEntity<Void> deleteInterest(
       @AuthenticationPrincipal LoginUser user, @PathVariable String kind) {
     interests.delete(user.userId(), kind);
     return ResponseEntity.noContent().build();
   }
 
-  /** 저장한 적 없으면 기본값 (모두 켬, 조용한 시간 끔) */
+  @Override
   @GetMapping("/notification-settings")
-  NotificationSettingsResponse notificationSettings(@AuthenticationPrincipal LoginUser user) {
+  public NotificationSettingsResponse notificationSettings(
+      @AuthenticationPrincipal LoginUser user) {
     return response(settings.get(user.userId()));
   }
 
+  @Override
   @PutMapping("/notification-settings")
-  NotificationSettingsResponse saveNotificationSettings(
+  public NotificationSettingsResponse saveNotificationSettings(
       @AuthenticationPrincipal LoginUser user, @Valid @RequestBody NotificationSettingsRequest b) {
     return response(
         settings.save(
