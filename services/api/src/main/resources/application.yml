@@ -152,6 +152,18 @@ mujuthaek:
       retries: 2
       timeout: 5s
 
+# API 문서(스웨거). 기본은 꺼 두고 로컬(application-local.yml)과 개발 서버(API_DOCS_ENABLED=true)에서만 켜요.
+# 운영에서 관리자 API 구조까지 밖에 보이지 않게요
+springdoc:
+  default-produces-media-type: application/json
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+    tags-sorter: alpha
+    urls-primary-name: 사용자 API        # 처음 열면 사용자 API부터 (그룹 이름 user가 아니라 표시 이름 displayName과 맞춰야 해요)
+    persist-authorization: true         # 새로 고쳐도 넣어 둔 access token을 기억해요 (그 브라우저에만)
+
 server:
   compression:                          # JSON 응답을 gzip으로 (관리자 목록·공고 상세가 수백 KB, 2026-10-30 부하 시험)
     enabled: true

@@ -2,6 +2,7 @@ package kr.mujuthaek.api.chat.controller;
 
 import jakarta.validation.Valid;
 import java.util.UUID;
+import kr.mujuthaek.api.chat.controller.spec.ChatApiSpec;
 import kr.mujuthaek.api.chat.dto.request.ReportRequest;
 import kr.mujuthaek.api.chat.dto.request.SendMessageRequest;
 import kr.mujuthaek.api.chat.dto.response.ChatMessageResponse;
@@ -29,12 +30,12 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 /**
- * 공고 채팅. 읽기(방 정보·목록·SSE)는 로그인 없이, 쓰기는 로그인한 회원만이에요. 시큐리티가 이 경로들을 열어 두어서(permitAll) 쓰기는 여기서 로그인을 확인해
- * 401 UNAUTHENTICATED를 내요.
+ * 공고 채팅 (설명은 {@link ChatApiSpec}). 시큐리티가 이 경로들을 열어 두어서(permitAll) 쓰기는 여기서 로그인을 확인해 401
+ * UNAUTHENTICATED를 내요.
  */
 @RestController
 @RequestMapping("/api/v1")
-class ChatController {
+class ChatController implements ChatApiSpec {
 
   private final ChatService chats;
 
@@ -42,14 +43,15 @@ class ChatController {
     this.chats = chats;
   }
 
+  @Override
   @GetMapping("/notices/{noticeId}/chat")
-  ChatRoomResponse room(@PathVariable UUID noticeId) {
+  public ChatRoomResponse room(@PathVariable UUID noticeId) {
     return chats.room(noticeId);
   }
 
-  /** 최신순 커서 목록 (기본 30개). 로그인했으면 내 좋아요·내 글 여부가 채워져요. */
+  @Override
   @GetMapping("/notices/{noticeId}/chat/messages")
-  CursorPageResponse<ChatMessageResponse> messages(
+  public CursorPageResponse<ChatMessageResponse> messages(
       @PathVariable UUID noticeId,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer size,
@@ -57,9 +59,9 @@ class ChatController {
     return chats.messages(noticeId, cursor, size, user == null ? null : user.userId());
   }
 
-  /** 보내기·답장 → 201과 만든 메시지 (mine = true). 같은 메시지가 SSE message.created로도 와요 (화면은 ID로 한 번 걸러요). */
+  @Override
   @PostMapping("/notices/{noticeId}/chat/messages")
-  ResponseEntity<ChatMessageResponse> send(
+  public ResponseEntity<ChatMessageResponse> send(
       @PathVariable UUID noticeId,
       @RequestBody SendMessageRequest request,
       @AuthenticationPrincipal LoginUser user) {
@@ -68,24 +70,29 @@ class ChatController {
         .body(chats.send(noticeId, userId, user.nickname(), request));
   }
 
+  @Override
   @DeleteMapping("/chat/messages/{id}")
-  ResponseEntity<Void> delete(@PathVariable UUID id, @AuthenticationPrincipal LoginUser user) {
+  public ResponseEntity<Void> delete(
+      @PathVariable UUID id, @AuthenticationPrincipal LoginUser user) {
     chats.delete(id, loggedIn(user));
     return ResponseEntity.noContent().build();
   }
 
+  @Override
   @PutMapping("/chat/messages/{id}/like")
-  LikeResponse like(@PathVariable UUID id, @AuthenticationPrincipal LoginUser user) {
+  public LikeResponse like(@PathVariable UUID id, @AuthenticationPrincipal LoginUser user) {
     return chats.like(id, loggedIn(user));
   }
 
+  @Override
   @DeleteMapping("/chat/messages/{id}/like")
-  LikeResponse unlike(@PathVariable UUID id, @AuthenticationPrincipal LoginUser user) {
+  public LikeResponse unlike(@PathVariable UUID id, @AuthenticationPrincipal LoginUser user) {
     return chats.unlike(id, loggedIn(user));
   }
 
+  @Override
   @PostMapping("/chat/messages/{id}/reports")
-  ResponseEntity<Void> report(
+  public ResponseEntity<Void> report(
       @PathVariable UUID id,
       @Valid @RequestBody ReportRequest request,
       @AuthenticationPrincipal LoginUser user) {
@@ -93,14 +100,11 @@ class ChatController {
     return ResponseEntity.status(HttpStatus.CREATED).build();
   }
 
-  /**
-   * 실시간 받기 (text/event-stream). 로그인이 필요 없어서 EventSource로 바로 붙어요. 재연결 때 브라우저가 Last-Event-ID를 보내면 놓친
-   * 메시지를 먼저 보내요.
-   */
+  @Override
   @GetMapping(
       value = "/notices/{noticeId}/chat/stream",
       produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-  SseEmitter stream(
+  public SseEmitter stream(
       @PathVariable UUID noticeId,
       @RequestHeader(name = "Last-Event-ID", required = false) String lastEventId) {
     return chats.subscribe(noticeId, lastEventId);

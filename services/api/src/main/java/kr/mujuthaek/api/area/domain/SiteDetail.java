@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.area.domain;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
@@ -19,7 +20,10 @@ public record SiteDetail(
     double lng,
     boolean approximate,
     Metrics metrics,
-    Map<LifeCategory, Integer> categoryScores,
+    @Schema(
+            example =
+                "{\"TRANSIT\": 85, \"SCHOOL\": 70, \"PARK\": 90, \"CONVENIENCE\": 60, \"HOSPITAL\": 55}")
+        Map<LifeCategory, Integer> categoryScores,
     List<AreaTag> tags,
     OffsetDateTime calculatedAt) {
 
