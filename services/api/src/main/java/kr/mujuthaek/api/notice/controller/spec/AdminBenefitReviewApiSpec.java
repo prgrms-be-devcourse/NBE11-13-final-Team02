@@ -21,7 +21,9 @@ public interface AdminBenefitReviewApiSpec {
   @Operation(
       summary = "혜택 검수 대기 건수",
       description =
-          "사이드바·개요에 쓰는 대기 건수만 줘요(목록 전체를 받지 않아요). " + "5초 동안은 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 세요.")
+          "사이드바·개요에 쓰는 대기 건수만 줘요(목록 전체를 받지 않아요). "
+              + "5초가 지난 뒤 부르면 지난 값을 먼저 주고 뒤에서 새로 세요. 그래서 마지막으로 센 지 최대 50초 된 값이 나올 수 있어요. "
+              + "줄 값이 없으면(처음, 이 서버에서 혜택 검수를 승인·반려한 직후, 마지막으로 센 지 50초가 지남) 그 자리에서 세고, 실패하면 503이에요.")
   @ApiResponse(responseCode = "200", description = "대기 건수 (benefitPending)")
   @ApiResponse(responseCode = "503", description = "NOTICE_REVIEW_UNAVAILABLE — 검수 서버에 연결하지 못했어요")
   AdminBenefitReviewCountsResponse counts();

@@ -15,7 +15,8 @@ public interface AdminNotificationApiSpec {
       summary = "최근 며칠 알림 통계",
       description =
           "최근 days일의 알림 서버 발송 결과(delivery)와 알림함의 종류별 지표(engagement)를 줘요. 회원별 값은 없고 종류별 합계만 있어요. "
-              + "알림 서버에 닿지 못하면 delivery만 null이에요. 같은 days는 1분 동안 같은 값을 다시 써요.")
+              + "알림 서버에 닿지 못하면 delivery만 null이고, 이 null도 다른 값처럼 캐시에 남아요. "
+              + "같은 days는 1분이 지난 뒤 부르면 지난 값을 먼저 주고 뒤에서 새로 세요. 그래서 마지막으로 센 지 최대 10분 된 값이 나올 수 있어요.")
   @ApiResponse(responseCode = "200", description = "알림 통계")
   @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED — days가 1~90 밖이에요")
   AdminNotificationStatsResponse stats(

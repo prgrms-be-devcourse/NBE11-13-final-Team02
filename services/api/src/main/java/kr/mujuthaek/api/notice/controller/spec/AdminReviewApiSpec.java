@@ -28,7 +28,9 @@ public interface AdminReviewApiSpec {
           "공고·혜택 검수를 들어온 시각 순(오래된 것부터)으로 섞어 size건 줘요. 응답의 nextCursor를 다음 요청의 cursor로 넘기면 "
               + "이어서 받아요(null이면 끝). total은 첫 페이지(cursor 없이)에서만 정확해요. "
               + "reason이 FORMAT이면 혜택은 없고, MUST면 혜택은 정책 제보로 다시 연 건만이에요. "
-              + "첫 페이지(cursor 없이)는 5초 동안 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 받아요.")
+              + "첫 페이지(cursor 없이)는 5초가 지난 뒤 부르면 지난 값을 먼저 주고 뒤에서 새로 받아요. 그래서 마지막으로 받은 지 최대 50초 된 값이 나올 수 있어요. "
+              + "줄 값이 없으면(같은 kinds·reason·size로 처음, 이 서버에서 공고 검수를 승인·반려한 직후, 마지막으로 받은 지 50초가 지남) 그 자리에서 받고, 실패하면 503이에요. "
+              + "혜택 검수 처리는 첫 페이지에 바로 반영되지 않아요. 다음 페이지(cursor 있음)는 늘 그 자리에서 받아요.")
   @ApiResponse(responseCode = "200", description = "대기열 한 페이지")
   @ApiResponse(
       responseCode = "400",
@@ -51,7 +53,8 @@ public interface AdminReviewApiSpec {
       summary = "공고 검수 대기 건수",
       description =
           "대기 건수와 가장 오래 기다린 건이 들어온 시각(대기가 없으면 null)을 줘요. "
-              + "5초 동안은 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 세요.")
+              + "5초가 지난 뒤 부르면 지난 값을 먼저 주고 뒤에서 새로 세요. 그래서 마지막으로 센 지 최대 50초 된 값이 나올 수 있어요. "
+              + "줄 값이 없으면(처음, 이 서버에서 공고 검수를 승인·반려한 직후, 마지막으로 센 지 50초가 지남) 그 자리에서 세고, 실패하면 503이에요.")
   @ApiResponse(responseCode = "200", description = "대기 건수")
   @ApiResponse(responseCode = "503", description = "NOTICE_REVIEW_UNAVAILABLE — 검수 서버에 연결하지 못했어요")
   AdminReviewCountsResponse counts();
@@ -70,7 +73,9 @@ public interface AdminReviewApiSpec {
       summary = "마감이 가까운 공고 검수 대기",
       description =
           "신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건을 마감이 이른 것부터 줘요. 마감을 모르는 건은 빠져요. "
-              + "1분 동안은 같은 값을 다시 쓰고, 이 서버에서 승인·반려하면 바로 새로 받아요.")
+              + "1분이 지난 뒤 부르면 지난 값을 먼저 주고 뒤에서 새로 받아요. 그래서 마지막으로 받은 지 최대 10분 된 값이 나올 수 있어요. "
+              + "줄 값이 없으면(그 마감 기준일(오늘+days)로 처음, 이 서버에서 공고 검수를 승인·반려한 직후, 마지막으로 받은 지 10분이 지남) "
+              + "그 자리에서 받고, 실패하면 503이에요.")
   @ApiResponse(responseCode = "200", description = "마감이 가까운 대기 건")
   @ApiResponse(responseCode = "400", description = "VALIDATION_FAILED — days가 0~30 밖이에요")
   @ApiResponse(responseCode = "503", description = "NOTICE_REVIEW_UNAVAILABLE — 검수 서버에 연결하지 못했어요")
