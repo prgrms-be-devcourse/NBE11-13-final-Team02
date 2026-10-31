@@ -58,3 +58,21 @@ def test_record_writes_each_event_once():
     conn = FakeConn()
     assert record(conn, stores_event()) is True
     assert record(conn, stores_event()) is False
+
+
+class UpsertConn:
+    """같은 eventId면 다시 보내도록 되돌리는지 (published_at = null)만 봐요"""
+
+    def __init__(self):
+        self.sql = []
+
+    def execute(self, sql, params):
+        self.sql.append(sql)
+        return type("Cursor", (), {"rowcount": 1})()
+
+
+def test_resend_puts_an_already_recorded_event_back_to_unpublished():
+    # 실측 2026-10-29: RabbitMQ 컨테이너가 다시 만들어지며 큐가 비어 적재 요청이 사라짐 → 이미 기록한 이벤트를 다시 보내요
+    conn = UpsertConn()
+    assert record(conn, stores_event(), resend=True) is True
+    assert "on conflict (event_id) do update set payload = excluded.payload, published_at = null" in conn.sql[0]
