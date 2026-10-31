@@ -149,9 +149,10 @@ class FavoriteServiceTest {
                     false,
                     "/",
                     null)));
-    when(benefits.findSummary(benefit))
+    when(benefits.findSummaries(List.of(benefit)))
         .thenReturn(
-            Optional.of(
+            java.util.Map.of(
+                benefit,
                 new BenefitSummary(
                     benefit,
                     "BENEFIT",
@@ -165,9 +166,10 @@ class FavoriteServiceTest {
                     "NATIONWIDE",
                     List.of(),
                     null)));
-    when(notices.findPolicySummary(startup))
+    when(notices.findPolicySummaries(List.of(startup)))
         .thenReturn(
-            Optional.of(
+            java.util.Map.of(
+                startup,
                 new PolicySummary(
                     startup,
                     1,
@@ -191,6 +193,9 @@ class FavoriteServiceTest {
             "청년 월세|서울시|2026-11-03|/benefits/" + benefit,
             "창업 지원금|중기부|2026-11-03|/business/support/" + startup,
             "null|null|null|/notices/" + gone); // 사라진 공고는 제목 없이
+    // 종류마다 한 번에 읽어요 (한 줄씩 묻지 않아요)
+    verify(benefits, never()).findSummary(any());
+    verify(notices, never()).findPolicySummary(any());
   }
 
   private static void notFound(Throwable e) {

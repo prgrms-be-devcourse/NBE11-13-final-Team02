@@ -90,21 +90,32 @@ public class FavoriteService {
       afterId = query.after().id();
     }
     List<Favorite> rows = favorites.page(userId, type, afterAt, afterId, query.fetchSize());
-    Map<UUID, NoticeSummary> noticeSummaries =
-        notices.findSummaries(
+    // 종류마다 한 번에 읽어요 (한 줄씩 물으면 페이지마다 최대 20번)
+    Map<UUID, NoticeSummary> noticeSummaries = notices.findSummaries(ids(rows, "NOTICE"));
+    Map<UUID, BenefitSummary> benefitSummaries = benefits.findSummaries(ids(rows, "BENEFIT"));
+    Map<UUID, PolicySummary> policySummaries =
+        notices.findPolicySummaries(
             rows.stream()
-                .filter(f -> "NOTICE".equals(f.targetType()))
+                .filter(f -> !"NOTICE".equals(f.targetType()) && !"BENEFIT".equals(f.targetType()))
                 .map(Favorite::targetId)
                 .toList());
     return CursorPageResponse.from(
         rows,
         query.size(),
-        f -> response(f, noticeSummaries),
+        f -> response(f, noticeSummaries, benefitSummaries, policySummaries),
         f -> CursorKey.of(sort, f.createdAt(), f.targetId()));
   }
 
-  /** 목록 한 줄: 대상의 제목·기관·상태·신청 기간을 그 모듈 조회 메서드로 채워요. 대상이 사라졌으면 제목 없이 */
-  private FavoriteResponse response(Favorite f, Map<UUID, NoticeSummary> noticeSummaries) {
+  private static List<UUID> ids(List<Favorite> rows, String type) {
+    return rows.stream().filter(f -> type.equals(f.targetType())).map(Favorite::targetId).toList();
+  }
+
+  /** 목록 한 줄: 대상의 제목·기관·상태·신청 기간을 그 모듈 조회 결과로 채워요. 대상이 사라졌으면 제목 없이 */
+  private FavoriteResponse response(
+      Favorite f,
+      Map<UUID, NoticeSummary> noticeSummaries,
+      Map<UUID, BenefitSummary> benefitSummaries,
+      Map<UUID, PolicySummary> policySummaries) {
     UUID id = f.targetId();
     return switch (f.targetType()) {
       case "NOTICE" -> {
@@ -123,8 +134,7 @@ public class FavoriteService {
                 ScreenPaths.notice(id, n.field()));
       }
       case "BENEFIT" ->
-          benefits
-              .findSummary(id)
+          java.util.Optional.ofNullable(benefitSummaries.get(id))
               .map(
                   b ->
                       new FavoriteResponse(
@@ -139,8 +149,7 @@ public class FavoriteService {
                           ScreenPaths.of("BENEFIT", id)))
               .orElseGet(() -> empty(f, ScreenPaths.of("BENEFIT", id)));
       default ->
-          notices
-              .findPolicySummary(id)
+          java.util.Optional.ofNullable(policySummaries.get(id))
               .map(
                   p ->
                       new FavoriteResponse(

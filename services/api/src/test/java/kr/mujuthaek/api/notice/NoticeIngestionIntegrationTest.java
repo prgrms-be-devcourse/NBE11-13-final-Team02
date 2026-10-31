@@ -786,6 +786,10 @@ class NoticeIngestionIntegrationTest {
     assertThat(summary.applyEnd()).isEqualTo(LocalDate.of(2026, 10, 22));
     assertThat(summary.regionCodes()).isEmpty();
     assertThat(query.findPolicySummary(UUID.randomUUID())).isEmpty();
+    // 관심 목록은 여러 개를 한 번에 읽어요: 하나씩 읽은 것과 같고, 없는·공개 전 정책은 빠져요
+    var many = query.findPolicySummaries(List.of(startupId, UUID.randomUUID()));
+    assertThat(many).containsOnlyKeys(startupId);
+    assertThat(many.get(startupId)).isEqualTo(summary);
 
     // 오늘 10/19: 10/22(D-3) 마감 중 이미 신청 중인 것만
     LocalDate today = LocalDate.of(2026, 10, 19);

@@ -302,6 +302,18 @@ public class NoticeQueries {
         .findFirst();
   }
 
+  /** 공개된 정책 여러 개를 한 번에 (관심 목록용, 검수 대기 틀·숨김은 빼요). 마감된 정책도 줘요. */
+  public List<PolicySummaryRow> policySummaries(java.util.Collection<UUID> rawPolicyIds) {
+    if (rawPolicyIds.isEmpty()) {
+      return List.of();
+    }
+    return jdbc.query(
+        POLICY_SUMMARY_COLUMNS
+            + " where raw_policy_id in (:ids) and review_status <> 'IN_REVIEW' and hidden_at is null",
+        new MapSqlParameterSource("ids", rawPolicyIds),
+        (rs, i) -> policySummaryRow(rs));
+  }
+
   /** 마감일이 dates 중 하나이고 오늘 신청할 수 있는 정책 (검수 대기·아직 시작 전은 빼요). 마감일 순. */
   public List<PolicySummaryRow> openPoliciesClosingOn(
       java.util.Collection<LocalDate> dates, LocalDate today) {
@@ -352,13 +364,21 @@ public class NoticeQueries {
     return out;
   }
 
-  /** 공고 여러 개의 판정용 내용을 한 번에. 숨김·공개 전 공고는 빠져요. */
+  /**
+   * 공고 여러 개의 판정용 내용을 한 번에. 숨김·공개 전 공고는 빠져요.
+   *
+   * <p>payload의 notice는 판정 틀(공급 유형 가격·보류 항목·추출 범위)을 만드는 데 쓰는 칸만 남겨요. 상세 화면용 큰 칸(근거·자격 원문·서류·선정
+   * 기준·안내·일정)은 빼서 DB가 보내고 앱이 읽는 양을 줄여요(공고 하나에 notice가 14만 자, 근거·자격만 2만 자 넘게). 남긴 칸만으로 만든 판정 틀이 원문
+   * 전체로 만든 것과 같은지는 NoticeSearchLoadTest가 봐요.
+   */
   public List<JudgingRow> judgingRows(java.util.Collection<UUID> ids) {
     return jdbc.query(
         """
         select n.id, n.current_version, n.field, n.notice_type,
                jsonb_build_object('judgment', v.payload -> 'judgment',
-                                  'notice', v.payload -> 'notice')::text
+                                  'notice', (v.payload -> 'notice') - array[
+                                      'evidence', 'eligibility', 'requiredDocuments', 'selectionRules',
+                                      'guidance', 'schedules', 'documents', 'sourceReferences', 'input'])::text
         from notice.notices n
         join notice.notice_versions v on v.notice_id = n.id and v.version = n.current_version
         where n.id in (:ids) and n.current_version > 0 and not n.hidden
