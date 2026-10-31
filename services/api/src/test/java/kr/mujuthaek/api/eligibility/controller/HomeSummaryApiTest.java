@@ -47,7 +47,14 @@ class HomeSummaryApiTest {
       f.mvc(
           new HomeSummaryController(
               new HomeSummaryService(
-                  new NoticeSearchService(f.queries, evaluations),
+                  new NoticeSearchService(
+                      f.queries,
+                      evaluations,
+                      new kr.mujuthaek.api.eligibility.service.JudgingFrames(
+                          f.queries,
+                          new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                          20000,
+                          false)),
                   new BenefitEvaluationService(
                       new BenefitQueryService(
                           new BenefitRepository(

@@ -364,6 +364,20 @@ public class NoticeQueries {
     return out;
   }
 
+  /** 열린 공고 ID (모집 예정·중·상시·모름, 마감 임박순). 판정 캐시 미리 채우기용. */
+  public List<UUID> openNoticeIds(int limit) {
+    return jdbc.query(
+        """
+        select id from notice.notices
+        where current_version > 0 and not hidden and merged_into is null
+          and status in ('UPCOMING', 'APPLYING', 'ALWAYS', 'UNKNOWN')
+        order by coalesce(apply_end, date '9999-12-31'), id
+        limit :limit
+        """,
+        new MapSqlParameterSource("limit", limit),
+        (rs, i) -> rs.getObject(1, UUID.class));
+  }
+
   /**
    * 공고 여러 개의 판정용 내용을 한 번에. 숨김·공개 전 공고는 빠져요.
    *
