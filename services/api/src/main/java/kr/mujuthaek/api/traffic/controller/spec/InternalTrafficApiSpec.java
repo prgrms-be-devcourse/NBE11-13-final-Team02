@@ -10,7 +10,8 @@ import org.springframework.http.ResponseEntity;
 @Tag(
     name = "내부 트래픽 수집",
     description =
-        "프론트 서버(Next.js proxy)가 화면 요청을 넘기는 곳이에요. 화면만 긁어 가는 봇은 api를 부르지 않아서 여기로 받아 요청 기록에 「화면(PAGE)」으로 쌓아요. "
+        "프론트 서버(Next.js proxy)가 사람·봇의 화면 요청을 한 건씩 넘기는 곳이에요. 넘긴 요청은 api 요청과 같은 요청 기록에 「화면(PAGE)」으로 쌓여, "
+            + "관리자 트래픽 화면의 사람·봇 요청 수와 방문자 수에 함께 들어가요. 화면만 긁어 가는 봇은 api를 부르지 않아서 이 기록으로만 잡혀요. "
             + "로그인 대신 비밀 헤더 X-Traffic-Token이 맞을 때만 받아요.")
 public interface InternalTrafficApiSpec {
 
