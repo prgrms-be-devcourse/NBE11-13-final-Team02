@@ -78,7 +78,8 @@ public class BenefitRepository {
       String status,
       boolean needsReview,
       List<Support> supports,
-      List<Condition> conditions) {}
+      List<Condition> conditions,
+      Instant updatedAt) {}
 
   public Optional<Saved> findByRawPolicyId(UUID rawPolicyId) {
     return jdbc.sql(
@@ -259,6 +260,15 @@ public class BenefitRepository {
    * @param ages 지원자 만 나이 [가장 어린, 가장 많은] (Bands.ages). null이면 거르지 않아요
    */
   public Open openBenefits(Collection<String> regionCodes, int[] ages) {
+    return openBenefits(regionCodes, ages, r -> false);
+  }
+
+  /**
+   * {@link #openBenefits(Collection, int[])}과 같되, skipLines가 참인 혜택(판정 캐시에 같은 수정 시각으로 이미 있는 것)도 지원
+   * 내용·조건을 읽지 않아요.
+   */
+  public Open openBenefits(
+      Collection<String> regionCodes, int[] ages, java.util.function.Predicate<Row> skipLines) {
     String[] regions = regionCodes.toArray(String[]::new);
     java.util.Set<UUID> ruledOut = new java.util.HashSet<>();
     List<Row> rows =
@@ -280,7 +290,9 @@ public class BenefitRepository {
                   return r;
                 })
             .list();
-    return new Open(withLines(rows, ruledOut), ruledOut);
+    java.util.Set<UUID> skip = new java.util.HashSet<>(ruledOut);
+    rows.stream().filter(skipLines).forEach(r -> skip.add(r.id()));
+    return new Open(withLines(rows, skip), ruledOut);
   }
 
   /** 정수 값 (BenefitJudge.integer: 숫자일 때만 소수점 아래를 버린 정수, 아니면 없음) */
@@ -450,7 +462,8 @@ public class BenefitRepository {
                     r.status(),
                     r.needsReview(),
                     supports.getOrDefault(r.id(), List.of()),
-                    conditions.getOrDefault(r.id(), List.of())))
+                    conditions.getOrDefault(r.id(), List.of()),
+                    r.updatedAt()))
         .toList();
   }
 
@@ -481,7 +494,8 @@ public class BenefitRepository {
         rs.getString("status"),
         rs.getBoolean("needs_review"),
         List.of(),
-        List.of());
+        List.of(),
+        rs.getTimestamp("updated_at").toInstant());
   }
 
   private static LocalDate day(ResultSet rs, String column) throws SQLException {

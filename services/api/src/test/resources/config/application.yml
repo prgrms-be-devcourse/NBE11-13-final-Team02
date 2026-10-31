@@ -23,3 +23,7 @@ management:
   health:
     rabbit:
       enabled: false
+# 판정 캐시를 뜰 때 미리 채우지 않아요 (스프링 시험마다 뒤에서 DB를 읽지 않게. 채우기는 NoticeSearchLoadTest가 직접 봐요)
+mujuthaek:
+  judging:
+    prewarm: false

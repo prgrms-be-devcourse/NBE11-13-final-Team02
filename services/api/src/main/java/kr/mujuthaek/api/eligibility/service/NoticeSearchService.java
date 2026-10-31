@@ -29,10 +29,13 @@ public class NoticeSearchService {
 
   private final NoticeQueryService notices;
   private final NoticeEvaluationService evaluations;
+  private final JudgingFrames frames;
 
-  public NoticeSearchService(NoticeQueryService notices, NoticeEvaluationService evaluations) {
+  public NoticeSearchService(
+      NoticeQueryService notices, NoticeEvaluationService evaluations, JudgingFrames frames) {
     this.notices = notices;
     this.evaluations = evaluations;
+    this.frames = frames;
   }
 
   public NoticeSearchResponse search(NoticeSearchRequest request) {
@@ -79,8 +82,7 @@ public class NoticeSearchService {
             f.keyword(),
             MAX_CANDIDATES);
     // 판정 틀은 한 번에 읽고(기억해 둔 건 다시 안 읽어요), 기준 소득·대출 상품도 요청마다 한 번만 읽어요
-    var sources =
-        notices.judgingSources(candidates.stream().map(NoticeQueryService.Candidate::id).toList());
+    var sources = frames.frames(candidates.stream().map(NoticeQueryService.Candidate::id).toList());
     var evaluate = evaluations.evaluator(applicant);
     return candidates.stream()
         .filter(c -> sources.containsKey(c.id())) // 그 사이 숨겨진 공고는 빼요

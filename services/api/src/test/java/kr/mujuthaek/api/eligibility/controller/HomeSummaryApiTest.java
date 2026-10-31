@@ -47,14 +47,23 @@ class HomeSummaryApiTest {
       f.mvc(
           new HomeSummaryController(
               new HomeSummaryService(
-                  new NoticeSearchService(f.queries, evaluations),
+                  new NoticeSearchService(
+                      f.queries,
+                      evaluations,
+                      new kr.mujuthaek.api.eligibility.service.JudgingFrames(
+                          f.queries,
+                          new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                          20000,
+                          false)),
                   new BenefitEvaluationService(
                       new BenefitQueryService(
                           new BenefitRepository(
                               org.springframework.jdbc.core.simple.JdbcClient.create(f.jdbc))),
                       criteria,
                       NoticeFixtures.JSON,
-                      clock),
+                      clock,
+                      new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                      20000),
                   clock)));
 
   /** 나이 조건 하나짜리 공고. postedOn은 공고일(announcedOn)이에요. */

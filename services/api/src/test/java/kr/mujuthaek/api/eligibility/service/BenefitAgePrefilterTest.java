@@ -26,11 +26,14 @@ import tools.jackson.databind.node.ObjectNode;
 class BenefitAgePrefilterTest {
 
   private final BenefitFixture f = new BenefitFixture();
+  private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
+      new io.micrometer.core.instrument.simple.SimpleMeterRegistry();
   private final CriteriaService criteria =
       new CriteriaService(
           new CriteriaStore(f.jdbc), new LoanProductStore(f.jdbc), BenefitFixture.JSON, f.clock);
   private final BenefitEvaluationService evaluations =
-      new BenefitEvaluationService(f.queries, criteria, BenefitFixture.JSON, f.clock);
+      new BenefitEvaluationService(
+          f.queries, criteria, BenefitFixture.JSON, f.clock, meters, 20000);
   private final String region = "4" + (int) (Math.random() * 9000 + 1000);
 
   @Test
@@ -78,6 +81,61 @@ class BenefitAgePrefilterTest {
 
     assertThat(result.summary().ineligible()).isEqualTo(1);
     assertThat(result.items()).extracting(i -> i.id()).containsExactly(young).doesNotContain(old);
+  }
+
+  @Test
+  void cachedConditionsGiveTheSameJudgmentAndAChangedBenefitIsReadAgain() {
+    seedBenefits();
+    Applicant applicant = new ApplicantBuilder().birthMonth(1991, 6).build();
+
+    var first = prefiltered(applicant);
+    var second = prefiltered(applicant); // 두 번째는 캐시의 조건으로
+    assertThat(second).isEqualTo(first).isEqualTo(judgedOneByOne(applicant));
+    assertThat(cacheCount("hit")).isPositive();
+
+    // 혜택이 바뀌면(새 버전) 수정 시각이 달라져 새 조건을 읽어요: 35세가 맞던 혜택에 혼인 조건이 붙으면 확인 필요
+    UUID raw = UUID.randomUUID();
+    f.ingest.apply(
+        BenefitFixture.event(raw, 1, p -> withConditions(p, c -> age(c, 1, 19, 39, true))));
+    UUID changed = f.queries.findSummaryByRawPolicyId(raw).orElseThrow().benefitId();
+    assertThat(prefiltered(applicant).get(changed)).isEqualTo(Overall.ELIGIBLE);
+    assertThat(prefiltered(applicant).get(changed)).isEqualTo(Overall.ELIGIBLE); // 캐시
+    // 저장할 때 수정 시각이 지금 시각이라, 1분 뒤에 받은 새 버전으로 해요 (시험 시계는 멈춰 있어요)
+    var later =
+        new kr.mujuthaek.api.benefit.service.internal.BenefitIngestionService(
+            f.repository,
+            e -> {},
+            BenefitFixture.JSON,
+            java.time.Clock.offset(f.clock, java.time.Duration.ofMinutes(1)));
+    later.apply(
+        BenefitFixture.event(
+            raw,
+            2,
+            p ->
+                withConditions(
+                    p,
+                    c -> {
+                      age(c, 1, 19, 39, true);
+                      other(c, 2, "MARITAL", "{\"in\": [\"MARRIED\"]}");
+                    })));
+    assertThat(prefiltered(applicant).get(changed)).isEqualTo(Overall.NEEDS_INPUT);
+    assertThat(prefiltered(applicant)).isEqualTo(judgedOneByOne(applicant));
+  }
+
+  private void withConditions(ObjectNode p, Consumer<ArrayNode> conditions) {
+    var source = p.withObject("source");
+    source.put("regionScope", "SIGUNGU");
+    source.putArray("regionCodes").add(region);
+    conditions.accept(p.putArray("conditions"));
+  }
+
+  private double cacheCount(String result) {
+    return meters
+        .get("mujuthaek.judging.cache")
+        .tag("cache", "benefit")
+        .tag("result", result)
+        .counter()
+        .count();
   }
 
   private Map<UUID, Overall> prefiltered(Applicant applicant) {

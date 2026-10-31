@@ -26,7 +26,8 @@ class BenefitAnnualWonTest {
         true,
         false,
         List.of(supports),
-        List.of());
+        List.of(),
+        java.time.Instant.EPOCH);
   }
 
   private static Support support(String kind, Long won, String per, Integer months, String raw) {
