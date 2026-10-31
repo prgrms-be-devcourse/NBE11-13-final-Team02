@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.notification.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotNull;
 
 /**
@@ -10,9 +11,14 @@ import jakarta.validation.constraints.NotNull;
  * @param keys 내용 암호화 키
  * @param userAgent 기기 목록에 보여 줄 이름 (예: Chrome / Android). 200자를 넘으면 잘라요
  */
-public record PushSubscribeRequest(String endpoint, @NotNull Keys keys, String userAgent) {
+public record PushSubscribeRequest(
+    @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String endpoint,
+    @NotNull Keys keys,
+    String userAgent) {
 
-  public record Keys(String p256dh, String auth) {
+  public record Keys(
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String p256dh,
+      @Schema(requiredMode = Schema.RequiredMode.REQUIRED) String auth) {
     @Override
     public String toString() {
       return "Keys[***]";

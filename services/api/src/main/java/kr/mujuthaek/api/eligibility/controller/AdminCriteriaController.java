@@ -5,6 +5,7 @@ import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+import kr.mujuthaek.api.eligibility.controller.spec.AdminCriteriaApiSpec;
 import kr.mujuthaek.api.eligibility.dto.request.AdminCriteriaRequest;
 import kr.mujuthaek.api.eligibility.dto.request.RegulatedAreaRequest;
 import kr.mujuthaek.api.eligibility.dto.response.AdminCriteriaResponse;
@@ -21,24 +22,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 관리자 기준값 화면 API (ADMIN만, /api/admin/**).
- *
- * <pre>
- * GET  /api/admin/criteria/{kind}                     연도별 값 (오늘 쓰는 값·예약·지난 해)
- * PUT  /api/admin/criteria/{kind}/{year}              한 해 값 넣기·바꾸기 { "validFrom": "2027-01-01", "data": {…}, "source": "…" }
- * GET  /api/admin/criteria/{kind}/history             바꾼 기록
- * GET  /api/admin/criteria/{kind}/usage               이 값을 쓰는 열린 공고·창업지원 사업 수
- * GET  /api/admin/regulated-areas?active=true         규제지역
- * POST /api/admin/regulated-areas                     지정 { "regionCode": "11680", "kind": "SPECULATION_OVERHEATED", "validFrom": … }
- * POST /api/admin/regulated-areas/{id}/end?until=…    해제
- * </pre>
- *
- * <p>고친 관리자는 로그인 계정 ID(Principal 이름)로 남겨요.
- */
+/** 관리자 기준값 화면 (설명은 {@link AdminCriteriaApiSpec}). 고친 관리자는 로그인 계정 ID(Principal 이름)로 남겨요. */
 @RestController
 @RequestMapping("/api/admin")
-class AdminCriteriaController {
+class AdminCriteriaController implements AdminCriteriaApiSpec {
 
   private final AdminCriteriaService criteria;
 
@@ -46,13 +33,15 @@ class AdminCriteriaController {
     this.criteria = criteria;
   }
 
+  @Override
   @GetMapping("/criteria/{kind}")
-  AdminCriteriaResponse criteria(@PathVariable String kind) {
+  public AdminCriteriaResponse criteria(@PathVariable String kind) {
     return criteria.criteria(kind);
   }
 
+  @Override
   @PutMapping("/criteria/{kind}/{year}")
-  AdminCriteriaResponse save(
+  public AdminCriteriaResponse save(
       @PathVariable String kind,
       @PathVariable int year,
       @Valid @RequestBody AdminCriteriaRequest request,
@@ -60,28 +49,35 @@ class AdminCriteriaController {
     return criteria.save(kind, year, request, admin(principal));
   }
 
+  @Override
   @GetMapping("/criteria/{kind}/history")
-  AdminCriteriaResponse.Changes history(@PathVariable String kind) {
+  public AdminCriteriaResponse.Changes history(@PathVariable String kind) {
     return criteria.history(kind);
   }
 
+  @Override
   @GetMapping("/criteria/{kind}/usage")
-  CriteriaUsageResponse usage(@PathVariable String kind) {
+  public CriteriaUsageResponse usage(@PathVariable String kind) {
     return criteria.usage(kind);
   }
 
+  @Override
   @GetMapping("/regulated-areas")
-  List<RegulatedAreaResponse> regulatedAreas(@RequestParam(defaultValue = "false") boolean active) {
+  public List<RegulatedAreaResponse> regulatedAreas(
+      @RequestParam(defaultValue = "false") boolean active) {
     return criteria.regulatedAreas(active);
   }
 
+  @Override
   @PostMapping("/regulated-areas")
-  RegulatedAreaResponse add(@Valid @RequestBody RegulatedAreaRequest request, Principal principal) {
+  public RegulatedAreaResponse add(
+      @Valid @RequestBody RegulatedAreaRequest request, Principal principal) {
     return criteria.addRegulatedArea(request, admin(principal));
   }
 
+  @Override
   @PostMapping("/regulated-areas/{id}/end")
-  RegulatedAreaResponse end(
+  public RegulatedAreaResponse end(
       @PathVariable UUID id,
       @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
           LocalDate until,

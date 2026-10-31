@@ -8,7 +8,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import kr.mujuthaek.api.TestDatabase;
 import kr.mujuthaek.api.traffic.TrafficProperties;
-import kr.mujuthaek.api.traffic.controller.InternalTrafficController.PageRequest;
+import kr.mujuthaek.api.traffic.dto.TrafficPageRequest;
 import kr.mujuthaek.api.traffic.log.RequestLogStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -44,7 +44,7 @@ class InternalTrafficControllerTest {
 
   @Test
   void 비밀_값을_안_넣었으면_받지_않는다() {
-    var res = controller("").page("x", new PageRequest("/", GOOGLEBOT, "66.249.66.1"));
+    var res = controller("").page("x", new TrafficPageRequest("/", GOOGLEBOT, "66.249.66.1"));
     assertThat(res.getStatusCode().value()).isEqualTo(404);
   }
 
@@ -52,9 +52,14 @@ class InternalTrafficControllerTest {
   void 비밀_값이_틀리면_받지_않는다() {
     var c = controller("secret");
     assertThat(
-            c.page("wrong", new PageRequest("/", GOOGLEBOT, "66.249.66.1")).getStatusCode().value())
+            c.page("wrong", new TrafficPageRequest("/", GOOGLEBOT, "66.249.66.1"))
+                .getStatusCode()
+                .value())
         .isEqualTo(403);
-    assertThat(c.page(null, new PageRequest("/", GOOGLEBOT, "66.249.66.1")).getStatusCode().value())
+    assertThat(
+            c.page(null, new TrafficPageRequest("/", GOOGLEBOT, "66.249.66.1"))
+                .getStatusCode()
+                .value())
         .isEqualTo(403);
     store.flush();
     assertThat(jdbc.queryForObject("select count(*) from traffic.request_logs", Long.class))
@@ -68,11 +73,13 @@ class InternalTrafficControllerTest {
       var res =
           c.page(
               "secret",
-              new PageRequest(
+              new TrafficPageRequest(
                   "/notices/01a1723f-ee21-7000-a557-7365aad3daa7?pdf=1", GOOGLEBOT, "66.249.66.1"));
       assertThat(res.getStatusCode().value()).isEqualTo(202);
     }
-    c.page("secret", new PageRequest("/homes", "Mozilla/5.0 Chrome/130.0", "not an ip<script>"));
+    c.page(
+        "secret",
+        new TrafficPageRequest("/homes", "Mozilla/5.0 Chrome/130.0", "not an ip<script>"));
     store.flush();
 
     Instant from = NOW.minus(Duration.ofDays(1));

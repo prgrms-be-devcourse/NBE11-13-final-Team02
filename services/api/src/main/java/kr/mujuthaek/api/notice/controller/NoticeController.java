@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 import kr.mujuthaek.api.common.dto.response.CursorPageResponse;
+import kr.mujuthaek.api.notice.controller.spec.NoticeApiSpec;
 import kr.mujuthaek.api.notice.dto.request.NoticeListFilter;
 import kr.mujuthaek.api.notice.dto.response.NoticeDetailResponse;
 import kr.mujuthaek.api.notice.dto.response.NoticeMapResponse;
@@ -18,10 +19,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 누구나 보는 공고 API (로그인 없이). 판정이 섞인 맞춤 목록·판정은 POST로 따로 있어요. */
+/** 누구나 보는 공고 API (설명은 {@link NoticeApiSpec}). */
 @RestController
 @RequestMapping("/api/v1/notices")
-class NoticeController {
+class NoticeController implements NoticeApiSpec {
 
   private final NoticeQueryService notices;
 
@@ -29,12 +30,9 @@ class NoticeController {
     this.notices = notices;
   }
 
-  /**
-   * 공개 목록. 예: GET /api/v1/notices?regionCodes=11440,41&tenure=RENT&statuses=APPLYING&sort=DEADLINE
-   * &applyEndFrom=2026-11-01&applyEndTo=2026-11-30
-   */
+  @Override
   @GetMapping
-  CursorPageResponse<NoticeSummaryResponse> list(
+  public CursorPageResponse<NoticeSummaryResponse> list(
       @RequestParam(required = false) String field,
       @RequestParam(required = false) List<String> regionCodes,
       @RequestParam(required = false) String tenure,
@@ -62,12 +60,9 @@ class NoticeController {
     return notices.list(filter, cursor, size);
   }
 
-  /**
-   * 지도. 지도 범위 안 공고가 300개 이하면 핀, 넘으면 지역별 묶음(확대 10 미만은 시도, 아니면 시군구). 필터는 공개 목록과 같아요. 예: GET
-   * /api/v1/notices/map?swLat=37.4&swLng=126.8&neLat=37.7&neLng=127.2&zoom=12
-   */
+  @Override
   @GetMapping("/map")
-  NoticeMapResponse map(
+  public NoticeMapResponse map(
       @RequestParam double swLat,
       @RequestParam double swLng,
       @RequestParam double neLat,
@@ -80,15 +75,15 @@ class NoticeController {
     return notices.map(swLat, swLng, neLat, neLng, zoom, tenure, noticeTypes, providers, statuses);
   }
 
-  /** 상세 (요약, 일정, 주택형별 조건, 단지, 자격 조건과 근거, 첨부 링크). */
+  @Override
   @GetMapping("/{id}")
-  NoticeDetailResponse detail(@PathVariable UUID id) {
+  public NoticeDetailResponse detail(@PathVariable UUID id) {
     return notices.detail(id);
   }
 
-  /** 주택목록 (호별 주소·면적·금액). 주택목록이 없으면 빈 목록. */
+  @Override
   @GetMapping("/{id}/units")
-  CursorPageResponse<NoticeUnitResponse> units(
+  public CursorPageResponse<NoticeUnitResponse> units(
       @PathVariable UUID id,
       @RequestParam(required = false) String siteId,
       @RequestParam(required = false) String cursor,
@@ -96,9 +91,9 @@ class NoticeController {
     return notices.units(id, siteId, cursor, size);
   }
 
-  /** 정정 이력 (버전, 바뀐 항목, 시각). */
+  @Override
   @GetMapping("/{id}/versions")
-  List<NoticeVersionResponse> versions(@PathVariable UUID id) {
+  public List<NoticeVersionResponse> versions(@PathVariable UUID id) {
     return notices.versions(id);
   }
 }

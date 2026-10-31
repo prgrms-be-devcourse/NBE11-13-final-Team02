@@ -5,6 +5,8 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.util.regex.Pattern;
 import kr.mujuthaek.api.traffic.TrafficProperties;
+import kr.mujuthaek.api.traffic.controller.spec.InternalTrafficApiSpec;
+import kr.mujuthaek.api.traffic.dto.TrafficPageRequest;
 import kr.mujuthaek.api.traffic.log.RequestClassifier;
 import kr.mujuthaek.api.traffic.log.RequestLogStore;
 import org.springframework.http.HttpStatus;
@@ -15,17 +17,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-/**
- * 프론트 서버(Next.js proxy)가 넘기는 화면 요청. 화면만 긁어 가는 봇은 api를 부르지 않아서 여기로 받아 같은 요청 기록에 「화면(PAGE)」으로 쌓아요. 비밀
- * 값(X-Traffic-Token)이 맞을 때만 받아요. 비밀 값을 안 넣었으면(TRAFFIC_INGEST_TOKEN) 이 주소는 없는 것처럼 404예요.
- *
- * <pre>
- * POST /api/internal/traffic/pages   {"path": "/notices/…", "userAgent": "…", "ip": "203.0.113.5"}
- * </pre>
- */
+/** 프론트 서버가 넘기는 화면 요청 (설명은 {@link InternalTrafficApiSpec}). */
 @RestController
 @RequestMapping("/api/internal/traffic")
-class InternalTrafficController {
+class InternalTrafficController implements InternalTrafficApiSpec {
 
   /** IPv4·IPv6 글자만. 이상한 값은 버려요(해시·가리기에 그대로 쓰니까). */
   private static final Pattern IP = Pattern.compile("[0-9A-Fa-f:.]{2,45}");
@@ -40,12 +35,11 @@ class InternalTrafficController {
     this.clock = clock;
   }
 
-  record PageRequest(String path, String userAgent, String ip) {}
-
+  @Override
   @PostMapping("/pages")
-  ResponseEntity<Void> page(
+  public ResponseEntity<Void> page(
       @RequestHeader(name = "X-Traffic-Token", required = false) String token,
-      @RequestBody PageRequest page) {
+      @RequestBody TrafficPageRequest page) {
     if (!props.ingestEnabled()) {
       return ResponseEntity.notFound().build();
     }

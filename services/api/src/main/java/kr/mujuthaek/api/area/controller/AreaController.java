@@ -5,10 +5,12 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import kr.mujuthaek.api.area.controller.spec.AreaApiSpec;
 import kr.mujuthaek.api.area.domain.AreaCriteria;
 import kr.mujuthaek.api.area.domain.SiteDetail;
 import kr.mujuthaek.api.area.domain.SiteScore;
 import kr.mujuthaek.api.area.dto.request.AreaScoreRequest;
+import kr.mujuthaek.api.area.dto.response.AreaScoreResponse;
 import kr.mujuthaek.api.area.service.AreaScoreService;
 import kr.mujuthaek.api.area.service.AreaSiteService;
 import kr.mujuthaek.api.common.exception.CustomException;
@@ -23,12 +25,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * area 조회 API (API 문서 area 모듈). 위치별 지표·항목 점수는 공개 GET, 총점·통근은 사용자 가중치·직장 위치가 들어가서 요청 때 POST로 계산하고
- * 저장·캐시하지 않아요(판정 API와 같은 no-store). siteId는 area 위치 ID예요.
+ * area 조회 (설명은 {@link AreaApiSpec}). API 문서 area 모듈이에요. 총점·통근은 사용자 가중치·직장 위치가 들어가서 GET이 아니라 POST로
+ * 받고 no-store로 돌려줘요(판정 API와 같아요).
  */
 @RestController
 @RequestMapping("/api/v1/areas")
-class AreaController {
+class AreaController implements AreaApiSpec {
 
   private static final CacheControl NO_STORE = CacheControl.noStore();
 
@@ -40,24 +42,26 @@ class AreaController {
     this.scores = scores;
   }
 
+  @Override
   @GetMapping("/sites/{siteId}")
-  SiteDetail site(@PathVariable UUID siteId) {
+  public SiteDetail site(@PathVariable UUID siteId) {
     return sites.site(siteId).orElseThrow(() -> new CustomException(ErrorCode.AREA_SITE_NOT_FOUND));
   }
 
-  /** 응답 items는 받은 순서이고, 없는 위치는 빠져요. */
+  @Override
   @PostMapping("/score")
-  ResponseEntity<Map<String, List<SiteScore>>> score(@Valid @RequestBody AreaScoreRequest request) {
+  public ResponseEntity<AreaScoreResponse> score(@Valid @RequestBody AreaScoreRequest request) {
     List<SiteScore> items =
         scores.score(
             request.siteIds(),
             request.priorities() == null ? Map.of() : request.priorities().toMap(),
             request.workplace() == null ? null : request.workplace().toCoordinate());
-    return ResponseEntity.ok().cacheControl(NO_STORE).body(Map.of("items", items));
+    return ResponseEntity.ok().cacheControl(NO_STORE).body(new AreaScoreResponse(items));
   }
 
+  @Override
   @GetMapping("/criteria")
-  ResponseEntity<AreaCriteria> criteria() {
+  public ResponseEntity<AreaCriteria> criteria() {
     return ResponseEntity.ok()
         .cacheControl(CacheControl.maxAge(Duration.ofDays(1)).cachePublic())
         .body(sites.criteria());
