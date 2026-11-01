@@ -22,7 +22,7 @@ KST = timezone(timedelta(hours=9))
 API = 'job="api",uri!~"/actuator.*"'
 TYPES = ["lookup", "search", "judge"]
 TYPE_KO = {"lookup": "조회", "search": "검색", "judge": "판정"}
-STAGE_SECONDS = {"stress": 180, "breakpoint": 120}
+ERROR_LIMIT = 0.05  # 단계 판정의 에러율 기준 (stagewatch.py와 같게)
 # config.js의 p95 기준(초)
 P95_LIMIT = {"lookup": 0.2, "search": 0.5, "judge": 1.0}
 
@@ -176,47 +176,101 @@ def export_prom(out, start, end):
         write_csv(ts / f"{i:02d}.csv", rows, ["time", "series", "value"], title)
 
     meta = json.loads((out / "meta.json").read_text()) if (out / "meta.json").exists() else {}
-    if meta.get("test") in STAGE_SECONDS:
-        export_stages(out, start, end, STAGE_SECONDS[meta["test"]])
+    if (out / "plan.json").exists():
+        export_stages(out)
 
 
-def export_stages(out, start, end, step):
-    """스트레스·한계 찾기: 단계(3분·2분)마다 RPS·에러율·p95를 한 줄씩. 기준을 처음 넘은 단계가 한계예요."""
+# 노트북 한계 의심: 로컬은 k6와 api가 같은 노트북이라, k6가 CPU를 많이 쓰거나 반복을 버리면(dropped) 서버 한계가 아니라 노트북 한계일 수 있어요
+K6_CPU_SUSPECT = 200  # k6 평균 CPU % (코어 1개 = 100%)
+SYS_CPU_SUSPECT = 90  # 노트북 전체 CPU 최대 %
+
+
+def export_stages(out):
+    """단계(plan.json)마다 판정 구간(처음 30초 뺌)의 VU·RPS·에러율·p95·p99·버려진 반복·k6 CPU를 한 줄씩.
+    단계를 다 못 채우고 끝나도 그때까지를 한 줄로(partial). over = 처음 기준(p95·에러율 5%)을 넘은 항목."""
+    out = Path(out)
+    plan = json.loads((out / "plan.json").read_text())
+    meta = json.loads((out / "meta.json").read_text())
+    tl = json.loads((out / "timeline.json").read_text()) if (out / "timeline.json").exists() else {}
+    testid = meta.get("prometheus_testid")
+    sel = f'testid="{testid}"'
+    t0 = tl.get("t0") or meta["start_epoch"]
+    test_end = meta["end_epoch"]
+    aborted = (tl.get("aborted") or {}).get("stage")
     rows = []
-    t = start + step
-    while t <= end + 1:
-        w = f"{step}s"
+    for st in plan["stages"]:
+        s_from, s_to = t0 + st["judge_from"], min(t0 + st["end"], test_end)
+        partial = t0 + st["end"] > test_end
+        if t0 + st["start"] >= test_end:
+            break  # 시작도 못 한 단계
+        if s_to - s_from < 10:  # 판정 구간이 거의 없으면 그 단계 전체로
+            s_from = t0 + st["start"]
+        dur = max(int(s_to - s_from), 1)
+        w = f"{dur}s"
         row = {
-            "stage_end": kst(t),
-            "vus_max": num(scalar(f"max_over_time(sum(k6_vus)[{w}:5s])", t)),
-            "rps": num(scalar(f"sum(increase(k6_http_reqs_total[{w}])) / {step}", t)),
+            "stage": st["stage"],
+            "label": st["label"],
+            "target": st["target"],
+            "from": kst(s_from),
+            "to": kst(s_to),
+            "seconds": dur,
+            "partial": partial,
+            "aborted_here": aborted == st["stage"],
+            "vus_max": num(scalar(f"max_over_time(sum(k6_vus{{{sel}}})[{w}:5s])", s_to)),
+            "rps": num(scalar(f"sum(increase(k6_http_reqs_total{{{sel}}}[{w}])) / {dur}", s_to)),
             "error_rate": num(
                 scalar(
-                    f'sum(increase(k6_http_reqs_total{{expected_response="false"}}[{w}]))'
-                    f" / sum(increase(k6_http_reqs_total[{w}]))",
-                    t,
+                    f'sum(increase(k6_http_reqs_total{{{sel},expected_response="false"}}[{w}]))'
+                    f" / sum(increase(k6_http_reqs_total{{{sel}}}[{w}]))",
+                    s_to,
                 )
             ),
+            "dropped_iterations": num(scalar(f"sum(increase(k6_dropped_iterations_total{{{sel}}}[{w}]))", s_to)) or 0,
             "server_p95_ms": ms(
                 scalar(
                     f"histogram_quantile(0.95, sum by (le) (increase(http_server_requests_seconds_bucket{{{API}}}[{w}])))",
-                    t,
+                    s_to,
                 )
             ),
         }
         over = []
-        for ty in TYPES:
-            v = num(scalar(f'avg_over_time(max(k6_http_req_duration_p95{{type="{ty}"}})[{w}:5s])', t))
-            row[f"k6_p95_{ty}_ms"] = ms(v)
-            if v is not None and v > P95_LIMIT[ty]:
-                over.append(TYPE_KO[ty])
-        if (row["error_rate"] or 0) >= 0.01:
+        for q in ("0.95", "0.99"):
+            vals = {
+                r["metric"].get("type"): num(r["value"][1])
+                for r in instant(
+                    f"histogram_quantile({q}, sum by (type) (increase(k6_http_req_duration_seconds{{{sel}}}[{w}])))", s_to
+                )
+            }
+            for ty in TYPES:
+                row[f"p{q[2:]}_{ty}_ms"] = ms(vals.get(ty))
+                if q == "0.95" and vals.get(ty) is not None and vals[ty] > P95_LIMIT[ty]:
+                    over.append(f"{TYPE_KO[ty]} p95")
+        if row["error_rate"] is None and row["rps"]:
+            row["error_rate"] = 0.0  # 실패한 요청이 없으면 실패 시계열이 없어요
+        if (row["error_rate"] or 0) >= ERROR_LIMIT:
             over.append("에러율")
+        samples = [x for x in tl.get("samples", []) if s_from <= x["t"] <= s_to]
+        k6c = [x["k6_cpu"] for x in samples if x.get("k6_cpu") is not None]
+        sysc = [x["sys_cpu"] for x in samples if x.get("sys_cpu") is not None]
+        row["k6_cpu_avg"] = round(sum(k6c) / len(k6c), 1) if k6c else None
+        row["sys_cpu_max"] = max(sysc) if sysc else None
+        suspect = []
+        if meta.get("target") == "local":
+            if row["dropped_iterations"] > 0:
+                suspect.append(f"버려진 반복 {int(row['dropped_iterations'])}")
+            if (row["k6_cpu_avg"] or 0) >= K6_CPU_SUSPECT:
+                suspect.append(f"k6 CPU {row['k6_cpu_avg']}%")
+            if (row["sys_cpu_max"] or 0) >= SYS_CPU_SUSPECT:
+                suspect.append(f"노트북 CPU {row['sys_cpu_max']}%")
         row["over"] = "·".join(over)
+        row["laptop_suspect"] = "·".join(suspect)
         rows.append(row)
-        t += step
-    cols = ["stage_end", "vus_max", "rps", "error_rate", "k6_p95_lookup_ms", "k6_p95_search_ms", "k6_p95_judge_ms", "server_p95_ms", "over"]
-    write_csv(Path(out) / "stages.csv", rows, cols)
+    cols = (
+        ["stage", "label", "target", "from", "to", "seconds", "partial", "aborted_here", "vus_max", "rps", "error_rate"]
+        + [f"p{q}_{ty}_ms" for q in ("95", "99") for ty in TYPES]
+        + ["server_p95_ms", "dropped_iterations", "k6_cpu_avg", "sys_cpu_max", "over", "laptop_suspect"]
+    )
+    write_csv(out / "stages.csv", rows, cols)
 
 
 # ── pgdiff ──────────────────────────────────────────────────────────────
@@ -277,10 +331,38 @@ def k6_type(k6, ty):
 
 
 def limit_stage(stages):
+    """처음으로 p95나 에러율 기준을 넘은 단계 (단계 판정 구간 기준)."""
     for s in stages:
         if s.get("over"):
             return s
     return None
+
+
+def stage_verdict(meta, stages):
+    """결과 줄·비교표의 한계 칸: 처음 기준을 넘은 단계, 끝까지 버텼으면 「N명까지 버팀」, 노트북 한계 의심 단계도."""
+    test = meta["test"]
+    if test not in ("stress", "breakpoint", "spike"):
+        return ""
+    if not stages:
+        return "단계 기록 없음"
+    unit = "건/초" if test == "breakpoint" else "명"
+    lim = limit_stage(stages)
+    last = stages[-1]
+    if test == "spike":
+        text = f"기준 넘은 구간: {lim['label']}({lim['over']})" if lim else "모든 구간 기준 안"
+    elif lim:
+        text = f"한계: {lim['label']} 단계({lim['over']})"
+        if test == "breakpoint":
+            i = stages.index(lim)
+            text += f", 최대 RPS {stages[i - 1]['rps'] if i > 0 else '-'}"
+    elif str(last.get("partial")) == "True":
+        text = f"{last['label']} 단계에서 끝남(기준 안 넘음)"
+    else:
+        text = f"{int(float(last['target'])):,}{unit}까지 버팀"
+    suspects = [f"{s['label']}({s['laptop_suspect']})" for s in stages if s.get("laptop_suspect")]
+    if suspects:
+        text += " · 노트북 한계 의심: " + ", ".join(suspects)
+    return text
 
 
 def row(d):
@@ -289,13 +371,7 @@ def row(d):
     slowest = uris[0] if uris else None
     server = f"{slowest['p95_ms']}·{slowest['p99_ms']} ({slowest['method']} {slowest['uri']})" if slowest else "-"
     err = k6v(k6, "http_req_failed", "rate")
-    bottleneck = ""
-    lim = limit_stage(stages)
-    if meta["test"] == "stress":
-        bottleneck = f"한계 VU: {lim['vus_max'] if lim else '넘지 않음'}"
-    elif meta["test"] == "breakpoint":
-        prev = stages[stages.index(lim) - 1] if lim and stages.index(lim) > 0 else None
-        bottleneck = f"최대 RPS: {prev['rps'] if prev else ('-' if lim else '넘지 않음')}"
+    bottleneck = stage_verdict(meta, stages)
     cells = [
         meta["started_at"][:16].replace("T", " "),
         TEST_KO.get(meta["test"], meta["test"]),
@@ -351,11 +427,10 @@ def compare(da, db):
                 1,
             )
         )
-    la, lb = limit_stage(sta), limit_stage(stb)
-    if ma["test"] == "stress":
-        lines.append(("한계 VU", num(la and la["vus_max"]), num(lb and lb["vus_max"]), 0))
     for name, a, b, nd in lines:
         print(f"| {name} | {fmt(a, nd)} | {fmt(b, nd)} | {change(a, b)} |")
+    if ma["test"] in ("stress", "breakpoint", "spike"):
+        print(f"| 한계 | {stage_verdict(ma, sta)} | {stage_verdict(mb, stb)} | |")
 
     print("\n### API별 서버 p95 (전 기준 느린 10개)\n\n| API | 전 p95 | 후 p95 | 변화 |\n|---|---|---|---|")
     after = {(u["method"], u["uri"]): u for u in ub}
@@ -478,7 +553,7 @@ def median(out, *runs):
             (out / name).write_text(json.dumps(median_tree(trees), ensure_ascii=False, indent=2) + "\n")
     median_csv([r / "server_by_uri.csv" for r in runs], out / "server_by_uri.csv", ["method", "uri"], "p95_ms")
     median_csv([r / "slow_queries.csv" for r in runs], out / "slow_queries.csv", ["queryid"], "total_ms")
-    median_csv([r / "stages.csv" for r in runs], out / "stages.csv", ["stage_end"])
+    median_csv([r / "stages.csv" for r in runs], out / "stages.csv", ["stage", "label"])
     meta = dict(metas[0])
     meta.update(
         {

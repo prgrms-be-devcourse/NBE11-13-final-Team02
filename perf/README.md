@@ -179,6 +179,17 @@ perf/server.sh exporters-down                      # 다 끝나면
 
 CloudWatch는 몇 분 늦게 채워져요. 비어 있으면 10분 뒤 `perf/collect.sh perf/results/<폴더>`로 다시 모아요(그래프·서버 지표도 다시 받아요).
 
+## 단계가 있는 테스트 (stress · breakpoint · spike)
+
+k6 기준(threshold)은 시작부터의 **누적값**이라, 단계 시작의 흔들림에도 멈추고 한계를 못 찾았어요(2026-11-02: 스트레스가 100명 단계에서 1분·2분 만에 p99로 중단). 그래서:
+
+- **k6는 기록만** 해요(stress·breakpoint의 p95·p99·에러율 기준은 종료 코드에만 남고 멈추지 않아요).
+- **중단은 `lib/stagewatch.py`가** 해요. 5초마다 Prometheus에서 **최근 30초** p95(조회 200ms·검색 500ms·판정 1초)와 에러율을 보고, 판정 구간에서 기준을 넘거나 에러율이 5% 이상이면 k6를 정상 종료(SIGINT, 결과 요약은 남아요)시켜요. **단계마다 처음 30초는 판정에서 빼요**(올리는 중·막 올린 직후, 예열 50명에서 첫 단계로 넘어갈 때의 몰림). p99는 기록만 해요. spike는 멈추지 않고 기록만 해요.
+- k6 응답 시간은 Prometheus **native histogram**으로 보내서(`perf/docker-compose.yml`의 `--enable-feature=native-histograms`, 바꾸면 `docker compose -f perf/docker-compose.yml up -d prometheus`) 구간 p95·p99가 정확해요. 대시보드 k6 p95·p99도 최근 30초 값이에요(그 전 결과는 누적값이라 다시 모으면 이 두 패널이 비어요).
+- **`stages.csv`**: 단계(`plan.json`, 프로필에서 `k6 inspect`로 뽑아요)마다 판정 구간의 VU·RPS·에러율·종류별 p95·p99·서버 p95·버려진 반복·k6 CPU·노트북 CPU, 넘은 항목(`over`), 다 못 채운 단계(`partial`), 멈춘 단계(`aborted_here`). 다 못 채우고 끝나도 그때까지를 한 줄로 남겨요.
+- **결과 줄·비교표의 「한계」**: 처음 기준을 넘은 단계(예: `한계: 600명 단계(검색 p95)`), 끝까지 버티면 `1,000명까지 버팀`, 기준을 안 넘었는데 일찍 끝났으면 `…단계에서 끝남`. breakpoint는 한계 직전 단계의 RPS도.
+- **노트북 한계 의심**(로컬만): k6와 api가 같은 노트북이라, 그 단계에 버려진 반복(dropped_iterations)이 있거나 k6 평균 CPU 200%(코어 2개) 이상이거나 노트북 전체 CPU가 90% 이상이면 `laptop_suspect`와 결과 줄에 표시해요. 그 단계의 한계는 서버 한계가 아닐 수 있어요.
+
 ## 예열과 반복 측정 (흔들림 줄이기)
 
 같은 코드도 실행마다 많이 흔들려요(2026-11-01 로컬 A/B: 같은 코드의 p99가 첫 실행과 둘째 실행에서 5~8배). 첫 실행은 JVM·DB 캐시가 비어 느리고, 노트북 상태도 끼어요. 그래서:

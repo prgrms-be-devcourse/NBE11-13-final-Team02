@@ -133,14 +133,32 @@ measure() {
   fi
   db_sql < "$PERF_DIR/lib/table_counts.sql" > "$OUT/table_counts.csv" 2>> "$OUT/pg.err" || warn "데이터 양을 못 읽었어요"
 
+  # 단계가 있는 테스트: 단계 계획(plan.json)을 프로필에서 뽑고, 도는 동안 stagewatch가 단계별로 감시해요
+  local STAGED=0
+  case "$TEST" in stress | breakpoint | spike) STAGED=1 ;; esac
+  if [ "$STAGED" = 1 ]; then
+    k6 inspect -e TEST="$TEST" -e DATA="$DATA" -e DATA_FILE="$DATA_FILE" "$PERF_DIR/k6/main.js" 2> /dev/null \
+      | python3 "$PERF_DIR/lib/stagewatch.py" plan "$TEST" > "$OUT/plan.json"
+  fi
   START=$(date +%s)
   set +e
+  # k6 응답 시간은 native histogram으로 보내요: 단계·30초 구간 p95·p99를 Prometheus에서 정확히 계산해요
   k6_env "$TEST" env OUT_DIR="$OUT" \
     K6_PROMETHEUS_RW_SERVER_URL="$PROM/api/v1/write" \
-    K6_PROMETHEUS_RW_TREND_STATS='p(95),p(99),avg,max' \
+    K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true \
     K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT="$OUT/k6-report.html" K6_WEB_DASHBOARD_OPEN=false \
-    k6 run -o experimental-prometheus-rw --tag testid="$ID" "$PERF_DIR/k6/main.js" 2>&1 | tee "$OUT/k6.log"
-  K6_EXIT=${PIPESTATUS[0]}
+    k6 run -o experimental-prometheus-rw --tag testid="$ID" "$PERF_DIR/k6/main.js" > >(tee "$OUT/k6.log") 2>&1 &
+  local K6_PID=$! WATCH_PID=""
+  if [ "$STAGED" = 1 ]; then
+    # stress·breakpoint는 단계 판정 구간에서 기준을 넘으면 멈추고(--abort), spike는 기록만 해요
+    local ABORT=--abort
+    [ "$TEST" != spike ] || ABORT=""
+    python3 "$PERF_DIR/lib/stagewatch.py" watch "$OUT" "$ID" "$K6_PID" $ABORT &
+    WATCH_PID=$!
+  fi
+  wait "$K6_PID"
+  K6_EXIT=$?
+  [ -z "$WATCH_PID" ] || wait "$WATCH_PID"
   set -e
   END=$(date +%s)
 

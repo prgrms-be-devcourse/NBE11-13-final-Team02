@@ -12,8 +12,9 @@ APP = 'name=~"mujuthaek-.+"'
 
 # (제목, 단위, [(쿼리, 범례)])
 PANELS = [
-    ("k6 응답 시간 p95 (종류별)", "s", [('max by (type) (k6_http_req_duration_p95)', "{{type}}")]),
-    ("k6 응답 시간 p99 (종류별)", "s", [('max by (type) (k6_http_req_duration_p99)', "{{type}}")]),
+    # k6 응답 시간은 native histogram이라 최근 30초 구간 값이에요 (2026-11-02부터. 그 전 결과는 k6_http_req_duration_p95 누적값)
+    ("k6 응답 시간 p95 (종류별)", "s", [('histogram_quantile(0.95, sum by (type) (rate(k6_http_req_duration_seconds[30s])))', "{{type}}")]),
+    ("k6 응답 시간 p99 (종류별)", "s", [('histogram_quantile(0.99, sum by (type) (rate(k6_http_req_duration_seconds[30s])))', "{{type}}")]),
     ("k6 초당 요청 · 동시 사용자", "short", [
         ("sum(rate(k6_http_reqs_total[30s]))", "RPS"),
         ("sum(k6_vus)", "VU"),

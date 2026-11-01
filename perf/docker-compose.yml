@@ -10,6 +10,7 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.retention.time=400d
       - --web.enable-remote-write-receiver   # k6 결과를 받아요 (-o experimental-prometheus-rw)
+      - --enable-feature=native-histograms   # k6 응답 시간을 히스토그램으로 받아 구간(단계·30초)별 p95·p99를 정확히 계산해요
       - --web.enable-admin-api               # run.sh가 테스트마다 스냅숏을 떠요
     ports: ["127.0.0.1:9090:9090"]
     extra_hosts: ["host.docker.internal:host-gateway"]

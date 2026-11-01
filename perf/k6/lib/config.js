@@ -13,7 +13,9 @@ const LATENCY = {
   judge: ['p(95)<1000', 'p(99)<2000'],
 };
 
-// 한계를 찾는 테스트는 기준을 넘으면 1분 더 지켜본 뒤 멈춰요(넘은 단계가 한계)
+// 한계를 찾는 테스트(stress·breakpoint)는 k6 기준으로 멈추지 않아요: k6 기준은 시작부터의 누적이라 단계 시작의 흔들림에도 멈췄어요
+// (2026-11-02 스트레스가 100명 단계에서 1분 만에 p99로 중단). 중단은 run.sh가 띄우는 lib/stagewatch.py가 단계마다 처음 30초를 빼고
+// 최근 30초 p95(조회 200ms·검색 500ms·판정 1초)나 에러율 5%로 해요. p99는 기록만 해요
 function latency(abort) {
   const t = {};
   for (const [type, rules] of Object.entries(LATENCY)) {
@@ -29,11 +31,14 @@ const errorRate = (rate, abort) =>
 
 const vus = (stages) => ({ executor: 'ramping-vus', startVUs: 0, stages, gracefulRampDown: '30s' });
 
-// 50 → 100 → 200 → 400 → 700 → 1,000명, 단계마다 3분(30초 올리고 2분 30초 유지)
-const stressStages = [50, 100, 200, 400, 700, 1000].flatMap((target) => [
-  { duration: '30s', target },
-  { duration: '2m30s', target },
-]);
+// 50 → 100 → 200 → 400 → 700 → 1,000명, 단계마다 30초 올리고 2분 30초 유지. 첫 단계만 2분에 걸쳐 올려요(0에서 한꺼번에 올리면
+// 사용자들이 같은 박자로 움직여 몰림이 오래 남아요. 2026-11-02 로컬: 30초에 100명 → 검색 p95 571ms, 부하 테스트처럼 2분 → 120ms 안팎)
+const stepped = (targets) =>
+  targets.flatMap((target, i) => [
+    { duration: i === 0 ? '2m' : '30s', target },
+    { duration: '2m30s', target },
+  ]);
+const stressStages = stepped([50, 100, 200, 400, 700, 1000]);
 
 // 초당 20건에서 2분마다 20건씩, 최대 초당 1,000건(그 전에 기준을 넘어 멈춰요)
 const breakpointStages = Array.from({ length: 50 }, (_, i) => ({ duration: '2m', target: 20 * (i + 1) }));
@@ -61,7 +66,7 @@ export const PROFILES = {
   },
   stress: {
     scenario: vus(stressStages),
-    thresholds: { ...latency(true), http_req_failed: errorRate(0.01, true) },
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만. 중단은 run.sh의 stagewatch가
   },
   // 쉬는 시간 없이 요청 수로 밀어요. 반복 한 번 = 요청 한 건이라 초당 반복 수가 곧 RPS예요
   breakpoint: {
@@ -73,7 +78,7 @@ export const PROFILES = {
       maxVUs: 1500,
       stages: breakpointStages,
     },
-    thresholds: { ...latency(true), http_req_failed: errorRate(0.01, true) },
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만. 중단은 run.sh의 stagewatch가
   },
   spike: {
     scenario: vus([
@@ -83,7 +88,7 @@ export const PROFILES = {
       { duration: '10s', target: 20 },
       { duration: '2m', target: 20 },
     ]),
-    thresholds: { http_req_failed: errorRate(0.05) },
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만(종류별 p95·p99가 요약에 남게). 멈추지 않아요
   },
 };
 
@@ -95,11 +100,8 @@ const hold = (target, minutes) => [
   { duration: '1m', target: 0 },
 ];
 
-// 100 → 200 → 400 → 600 → 800 → 1,000명, 단계마다 3분(30초 올리고 2분 30초 유지)
-const seedStressStages = [100, 200, 400, 600, 800, 1000].flatMap((target) => [
-  { duration: '30s', target },
-  { duration: '2m30s', target },
-]);
+// 100 → 200 → 400 → 600 → 800 → 1,000명, 단계마다 30초 올리고 2분 30초 유지 (첫 단계만 2분에 걸쳐 올려요)
+const seedStressStages = stepped([100, 200, 400, 600, 800, 1000]);
 
 export const SEED_PROFILES = {
   smoke: PROFILES.smoke,
@@ -113,7 +115,7 @@ export const SEED_PROFILES = {
   },
   stress: {
     scenario: vus(seedStressStages),
-    thresholds: { ...latency(true), http_req_failed: errorRate(0.01, true) },
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만. 중단은 run.sh의 stagewatch가
   },
   breakpoint: PROFILES.breakpoint,
   spike: {
@@ -124,7 +126,7 @@ export const SEED_PROFILES = {
       { duration: '10s', target: 20 },
       { duration: '2m', target: 20 },
     ]),
-    thresholds: { http_req_failed: errorRate(0.05) },
+    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만(종류별 p95·p99가 요약에 남게). 멈추지 않아요
   },
   soak: {
     scenario: vus(hold(100, 60)),

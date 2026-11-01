@@ -45,7 +45,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (type) (k6_http_req_duration_p95)",
+          "expr": "histogram_quantile(0.95, sum by (type) (rate(k6_http_req_duration_seconds[30s])))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
@@ -90,7 +90,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "max by (type) (k6_http_req_duration_p99)",
+          "expr": "histogram_quantile(0.99, sum by (type) (rate(k6_http_req_duration_seconds[30s])))",
           "legendFormat": "{{type}}",
           "datasource": {
             "type": "prometheus",
