@@ -56,6 +56,7 @@ public class FavoriteService {
   public UUID add(UUID userId, String targetType, UUID targetId) {
     String type = targetType(targetType);
     UUID resolved = resolve(type, targetId);
+    favorites.lockUser(userId); // 같은 회원의 저장은 하나씩: 개수 확인과 넣기 사이에 다른 요청이 끼지 않게
     if (favorites.exists(userId, type, resolved)) {
       return resolved; // 다시 저장해도 그대로 (처음 저장한 시각 유지)
     }
