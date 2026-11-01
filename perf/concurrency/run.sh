@@ -1,18 +1,19 @@
 #!/usr/bin/env bash
 # 동시성 시험: 같은 대상을 동시에 바꿔도 데이터가 맞는지. 시나리오마다 100개를 한꺼번에 출발시켜 10회 반복하고, 끝난 뒤 DB를 세서 판단해요.
-#   perf/concurrency/run.sh local [1|2|3|4|5|6|all]
+#   perf/concurrency/run.sh local [1|2|3|4|5|6|7|all]
 # 대상은 로컬만이에요: BASE_URL이 localhost이고, DB가 로컬 api_fe(더미 데이터)여야 해요. 아니면 거부해요.
 #   1~3  k6로 로컬 api에 (관심 등록, 관심 등록·해제 섞기, 알림 설정·관심 조건 저장). 더미 회원 99901~99903만 써요
 #   4    JUnit (공고 저장 리스너·알림 요청 리스너, 같은 eventId) — Testcontainers DB
 #   5    pytest (관리자 동시 승인·수정) — 로컬 Postgres의 시험 전용 DB extraction_concurrency, 회마다 임시 스키마
 #   6    관심 수 같은 집계가 있는지 보고, 없으면 건너뛰어요
+#   7    관심 199개인 더미 회원(99907)이 서로 다른 공고 100개를 동시에 관심 등록 → 200개를 넘지 않고 넘친 요청은 409
 # 결과: perf/results/<yyyyMMdd-HHmm>_concurrency_local/ (summary.md, 시나리오별 JSON)
 source "$(dirname "$0")/../lib/common.sh"
 
 TARGET="${1:-}"
 WHICH="${2:-all}"
 [ "$TARGET" = local ] || { sed -n '2,9p' "$0"; echo "대상은 local만 돼요" >&2; exit 1; }
-case "$WHICH" in 1 | 2 | 3 | 4 | 5 | 6 | all) ;; *) sed -n '2,9p' "$0"; exit 1 ;; esac
+case "$WHICH" in 1 | 2 | 3 | 4 | 5 | 6 | 7 | all) ;; *) sed -n '2,9p' "$0"; exit 1 ;; esac
 run() { [ "$WHICH" = all ] || [ "$WHICH" = "$1" ]; }
 
 ROUNDS="${CONCURRENCY_ROUNDS:-10}"
@@ -35,7 +36,7 @@ DB="$(echo "select current_database();" | sql)" || { echo "로컬 DB 확인 실�
 user_id() { printf '5eed0003-0000-7000-8000-%012x' "$1"; }
 NOTICE_ID="$(echo "select id from notice.notices where id between pg_temp.seed_lo(1) and pg_temp.seed_hi(1) and current_version > 0 and not hidden order by id limit 1;" | sql)"
 [ -n "$NOTICE_ID" ] || { echo "더미 공고가 없어요: perf/seed/seed.sh local up" >&2; exit 1; }
-if run 1 || run 2 || run 3; then
+if run 1 || run 2 || run 3 || run 7; then
   curl -sf -o /dev/null "$BASE_URL/api/v1/notices/$NOTICE_ID" \
     || { echo "로컬 api가 더미 공고를 못 찾아요. api가 api_fe에 붙어 있는지 확인해요(거부)" >&2; exit 1; }
 fi
@@ -45,16 +46,16 @@ mkdir -p "$OUT"
 echo "== 동시성 시험 → $OUT (동시 $VUS × ${ROUNDS}회)"
 
 # ── 1~3: k6
-k6_round() { # 시나리오 회 토큰 [REGIONS]
+k6_round() { # 시나리오 회 토큰 [REGIONS] [NOTICE_IDS]
   local scenario="$1" round="$2" token="$3"
-  SCENARIO="$scenario" BASE_URL="$BASE_URL" TOKEN="$token" NOTICE_ID="$NOTICE_ID" REGIONS="${4:-[]}" VUS="$VUS" \
+  SCENARIO="$scenario" BASE_URL="$BASE_URL" TOKEN="$token" NOTICE_ID="$NOTICE_ID" REGIONS="${4:-[]}" NOTICE_IDS="${5:-[]}" VUS="$VUS" \
     OUT="$OUT/raw/s${scenario}_r${round}.json" k6 run -q "$PERF_DIR/concurrency/k6/at-once.js" > "$OUT/raw/s${scenario}_r${round}.log" 2>&1
 }
 
-if run 1 || run 2 || run 3; then
+if run 1 || run 2 || run 3 || run 7; then
   mkdir -p "$OUT/raw"
   TOKENS="$OUT/raw/tokens.json"
-  FIRST_USER=99901 TOKENS_OUT="$TOKENS" "$PERF_DIR/k6/make-tokens.sh" local 3 1 > /dev/null
+  FIRST_USER=99901 TOKENS_OUT="$TOKENS" "$PERF_DIR/k6/make-tokens.sh" local 7 1 > /dev/null
   token() { jq -r ".tokens[$(($1 - 1))]" "$TOKENS"; }
 fi
 
@@ -90,6 +91,29 @@ if run 3; then
       --argjson h "$(curl -sf -H "Authorization: Bearer $(token 3)" "$BASE_URL/api/users/me/interests/housing")" '{settings: $s, housing: $h}')"
     jq -n --argjson r "$r" --argjson db "$db" --argjson api "$api" '{round: $r, db: $db, api: $api}' > "$OUT/raw/s3_r${r}.db.json"
     echo "  ${r}회 끝"
+  done
+fi
+
+# ── 7: 관심 개수 제한(200)을 동시 요청이 넘는지
+if run 7; then
+  user="$(user_id 99907)"
+  max=200
+  echo "== 시나리오 7"
+  for r in $(seq 1 "$ROUNDS"); do
+    # 더미 공고로 관심 199개를 채우고, 그와 겹치지 않는 공고 VUS개를 VU마다 하나씩 보내요
+    echo "delete from account.favorites where user_id = '$user';
+          insert into account.favorites (user_id, target_type, target_id, created_at)
+          select '$user', 'NOTICE', id, now() - interval '1 day' from notice.notices
+          where id between pg_temp.seed_lo(1) and pg_temp.seed_hi(1) and current_version > 0 and not hidden
+          order by id limit $((max - 1));" | sql > /dev/null
+    ids="$(echo "select json_agg(id) from (select id from notice.notices
+          where id between pg_temp.seed_lo(1) and pg_temp.seed_hi(1) and current_version > 0 and not hidden and merged_into is null
+          order by id offset $((max - 1)) limit $VUS) x;" | sql)"
+    k6_round 7 "$r" "$(token 7)" "[]" "$ids"
+    rows="$(echo "select count(*) from account.favorites where user_id = '$user';" | sql)"
+    jq -n --argjson r "$r" --argjson rows "$rows" --argjson max "$max" '{round: $r, db_rows: $rows, max: $max, start_rows: ($max - 1)}' \
+      > "$OUT/raw/s7_r${r}.db.json"
+    printf '  %s회: 관심 %s개\n' "$r" "$rows"
   done
 fi
 

@@ -2,6 +2,7 @@
 //   SCENARIO=1  같은 회원·같은 공고 관심 등록(PUT) 100번
 //   SCENARIO=2  같은 회원·같은 공고 관심 등록·해제 섞기 (짝수 VU PUT, 홀수 VU DELETE)
 //   SCENARIO=3  같은 회원 알림 설정·관심 조건 저장을 VU마다 다른 값으로 (값에 VU 번호를 새겨 섞였는지 볼 수 있게)
+//   SCENARIO=7  관심 199개인 회원이 서로 다른 공고 100개를 동시에 관심 등록 (VU i는 NOTICE_IDS[i])
 // 응답 코드는 code_* 카운터로 summary.json에 남아요. DB 확인은 run.sh가 해요
 import http from 'k6/http';
 import { sleep } from 'k6';
@@ -13,6 +14,7 @@ const TOKEN = __ENV.TOKEN;
 const SCENARIO = __ENV.SCENARIO;
 const NOTICE_ID = __ENV.NOTICE_ID;
 const REGIONS = JSON.parse(__ENV.REGIONS || '[]');
+const NOTICE_IDS = JSON.parse(__ENV.NOTICE_IDS || '[]');
 const VUS = Number(__ENV.VUS || 100);
 
 // 관심 조건 공고 종류 4개: VU i는 지역 REGIONS[i % 40], 종류 TYPES[i % 4] → 저장된 (지역, 종류)가 한 VU의 짝이어야 해요
@@ -60,8 +62,10 @@ export default function (ctx) {
       ['PUT', `${BASE_URL}/api/users/me/interests/housing`, JSON.stringify(housing), auth],
     ]);
     res.forEach(count);
+  } else if (SCENARIO === '7') {
+    count(http.put(`${BASE_URL}/api/users/me/favorites/NOTICE/${NOTICE_IDS[i]}`, null, auth));
   } else {
-    throw new Error(`SCENARIO는 1·2·3: ${SCENARIO}`);
+    throw new Error(`SCENARIO는 1·2·3·7: ${SCENARIO}`);
   }
 }
 

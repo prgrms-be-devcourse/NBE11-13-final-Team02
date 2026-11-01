@@ -53,11 +53,24 @@ def scenario_k6(out, s, vus, rounds):
                 "DB 0 또는 1줄(중복 없음)": db.get("db_rows") in (0, 1),
                 "목록과 DB가 같음": db.get("api_listed") == db.get("db_rows"),
             }
+        elif s == 7:
+            room = db.get("max", 200) - db.get("start_rows", 199)
+            checks = {
+                "DB 관심 수가 200 이하": (db.get("db_rows") or 0) <= db.get("max", 200),
+                "5xx 없음": server_errors(codes) == 0,
+                f"성공(2xx)은 남은 자리({room})만큼": ok_count(codes) == room,
+                "넘친 요청은 409": codes.get("409", 0) == vus - room,
+            }
         else:
             checks = s3_checks(db, codes, vus, regions)
         passed = all(checks.values())
         rows.append({"round": r, "pass": passed, "codes": codes, "checks": checks, "db": db})
-    name = {1: "1 같은 회원·같은 공고 관심 등록(PUT)", 2: "2 관심 등록·해제 섞기", 3: "3 알림 설정·관심 조건 동시 저장(서로 다른 값)"}[s]
+    name = {
+        1: "1 같은 회원·같은 공고 관심 등록(PUT)",
+        2: "2 관심 등록·해제 섞기",
+        3: "3 알림 설정·관심 조건 동시 저장(서로 다른 값)",
+        7: "7 관심 199개 회원이 서로 다른 공고 100개 동시 등록(최대 200)",
+    }[s]
     return {"scenario": name, "pass": all(x["pass"] for x in rows), "codes_total": dict(sorted(total.items())), "rounds": rows}
 
 
@@ -108,7 +121,7 @@ def scenario_file(out, name, title):
 def main(out, vus, rounds):
     out = Path(out)
     results = []
-    for s in (1, 2, 3):
+    for s in (1, 2, 3, 7):
         r = scenario_k6(out, s, vus, rounds)
         if r:
             results.append(r)

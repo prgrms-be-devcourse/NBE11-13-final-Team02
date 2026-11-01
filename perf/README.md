@@ -102,11 +102,11 @@ dev는 `local` 대신 `dev`예요. 넣기·지우기 전에 한 번 더 물어�
 속도가 아니라 **같은 대상을 동시에 바꿔도 데이터가 맞는지** 봐요. 시나리오마다 요청(또는 처리) 100개를 **한꺼번에** 출발시키고 10회 반복해요. 응답만이 아니라 끝난 뒤 DB를 세서 판단해요.
 
 ```bash
-perf/concurrency/run.sh local all     # 또는 local 1 … local 6
+perf/concurrency/run.sh local all     # 또는 local 1 … local 7
 ```
 
 - **로컬만**이에요. BASE_URL이 localhost가 아니거나(기본은 http://localhost:8080) 로컬 DB가 `api_fe`가 아니거나, 로컬 api가 더미 공고를 못 찾으면 시작 전에 거부해요. 운영·dev에는 절대 보내지 않아요.
-- 먼저 더미가 있어야 해요(`perf/seed/seed.sh local up`). 1~3은 더미 회원 99901~99903만 써요(부하 시험 토큰 1~1,000과 겹치지 않게).
+- 먼저 더미가 있어야 해요(`perf/seed/seed.sh local up`). 1~3·7은 더미 회원 99901~99903·99907만 써요(부하 시험 토큰 1~1,000과 겹치지 않게).
 - 결과: `perf/results/<yyyyMMdd-HHmm>_concurrency_local/` — `summary.md`(시나리오별 합격/불합격, 응답 코드·결과 합계, DB 확인), 시나리오별 JSON, `raw/`(회마다 k6 응답 코드·DB 값).
 - 동시 수·회 수는 `CONCURRENCY_THREADS`·`CONCURRENCY_ROUNDS`로 바꿔요(기본 100·10).
 
@@ -119,6 +119,7 @@ perf/concurrency/run.sh local all     # 또는 local 1 … local 6
 | 4-2 알림 요청 리스너 | JUnit: 같은 eventId 알림 요청을 동시에 100번 | 처리 기록 1줄, 발송 줄 1줄, 예외 없음 |
 | 5 관리자 동시 승인·수정 | pytest: 같은 검수 건을 100명이 동시에(반은 고쳐서) 승인 | 200 하나, 나머지 409, 저장된 후보·발행 이벤트가 이긴 요청 것(덮어쓰기 없음), 발행 1건 |
 | 6 관심 수 같은 집계 | 집계 칸이 있는지 찾아요 | 없으면 건너뜀(지금은 관심 수를 그때그때 세서 없어요) |
+| 7 관심 개수 제한(200) | 관심 199개인 더미 회원(99907)이 서로 다른 공고 100개를 동시에 등록 | DB 관심 수 200 이하, 성공은 남은 자리(1)만큼, 넘친 요청은 409, 5xx 없음 |
 
 - 4는 Testcontainers DB(`CONCURRENCY=1`일 때만 도는 시험: `services/api`·`services/notification`의 `…/concurrency/`), 5는 로컬 Postgres에 따로 만든 시험 전용 DB `extraction_concurrency`에서 회마다 임시 스키마로 돌아서 로컬 api_fe·extraction 데이터는 건드리지 않아요.
 - 1~3이 남기는 것은 더미 회원 99901~99903의 관심·알림 설정·관심 조건뿐이에요(회마다 지우고 시작해요. `seed.sh local down`이 회원째 지워요).
