@@ -134,3 +134,13 @@ export const SEED_PROFILES = {
 
 // 흐름 비중(둘러보기 · 판정, 나머지는 로그인). 운영 기준은 60 · 25 · 15, 더미는 로그인 회원이 많아 50 · 25 · 25
 export const MIX = DATA === 'seed' ? { browse: 0.5, judge: 0.25 } : { browse: 0.6, judge: 0.25 };
+
+// 본 측정 전 예열(run.sh --warmup): JVM·DB 캐시를 데워 첫 실행만 느린 것을 결과에서 빼요. 기준 없음, Prometheus로 보내지 않아요
+export const WARMUP = {
+  scenario: {
+    executor: 'constant-vus',
+    vus: Number(__ENV.WARMUP_VUS || 50),
+    duration: `${Number(__ENV.WARMUP_SECONDS || 90)}s`,
+  },
+  thresholds: {},
+};

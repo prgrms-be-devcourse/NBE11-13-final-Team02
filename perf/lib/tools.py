@@ -318,6 +318,8 @@ def compare(da, db):
     ma, ka, sa, ua, qa, sta = load_result(da)
     mb, kb, sb, ub, qb, stb = load_result(db)
     print(f"## {TEST_KO.get(ma['test'], ma['test'])}: {ma.get('api_tag')} → {mb.get('api_tag')}\n")
+    kinds = [f"{m.get('repeat')}회 중앙값" if m.get("repeat", 1) > 1 else "한 번" for m in (ma, mb)]
+    print(f"측정: 전 {kinds[0]} · 후 {kinds[1]} (예열 전 {ma.get('warmup_seconds', 0)}초 · 후 {mb.get('warmup_seconds', 0)}초, 결과에서 뺐어요)\n")
     if mb.get("note"):
         print(f"고친 것: {mb['note']}\n")
     print("| 지표 | 전 | 후 | 변화 |\n|---|---|---|---|")
@@ -416,6 +418,84 @@ def read_csv(path):
         return list(csv.DictReader(f))
 
 
+# ── median: 반복 측정(run.sh --repeat)의 중앙값 ──────────────────────────────
+
+
+def median_of(values):
+    nums = sorted(v for v in (num(x) for x in values) if v is not None)
+    if not nums:
+        return None
+    mid = len(nums) // 2
+    return nums[mid] if len(nums) % 2 else (nums[mid - 1] + nums[mid]) / 2
+
+
+def median_tree(trees):
+    """같은 모양의 JSON 여러 개에서 숫자 칸은 중앙값, 나머지는 첫 번째 값."""
+    first = trees[0]
+    if isinstance(first, dict):
+        keys = list(dict.fromkeys(k for t in trees if isinstance(t, dict) for k in t))
+        return {k: median_tree([t[k] for t in trees if isinstance(t, dict) and k in t]) for k in keys}
+    if isinstance(first, bool) or not isinstance(first, (int, float)):
+        return first
+    m = median_of(trees)
+    return round(m, 3) if isinstance(m, float) else m
+
+
+def median_csv(paths, out, key_cols, sort_col=None):
+    """CSV 여러 개를 key_cols가 같은 줄끼리 묶어 숫자 칸은 중앙값으로."""
+    tables = [read_csv(p) for p in paths]
+    tables = [t for t in tables if t]
+    if not tables:
+        return
+    cols = list(tables[0][0].keys())
+    groups = {}
+    for t in tables:
+        for r in t:
+            groups.setdefault(tuple(r.get(k) for k in key_cols), []).append(r)
+    rows = []
+    for rs in groups.values():
+        row_ = dict(rs[0])
+        for c in cols:
+            if c in key_cols:
+                continue
+            vals = [r.get(c) for r in rs]
+            if all(num(v) is not None for v in vals if v not in (None, "")) and any(v not in (None, "") for v in vals):
+                m = median_of(vals)
+                row_[c] = "" if m is None else (f"{m:.1f}" if isinstance(m, float) and not m.is_integer() else str(int(m)) if m == int(m) else str(m))
+        rows.append(row_)
+    if sort_col:
+        rows.sort(key=lambda r: -(num(r.get(sort_col)) or 0))
+    write_csv(out, rows, cols)
+
+
+def median(out, *runs):
+    """반복 측정한 결과 폴더들(run1, run2 …)의 중앙값을 out에 같은 파일 이름으로 써요. compare·row가 그대로 읽어요."""
+    out, runs = Path(out), [Path(r) for r in runs]
+    metas = [json.loads((r / "meta.json").read_text()) for r in runs]
+    for name in ("summary.json", "server_summary.json"):
+        trees = [json.loads((r / name).read_text()) for r in runs if (r / name).exists()]
+        if trees:
+            (out / name).write_text(json.dumps(median_tree(trees), ensure_ascii=False, indent=2) + "\n")
+    median_csv([r / "server_by_uri.csv" for r in runs], out / "server_by_uri.csv", ["method", "uri"], "p95_ms")
+    median_csv([r / "slow_queries.csv" for r in runs], out / "slow_queries.csv", ["queryid"], "total_ms")
+    median_csv([r / "stages.csv" for r in runs], out / "stages.csv", ["stage_end"])
+    meta = dict(metas[0])
+    meta.update(
+        {
+            "repeat": len(runs),
+            "runs": [r.name for r in runs],
+            "median_of": "runs의 중앙값 (2회면 평균)",
+            "started_at": metas[0]["started_at"],
+            "ended_at": metas[-1]["ended_at"],
+            "start_epoch": metas[0]["start_epoch"],
+            "end_epoch": metas[-1]["end_epoch"],
+            "k6_exit_code": max(m.get("k6_exit_code", 0) for m in metas),
+            "prometheus_testid": [m.get("prometheus_testid") for m in metas],
+        }
+    )
+    (out / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+
+
 if __name__ == "__main__":
     cmd, *args = sys.argv[1:] or ["help"]
     if cmd == "prom":
@@ -426,6 +506,8 @@ if __name__ == "__main__":
         row(args[0])
     elif cmd == "compare":
         compare(args[0], args[1])
+    elif cmd == "median":
+        median(args[0], *args[1:])
     else:
         print(__doc__)
         sys.exit(1)

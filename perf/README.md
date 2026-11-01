@@ -179,10 +179,25 @@ perf/server.sh exporters-down                      # 다 끝나면
 
 CloudWatch는 몇 분 늦게 채워져요. 비어 있으면 10분 뒤 `perf/collect.sh perf/results/<폴더>`로 다시 모아요(그래프·서버 지표도 다시 받아요).
 
+## 예열과 반복 측정 (흔들림 줄이기)
+
+같은 코드도 실행마다 많이 흔들려요(2026-11-01 로컬 A/B: 같은 코드의 p99가 첫 실행과 둘째 실행에서 5~8배). 첫 실행은 JVM·DB 캐시가 비어 느리고, 노트북 상태도 끼어요. 그래서:
+
+```bash
+perf/run.sh --data seed --repeat 2 load "메모"      # 예열 90초(기본) + 같은 테스트 두 번 + 중앙값
+perf/run.sh --warmup 0 smoke                        # 예열 없이 (스모크 확인 등)
+perf/run.sh --warmup 120 --repeat 3 load
+```
+
+- **예열**(`--warmup 초`, 기본 90, VU 50명): 본 측정 전에 같은 흐름을 돌려 데워요. k6 결과·Prometheus(testid)·서버 지표 구간에서 빠져요(`warmup.log`만 남아요). `meta.json`의 `warmup_seconds`에 남아요.
+- **반복**(`--repeat N`, 기본 1): 예열 뒤 같은 테스트를 N번 재서 `run1/`·`run2/`…(회마다 지금과 같은 폴더 하나)에 남기고, 맨 위 폴더에 **중앙값**(`summary.json`·`server_summary.json`·`server_by_uri.csv`·`slow_queries.csv`·`stages.csv`, 2회면 평균)을 써요. `meta.json`에 `repeat`·`runs`가 남아요.
+- `compare.sh`는 맨 위 폴더를 넘기면 중앙값끼리 비교하고, 한쪽만 반복이면 경고해요. 결과 줄은 회별 줄과 중앙값 줄을 다 찍어요.
+- 개선 전후 비교는 둘 다 같은 예열·반복으로 재요. 시간이 N배라 내구(soak) 같은 긴 테스트는 `--repeat 1`로 해요.
+
 ## 고친 뒤
 
 ```bash
-perf/run.sh load "Hikari 풀 10 → 20"                # 메모가 meta.json과 표의 「고친 것」에 들어가요
+perf/run.sh --repeat 2 load "Hikari 풀 10 → 20"     # 메모가 meta.json과 표의 「고친 것」에 들어가요
 perf/compare.sh perf/results/<전 폴더> perf/results/<후 폴더> > 비교.md
 ```
 

@@ -2,12 +2,12 @@
 //   직접 부를 때: TEST=smoke k6 run perf/k6/main.js   (보통은 perf/run.sh <test>로 불러요: 결과를 폴더에 모아 줘요)
 import { textSummary } from 'https://jslib.k6.io/k6-summary/0.1.0/index.js';
 import { SharedArray } from 'k6/data';
-import { DATA, MIX, PROFILES, SEED_PROFILES, TEST } from './lib/config.js';
+import { DATA, MIX, PROFILES, SEED_PROFILES, TEST, WARMUP } from './lib/config.js';
 import { accessToken } from './lib/token.js';
 import { browse, judge, member, single } from './lib/flows.js';
 
 const profiles = DATA === 'seed' ? SEED_PROFILES : PROFILES;
-const profile = profiles[TEST];
+const profile = TEST === 'warmup' ? WARMUP : profiles[TEST];
 if (!profile) throw new Error(`TEST는 ${Object.keys(profiles).join('·')} 중 하나예요(DATA=${DATA}): ${TEST}`);
 
 // 운영 기준: 테스트 계정 하나의 토큰을 setup에서 서명해요. 없으면 로그인 흐름(15%)은 판정 흐름으로 돌려요

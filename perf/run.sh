@@ -1,14 +1,28 @@
 #!/usr/bin/env bash
 # 테스트 한 번 = 결과 폴더 하나. k6를 돌리고 그 구간의 숫자·그래프 이미지·느린 쿼리·버전·데이터 양을 다 모아요.
-#   perf/run.sh [--data prod|seed] <smoke|load|load200|soak|stress|breakpoint|spike> ["고친 것 메모"]
+#   perf/run.sh [--data prod|seed] [--warmup 초] [--repeat N] <smoke|load|load200|soak|stress|breakpoint|spike> ["고친 것 메모"]
+# --warmup: 본 측정 전 예열(기본 90초, VU 50명, 결과·Prometheus에서 빼요. 0이면 안 해요)
+# --repeat: 같은 테스트를 N번(기본 1) 재서 run1/ run2/ …와 그 중앙값(맨 위 폴더)을 남겨요. compare.sh·결과 줄은 중앙값을 써요
 # 대상은 BASE_URL로 정해요: 운영 EC2 = prod, DEV_EC2_HOST = dev, localhost = local(로컬 api 지표도 모아요, CloudWatch만 빠져요)
 # --data seed = 더미(perf/seed) 기준: k6/data/seed.json + 더미 회원 토큰(k6/make-tokens.sh), 더미 기준 프로필(load200은 더미만)
 # 결과: perf/results/<yyyyMMdd-HHmm>_<test>_<api 버전>/ (운영 대상·운영 데이터), 그 밖에는 <test>_<대상>-<데이터>_<api 버전>
 source "$(dirname "$0")/lib/common.sh"
 
 DATA=prod
-if [ "${1:-}" = --data ]; then DATA="${2:-}"; shift 2; fi
-case "$DATA" in prod|seed) ;; *) sed -n '2,6p' "$0"; exit 1 ;; esac
+WARMUP=90
+REPEAT=1
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --data) DATA="${2:-}"; shift 2 ;;
+    --warmup) WARMUP="${2:-}"; shift 2 ;;
+    --repeat) REPEAT="${2:-}"; shift 2 ;;
+    *) break ;;
+  esac
+done
+usage() { sed -n '2,8p' "$0"; exit 1; }
+case "$DATA" in prod|seed) ;; *) usage ;; esac
+[[ "$WARMUP" =~ ^[0-9]+$ ]] || usage
+[[ "$REPEAT" =~ ^[1-9][0-9]*$ ]] || usage
 
 TEST="${1:-}"
 NOTE="${2:-}"
@@ -20,7 +34,7 @@ if [ "$DATA" = prod ]; then
     stress) LOAD="50→1,000명" ;;
     breakpoint) LOAD="초당 20건~" ;;
     spike) LOAD="20→500→20명" ;;
-    *) sed -n '2,6p' "$0"; exit 1 ;;
+    *) usage ;;
   esac
 else
   case "$TEST" in
@@ -31,7 +45,7 @@ else
     stress) LOAD="100→1,000명" ;;
     breakpoint) LOAD="초당 20건~" ;;
     spike) LOAD="20→600→20명" ;;
-    *) sed -n '2,6p' "$0"; exit 1 ;;
+    *) usage ;;
   esac
 fi
 
@@ -86,11 +100,6 @@ OUT="$PERF_DIR/results/$NAME"
 mkdir -p "$OUT"
 echo "== $NAME"
 
-if db_sql < "$PERF_DIR/lib/pg_stats.sql" > "$OUT/pg_before.csv" 2> "$OUT/pg.err"; then PG=1; else
-  PG=0; warn "pg_stat_statements를 못 읽었어요(README 「사용자가 할 일」). 느린 쿼리는 빠져요: $(head -c 200 "$OUT/pg.err")"
-fi
-db_sql < "$PERF_DIR/lib/table_counts.sql" > "$OUT/table_counts.csv" 2>> "$OUT/pg.err" || warn "데이터 양을 못 읽었어요"
-
 MEMBER=false
 if [ "$DATA" = seed ]; then
   MEMBER=true
@@ -98,28 +107,51 @@ if [ "$DATA" = seed ]; then
 else
   [ -n "${JWT_SECRET:-}" ] && [ -n "${TEST_USER_ID:-}" ] && MEMBER=true
 fi
-
-START=$(date +%s)
-set +e
-TEST="$TEST" DATA="$DATA" DATA_FILE="$DATA_FILE" TOKENS_FILE="$TOKENS_FILE" BASE_URL="$BASE_URL" OUT_DIR="$OUT" \
-  K6_PROMETHEUS_RW_SERVER_URL="$PROM/api/v1/write" \
-  K6_PROMETHEUS_RW_TREND_STATS='p(95),p(99),avg,max' \
-  K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT="$OUT/k6-report.html" K6_WEB_DASHBOARD_OPEN=false \
-  k6 run -o experimental-prometheus-rw --tag testid="$NAME" "$PERF_DIR/k6/main.js" 2>&1 | tee "$OUT/k6.log"
-K6_EXIT=${PIPESTATUS[0]}
-set -e
-END=$(date +%s)
-
-if [ "$PG" = 1 ]; then
-  db_sql < "$PERF_DIR/lib/pg_stats.sql" > "$OUT/pg_after.csv" 2>> "$OUT/pg.err" \
-    && python3 "$PERF_DIR/lib/tools.py" pgdiff "$OUT/pg_before.csv" "$OUT/pg_after.csv" "$OUT/slow_queries.csv" \
-    && rm "$OUT/pg_before.csv" "$OUT/pg_after.csv"
-fi
-[ -s "$OUT/pg.err" ] || rm -f "$OUT/pg.err"
-
 GIT_SHA="$(git -C "$PERF_DIR" rev-parse --short HEAD)"
 git -C "$PERF_DIR" diff --quiet -- . || GIT_SHA="$GIT_SHA(+perf 수정)"
-cat > "$OUT/meta.json" <<JSON
+
+k6_env() { # k6를 이 테스트의 데이터·대상으로
+  TEST="$1" DATA="$DATA" DATA_FILE="$DATA_FILE" TOKENS_FILE="$TOKENS_FILE" BASE_URL="$BASE_URL" "${@:2}"
+}
+
+# 예열: JVM·DB 캐시를 데워요. 결과 폴더·Prometheus에는 남기지 않아요(로그만)
+if [ "$WARMUP" -gt 0 ]; then
+  echo "== 예열 ${WARMUP}초 (결과에서 빼요)"
+  set +e
+  k6_env warmup env WARMUP_SECONDS="$WARMUP" OUT_DIR="$OUT" k6 run -q "$PERF_DIR/k6/main.js" > "$OUT/warmup.log" 2>&1
+  set -e
+  rm -f "$OUT/summary.json"
+fi
+
+# 본 측정 한 번 = 폴더 하나 (k6·느린 쿼리·데이터 양·meta·서버 지표)
+measure() {
+  local OUT="$1" ID="$2"
+  mkdir -p "$OUT"
+  local PG
+  if db_sql < "$PERF_DIR/lib/pg_stats.sql" > "$OUT/pg_before.csv" 2> "$OUT/pg.err"; then PG=1; else
+    PG=0; warn "pg_stat_statements를 못 읽었어요(README 「사용자가 할 일」). 느린 쿼리는 빠져요: $(head -c 200 "$OUT/pg.err")"
+  fi
+  db_sql < "$PERF_DIR/lib/table_counts.sql" > "$OUT/table_counts.csv" 2>> "$OUT/pg.err" || warn "데이터 양을 못 읽었어요"
+
+  START=$(date +%s)
+  set +e
+  k6_env "$TEST" env OUT_DIR="$OUT" \
+    K6_PROMETHEUS_RW_SERVER_URL="$PROM/api/v1/write" \
+    K6_PROMETHEUS_RW_TREND_STATS='p(95),p(99),avg,max' \
+    K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT="$OUT/k6-report.html" K6_WEB_DASHBOARD_OPEN=false \
+    k6 run -o experimental-prometheus-rw --tag testid="$ID" "$PERF_DIR/k6/main.js" 2>&1 | tee "$OUT/k6.log"
+  K6_EXIT=${PIPESTATUS[0]}
+  set -e
+  END=$(date +%s)
+
+  if [ "$PG" = 1 ]; then
+    db_sql < "$PERF_DIR/lib/pg_stats.sql" > "$OUT/pg_after.csv" 2>> "$OUT/pg.err" \
+      && python3 "$PERF_DIR/lib/tools.py" pgdiff "$OUT/pg_before.csv" "$OUT/pg_after.csv" "$OUT/slow_queries.csv" \
+      && rm "$OUT/pg_before.csv" "$OUT/pg_after.csv"
+  fi
+  [ -s "$OUT/pg.err" ] || rm -f "$OUT/pg.err"
+
+  cat > "$OUT/meta.json" <<JSON
 {
   "test": "$TEST",
   "load": "$LOAD",
@@ -140,17 +172,36 @@ cat > "$OUT/meta.json" <<JSON
   "k6_version": $(k6 version | head -1 | jq -Rs 'rtrimstr("\n")'),
   "perf_git_sha": "$GIT_SHA",
   "data_json_sha256": "$(shasum -a 256 "$PERF_DIR/k6/data/$DATA_FILE" | cut -c1-16)",
-  "prometheus_testid": "$NAME"
+  "warmup_seconds": $WARMUP,
+  "prometheus_testid": "$ID"
 }
 JSON
 
-if [ "$PROM_OK" = 1 ]; then
-  echo "== 결과 모으기 (Prometheus 마지막 수집을 15초 기다려요)"
-  sleep 15
-  "$PERF_DIR/collect.sh" "$OUT"
+  if [ "$PROM_OK" = 1 ]; then
+    echo "== 결과 모으기 (Prometheus 마지막 수집을 15초 기다려요)"
+    sleep 15
+    "$PERF_DIR/collect.sh" "$OUT"
+  else
+    echo "== 서버 지표·그래프 모으기는 건너뛰어요 (Prometheus 또는 api 지표가 없어요)"
+  fi
+
+  echo "== 측정 끝: $OUT (k6 종료 코드 $K6_EXIT)"
+}
+
+if [ "$REPEAT" -eq 1 ]; then
+  measure "$OUT" "$NAME"
 else
-  echo "== 서버 지표·그래프 모으기는 건너뛰어요 (Prometheus 또는 api 지표가 없어요)"
+  runs=()
+  for i in $(seq 1 "$REPEAT"); do
+    echo "== ${i}/${REPEAT}회"
+    measure "$OUT/run$i" "${NAME}_run$i"
+    runs+=("$OUT/run$i")
+  done
+  python3 "$PERF_DIR/lib/tools.py" median "$OUT" "${runs[@]}"
+  echo "== ${REPEAT}회 중앙값 → $OUT (회별: run1/ … run${REPEAT}/)"
+  for r in "${runs[@]}"; do python3 "$PERF_DIR/lib/tools.py" row "$r"; done
 fi
+K6_EXIT="$(jq -r .k6_exit_code "$OUT/meta.json")"
 
 echo
 echo "== 끝: $OUT  (k6 종료 코드 $K6_EXIT: 0 = 합격 기준 통과, 99 = 기준 넘음)"
