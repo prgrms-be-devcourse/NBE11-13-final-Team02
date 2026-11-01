@@ -17,7 +17,6 @@ import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.eligibility.dto.response.BenefitEvaluationResponse;
 import kr.mujuthaek.api.eligibility.dto.response.BenefitSearchResponse;
 import kr.mujuthaek.api.eligibility.rule.Applicant;
-import kr.mujuthaek.api.eligibility.rule.Bands;
 import kr.mujuthaek.api.eligibility.rule.IncomeBenchmarks;
 import kr.mujuthaek.api.eligibility.rule.benefit.BenefitJudge;
 import org.springframework.stereotype.Service;
@@ -105,10 +104,7 @@ public class BenefitEvaluationService {
    */
   public List<Judged> judgeAll(List<String> regionCodes, Applicant applicant) {
     var judge = compiledEvaluator(applicant);
-    int[] ages =
-        applicant.birthMonth() == null
-            ? null
-            : Bands.ages(applicant.birthMonth(), LocalDate.now(clock.withZone(KOREA)));
+    int[] ages = applicant.ages(LocalDate.now(clock.withZone(KOREA)));
     // 캐시에 같은 수정 시각으로 있는 혜택은 DB가 조건을 읽지 않아요. 그 사이 밀려나도 되게 찾은 것을 이 요청 안에 잡아 둬요
     Map<UUID, Compiled> cached = new java.util.concurrent.ConcurrentHashMap<>();
     var open =

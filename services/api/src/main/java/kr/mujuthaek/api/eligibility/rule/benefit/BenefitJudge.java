@@ -130,9 +130,9 @@ public final class BenefitJudge {
   }
 
   private static Item age(Condition c, Applicant a, LocalDate today) {
-    if (a.birthMonth() == null) return need(c, "출생 연월을 넣으면 판정돼요", "applicant.birthMonth");
-    Status s =
-        Bands.ageWithin(Bands.ages(a.birthMonth(), today), integer(c, "min"), integer(c, "max"));
+    int[] ages = a.ages(today);
+    if (ages == null) return need(c, "생년월일을 넣으면 판정돼요", "applicant.birthDate");
+    Status s = Bands.ageWithin(ages, integer(c, "min"), integer(c, "max"));
     return item(c, s, reason(s, "나이가 맞지 않아요"), List.of());
   }
 

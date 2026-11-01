@@ -11,7 +11,7 @@ import kr.mujuthaek.api.eligibility.rule.frame.Applicant.MaritalStatus;
 /**
  * 사용자 입력 (세 분야 같이 써요). 모두 선택 입력이에요. 칸 뜻은 rule/frame/Applicant를 봐요.
  *
- * <p>birthMonth(출생 연월, 예: 1997-03)는 생년월일 대신 받아요. 생년월일이 있으면 생년월일을 써요.
+ * <p>나이는 birthDate(생년월일)로 판정해요. birthMonth(출생 연월, 예: 1997-03)는 생년월일이 없을 때만 써요 (예전 화면 호환).
  *
  * <p>저장하거나 로그에 남기지 않아요. 잘못된 값이 와도 오류 메시지에 그 값을 넣지 않아요.
  *
