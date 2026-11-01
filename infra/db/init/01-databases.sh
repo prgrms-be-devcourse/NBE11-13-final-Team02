@@ -11,6 +11,8 @@ create_db() {
 SQL
   # PostGIS는 슈퍼유저만 설치할 수 있어서 여기서 미리 깔아둬요
   psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$db" -c "create extension if not exists postgis;"
+  # 느린 쿼리 기록 (docker-compose의 shared_preload_libraries와 같이). perf/run.sh가 읽어요
+  psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$db" -c "create extension if not exists pg_stat_statements;"
 }
 
 create_db api api_app "$API_DB_PASSWORD"

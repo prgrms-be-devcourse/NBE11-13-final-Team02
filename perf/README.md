@@ -91,7 +91,7 @@ dev는 `local` 대신 `dev`예요. 넣기·지우기 전에 한 번 더 물어�
 | `soak` | 100명 1시간 |
 
 - 흐름 비중: 둘러보기 50 · 판정 25 · 로그인 25(%). 로그인 흐름은 더미 회원 1,000명의 토큰을 VU마다 돌려 써요(관심 등록·해제도 더미 회원이 해요). 둘러보기에 혜택 상세가 더해져요.
-- **로컬 실행도 서버 지표를 모아요.** Prometheus가 노트북 8080의 `/actuator/prometheus`를 `job="api", target="local"`로 긁고, run.sh가 서버 p95·p99, API별 p95, GC 멈춤(최대·합계), DB 커넥션 대기(수·얻는 시간), 힙, 판정 캐시 적중률, Grafana 그래프를 결과 폴더에 남겨요(CloudWatch만 빠져요). 서버 쪽은 `target="server"`라 섞이지 않아요. Prometheus가 다른 저장소 폴더에서 떠 있으면 설정이 옛것이라, 이 폴더의 `perf/docker-compose.yml`로 `up -d` 해요(쌓인 데이터는 볼륨이라 남아요). 로컬 DB에 `pg_stat_statements`가 없으면 느린 쿼리만 빠져요.
+- **로컬 실행도 서버 지표를 모아요.** Prometheus가 노트북 8080의 `/actuator/prometheus`를 `job="api", target="local"`로 긁고, run.sh가 서버 p95·p99, API별 p95, GC 멈춤(최대·합계), DB 커넥션 대기(수·얻는 시간), 힙, 판정 캐시 적중률, Grafana 그래프를 결과 폴더에 남겨요(CloudWatch만 빠져요). 서버 쪽은 `target="server"`라 섞이지 않아요. Prometheus가 다른 저장소 폴더에서 떠 있으면 설정이 옛것이라, 이 폴더의 `perf/docker-compose.yml`로 `up -d` 해요(쌓인 데이터는 볼륨이라 남아요). 로컬 Postgres는 `infra/docker-compose.yml`이 `shared_preload_libraries=pg_stat_statements`로 띄워서 느린 쿼리(`slow_queries.csv`)도 남아요. 이미 만든 DB에는 한 번 `create extension if not exists pg_stat_statements;`(postgres 사용자, api_fe)를 해요.
 - 결과 폴더는 `<시각>_<test>_<대상>-<데이터>_<api 버전>`(예: `20261031-1400_load_dev-seed_v0.2.1`), meta.json에 `target`·`data`·`data_file`·`member_tokens`가 남아요.
 - dev는 서버 지표 터널을 `perf/tunnel.sh dev`로 열어요. node-exporter·cAdvisor는 운영 compose에만 있어서 dev는 서버 CPU·컨테이너 그래프가 빠져요(api·DB 쪽은 나와요).
 - dev에서 pg_stat_statements는 RDS 인스턴스 전체라 운영 쿼리도 섞여요. `slow_queries.csv`는 그걸 감안해서 봐요.

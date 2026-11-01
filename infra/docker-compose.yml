@@ -4,6 +4,8 @@ name: mujuthaek
 services:
   postgres:
     image: postgis/postgis:17-3.5
+    # 느린 쿼리 기록(pg_stat_statements): perf/run.sh가 테스트 전후 차이를 slow_queries.csv로 남겨요. 운영 RDS는 파라미터 그룹으로 켜요
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements", "-c", "pg_stat_statements.track=top"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
