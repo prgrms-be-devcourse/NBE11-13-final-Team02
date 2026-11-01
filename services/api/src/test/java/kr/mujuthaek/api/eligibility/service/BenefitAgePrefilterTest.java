@@ -59,6 +59,16 @@ class BenefitAgePrefilterTest {
     }
     assertThat(ruledOut).as("나이로 실제로 걸러야 시험이 의미 있어요").isGreaterThan(0);
 
+    // 생년월일이면 경계 달에도 나이가 하나라 그 나이로 걸러요
+    for (Applicant applicant :
+        List.of(
+            new ApplicantBuilder().birthDate(1986, 10, 1).build(),
+            new ApplicantBuilder().birthDate(1986, 10, 31).build())) {
+      assertThat(prefiltered(applicant))
+          .as("생년월일 %s", applicant.birthDate())
+          .isEqualTo(judgedOneByOne(applicant));
+    }
+
     // 출생 연월이 없으면 거르지 않아요
     Applicant noBirth = new ApplicantBuilder().build();
     assertThat(prefiltered(noBirth)).isEqualTo(judgedOneByOne(noBirth));

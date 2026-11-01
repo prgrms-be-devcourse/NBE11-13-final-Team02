@@ -119,6 +119,7 @@ class NoticeSearchPerfTest {
 
     var applicant =
         new ApplicantRequest(
+            null,
             YearMonth.of(1997, 3),
             "11440",
             true,

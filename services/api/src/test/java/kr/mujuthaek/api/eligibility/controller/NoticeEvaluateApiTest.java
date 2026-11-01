@@ -103,7 +103,7 @@ class NoticeEvaluateApiTest {
     UUID id = noticeWithJudgment();
     String body =
         """
-        {"applicant":{"birthMonth":"1997-03","regionCode":"11650","homeOwner":false,"homelessYears":"3_5",
+        {"applicant":{"birthDate":"1997-03-15","regionCode":"11650","homeOwner":false,"homelessYears":"3_5",
                       "householdSize":1,"income":{"URBAN_WORKER_INCOME":{"gtPct":31,"lePct":40}}}}""";
 
     var result =

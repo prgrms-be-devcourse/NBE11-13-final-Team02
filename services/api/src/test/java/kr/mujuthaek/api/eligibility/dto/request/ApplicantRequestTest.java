@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import jakarta.validation.Validation;
 import jakarta.validation.Validator;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.List;
 import java.util.Map;
@@ -21,7 +22,8 @@ class ApplicantRequestTest {
 
   static ApplicantRequest sample() {
     return new ApplicantRequest(
-        YearMonth.of(1997, 3),
+        LocalDate.of(1997, 3, 15),
+        null,
         "11440",
         true,
         1,
@@ -47,7 +49,7 @@ class ApplicantRequestTest {
     var empty =
         new ApplicantRequest(
             null, null, null, null, null, null, null, null, null, null, null, null, null, null,
-            null, null, null, null, null);
+            null, null, null, null, null, null);
     assertThat(VALIDATOR.validate(empty)).isEmpty();
     assertThat(empty.toApplicant()).isEqualTo(Applicant.empty());
   }
@@ -56,7 +58,7 @@ class ApplicantRequestTest {
   void readsTheBandJson() {
     String json =
         """
-        {"birthMonth":"1997-03","regionCode":"11440","householdHead":true,"householdSize":1,
+        {"birthDate":"1997-03-15","regionCode":"11440","householdHead":true,"householdSize":1,
          "dependents":0,"targetGroups":["YOUTH"],"marital":"SINGLE","marriedOn":null,"children":0,
          "homeOwner":false,"homelessYears":"3_5","subscription":{"months":"24_PLUS","payments":26},
          "welfareStatuses":[],"income":{"URBAN_WORKER_INCOME":{"gtPct":90,"lePct":100}},
@@ -64,6 +66,18 @@ class ApplicantRequestTest {
          "workplace":{"label":"여의도역","lat":37.5216,"lng":126.9243},"priorities":{"work":8}}""";
 
     assertThat(NoticeFixtures.JSON.readValue(json, ApplicantRequest.class)).isEqualTo(sample());
+  }
+
+  @Test
+  void stillReadsTheBirthMonthOfOlderScreens() {
+    var old = NoticeFixtures.JSON.readValue("{\"birthMonth\":\"1997-03\"}", ApplicantRequest.class);
+
+    Applicant a = old.toApplicant();
+    assertThat(a.birthDate()).isNull();
+    assertThat(a.birthMonth()).isEqualTo(YearMonth.of(1997, 3));
+    // 기준일이 생일 달이면 출생 연월로는 나이가 둘이에요
+    assertThat(a.ages(LocalDate.of(2026, 3, 10))).containsExactly(28, 29);
+    assertThat(sample().toApplicant().ages(LocalDate.of(2026, 3, 10))).containsExactly(28, 28);
   }
 
   @Test
@@ -79,6 +93,7 @@ class ApplicantRequestTest {
   void rejectsMalformedValuesByFieldName() {
     var bad =
         new ApplicantRequest(
+            LocalDate.now().plusDays(1),
             YearMonth.now().plusMonths(1),
             "1144",
             null,
@@ -105,6 +120,7 @@ class ApplicantRequestTest {
             .collect(Collectors.toSet());
     assertThat(fields)
         .contains(
+            "birthDate",
             "birthMonth",
             "regionCode",
             "householdSize",
@@ -124,13 +140,16 @@ class ApplicantRequestTest {
   }
 
   @Test
-  void toStringHidesIncomeAssetsAndBirthMonth() {
+  void toStringHidesIncomeAssetsAndBirthDate() {
     String text = sample().toString();
 
     assertThat(text)
         .startsWith("ApplicantRequest[")
-        .contains("regionCode=11440", "birthMonth=***", "personalIncome=***", "assets=***")
+        .contains("regionCode=11440", "birthDate=***", "personalIncome=***", "assets=***")
         .doesNotContain("1997-03", "gt=90", "25000000", "R2_INCOME");
+    assertThat(sample().toApplicant().toString())
+        .contains("birthDate=***")
+        .doesNotContain("1997-03");
   }
 
   @Test

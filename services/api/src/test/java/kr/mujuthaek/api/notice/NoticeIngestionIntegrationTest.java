@@ -242,6 +242,38 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 같은_이벤트가_동시에_와도_한_번만_처리하고_나머지는_예외_없이_DUPLICATE다() throws Exception {
+    // 2026-11-01 동시성 시험: 100개 동시에 9개가 처리 기록 기본 키에서 부딪혀 예외(→ 재시도·실패 큐)였어요
+    String body = body(fixture());
+    int threads = 20;
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+    var ready = new java.util.concurrent.CountDownLatch(threads);
+    var go = new java.util.concurrent.CountDownLatch(1);
+    List<java.util.concurrent.Future<IngestionOutcome>> results = new java.util.ArrayList<>();
+    for (int i = 0; i < threads; i++) {
+      results.add(
+          pool.submit(
+              () -> {
+                ready.countDown();
+                go.await();
+                return ingestion.apply(body);
+              }));
+    }
+    ready.await();
+    go.countDown();
+    List<IngestionOutcome> outcomes = new java.util.ArrayList<>();
+    for (var f : results) {
+      outcomes.add(f.get(60, java.util.concurrent.TimeUnit.SECONDS)); // 예외면 여기서 실패해요
+    }
+    pool.shutdown();
+
+    assertThat(outcomes).filteredOn(o -> o == IngestionOutcome.DUPLICATE).hasSize(threads - 1);
+    assertThat(count("notice.notices")).isEqualTo(1);
+    assertThat(count("notice.notice_versions")).isEqualTo(1);
+    assertThat(count("notice.extraction_results")).isEqualTo(1);
+  }
+
+  @Test
   void 같은_이벤트를_두_번_받아도_공고와_버전은_하나다() {
     ObjectNode event = fixture();
     ingestion.apply(body(event));

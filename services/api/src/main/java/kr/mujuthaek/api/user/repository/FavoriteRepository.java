@@ -20,6 +20,17 @@ public class FavoriteRepository {
 
   public record Favorite(String targetType, UUID targetId, Instant createdAt) {}
 
+  /**
+   * 같은 회원의 관심 저장을 줄 세워요(트랜잭션이 끝나면 풀려요). 「개수 세기 → 넣기」 사이에 다른 요청이 끼어들어 200개 제한을 넘던 것을 막아요 (2026-11-01
+   * 동시성 시험: 199개에서 100개 동시 등록 → 최대 204개).
+   */
+  public void lockUser(UUID userId) {
+    jdbc.sql("select pg_advisory_xact_lock(hashtextextended('favorites:' || cast(:id as text), 0))")
+        .param("id", userId)
+        .query((rs, i) -> 1)
+        .list();
+  }
+
   /** 이미 있으면 그대로 (처음 저장한 시각 유지). 새로 넣었으면 true */
   public boolean add(UUID userId, String targetType, UUID targetId, Instant now) {
     return jdbc.sql(

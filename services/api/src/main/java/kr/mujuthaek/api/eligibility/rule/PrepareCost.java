@@ -79,10 +79,9 @@ public final class PrepareCost {
 
   private static boolean ageAndTargetFit(LoanProduct p, Applicant a, LocalDate ref) {
     if (p.minAge() != null || p.maxAge() != null) {
-      // 생일 달이라 나이가 갈리면(확인 필요) 그 상품은 쓰지 않아요
-      if (a.birthMonth() == null
-          || Bands.ageWithin(Bands.ages(a.birthMonth(), ref), p.minAge(), p.maxAge())
-              != Status.MET) {
+      // 나이를 모르거나 출생 연월만 있어 생일 달이라 나이가 갈리면(확인 필요) 그 상품은 쓰지 않아요
+      int[] ages = a.ages(ref);
+      if (ages == null || Bands.ageWithin(ages, p.minAge(), p.maxAge()) != Status.MET) {
         return false;
       }
     }
