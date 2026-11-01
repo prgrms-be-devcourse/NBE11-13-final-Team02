@@ -138,6 +138,24 @@ def export_prom(out, start, end):
         "hikari_acquire_max_ms": ms(
             scalar(f'max_over_time(max(hikaricp_connections_acquire_seconds_max{{job="api"}})[{w}:5s])', end)
         ),
+        # 커넥션을 쥐는 시간: 빌린 한 번 평균·최대, 요청 하나가 쥔 시간 합(쥔 시간 합계 / 서버 요청 수)
+        "hikari_usage_avg_ms": ms(
+            scalar(
+                f'sum(increase(hikaricp_connections_usage_seconds_sum{{job="api"}}[{w}]))'
+                f' / sum(increase(hikaricp_connections_usage_seconds_count{{job="api"}}[{w}]))',
+                end,
+            )
+        ),
+        "hikari_usage_max_ms": ms(
+            scalar(f'max_over_time(max(hikaricp_connections_usage_seconds_max{{job="api"}})[{w}:5s])', end)
+        ),
+        "hikari_usage_per_request_ms": ms(
+            scalar(
+                f'sum(increase(hikaricp_connections_usage_seconds_sum{{job="api"}}[{w}]))'
+                f" / sum(increase(http_server_requests_seconds_count{{{API}}}[{w}]))",
+                end,
+            )
+        ),
         "api_gc_pause_total_ms": ms(scalar(f'sum(increase(jvm_gc_pause_seconds_sum{{job="api"}}[{w}]))', end)),
         # 판정 캐시 적중률 (api가 mujuthaek_judging_cache_total{cache, result=hit|miss}을 낼 때만)
         "judging_cache_hit_ratio": {
@@ -226,6 +244,15 @@ def export_stages(out):
                 )
             ),
             "dropped_iterations": num(scalar(f"sum(increase(k6_dropped_iterations_total{{{sel}}}[{w}]))", s_to)) or 0,
+            "hikari_active_max": num(scalar(f'max_over_time(sum(hikaricp_connections_active{{job="api"}})[{w}:5s])', s_to)),
+            "hikari_pending_max": num(scalar(f'max_over_time(sum(hikaricp_connections_pending{{job="api"}})[{w}:5s])', s_to)),
+            "hikari_usage_avg_ms": ms(
+                scalar(
+                    f'sum(increase(hikaricp_connections_usage_seconds_sum{{job="api"}}[{w}]))'
+                    f' / sum(increase(hikaricp_connections_usage_seconds_count{{job="api"}}[{w}]))',
+                    s_to,
+                )
+            ),
             "server_p95_ms": ms(
                 scalar(
                     f"histogram_quantile(0.95, sum by (le) (increase(http_server_requests_seconds_bucket{{{API}}}[{w}])))",
@@ -268,7 +295,8 @@ def export_stages(out):
     cols = (
         ["stage", "label", "target", "from", "to", "seconds", "partial", "aborted_here", "vus_max", "rps", "error_rate"]
         + [f"p{q}_{ty}_ms" for q in ("95", "99") for ty in TYPES]
-        + ["server_p95_ms", "dropped_iterations", "k6_cpu_avg", "sys_cpu_max", "over", "laptop_suspect"]
+        + ["server_p95_ms", "hikari_active_max", "hikari_pending_max", "hikari_usage_avg_ms"]
+        + ["dropped_iterations", "k6_cpu_avg", "sys_cpu_max", "over", "laptop_suspect"]
     )
     write_csv(out / "stages.csv", rows, cols)
 
@@ -417,6 +445,9 @@ def compare(da, db):
         ("DB 커넥션 얻는 시간 평균 (ms)", sa.get("hikari_acquire_avg_ms"), sb.get("hikari_acquire_avg_ms"), 1),
         ("DB 커넥션 얻는 시간 최대 (ms)", sa.get("hikari_acquire_max_ms"), sb.get("hikari_acquire_max_ms"), 0),
         ("GC 멈춤 합계 (ms)", sa.get("api_gc_pause_total_ms"), sb.get("api_gc_pause_total_ms"), 0),
+        ("DB 커넥션 쥐는 시간 평균 (ms, 빌린 한 번)", sa.get("hikari_usage_avg_ms"), sb.get("hikari_usage_avg_ms"), 2),
+        ("DB 커넥션 쥐는 시간 최대 (ms)", sa.get("hikari_usage_max_ms"), sb.get("hikari_usage_max_ms"), 0),
+        ("요청 하나가 커넥션을 쥔 시간 (ms)", sa.get("hikari_usage_per_request_ms"), sb.get("hikari_usage_per_request_ms"), 1),
     ]
     for cache in sorted(set(sa.get("judging_cache_hit_ratio") or {}) | set(sb.get("judging_cache_hit_ratio") or {})):
         lines.append(

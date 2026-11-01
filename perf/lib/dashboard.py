@@ -52,6 +52,11 @@ PANELS = [
         'rate(hikaricp_connections_acquire_seconds_sum{job="api"}[1m]) / rate(hikaricp_connections_acquire_seconds_count{job="api"}[1m])',
         "평균")]),
     ("EC2 남은 메모리", "bytes", [("node_memory_MemAvailable_bytes", "MemAvailable")]),
+    # 2026-11-02: 커넥션을 빌린 한 번에 얼마나 쥐는지(풀이 가득 차는 원인 찾기). 패널 순서는 결과 이미지 이름이라 끝에 더해요
+    ("DB 커넥션 쥐는 시간 (빌린 한 번)", "s", [
+        ('rate(hikaricp_connections_usage_seconds_sum{job="api"}[1m]) / rate(hikaricp_connections_usage_seconds_count{job="api"}[1m])', "평균"),
+        ('max(hikaricp_connections_usage_seconds_max{job="api"})', "최대"),
+    ]),
 ]
 
 
