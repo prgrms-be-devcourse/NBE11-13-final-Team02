@@ -239,82 +239,74 @@ public class BenefitRepository {
    * BENEFIT만.
    */
   public List<Row> openBenefits(Collection<String> regionCodes) {
-    return openBenefits(regionCodes, null).rows();
+    return openBenefits(regionCodes, r -> false);
   }
 
   /**
-   * 판정 후보와, 그중 나이 조건만으로 지원 불가가 확실한 혜택 ID.
+   * {@link #openBenefits(Collection)}과 같되, skipLines가 참인 혜택(판정 캐시에 같은 수정 시각으로 이미 있는 것)은 지원 내용·조건을
+   * 읽지 않아요.
    *
-   * @param rows 판정 후보 (마감일 순). 나이로 걸러진 혜택은 지원 내용·조건을 읽지 않아 비어 있어요
-   * @param ruledOutByAge 나이로 걸러진 혜택 ID
+   * <p>판정에 쓰는 칸만 읽어요(설명·서류·신청 방법 같은 긴 칸은 빼요: 한 줄 약 940바이트 → 판정 칸). 나이로 지원 불가를 DB에서 미리 거르던 하위 쿼리는
+   * 뺐어요: 혜택마다 조건을 다시 훑어 요청마다 DB 시간이 20ms 넘게 늘고 그동안 커넥션을 쥐었는데, 조건은 이제 앱이 캐시해 두고 판정하므로 얻는 게
+   * 없었어요(2026-11-02 로컬 실행 계획: 32~55ms → 12ms). 판정 결과는 같아요(BenefitJudge가 같은 규칙으로 판정해요).
    */
-  public record Open(List<Row> rows, java.util.Set<UUID> ruledOutByAge) {}
-
-  /**
-   * 판정 후보를 읽으면서 나이 조건만으로 지원 불가가 확실한 혜택을 DB에서 골라요. 그 혜택은 지원 내용·조건을 읽지 않아요(요청마다 열린 혜택 수천 개의 조건을 다 읽고
-   * 판정하던 것을 줄여요).
-   *
-   * <p>BenefitJudge와 같은 규칙만 써요: 안내 조건(EXCLUSIVE·PRIORITY)을 뺀 어느 한 그룹의 조건이 모두 「값을 아는(known) 나이 조건이고
-   * 가장 어린·가장 많은 나이 모두 범위 밖」이면 그 그룹이 불충족이라 혜택 전체가 지원 불가예요 (Bands.ageWithin, min·max는 숫자일 때만 정수로).
-   *
-   * @param ages 지원자 만 나이 [가장 어린, 가장 많은] (Bands.ages). null이면 거르지 않아요
-   */
-  public Open openBenefits(Collection<String> regionCodes, int[] ages) {
-    return openBenefits(regionCodes, ages, r -> false);
-  }
-
-  /**
-   * {@link #openBenefits(Collection, int[])}과 같되, skipLines가 참인 혜택(판정 캐시에 같은 수정 시각으로 이미 있는 것)도 지원
-   * 내용·조건을 읽지 않아요.
-   */
-  public Open openBenefits(
-      Collection<String> regionCodes, int[] ages, java.util.function.Predicate<Row> skipLines) {
+  public List<Row> openBenefits(
+      Collection<String> regionCodes, java.util.function.Predicate<Row> skipLines) {
     String[] regions = regionCodes.toArray(String[]::new);
-    java.util.Set<UUID> ruledOut = new java.util.HashSet<>();
     List<Row> rows =
         jdbc.sql(
-                "select b.*, "
-                    + AGE_RULED_OUT
-                    + " as ruled_out from benefit.benefits b where b.field = 'BENEFIT'"
+                "select "
+                    + JUDGMENT_COLUMNS
+                    + " from benefit.benefits b where b.field = 'BENEFIT'"
                     + " and b.status in ('UPCOMING', 'OPEN') and (cardinality(cast(:regions as"
                     + " text[])) = 0 or b.region_scope = 'NATIONWIDE' or exists (select 1 from"
                     + " unnest(b.region_codes) r, unnest(cast(:regions as text[])) f where r like f"
                     + " || '%' or f like r || '%')) order by b.apply_end nulls last, b.id")
             .param("regions", regions)
-            .param("young", ages == null ? null : ages[0])
-            .param("old", ages == null ? null : ages[1])
-            .query(
-                (rs, i) -> {
-                  Row r = row(rs, i);
-                  if (rs.getBoolean("ruled_out")) ruledOut.add(r.id());
-                  return r;
-                })
+            .query(BenefitRepository::judgmentRow)
             .list();
-    java.util.Set<UUID> skip = new java.util.HashSet<>(ruledOut);
+    java.util.Set<UUID> skip = new java.util.HashSet<>();
     rows.stream().filter(skipLines).forEach(r -> skip.add(r.id()));
-    return new Open(withLines(rows, skip), ruledOut);
+    return withLines(rows, skip);
   }
 
-  /** 정수 값 (BenefitJudge.integer: 숫자일 때만 소수점 아래를 버린 정수, 아니면 없음) */
-  private static String ageBound(String key) {
-    return "(case when jsonb_typeof(c.value -> '%s') = 'number' then trunc((c.value ->> '%s')::numeric) end)"
-        .formatted(key, key);
-  }
+  /** 판정(BenefitQueryService.toJudgment)에 쓰는 칸. */
+  private static final String JUDGMENT_COLUMNS =
+      "b.id, b.source_code, b.field, b.category, b.title, b.agency, b.region_scope, b.region_names,"
+          + " b.region_codes, b.summary, b.apply_start, b.apply_end, b.apply_always, b.status,"
+          + " b.needs_review, b.updated_at";
 
-  /** 나이 하나가 범위 안인지 (Bands.fits) */
-  private static String fits(String age) {
-    return "((%s is null or %s >= %s) and (%s is null or %s <= %s))"
-        .formatted(ageBound("min"), age, ageBound("min"), ageBound("max"), age, ageBound("max"));
+  /** 판정 칸만 읽은 줄. 상세 화면 칸(설명·서류·신청 방법 …)은 비어 있어요. */
+  private static Row judgmentRow(ResultSet rs, int i) throws SQLException {
+    return new Row(
+        rs.getObject("id", UUID.class),
+        rs.getString("source_code"),
+        rs.getString("field"),
+        rs.getString("category"),
+        rs.getString("title"),
+        rs.getString("agency"),
+        rs.getString("region_scope"),
+        strings(rs.getArray("region_names")),
+        strings(rs.getArray("region_codes")),
+        List.of(),
+        null,
+        null,
+        rs.getString("summary"),
+        day(rs, "apply_start"),
+        day(rs, "apply_end"),
+        rs.getBoolean("apply_always"),
+        null,
+        null,
+        null,
+        null,
+        List.of(),
+        null,
+        rs.getString("status"),
+        rs.getBoolean("needs_review"),
+        List.of(),
+        List.of(),
+        rs.getTimestamp("updated_at").toInstant());
   }
-
-  private static final String AGE_RULED_OUT =
-      "(cast(:young as integer) is not null and exists (select 1 from benefit.benefit_conditions c"
-          + " where c.benefit_id = b.id and c.type not in ('EXCLUSIVE', 'PRIORITY') group by c.grp"
-          + " having bool_and(c.type = 'AGE' and c.known and not "
-          + fits("cast(:young as integer)")
-          + " and not "
-          + fits("cast(:old as integer)")
-          + ")))";
 
   public Optional<Row> find(UUID id) {
     List<Row> rows =

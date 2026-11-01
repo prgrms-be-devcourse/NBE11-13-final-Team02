@@ -13,17 +13,17 @@ import kr.mujuthaek.api.eligibility.repository.CriteriaStore;
 import kr.mujuthaek.api.eligibility.repository.LoanProductStore;
 import kr.mujuthaek.api.eligibility.rule.Applicant;
 import kr.mujuthaek.api.eligibility.rule.ApplicantBuilder;
-import kr.mujuthaek.api.eligibility.rule.Bands;
 import kr.mujuthaek.api.eligibility.rule.Overall;
 import org.junit.jupiter.api.Test;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 /**
- * 혜택 맞춤 목록이 나이로 지원 불가가 확실한 혜택을 DB에서 미리 골라도, 모든 혜택을 읽어 판정한 것과 결과가 같은지. 오늘은 2026-10-22 고정, 지역은 테스트마다
- * 다른 시군구라 다른 테스트의 혜택과 섞이지 않아요.
+ * 혜택 맞춤 목록(judgeAll: 판정 칸만 읽고 조건은 캐시에서)이 모든 혜택을 다 읽어 하나씩 판정한 것과 결과가 같은지. 나이 경계·그룹·값 모양을 섞어요.
+ * 2026-11-02 나이로 미리 거르던 DB 하위 쿼리를 뺀 뒤에도 같은지 봐요. 오늘은 2026-10-22 고정, 지역은 테스트마다 다른 시군구라 다른 테스트의 혜택과
+ * 섞이지 않아요.
  */
-class BenefitAgePrefilterTest {
+class BenefitJudgeAllTest {
 
   private final BenefitFixture f = new BenefitFixture();
   private final io.micrometer.core.instrument.simple.SimpleMeterRegistry meters =
@@ -46,20 +46,19 @@ class BenefitAgePrefilterTest {
             YearMonth.of(1958, 4), // 68세
             YearMonth.of(1986, 10), // 39·40세 경계 (그달 1일생 40, 말일생 39)
             YearMonth.of(1991, 6));
-    int ruledOut = 0;
+    int ineligible = 0;
     for (YearMonth birth : births) {
       Applicant applicant =
           new ApplicantBuilder().birthMonth(birth.getYear(), birth.getMonthValue()).build();
-      assertThat(prefiltered(applicant)).as("출생 %s", birth).isEqualTo(judgedOneByOne(applicant));
-      ruledOut +=
-          f.queries
-              .openForJudgment(List.of(region), Bands.ages(birth, BenefitFixture.TODAY))
-              .ruledOutByAge()
-              .size();
+      Map<UUID, Overall> judged = prefiltered(applicant);
+      assertThat(judged).as("출생 %s", birth).isEqualTo(judgedOneByOne(applicant));
+      // 목록 한 줄(제목·기관·금액 문구·마감·판정·1년 금액 …)도 전체 칸으로 하나씩 읽어 판정한 것과 같아요
+      assertThat(items(applicant)).as("출생 %s 목록 줄", birth).isEqualTo(itemsOneByOne(applicant));
+      ineligible += (int) judged.values().stream().filter(o -> o == Overall.INELIGIBLE).count();
     }
-    assertThat(ruledOut).as("나이로 실제로 걸러야 시험이 의미 있어요").isGreaterThan(0);
+    assertThat(ineligible).as("나이로 지원 불가가 나와야 시험이 의미 있어요").isGreaterThan(0);
 
-    // 생년월일이면 경계 달에도 나이가 하나라 그 나이로 걸러요
+    // 생년월일이면 경계 달에도 나이가 하나라 그 나이로 판정해요
     for (Applicant applicant :
         List.of(
             new ApplicantBuilder().birthDate(1986, 10, 1).build(),
@@ -69,14 +68,13 @@ class BenefitAgePrefilterTest {
           .isEqualTo(judgedOneByOne(applicant));
     }
 
-    // 출생 연월이 없으면 거르지 않아요
+    // 출생 연월이 없으면 나이는 확인 필요
     Applicant noBirth = new ApplicantBuilder().build();
     assertThat(prefiltered(noBirth)).isEqualTo(judgedOneByOne(noBirth));
-    assertThat(f.queries.openForJudgment(List.of(region), null).ruledOutByAge()).isEmpty();
   }
 
   @Test
-  void ruledOutBenefitsAreStillCountedAsIneligibleInTheList() {
+  void benefitsTooYoungOrOldAreCountedAsIneligibleInTheList() {
     UUID young = benefit(c -> age(c, 1, 19, 39, true));
     UUID old = benefit(c -> age(c, 1, 65, null, true));
     var search = new BenefitSearchService(evaluations);
@@ -164,6 +162,26 @@ class BenefitAgePrefilterTest {
         .map(judge)
         .forEach(j -> out.put(j.benefit().id(), j.result().overall()));
     return out;
+  }
+
+  private List<kr.mujuthaek.api.eligibility.dto.response.BenefitSearchResponse.Item> items(
+      Applicant applicant) {
+    return evaluations.judgeAll(List.of(region), applicant).stream()
+        .map(evaluations::item)
+        .sorted(java.util.Comparator.comparing(i -> i.id().toString()))
+        .toList();
+  }
+
+  /** 혜택마다 전체 칸(상세와 같은 select *)으로 다시 읽어 하나씩 판정한 목록 줄 */
+  private List<kr.mujuthaek.api.eligibility.dto.response.BenefitSearchResponse.Item> itemsOneByOne(
+      Applicant applicant) {
+    var judge = evaluations.evaluator(applicant);
+    return f.queries.openForJudgment(List.of(region)).stream()
+        .map(b -> f.queries.forJudgment(b.id()).orElseThrow())
+        .map(judge)
+        .map(evaluations::item)
+        .sorted(java.util.Comparator.comparing(i -> i.id().toString()))
+        .toList();
   }
 
   private void seedBenefits() {

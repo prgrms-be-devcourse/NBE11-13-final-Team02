@@ -99,28 +99,24 @@ public class BenefitEvaluationService {
   public record Judged(BenefitForJudgment benefit, BenefitJudge.Result result, long annualWon) {}
 
   /**
-   * 찾아볼 지역의 열린 혜택을 모두 판정해요 (지원 불가 포함). 나이만으로 지원 불가가 확실한 혜택은 DB가 골라 주어 조건을 읽거나 판정하지 않고 지원 불가로 둬요
-   * (BenefitJudge와 같은 규칙이라 결과는 같아요).
+   * 찾아볼 지역의 열린 혜택을 모두 판정해요 (지원 불가 포함). 조건은 캐시(혜택 ID·수정 시각)에서 꺼내 앱에서 판정하고, DB는 캐시에 없는 혜택의 조건만 읽어요.
    */
   public List<Judged> judgeAll(List<String> regionCodes, Applicant applicant) {
     var judge = compiledEvaluator(applicant);
-    int[] ages = applicant.ages(LocalDate.now(clock.withZone(KOREA)));
     // 캐시에 같은 수정 시각으로 있는 혜택은 DB가 조건을 읽지 않아요. 그 사이 밀려나도 되게 찾은 것을 이 요청 안에 잡아 둬요
     Map<UUID, Compiled> cached = new java.util.concurrent.ConcurrentHashMap<>();
     var open =
         benefits.openForJudgment(
             regionCodes,
-            ages,
             (id, updatedAt) -> {
               Compiled c = cache.get(new Key(id, updatedAt));
               if (c != null) cached.put(id, c);
               return c != null;
             });
     hits.increment(cached.size());
-    return open.benefits().stream()
+    return open.stream()
         .map(
             b -> {
-              if (open.ruledOutByAge().contains(b.id())) return ruledOutByAge(b);
               Compiled c = cached.get(b.id());
               if (c == null) {
                 misses.increment();
@@ -134,19 +130,6 @@ public class BenefitEvaluationService {
 
   private Compiled compile(BenefitForJudgment b) {
     return new Compiled(b, b.conditions().stream().map(this::condition).toList());
-  }
-
-  /** 나이 조건 그룹이 불충족이라 지원 불가 (목록은 지원 불가를 세기만 하고 보여 주지 않아요) */
-  private static Judged ruledOutByAge(BenefitForJudgment b) {
-    return new Judged(
-        b,
-        new BenefitJudge.Result(
-            kr.mujuthaek.api.eligibility.rule.Overall.INELIGIBLE,
-            new BenefitJudge.Summary(0, 0, 0, 0),
-            List.of(),
-            List.of(),
-            null),
-        0);
   }
 
   public BenefitEvaluationResponse evaluate(UUID id, Applicant applicant) {
