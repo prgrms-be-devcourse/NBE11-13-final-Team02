@@ -128,6 +128,7 @@ public class NoticeIngestionService {
   @Transactional
   public IngestionOutcome apply(String messageBody) {
     ExtractionEvent event = ExtractionEvent.from(parse(messageBody));
+    results.lock(event.eventId()); // 같은 이벤트가 동시에 오면 앞의 처리가 끝날 때까지 기다려요
     if (results.exists(event.eventId())) {
       return IngestionOutcome.DUPLICATE;
     }
