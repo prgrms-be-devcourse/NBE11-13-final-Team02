@@ -60,11 +60,41 @@ if [ "$DATA" = seed ]; then
   DATA_FILE=seed.json
   [ -f "$PERF_DIR/k6/data/seed.json" ] || { echo "k6/data/seed.json이 없어요: perf/seed/k6-data.sh $TARGET" >&2; exit 1; }
   TOKENS_FILE="$PERF_DIR/k6/data/tokens.json"
-  if [ -f "$TOKENS_FILE" ] && [ "$(jq -r .target "$TOKENS_FILE")" = "$TARGET" ] && [ "$(jq .expiresAt "$TOKENS_FILE")" -gt "$(date +%s)" ]; then
-    TOKENS="$(jq '.tokens | length' "$TOKENS_FILE")"
-  else
-    echo "$TARGET용 더미 회원 토큰이 없거나 지났어요: perf/k6/make-tokens.sh $TARGET" >&2; exit 1
+fi
+
+# ── 시작 전 점검: 측정이 중간에 끊길 일을 미리 막아요. 하나라도 걸리면 시작하지 않고 이유를 말해요
+FAILED=0
+fail() { echo "  ✗ $*" >&2; FAILED=1; }
+TEST_SECONDS="$(k6 inspect -e TEST="$TEST" -e DATA="$DATA" -e DATA_FILE="$DATA_FILE" "$PERF_DIR/k6/main.js" 2> /dev/null \
+  | python3 "$PERF_DIR/lib/stagewatch.py" seconds "$TEST")" || TEST_SECONDS=0
+TOTAL=$((WARMUP + REPEAT * (TEST_SECONDS + 90)))
+echo "== 예상 소요: 약 $(((TOTAL + 59) / 60))분 (예열 ${WARMUP}초 + 측정 $(((TEST_SECONDS + 59) / 60))분 × ${REPEAT}회 + 회마다 결과 모으기 약 1분 반)"
+NEED_UNTIL=$(($(date +%s) + TOTAL + 600)) # 끝날 시각 + 10분 여유
+if [ "$DATA" = seed ]; then
+  if [ ! -f "$TOKENS_FILE" ] || [ "$(jq -r .target "$TOKENS_FILE")" != "$TARGET" ] || [ "$(jq .expiresAt "$TOKENS_FILE")" -lt "$NEED_UNTIL" ]; then
+    if [ "$TARGET" = local ]; then
+      echo "  · 더미 회원 토큰이 측정이 끝날 때까지 못 가서 다시 만들어요"
+      "$PERF_DIR/k6/make-tokens.sh" local 1000 $(((TOTAL + 600) / 3600 + 2)) > /dev/null || fail "토큰을 만들지 못했어요"
+    else
+      fail "$TARGET용 더미 회원 토큰이 없거나 측정이 끝나기 전에 지나요: perf/k6/make-tokens.sh $TARGET 1000 $(((TOTAL + 600) / 3600 + 2))"
+    fi
   fi
+  [ ! -f "$TOKENS_FILE" ] || TOKENS="$(jq '.tokens | length' "$TOKENS_FILE")"
+fi
+[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "$BASE_URL/actuator/health")" = 200 ] \
+  || fail "대상 api 헬스가 200이 아니에요: $BASE_URL/actuator/health"
+if pgrep -f "k6 run" > /dev/null; then
+  fail "다른 k6가 돌고 있어요(같은 DB에 다른 부하): $(pgrep -f 'k6 run' | tr '\n' ' ')"
+fi
+if [ "$TARGET" = local ]; then
+  # 같은 DB(api_fe)에 붙은 다른 api: BASE_URL 말고 다른 포트에서 공고 API가 대답하면 다른 api예요(알림 8081 등은 대답하지 않아요)
+  base_port="${BASE_URL##*:}"
+  base_port="${base_port%%/*}"
+  for port in $(lsof -nP -iTCP -sTCP:LISTEN 2> /dev/null | awk '$1 == "java" {sub(/.*:/, "", $9); print $9}' | sort -u); do
+    [ "$port" != "$base_port" ] || continue
+    [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 3 "http://localhost:$port/api/v1/regions")" != 200 ] \
+      || fail "다른 api가 $port 포트에 떠 있어요(같은 DB에 부하가 겹쳐요). 끄고 다시 해요"
+  done
 fi
 
 echo "== 준비 확인 (대상 $TARGET, 데이터 $DATA)"
@@ -74,11 +104,11 @@ if [ "$TARGET" = local ]; then
   API_TAG=local
   NOTIFICATION_TAG=local
   if ! curl -sf "$PROM/-/ready" > /dev/null; then
-    PROM_OK=0; warn "Prometheus가 없어요(docker compose -f perf/docker-compose.yml up -d). 서버 지표·그래프는 빠져요"
+    fail "Prometheus가 없어요: docker compose -f perf/docker-compose.yml up -d"
   else
     # 로컬 api 대상(target="local")만 봐요. 서버 터널(:18080)은 로컬에서 늘 down이라 보지 않아요. api가 막 뜨는 중이면 1분까지 기다려요
     for _ in $(seq 1 12); do prom_api_up && break; sleep 5; done
-    prom_api_up || warn "Prometheus가 로컬 api($(prom_target))를 아직 못 긁어요. 결과 모을 때 다시 봐요"
+    prom_api_up || fail "Prometheus가 로컬 api($(prom_target))를 up으로 긁지 못해요(perf/prometheus/prometheus.yml api-local)"
   fi
   curl -sf "$GRAFANA/api/health" > /dev/null || warn "Grafana가 없어요. 그래프 이미지는 빠져요"
 else
@@ -91,6 +121,7 @@ else
   API_TAG="$(sed -n 's/^API_TAG=//p' <<< "$VERSIONS")"
   NOTIFICATION_TAG="$(sed -n 's/^NOTIFICATION_TAG=//p' <<< "$VERSIONS")"
 fi
+[ "$FAILED" = 0 ] || { echo "== 위 이유로 시작하지 않아요" >&2; exit 1; }
 
 # 운영 대상·운영 데이터는 예전 이름 그대로(이미 잰 결과와 나란히 놓이게)
 if [ "$TARGET" = prod ] && [ "$DATA" = prod ]; then
@@ -112,6 +143,10 @@ fi
 GIT_SHA="$(git -C "$PERF_DIR" rev-parse --short HEAD)"
 git -C "$PERF_DIR" diff --quiet -- . || GIT_SHA="$GIT_SHA(+perf 수정)"
 
+# 사람이 Ctrl+C를 누르면 k6도 같이 받아 정상 종료하고, 이 회를 「사람이 멈춤」으로 남긴 뒤 다음 회로 넘어가지 않아요
+HUMAN_STOP=0
+trap 'HUMAN_STOP=1' INT
+
 k6_env() { # k6를 이 테스트의 데이터·대상으로
   TEST="$1" DATA="$DATA" DATA_FILE="$DATA_FILE" TOKENS_FILE="$TOKENS_FILE" BASE_URL="$BASE_URL" "${@:2}"
 }
@@ -123,6 +158,7 @@ if [ "$WARMUP" -gt 0 ]; then
   k6_env warmup env WARMUP_SECONDS="$WARMUP" OUT_DIR="$OUT" k6 run -q "$PERF_DIR/k6/main.js" > "$OUT/warmup.log" 2>&1
   set -e
   rm -f "$OUT/summary.json"
+  [ "$HUMAN_STOP" = 0 ] || { echo "== 예열 중에 사람이 멈춰서 측정하지 않아요" >&2; exit 130; }
 fi
 
 # 본 측정 한 번 = 폴더 하나 (k6·느린 쿼리·데이터 양·meta·서버 지표)
@@ -150,19 +186,32 @@ measure() {
     K6_PROMETHEUS_RW_TREND_AS_NATIVE_HISTOGRAM=true \
     K6_WEB_DASHBOARD=true K6_WEB_DASHBOARD_EXPORT="$OUT/k6-report.html" K6_WEB_DASHBOARD_OPEN=false \
     k6 run -o experimental-prometheus-rw --tag testid="$ID" "$PERF_DIR/k6/main.js" > >(tee "$OUT/k6.log") 2>&1 &
-  local K6_PID=$! WATCH_PID=""
-  if [ "$STAGED" = 1 ]; then
-    # stress·breakpoint는 단계 판정 구간에서 기준을 넘으면 멈추고(--abort), spike는 기록만 해요
-    local ABORT=--abort
-    [ "$TEST" != spike ] || ABORT=""
-    python3 "$PERF_DIR/lib/stagewatch.py" watch "$OUT" "$ID" "$K6_PID" $ABORT &
-    WATCH_PID=$!
-  fi
-  wait "$K6_PID"
-  K6_EXIT=$?
-  [ -z "$WATCH_PID" ] || wait "$WATCH_PID"
+  local K6_PID=$!
+  # 측정을 끊지 않고 기록만 해요(30초 창 p95·에러율, CPU). 끊는 건 안전 장치 두 가지뿐: 5xx·연결 실패 60초 넘게 50% 초과, api 헬스 60초 넘게 실패
+  python3 "$PERF_DIR/lib/stagewatch.py" watch "$OUT" "$ID" "$K6_PID" "$BASE_URL" &
+  local WATCH_PID=$!
+  # Ctrl+C(trap)가 오면 wait가 먼저 돌아와요. k6가 정상 종료할 때까지 다시 기다려요
+  while :; do
+    wait "$K6_PID"
+    K6_EXIT=$?
+    kill -0 "$K6_PID" 2> /dev/null || break
+  done
+  wait "$WATCH_PID" 2> /dev/null
   set -e
   END=$(date +%s)
+
+  # 이 회의 상태: 정상 / 안전 장치로 끊김(사유) / 사람이 멈춤 / k6 오류
+  local SAFETY RUN_STATUS
+  SAFETY="$(jq -r '.safety_stop.reason // empty' "$OUT/timeline.json" 2> /dev/null)"
+  if [ -n "$SAFETY" ]; then
+    RUN_STATUS="안전 장치로 끊김: $SAFETY"
+  elif [ "$HUMAN_STOP" = 1 ]; then
+    RUN_STATUS="사람이 멈춤(Ctrl+C)"
+  elif [ "$K6_EXIT" = 0 ] || [ "$K6_EXIT" = 99 ]; then
+    RUN_STATUS="정상" # 99는 k6 기준(기록만)을 넘었다는 뜻이고 끝까지 돌았어요
+  else
+    RUN_STATUS="k6 오류(종료 코드 $K6_EXIT)"
+  fi
 
   if [ "$PG" = 1 ]; then
     db_sql < "$PERF_DIR/lib/pg_stats.sql" > "$OUT/pg_after.csv" 2>> "$OUT/pg.err" \
@@ -189,6 +238,7 @@ measure() {
   "member_flow": $MEMBER,
   "member_tokens": $TOKENS,
   "k6_exit_code": $K6_EXIT,
+  "run_status": $(jq -Rn --arg v "$RUN_STATUS" '$v'),
   "k6_version": $(k6 version | head -1 | jq -Rs 'rtrimstr("\n")'),
   "perf_git_sha": "$GIT_SHA",
   "data_json_sha256": "$(shasum -a 256 "$PERF_DIR/k6/data/$DATA_FILE" | cut -c1-16)",
@@ -201,22 +251,24 @@ JSON
   if [ "$PROM_OK" = 1 ] && prom_api_up "$((END - START + 60))s"; then
     echo "== 결과 모으기 (Prometheus 마지막 수집을 15초 기다려요)"
     sleep 15
-    "$PERF_DIR/collect.sh" "$OUT"
+    "$PERF_DIR/collect.sh" "$OUT" || warn "결과 모으기 중 오류가 있었어요(다시: perf/collect.sh $OUT)"
   else
     echo "== 서버 지표·그래프 모으기는 건너뛰어요 (Prometheus가 없거나 측정 구간에 api($(prom_target)) 지표가 없어요)"
   fi
 
-  echo "== 측정 끝: $OUT (k6 종료 코드 $K6_EXIT)"
+  echo "== 측정 끝: $OUT — $RUN_STATUS (k6 종료 코드 $K6_EXIT)"
 }
 
 if [ "$REPEAT" -eq 1 ]; then
-  measure "$OUT" "$NAME"
+  measure "$OUT" "$NAME" || warn "측정에 오류가 있었어요"
 else
   runs=()
   for i in $(seq 1 "$REPEAT"); do
     echo "== ${i}/${REPEAT}회"
-    measure "$OUT/run$i" "${NAME}_run$i"
+    # 한 회가 안전 장치로 끊기거나 오류가 나도 다음 회는 돌아요(사람이 멈췄을 때만 그만둬요)
+    measure "$OUT/run$i" "${NAME}_run$i" || warn "${i}회에 오류가 있었어요"
     runs+=("$OUT/run$i")
+    [ "$HUMAN_STOP" = 0 ] || { warn "사람이 멈춰서 남은 회는 하지 않아요"; break; }
   done
   python3 "$PERF_DIR/lib/tools.py" median "$OUT" "${runs[@]}"
   echo "== ${REPEAT}회 중앙값 → $OUT (회별: run1/ … run${REPEAT}/)"
@@ -225,6 +277,6 @@ fi
 K6_EXIT="$(jq -r .k6_exit_code "$OUT/meta.json")"
 
 echo
-echo "== 끝: $OUT  (k6 종료 코드 $K6_EXIT: 0 = 합격 기준 통과, 99 = 기준 넘음)"
+echo "== 끝: $OUT  (k6 종료 코드 $K6_EXIT: 0 = k6 기준 통과, 99 = k6 기준 넘음(기록만), 회 상태: $(jq -r '[.run_statuses // [.run_status]][0] | join(" / ")' "$OUT/meta.json"))"
 echo "문서 「결과 기록」 표에 붙일 줄:"
 python3 "$PERF_DIR/lib/tools.py" row "$OUT"

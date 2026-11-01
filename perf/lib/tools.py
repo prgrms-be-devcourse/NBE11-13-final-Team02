@@ -22,7 +22,7 @@ KST = timezone(timedelta(hours=9))
 API = 'job="api",uri!~"/actuator.*"'
 TYPES = ["lookup", "search", "judge"]
 TYPE_KO = {"lookup": "조회", "search": "검색", "judge": "판정"}
-ERROR_LIMIT = 0.05  # 단계 판정의 에러율 기준 (stagewatch.py와 같게)
+ERROR_LIMIT = 0.01  # 단계 통과 기준의 에러율: 요청 실패 1% 미만 (stagewatch.py와 같게)
 # config.js의 p95 기준(초)
 P95_LIMIT = {"lookup": 0.2, "search": 0.5, "judge": 1.0}
 
@@ -214,7 +214,7 @@ def export_stages(out):
     sel = f'testid="{testid}"'
     t0 = tl.get("t0") or meta["start_epoch"]
     test_end = meta["end_epoch"]
-    aborted = (tl.get("aborted") or {}).get("stage")
+    aborted = (tl.get("safety_stop") or tl.get("aborted") or {}).get("stage")
     rows = []
     for st in plan["stages"]:
         s_from, s_to = t0 + st["judge_from"], min(t0 + st["end"], test_end)
@@ -281,6 +281,15 @@ def export_stages(out):
         sysc = [x["sys_cpu"] for x in samples if x.get("sys_cpu") is not None]
         row["k6_cpu_avg"] = round(sum(k6c) / len(k6c), 1) if k6c else None
         row["sys_cpu_max"] = max(sysc) if sysc else None
+        # 이 단계 판정 구간에서 기준(p95·에러율 1%)을 넘은 30초 창 수와 가장 나빴던 창 (stagewatch가 5초마다 본 값)
+        windows = [x for x in samples if x.get("judged") and x.get("stage") == st["stage"]]
+        row["windows"] = len(windows)
+        row["windows_over"] = sum(1 for x in windows if x.get("over"))
+        for ty in TYPES:
+            worst = [x.get("p95", {}).get(ty) for x in windows if x.get("p95", {}).get(ty) is not None]
+            row[f"worst30s_p95_{ty}_ms"] = ms(max(worst)) if worst else None
+        errs = [x.get("error_rate") for x in windows if x.get("error_rate") is not None]
+        row["worst30s_error_rate"] = round(max(errs), 4) if errs else None
         suspect = []
         if meta.get("target") == "local":
             if row["dropped_iterations"] > 0:
@@ -290,13 +299,17 @@ def export_stages(out):
             if (row["sys_cpu_max"] or 0) >= SYS_CPU_SUSPECT:
                 suspect.append(f"노트북 CPU {row['sys_cpu_max']}%")
         row["over"] = "·".join(over)
+        row["passed"] = not over and not partial
         row["laptop_suspect"] = "·".join(suspect)
         rows.append(row)
     cols = (
         ["stage", "label", "target", "from", "to", "seconds", "partial", "aborted_here", "vus_max", "rps", "error_rate"]
         + [f"p{q}_{ty}_ms" for q in ("95", "99") for ty in TYPES]
         + ["server_p95_ms", "hikari_active_max", "hikari_pending_max", "hikari_usage_avg_ms"]
-        + ["dropped_iterations", "k6_cpu_avg", "sys_cpu_max", "over", "laptop_suspect"]
+        + ["dropped_iterations", "k6_cpu_avg", "sys_cpu_max"]
+        + ["windows", "windows_over"]
+        + [f"worst30s_p95_{ty}_ms" for ty in TYPES]
+        + ["worst30s_error_rate", "over", "passed", "laptop_suspect"]
     )
     write_csv(out / "stages.csv", rows, cols)
 
@@ -358,39 +371,50 @@ def k6_type(k6, ty):
     return k6v(k6, key, "p(95)"), k6v(k6, key, "p(99)")
 
 
+def is_true(v):
+    return str(v) == "True"
+
+
 def limit_stage(stages):
-    """처음으로 p95나 에러율 기준을 넘은 단계 (단계 판정 구간 기준)."""
+    """한계 = 처음으로 통과 못 한 단계(노트북 한계 의심 단계는 참고만이라 건너뛰어요)."""
     for s in stages:
-        if s.get("over"):
+        if not s.get("laptop_suspect") and not is_true(s.get("passed")):
             return s
     return None
 
 
 def stage_verdict(meta, stages):
-    """결과 줄·비교표의 한계 칸: 처음 기준을 넘은 단계, 끝까지 버텼으면 「N명까지 버팀」, 노트북 한계 의심 단계도."""
+    """결과 줄·비교표의 한계 칸 (측정이 끝난 뒤 단계표로 판정).
+    통과 = 단계 판정 구간(올리는 구간·직후 30초 빼고) 전체의 p95가 조회 200ms·검색 500ms·판정 1초 이하이고 에러율 1% 미만, 단계를 끝까지 돎."""
     test = meta["test"]
+    status = meta.get("run_status")
+    prefix = f"[{status}] " if status and status != "정상" else ""
     if test not in ("stress", "breakpoint", "spike"):
-        return ""
+        return prefix.strip()
     if not stages:
-        return "단계 기록 없음"
+        return prefix + "단계 기록 없음"
     unit = "건/초" if test == "breakpoint" else "명"
-    lim = limit_stage(stages)
-    last = stages[-1]
+    rps = lambda s: f"초당 {float(s['rps']):.0f}건" if s.get("rps") not in (None, "") else "초당 -"
+    suspects = [s for s in stages if s.get("laptop_suspect")]
+    judged = [s for s in stages if not s.get("laptop_suspect")]
     if test == "spike":
-        text = f"기준 넘은 구간: {lim['label']}({lim['over']})" if lim else "모든 구간 기준 안"
-    elif lim:
-        text = f"한계: {lim['label']} 단계({lim['over']})"
-        if test == "breakpoint":
-            i = stages.index(lim)
-            text += f", 최대 RPS {stages[i - 1]['rps'] if i > 0 else '-'}"
-    elif str(last.get("partial")) == "True":
-        text = f"{last['label']} 단계에서 끝남(기준 안 넘음)"
+        failed = [s for s in judged if not is_true(s.get("passed"))]
+        text = f"통과 구간 {len(judged) - len(failed)}/{len(judged)}"
+        if failed:
+            text += " · 기준 넘은 구간: " + ", ".join(f"{s['label']}({s['over'] or '끝까지 못 돎'})" for s in failed)
     else:
-        text = f"{int(float(last['target'])):,}{unit}까지 버팀"
-    suspects = [f"{s['label']}({s['laptop_suspect']})" for s in stages if s.get("laptop_suspect")]
+        lim = limit_stage(stages)
+        passed = [s for s in judged if is_true(s.get("passed")) and (lim is None or int(s["stage"]) < int(lim["stage"]))]
+        last = passed[-1] if passed else None
+        if lim:
+            why = lim["over"] or "단계를 끝까지 못 돎"
+            text = f"한계: {lim['label']} 단계({why})"
+        else:
+            text = f"{int(float(stages[-1]['target'])):,}{unit}까지 버팀"
+        text += f" · 마지막으로 통과한 단계: {last['label']}({rps(last)})" if last else " · 통과한 단계 없음"
     if suspects:
-        text += " · 노트북 한계 의심: " + ", ".join(suspects)
-    return text
+        text += " · 노트북 한계 의심(판정은 참고만): " + ", ".join(f"{s['label']}({s['laptop_suspect']})" for s in suspects)
+    return prefix + text
 
 
 def row(d):
@@ -596,6 +620,10 @@ def median(out, *runs):
             "start_epoch": metas[0]["start_epoch"],
             "end_epoch": metas[-1]["end_epoch"],
             "k6_exit_code": max(m.get("k6_exit_code", 0) for m in metas),
+            "run_statuses": [m.get("run_status", "정상") for m in metas],
+            "run_status": "정상"
+            if all(m.get("run_status", "정상") == "정상" for m in metas)
+            else " / ".join(f"{r.name}: {m.get('run_status')}" for r, m in zip(runs, metas)),
             "prometheus_testid": [m.get("prometheus_testid") for m in metas],
         }
     )

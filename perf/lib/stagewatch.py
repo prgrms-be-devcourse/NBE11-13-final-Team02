@@ -1,12 +1,15 @@
 """단계가 있는 테스트(stress·breakpoint·spike)의 단계 계획과 실행 중 감시.
 
   python3 perf/lib/stagewatch.py plan <test>  < k6 inspect 출력 JSON  > plan.json
-  python3 perf/lib/stagewatch.py watch <결과 폴더> <testid> <k6 pid> [--abort]
+  python3 perf/lib/stagewatch.py watch <결과 폴더> <testid> <k6 pid> <BASE_URL>
 
 plan: k6 프로필의 stages를 단계로 묶어요(같은 목표가 이어지면 한 단계: 올리기 + 유지). 단계마다 시작·끝(초)과 판정 시작
-(스트레스는 올리는 구간 + 30초, 한계 찾기는 처음 30초를 빼요. spike는 구간 전체를 기록만).
-watch: k6가 도는 동안 5초마다 Prometheus에서 최근 30초 p95(종류별)·에러율을 보고, --abort면 판정 구간에서 p95 기준을 넘거나
-에러율이 5% 이상일 때 k6에 SIGINT(정상 종료: 결과 요약은 남아요)를 보내요. k6·노트북 CPU도 5초마다 남겨요(timeline.json).
+(스트레스는 올리는 구간 + 30초, 한계 찾기는 처음 30초를 빼요. spike는 구간 전체).
+watch: 측정을 끊지 않고 기록만 해요. 5초마다 최근 30초 p95(종류별)·에러율, k6·노트북 CPU를 timeline.json에 남겨요(단계표가 「기준을 넘은
+30초 창 수·가장 나빴던 창」을 여기서 세요). k6를 멈추는 건 안전 장치 두 가지뿐이에요:
+  a) 5xx·연결 실패가 60초 넘게 계속 요청의 50%를 넘을 때
+  b) api 헬스체크(BASE_URL/actuator/health)가 60초 넘게 계속 실패할 때
+멈추면 사유를 timeline.json의 safety_stop과 화면에 남기고 k6에 SIGINT(결과 요약은 남아요)를 보내요.
 k6 응답 시간은 Prometheus native histogram(k6_http_req_duration_seconds)이라 구간 p95가 정확해요.
 """
 
@@ -23,7 +26,9 @@ from pathlib import Path
 
 PROM = "http://localhost:9090"
 P95_LIMIT = {"lookup": 0.2, "search": 0.5, "judge": 1.0}  # config.js LATENCY의 p95 (초)
-ERROR_LIMIT = 0.05
+ERROR_LIMIT = 0.01  # 단계 통과 기준의 에러율 (요청 실패 1% 미만)
+SAFETY_ERROR = 0.5  # 안전 장치: 5xx·연결 실패 비율
+SAFETY_SECONDS = 60  # 안전 장치: 이만큼 계속되면 멈춤
 SETTLE = 30  # 단계마다 처음 몇 초는 판정에서 빼요 (올리는 중·막 올린 직후의 흔들림)
 WINDOW = 30  # 「최근 30초」 p95·에러율로 판정
 POLL = 5
@@ -104,13 +109,22 @@ def k6_pid(testid, parent, timeout=30):
     return parent
 
 
-def watch(out, testid, pid, abort):
+def healthy(base_url):
+    try:
+        with urllib.request.urlopen(f"{base_url}/actuator/health", timeout=5) as r:
+            return r.status == 200
+    except OSError:
+        return False
+
+
+def watch(out, testid, pid, base_url):
     out = Path(out)
     pid = k6_pid(testid, pid)
-    p = json.loads((out / "plan.json").read_text())
+    p = json.loads((out / "plan.json").read_text()) if (out / "plan.json").exists() else {"stages": []}
     sel = f'testid="{testid}"'
-    timeline = {"testid": testid, "k6_pid": pid, "abort_enabled": abort, "samples": [], "aborted": None}
+    timeline = {"testid": testid, "k6_pid": pid, "samples": [], "safety_stop": None}
     t0 = None
+    bad_since = {"error": None, "health": None}  # 안전 장치 조건이 처음 시작된 시각
     while alive(pid):
         now = time.time()
         if t0 is None:
@@ -128,43 +142,77 @@ def watch(out, testid, pid, abort):
             sample["elapsed"] = round(el, 1)
             if stage:
                 sample["stage"] = stage["stage"]
-            judged = stage and el - WINDOW >= stage["judge_from"]
-            if judged:
-                try:
-                    p95 = {
-                        r["metric"].get("type"): float(r["value"][1])
-                        for r in query(
-                            f"histogram_quantile(0.95, sum by (type) (rate(k6_http_req_duration_seconds{{{sel}}}[{WINDOW}s])))"
-                        )
-                    }
-                    err = query(
-                        f'sum(rate(k6_http_reqs_total{{{sel},expected_response="false"}}[{WINDOW}s]))'
-                        f" / sum(rate(k6_http_reqs_total{{{sel}}}[{WINDOW}s]))"
+                sample["judged"] = el - WINDOW >= stage["judge_from"]  # 30초 창이 판정 구간 안에 들어왔는지
+            try:
+                sample["p95"] = {
+                    r["metric"].get("type"): float(r["value"][1])
+                    for r in query(
+                        f"histogram_quantile(0.95, sum by (type) (rate(k6_http_req_duration_seconds{{{sel}}}[{WINDOW}s])))"
                     )
-                    err = float(err[0]["value"][1]) if err else 0.0
-                except OSError:
-                    p95, err = {}, 0.0
-                over = [t for t, lim in P95_LIMIT.items() if (p95.get(t) or 0) > lim]
-                if err >= ERROR_LIMIT:
-                    over.append("에러율")
-                sample.update({"p95": p95, "error_rate": err, "over": over})
-                if over and abort and timeline["aborted"] is None:
-                    timeline["aborted"] = {"stage": stage["stage"], "label": stage["label"], "elapsed": round(el, 1), "over": over}
-                    print(f"\n  ! {stage['label']} 단계에서 최근 {WINDOW}초 기준 넘음({', '.join(over)}) → k6 정상 종료", flush=True)
-                    os.kill(pid, signal.SIGINT)
+                }
+                err = query(
+                    f'sum(rate(k6_http_reqs_total{{{sel},expected_response="false"}}[{WINDOW}s]))'
+                    f" / sum(rate(k6_http_reqs_total{{{sel}}}[{WINDOW}s]))"
+                )
+                sample["error_rate"] = float(err[0]["value"][1]) if err else 0.0
+                # 안전 장치 a): 최근 10초의 5xx·연결 실패(status 0) 비율
+                hard = query(
+                    f'sum(rate(k6_http_reqs_total{{{sel},status=~"5..|0"}}[10s]))'
+                    f" / sum(rate(k6_http_reqs_total{{{sel}}}[10s]))"
+                )
+                sample["hard_error_rate"] = float(hard[0]["value"][1]) if hard else 0.0
+            except (OSError, ValueError):
+                pass
+            sample["over"] = [t for t, lim in P95_LIMIT.items() if (sample.get("p95", {}).get(t) or 0) > lim]
+            if (sample.get("error_rate") or 0) >= ERROR_LIMIT:
+                sample["over"].append("에러율")
+        sample["health"] = healthy(base_url)
         timeline["samples"].append(sample)
+        reason = safety(sample, bad_since, now)
+        if reason and timeline["safety_stop"] is None:
+            timeline["safety_stop"] = {"reason": reason, "at": round(now, 1), "elapsed": sample.get("elapsed"), "stage": sample.get("stage")}
+            print(f"\n  !! 안전 장치로 측정을 멈춰요: {reason}", flush=True)
+            os.kill(pid, signal.SIGINT)
         (out / "timeline.json").write_text(json.dumps(timeline, ensure_ascii=False))
         time.sleep(POLL)
     timeline["ended"] = round(time.time(), 1)
     (out / "timeline.json").write_text(json.dumps(timeline, ensure_ascii=False))
 
 
+def safety(sample, bad_since, now):
+    """안전 장치 두 가지가 SAFETY_SECONDS 넘게 계속됐으면 사유를, 아니면 None."""
+    checks = {
+        "error": (sample.get("hard_error_rate") or 0) > SAFETY_ERROR,
+        "health": not sample["health"],
+    }
+    for key, bad in checks.items():
+        if not bad:
+            bad_since[key] = None
+        elif bad_since[key] is None:
+            bad_since[key] = now
+    if bad_since["error"] is not None and now - bad_since["error"] >= SAFETY_SECONDS:
+        return f"5xx·연결 실패가 {SAFETY_SECONDS}초 넘게 계속 요청의 {int(SAFETY_ERROR * 100)}%를 넘음"
+    if bad_since["health"] is not None and now - bad_since["health"] >= SAFETY_SECONDS:
+        return f"api 헬스체크가 {SAFETY_SECONDS}초 넘게 계속 실패(응답 없음)"
+    return None
+
+
+def scenario_seconds(test, inspect):
+    """프로필 하나가 도는 시간(초): 단계 합 또는 duration (예상 소요 시간 계산용)."""
+    sc = inspect["scenarios"][test if test in inspect["scenarios"] else next(iter(inspect["scenarios"]))]
+    if sc.get("stages"):
+        return int(sum(seconds(s["duration"]) for s in sc["stages"]) + seconds(sc.get("gracefulRampDown") or "30s"))
+    return int(seconds(sc.get("duration") or "0s"))
+
+
 if __name__ == "__main__":
     cmd, *args = sys.argv[1:] or ["help"]
-    if cmd == "plan":
+    if cmd == "seconds":
+        print(scenario_seconds(args[0], json.load(sys.stdin)))
+    elif cmd == "plan":
         print(json.dumps(plan(args[0], json.load(sys.stdin)), ensure_ascii=False, indent=2))
     elif cmd == "watch":
-        watch(args[0], args[1], int(args[2]), "--abort" in args)
+        watch(args[0], args[1], int(args[2]), args[3])
     else:
         print(__doc__)
         sys.exit(1)

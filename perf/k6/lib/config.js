@@ -13,21 +13,18 @@ const LATENCY = {
   judge: ['p(95)<1000', 'p(99)<2000'],
 };
 
-// 한계를 찾는 테스트(stress·breakpoint)는 k6 기준으로 멈추지 않아요: k6 기준은 시작부터의 누적이라 단계 시작의 흔들림에도 멈췄어요
-// (2026-11-02 스트레스가 100명 단계에서 1분 만에 p99로 중단). 중단은 run.sh가 띄우는 lib/stagewatch.py가 단계마다 처음 30초를 빼고
-// 최근 30초 p95(조회 200ms·검색 500ms·판정 1초)나 에러율 5%로 해요. p99는 기록만 해요
-function latency(abort) {
+// k6 기준(thresholds)은 기록만 해요(합격·불합격이 종료 코드와 요약에 남아요). 어떤 테스트도 k6 기준으로 멈추지 않아요(abortOnFail 없음):
+// k6 기준은 시작부터의 누적이라 단계 시작의 흔들림에도 멈췄어요(2026-11-02 스트레스가 첫 단계에서 p99로 1·2분 만에 중단).
+// 측정은 정해진 단계를 끝까지 돌고, 한계는 끝난 뒤 단계표(stages.csv)로 판정해요. 끊는 건 run.sh의 stagewatch 안전 장치 두 가지뿐이에요
+function latency() {
   const t = {};
   for (const [type, rules] of Object.entries(LATENCY)) {
-    t[`http_req_duration{type:${type}}`] = abort
-      ? rules.map((threshold) => ({ threshold, abortOnFail: true, delayAbortEval: '1m' }))
-      : rules;
+    t[`http_req_duration{type:${type}}`] = rules;
   }
   return t;
 }
 
-const errorRate = (rate, abort) =>
-  abort ? [{ threshold: `rate<${rate}`, abortOnFail: true, delayAbortEval: '1m' }] : [`rate<${rate}`];
+const errorRate = (rate) => [`rate<${rate}`];
 
 const vus = (stages) => ({ executor: 'ramping-vus', startVUs: 0, stages, gracefulRampDown: '30s' });
 
@@ -46,7 +43,7 @@ const breakpointStages = Array.from({ length: 50 }, (_, i) => ({ duration: '2m',
 export const PROFILES = {
   smoke: {
     scenario: { executor: 'constant-vus', vus: 2, duration: '1m' },
-    thresholds: { ...latency(false), http_req_failed: ['rate==0'], server_errors: ['count==0'] },
+    thresholds: { ...latency(), http_req_failed: ['rate==0'], server_errors: ['count==0'] },
   },
   load: {
     scenario: vus([
@@ -54,7 +51,7 @@ export const PROFILES = {
       { duration: '15m', target: 100 },
       { duration: '1m', target: 0 },
     ]),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+    thresholds: { ...latency(), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
   },
   soak: {
     scenario: vus([
@@ -62,11 +59,11 @@ export const PROFILES = {
       { duration: '60m', target: 50 },
       { duration: '1m', target: 0 },
     ]),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+    thresholds: { ...latency(), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
   },
   stress: {
     scenario: vus(stressStages),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만. 중단은 run.sh의 stagewatch가
+    thresholds: { ...latency(), http_req_failed: errorRate(0.05) },
   },
   // 쉬는 시간 없이 요청 수로 밀어요. 반복 한 번 = 요청 한 건이라 초당 반복 수가 곧 RPS예요
   breakpoint: {
@@ -78,7 +75,7 @@ export const PROFILES = {
       maxVUs: 1500,
       stages: breakpointStages,
     },
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만. 중단은 run.sh의 stagewatch가
+    thresholds: { ...latency(), http_req_failed: errorRate(0.05) },
   },
   spike: {
     scenario: vus([
@@ -88,7 +85,7 @@ export const PROFILES = {
       { duration: '10s', target: 20 },
       { duration: '2m', target: 20 },
     ]),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만(종류별 p95·p99가 요약에 남게). 멈추지 않아요
+    thresholds: { ...latency(), http_req_failed: errorRate(0.05) }, // 종류별 p95·p99가 요약에 남게 (기록만)
   },
 };
 
@@ -107,15 +104,15 @@ export const SEED_PROFILES = {
   smoke: PROFILES.smoke,
   load: {
     scenario: vus(hold(100, 15)),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+    thresholds: { ...latency(), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
   },
   load200: {
     scenario: vus(hold(200, 15)),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+    thresholds: { ...latency(), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
   },
   stress: {
     scenario: vus(seedStressStages),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만. 중단은 run.sh의 stagewatch가
+    thresholds: { ...latency(), http_req_failed: errorRate(0.05) },
   },
   breakpoint: PROFILES.breakpoint,
   spike: {
@@ -126,11 +123,11 @@ export const SEED_PROFILES = {
       { duration: '10s', target: 20 },
       { duration: '2m', target: 20 },
     ]),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.05) }, // 기록만(종류별 p95·p99가 요약에 남게). 멈추지 않아요
+    thresholds: { ...latency(), http_req_failed: errorRate(0.05) }, // 종류별 p95·p99가 요약에 남게 (기록만)
   },
   soak: {
     scenario: vus(hold(100, 60)),
-    thresholds: { ...latency(false), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
+    thresholds: { ...latency(), http_req_failed: errorRate(0.01), server_errors: ['count==0'] },
   },
 };
 
