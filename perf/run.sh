@@ -75,8 +75,10 @@ if [ "$TARGET" = local ]; then
   NOTIFICATION_TAG=local
   if ! curl -sf "$PROM/-/ready" > /dev/null; then
     PROM_OK=0; warn "Prometheus가 없어요(docker compose -f perf/docker-compose.yml up -d). 서버 지표·그래프는 빠져요"
-  elif ! curl -sf -o /dev/null "$BASE_URL/actuator/prometheus"; then
-    PROM_OK=0; warn "로컬 api 지표($BASE_URL/actuator/prometheus)가 안 보여요. 서버 지표·그래프는 빠져요"
+  else
+    # 로컬 api 대상(target="local")만 봐요. 서버 터널(:18080)은 로컬에서 늘 down이라 보지 않아요. api가 막 뜨는 중이면 1분까지 기다려요
+    for _ in $(seq 1 12); do prom_api_up && break; sleep 5; done
+    prom_api_up || warn "Prometheus가 로컬 api($(prom_target))를 아직 못 긁어요. 결과 모을 때 다시 봐요"
   fi
   curl -sf "$GRAFANA/api/health" > /dev/null || warn "Grafana가 없어요. 그래프 이미지는 빠져요"
 else
@@ -195,12 +197,13 @@ measure() {
 }
 JSON
 
-  if [ "$PROM_OK" = 1 ]; then
+  # 모을지는 측정이 끝난 지금 판단해요: 이 대상의 api를 측정 구간에 긁었는지(시작 전 한 번 본 것으로 정하지 않아요)
+  if [ "$PROM_OK" = 1 ] && prom_api_up "$((END - START + 60))s"; then
     echo "== 결과 모으기 (Prometheus 마지막 수집을 15초 기다려요)"
     sleep 15
     "$PERF_DIR/collect.sh" "$OUT"
   else
-    echo "== 서버 지표·그래프 모으기는 건너뛰어요 (Prometheus 또는 api 지표가 없어요)"
+    echo "== 서버 지표·그래프 모으기는 건너뛰어요 (Prometheus가 없거나 측정 구간에 api($(prom_target)) 지표가 없어요)"
   fi
 
   echo "== 측정 끝: $OUT (k6 종료 코드 $K6_EXIT)"

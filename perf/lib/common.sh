@@ -110,3 +110,17 @@ use_target() {
 db_sql() {
   if [ "$TARGET" = local ]; then target_sql local --csv; else remote_sql; fi
 }
+
+# Prometheus의 api 대상은 둘이에요(같은 job="api"): 서버 터널 :18080 = target="server", 로컬 api :8080 = target="local".
+# 지금 대상(TARGET)의 것만 봐요. 다른 쪽이 down이어도 상관없어요
+prom_target() {
+  if [ "$TARGET" = local ]; then echo 'target="local"'; else echo 'target!="local"'; fi
+}
+
+# 이 대상의 api를 최근 window(기본 1m) 안에 Prometheus가 한 번이라도 긁었는지
+prom_api_up() {
+  local window="${1:-1m}"
+  curl -sf "$PROM/api/v1/query" \
+    --data-urlencode "query=max(max_over_time(up{job=\"api\",$(prom_target)}[$window]))" \
+    | jq -e '.data.result[0].value[1] == "1"' > /dev/null 2>&1
+}
