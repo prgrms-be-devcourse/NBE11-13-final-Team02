@@ -32,13 +32,18 @@ import kr.mujuthaek.api.notice.repository.NoticeQueries;
 import kr.mujuthaek.api.notice.repository.NoticeQueries.CurrentRow;
 import kr.mujuthaek.api.notice.repository.NoticeQueries.ListRow;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
 
-/** 누구나 보는 공고 조회 (목록·상세·주택목록·정정 이력). 다른 모듈도 이 서비스로 공고를 조회해요. */
+/**
+ * 누구나 보는 공고 조회 (목록·상세·주택목록·정정 이력). 다른 모듈도 이 서비스로 공고를 조회해요.
+ *
+ * <p>클래스 전체에 읽기 트랜잭션을 걸지 않아요: 메서드 하나가 커넥션 하나를 처음부터 끝까지 쥐고, 쿼리 사이의 자바 작업(지도 묶기, payload 읽기)과 지역 이름
+ * 조회 동안에도 놓지 않았어요(2026-11-02 로컬: 지도 요청 101ms 중 77ms, 200명 스트레스에서 커넥션 풀 10/10·대기 89). Postgres
+ * 기본(READ COMMITTED)은 문장마다 새로 읽어서 읽기 트랜잭션으로 묶어도 같은 시점을 보지 않아요. 그래서 쿼리마다 잠깐 빌리고 바로 놓아요. 다른 트랜잭션 안에서
+ * 부르면 지금처럼 그 트랜잭션의 커넥션을 같이 써요.
+ */
 @Service
-@Transactional(readOnly = true)
 public class NoticeQueryService {
 
   private static final String UNITS_SORT = "UNITS";
@@ -725,15 +730,18 @@ public class NoticeQueryService {
           groups.computeIfAbsent(key, k -> new java.util.ArrayList<>()).add(pin);
         });
     List<NoticeMapResponse.Cluster> clusters = new java.util.ArrayList<>();
+    // 묶음의 지역 이름은 한 번에 (묶음마다 따로 물으면 서울 영역에서 20번 넘게)
+    java.util.function.Function<String, String> lookup =
+        code -> regionLookup(code.length() == 2 ? code + "000" : code);
+    java.util.Map<String, String> names =
+        regions.displayNames(
+            groups.keySet().stream().filter(Objects::nonNull).map(lookup).distinct().toList());
     groups.forEach(
         (code, list) ->
             clusters.add(
                 new NoticeMapResponse.Cluster(
                     code,
-                    code == null
-                        ? null
-                        : regions.displayName(
-                            regionLookup(code.length() == 2 ? code + "000" : code)),
+                    code == null ? null : names.get(lookup.apply(code)),
                     list.size(),
                     list.stream().mapToDouble(NoticeMapResponse.Pin::lat).average().orElse(0),
                     list.stream().mapToDouble(NoticeMapResponse.Pin::lng).average().orElse(0))));
