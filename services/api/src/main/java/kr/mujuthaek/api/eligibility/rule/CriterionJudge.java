@@ -97,11 +97,12 @@ public final class CriterionJudge {
 
   static Item age(Age c, Applicant a, LocalDate ref) {
     String label = "나이 · " + range("만 ", c.minAge(), c.maxAge(), "세");
-    if (a.birthMonth() == null) {
+    int[] ages = a.ages(ref);
+    if (ages == null) {
       return item(
-          c, "AGE", label, UNKNOWN, "출생 연월을 넣으면 판정돼요", List.of("applicant.birthMonth"), null, null);
+          c, "AGE", label, UNKNOWN, "생년월일을 넣으면 판정돼요", List.of("applicant.birthDate"), null, null);
     }
-    Status status = Bands.ageWithin(Bands.ages(a.birthMonth(), ref), c.minAge(), c.maxAge());
+    Status status = Bands.ageWithin(ages, c.minAge(), c.maxAge());
     String reason =
         switch (status) {
           case MET -> null;

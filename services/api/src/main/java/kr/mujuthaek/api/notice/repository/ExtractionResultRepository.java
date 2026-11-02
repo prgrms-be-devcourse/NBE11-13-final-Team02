@@ -32,6 +32,19 @@ public class ExtractionResultRepository {
    * 이미 받은 이벤트인지. 수신 기록은 반영과 같은 트랜잭션에 남아서, 반영이 실패해 되돌려지면 기록도 없어 다시 받으면 처음부터 처리돼요. 공통 수신
    * 도우미(EventInbox)는 처리가 끝난 뒤 따로 기록하므로, 그 사이에 멈춰 같은 이벤트가 다시 와도 여기서 걸러요.
    */
+  /**
+   * 같은 eventId를 처리하는 트랜잭션끼리 줄을 세워요(트랜잭션이 끝나면 풀려요). 같은 이벤트가 동시에 오면(재전송·중복 발행·소비자 여럿) 「처리했나 → 처리」 사이에
+   * 끼어들어 처리 기록의 기본 키에서 부딪혀 예외(→ 재시도·실패 큐)가 나던 것을, 뒤에 온 것이 앞의 커밋을 기다렸다가 DUPLICATE로 끝나게 해요
+   * (2026-11-01 동시성 시험: 100개 동시에 9개 예외).
+   */
+  public void lock(UUID eventId) {
+    jdbc.sql(
+            "select pg_advisory_xact_lock(hashtextextended('extraction-event:' || cast(:id as text), 0))")
+        .param("id", eventId)
+        .query((rs, i) -> 1)
+        .list();
+  }
+
   public boolean exists(UUID eventId) {
     return jdbc.sql("select exists (select 1 from notice.extraction_results where event_id = :id)")
         .param("id", eventId)

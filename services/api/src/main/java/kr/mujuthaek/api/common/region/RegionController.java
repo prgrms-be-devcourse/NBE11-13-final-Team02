@@ -3,6 +3,7 @@ package kr.mujuthaek.api.common.region;
 import java.time.Duration;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
+import kr.mujuthaek.api.common.region.spec.RegionApiSpec;
 import org.springframework.http.CacheControl;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -11,17 +12,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.WebRequest;
 
-/**
- * 공통 코드: 시·도와 시·군·구. 로그인 없이 받고, 자주 바뀌지 않아서 하루 캐시 + ETag를 붙여요(같으면 304).
- *
- * <pre>
- * GET /api/v1/regions          → { baseDate, sidos: [{ code, name, shortName, sigungus: [{ code, name }] }] }
- * GET /api/v1/regions/{code}   → { code, level, name, fullName, valid, replacedBy, validTo }
- * </pre>
- */
+/** 공통 코드: 시·도와 시·군·구 (설명은 {@link RegionApiSpec}). 자주 바뀌지 않아서 하루 캐시 + ETag를 붙여요. */
 @RestController
 @RequestMapping("/api/v1/regions")
-class RegionController {
+class RegionController implements RegionApiSpec {
 
   private static final CacheControl DAY = CacheControl.maxAge(Duration.ofDays(1)).cachePublic();
 
@@ -31,8 +25,9 @@ class RegionController {
     this.regions = regions;
   }
 
+  @Override
   @GetMapping
-  ResponseEntity<RegionQueryService.RegionTree> all(WebRequest request) {
+  public ResponseEntity<RegionQueryService.RegionTree> all(WebRequest request) {
     String etag = "\"regions-" + regions.version() + "\"";
     if (request.checkNotModified(etag)) {
       return null; // 304
@@ -40,8 +35,9 @@ class RegionController {
     return ResponseEntity.ok().cacheControl(DAY).eTag(etag).body(regions.tree());
   }
 
+  @Override
   @GetMapping("/{code}")
-  ResponseEntity<RegionQueryService.Region> one(@PathVariable String code) {
+  public ResponseEntity<RegionQueryService.Region> one(@PathVariable String code) {
     if (!code.matches("[0-9]{2}([0-9]{3})?")) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "regionCode는 2자리(시도) 또는 5자리(시군구)예요");
     }

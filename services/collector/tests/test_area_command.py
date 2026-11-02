@@ -94,6 +94,30 @@ def test_manifest_records_events_for_files_already_in_s3(tmp_path):
     assert command.from_manifest(files, outbox, manifest).recorded == 0  # 두 번째는 같은 eventId라 기록 안 함
 
 
+class ResendOutbox(MemoryOutbox):
+    """resend면 이미 있어도 다시 보낼 이벤트로 세요 (published_at = null로 되돌림)"""
+
+    def execute(self, sql, params):
+        if "published_at = null" in sql:
+            self.events[params[0]] = params[3].obj
+            return type("Cursor", (), {"rowcount": 1})()
+        return super().execute(sql, params)
+
+
+def test_manifest_resend_sends_already_recorded_events_again(tmp_path):
+    files, outbox = MemoryFileStore(), ResendOutbox()
+    manifest = write_manifest(
+        tmp_path / "manifest.csv",
+        [["BUS_STOP", "ALL", "area/BUS_STOP/2025-10-31/bus_stop.csv", "a" * 64, "2025-10-31", "버스.csv", "3"]],
+    )
+    files.objects = {"area/BUS_STOP/2025-10-31/bus_stop.csv": b""}
+    files.metadatas = {"area/BUS_STOP/2025-10-31/bus_stop.csv": {"sha256": "a" * 64}}
+
+    assert command.from_manifest(files, outbox, manifest).recorded == 1
+    assert command.from_manifest(files, outbox, manifest).recorded == 0
+    assert command.from_manifest(files, outbox, manifest, resend=True).recorded == 1  # 이미 보낸 것도 다시
+
+
 def write_manifest(path: Path, rows: list[list[str]]) -> Path:
     with path.open("w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)

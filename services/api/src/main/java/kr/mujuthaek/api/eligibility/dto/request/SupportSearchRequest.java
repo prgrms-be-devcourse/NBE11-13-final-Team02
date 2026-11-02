@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.eligibility.dto.request;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
@@ -18,10 +19,10 @@ import java.util.List;
 public record SupportSearchRequest(
     @Valid Filters filters,
     @Valid JudgmentApplicantRequest applicant,
-    @Pattern(regexp = "RECOMMENDED|DEADLINE") String sort,
-    Boolean includeIneligible,
+    @Schema(defaultValue = "RECOMMENDED") @Pattern(regexp = "RECOMMENDED|DEADLINE") String sort,
+    @Schema(defaultValue = "false") Boolean includeIneligible,
     String cursor,
-    @Min(1) @Max(100) Integer size) {
+    @Schema(defaultValue = "20") @Min(1) @Max(100) Integer size) {
 
   /**
    * @param subFields FUND(지원금) · LOAN(정책자금) · TAX(세금 감면). 비우면 전부

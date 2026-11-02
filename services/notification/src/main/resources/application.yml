@@ -50,7 +50,8 @@ notification:
     vapid-subject: ${PUSH_VAPID_SUBJECT:mailto:noreply@localhost}  # 푸시 서비스가 문제 있을 때 연락할 곳
   delivery:
     poll-interval-ms: 5000
-    batch-size: 20
+    batch-size: 100                     # 한 번에 맡는 줄 (묶음 100 + 낱개 100)
+    concurrency: 50                     # 동시에 보내는 회원 수. 푸시 응답을 한 명씩 기다리지 않게 (DB 연결·푸시 서비스 한도 고려)
 
 server:
   port: 8081                            # api가 8080

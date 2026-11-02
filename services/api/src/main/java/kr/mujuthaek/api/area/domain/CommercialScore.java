@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.area.domain;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
@@ -23,6 +24,7 @@ public record CommercialScore(
     CommercialIndustry industryGroup,
     NearestStation nearestStation,
     Integer households,
-    Map<String, Integer> scores,
+    @Schema(example = "{\"DENSITY\": 80, \"COMPETITION\": 40, \"TRANSIT\": 70}")
+        Map<String, Integer> scores,
     int score,
     OffsetDateTime calculatedAt) {}

@@ -94,6 +94,10 @@ app:
     vapid-public-key: ${PUSH_VAPID_PUBLIC_KEY:}  # 비어 있으면 구독을 받지 않아요 (공개키 API 503). 만들기: npx web-push generate-vapid-keys
 
 mujuthaek:
+  judging:                              # 판정 캐시 (공고: 판정 모델 한 개 약 4.4KB, 혜택: 지원 내용·읽어 둔 조건). 적중률 mujuthaek_judging_cache_total
+    cache-size: ${JUDGING_CACHE_SIZE:20000}                   # 공고 (ID·버전)
+    benefit-cache-size: ${JUDGING_BENEFIT_CACHE_SIZE:20000}   # 혜택 (ID·수정 시각)
+    prewarm: ${JUDGING_PREWARM:true}    # 뜰 때 열린 공고를 뒤에서 미리 채워요
   s3:                                   # collector와 같은 환경 변수. S3_ENDPOINT를 빈 값으로 주면 AWS S3 (EC2 역할)
     endpoint: ${S3_ENDPOINT:http://localhost:9000}
     bucket: ${S3_BUCKET:mujuthaek-raw}
@@ -147,6 +151,24 @@ mujuthaek:
       per-day: 10000
       retries: 2
       timeout: 5s
+
+# API 문서(스웨거). 기본은 꺼 두고 로컬(application-local.yml)과 개발 서버(API_DOCS_ENABLED=true)에서만 켜요.
+# 운영에서 관리자 API 구조까지 밖에 보이지 않게요
+springdoc:
+  default-produces-media-type: application/json
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${API_DOCS_ENABLED:false}
+    tags-sorter: alpha
+    urls-primary-name: 사용자 API        # 처음 열면 사용자 API부터 (그룹 이름 user가 아니라 표시 이름 displayName과 맞춰야 해요)
+    persist-authorization: true         # 새로 고쳐도 넣어 둔 access token을 기억해요 (그 브라우저에만)
+
+server:
+  compression:                          # JSON 응답을 gzip으로 (관리자 목록·공고 상세가 수백 KB, 2026-10-30 부하 시험)
+    enabled: true
+    min-response-size: 1KB              # 작은 응답은 그대로. 이야기 실시간(text/event-stream)은 기본 대상이 아니라 압축하지 않아요
+    mime-types: application/json,application/problem+json,text/plain
 
 management:
   endpoints:

@@ -32,6 +32,18 @@ public class BenefitQueryService {
         .toList();
   }
 
+  /**
+   * {@link #openForJudgment(Collection)}과 같되, cached가 참인 혜택(판정 캐시에 같은 ID·수정 시각으로 있는 것)은 지원 내용·조건을
+   * 읽지 않고 비워 둬요. 혜택이 바뀌면 수정 시각이 달라져서 다시 읽어요.
+   */
+  public List<BenefitForJudgment> openForJudgment(
+      Collection<String> regionCodes,
+      java.util.function.BiPredicate<UUID, java.time.Instant> cached) {
+    return benefits.openBenefits(regionCodes, r -> cached.test(r.id(), r.updatedAt())).stream()
+        .map(BenefitQueryService::toJudgment)
+        .toList();
+  }
+
   /** 혜택 하나 (숨김이면 없음). */
   public Optional<BenefitForJudgment> forJudgment(UUID id) {
     return benefits.find(id).map(BenefitQueryService::toJudgment);
@@ -40,6 +52,15 @@ public class BenefitQueryService {
   /** 혜택 하나의 요약 (알림용). 숨김(HIDDEN)도 줘요. 없으면 빈 값 */
   public Optional<BenefitSummary> findSummary(UUID id) {
     return benefits.summary(id).map(BenefitQueryService::toSummary);
+  }
+
+  /** 혜택 여러 개의 요약을 한 번에 (관심 목록용). 혜택 ID → 요약, 없는 ID는 빠져요. 숨김(HIDDEN)도 줘요 */
+  public java.util.Map<UUID, BenefitSummary> findSummaries(Collection<UUID> ids) {
+    java.util.Map<UUID, BenefitSummary> out = new java.util.HashMap<>();
+    for (var row : benefits.summaries(ids.stream().distinct().toList())) {
+      out.put(row.id(), toSummary(row));
+    }
+    return out;
   }
 
   /**
@@ -108,6 +129,7 @@ public class BenefitQueryService {
                 c ->
                     new BenefitForJudgment.Condition(
                         c.type(), c.valueJson(), c.group(), c.known(), c.rawText(), c.evidence()))
-            .toList());
+            .toList(),
+        r.updatedAt());
   }
 }

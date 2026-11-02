@@ -64,11 +64,25 @@ class AdminReviewServiceTest {
         .andRespond(withSuccess(LIST, MediaType.APPLICATION_JSON));
   }
 
+  /** 건수·남은 건수: 가장 오래된 한 건과 전체 건수만 받아요. */
+  private void expectHead() {
+    server
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1"))
+        .andRespond(
+            withSuccess(
+                """
+                {"total":3,"items":[{"jobId":"%s","jobStatus":"IN_REVIEW","reviewStatus":"PENDING",
+                 "title":"가상 행복주택","queuedAt":"2026-10-24 21:00:00.5+00:00","reasons":[]}]}
+                """
+                    .formatted(A),
+                MediaType.APPLICATION_JSON));
+  }
+
   @Test
   void countsUseTheTotalNotTheTruncatedListLength() {
     var service = service();
     server
-        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1000"))
+        .expect(requestTo(BASE + "/reviews?status=PENDING&limit=1"))
         .andRespond(
             withSuccess(
                 """
@@ -81,41 +95,42 @@ class AdminReviewServiceTest {
   }
 
   @Test
-  void pendingGroupsReasonsByJobStatusAndFallsBackToSourceTitle() {
+  void itemsGroupReasonsByJobStatusAndFallBackToSourceTitle() {
+    // 목록 항목 만들기(사유 묶음·제목 대신 원문 제목·이슈 수)는 급한 검수로 확인해요 (대기 전체 목록 API는 2026-10-30에 지웠어요)
     var service = service();
     expectList(1);
-    var list = service.pending(null);
-    assertThat(list.total()).isEqualTo(3);
-    assertThat(list.items())
+    var items = service.urgent(30);
+    assertThat(items)
         .extracting(i -> i.reason() + " " + i.title() + " " + i.issueCount())
-        .containsExactly("MUST 가상 행복주택 2", "CHECK 가상 국민임대 1", "FORMAT 가상 장기전세 0");
-    assertThat(list.items().get(0).receivedAt())
-        .isEqualTo(OffsetDateTime.parse("2026-10-24T21:00:00.5Z"));
-  }
-
-  @Test
-  void pendingFiltersByReasonButKeepsTotal() {
-    var service = service();
-    expectList(1);
-    var list = service.pending("FORMAT");
-    assertThat(list.total()).isEqualTo(3);
-    assertThat(list.items()).extracting(i -> i.id()).containsExactly(C);
-  }
-
-  @Test
-  void unknownReasonIsRejectedWithoutCallingExtraction() {
-    var service = service();
-    assertThatThrownBy(() -> service.pending("LOW")).isInstanceOf(CustomException.class);
-    server.verify();
+        .containsExactly("CHECK 가상 국민임대 1", "MUST 가상 행복주택 2");
+    assertThat(items.get(1).receivedAt()).isEqualTo(OffsetDateTime.parse("2026-10-24T21:00:00.5Z"));
   }
 
   @Test
   void countsGivesPendingAndOldest() {
     var service = service();
-    expectList(1);
+    expectHead();
     var counts = service.counts();
     assertThat(counts.reviewPending()).isEqualTo(3);
     assertThat(counts.oldestReceivedAt()).isEqualTo(OffsetDateTime.parse("2026-10-24T21:00:00.5Z"));
+  }
+
+  @Test
+  void countsAreReusedBrieflyAndRefetchedAfterADecision() {
+    var service = service();
+    // 받을 요청 차례: 건수 → 반려 → 남은 건수 → (처리했으니) 건수 다시. 더 받으면 가짜 서버가 실패시켜요
+    expectHead();
+    server
+        .expect(requestTo(BASE + "/reviews/" + B + "/reject"))
+        .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
+    expectHead();
+    expectHead();
+
+    var first = service.counts();
+    assertThat(service.counts()).isSameAs(first);
+    service.reject(B, null, "admin-1");
+    assertThat(service.counts()).isNotSameAs(first);
+    server.verify();
   }
 
   @Test
@@ -155,7 +170,7 @@ class AdminReviewServiceTest {
         .andExpect(
             content().json("{\"note\":\"[원문과 다름 · 다시 추출] 표가 잘렸어요\",\"reviewer\":\"admin-1\"}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
-    expectList(1);
+    expectHead();
     var result =
         service.reject(
             B,
@@ -256,7 +271,7 @@ class AdminReviewServiceTest {
                 .json(
                     "{\"note\":\"원문 4쪽\",\"reviewer\":\"admin-7\",\"edits\":[{\"path\":\"/eligibility/1/description\",\"value\":\"가상 새 설명\"}]}"))
         .andRespond(withSuccess("{\"reviewStatus\":\"APPROVED\"}", MediaType.APPLICATION_JSON));
-    expectList(1);
+    expectHead();
     var request =
         new AdminReviewDecisionRequest(
             null,
@@ -294,6 +309,24 @@ class AdminReviewServiceTest {
         .extracting(i -> i.id() + " " + i.applyEndsOn())
         .containsExactly(B + " 2026-10-24", A + " 2026-10-27");
     assertThatThrownBy(() -> service.urgent(31)).isInstanceOf(CustomException.class);
+  }
+
+  @Test
+  void urgentIsReusedForAMinuteAndRecomputedAfterADecision() {
+    var service = service();
+    // 받을 요청 차례: 목록 한 번 → 반려 → 남은 건수 → (처리했으니) 목록 다시. 더 받으면 가짜 서버가 실패시켜요
+    expectList(1);
+    server
+        .expect(requestTo(BASE + "/reviews/" + B + "/reject"))
+        .andRespond(withSuccess("{\"reviewStatus\":\"REJECTED\"}", MediaType.APPLICATION_JSON));
+    expectHead();
+    expectList(1);
+
+    var first = service.urgent(3);
+    assertThat(service.urgent(3)).isSameAs(first);
+    service.reject(B, null, "admin-1");
+    assertThat(service.urgent(3)).isNotSameAs(first);
+    server.verify();
   }
 
   @Test

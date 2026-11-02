@@ -4,14 +4,13 @@ import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
 import kr.mujuthaek.api.eligibility.dto.response.NoticeEvaluationResponse;
-import kr.mujuthaek.api.eligibility.mapper.JudgmentReader;
 import kr.mujuthaek.api.eligibility.rule.Applicant;
 import kr.mujuthaek.api.eligibility.rule.IncomeBenchmarks;
 import kr.mujuthaek.api.eligibility.rule.Judge;
 import kr.mujuthaek.api.eligibility.rule.Overall;
 import kr.mujuthaek.api.eligibility.rule.PrepareCost;
+import kr.mujuthaek.api.eligibility.service.JudgingFrames.Frame;
 import kr.mujuthaek.api.notice.service.NoticeQueryService;
-import kr.mujuthaek.api.notice.service.NoticeQueryService.JudgingSource;
 import org.springframework.stereotype.Service;
 
 /**
@@ -38,18 +37,18 @@ public class NoticeEvaluationService {
   }
 
   public NoticeEvaluationResponse evaluate(UUID noticeId, Applicant applicant) {
-    return evaluator(applicant).apply(notices.judgingSource(noticeId));
+    return evaluator(applicant).apply(Frame.of(notices.judgingSource(noticeId)));
   }
 
   /** 같은 판정 입력으로 공고 여러 개를 판정할 때: 기준 소득·대출 상품은 한 번만 읽어요. */
-  public Function<JudgingSource, NoticeEvaluationResponse> evaluator(Applicant applicant) {
+  public Function<Frame, NoticeEvaluationResponse> evaluator(Applicant applicant) {
     IncomeBenchmarks benchmarks = criteria.benchmarks();
     Function<Long, PrepareCost.Result> prepare = prepareCost.preparer(applicant);
     return source -> evaluate(source, applicant, benchmarks, prepare);
   }
 
   private static NoticeEvaluationResponse evaluate(
-      JudgingSource source,
+      Frame source,
       Applicant applicant,
       IncomeBenchmarks benchmarks,
       Function<Long, PrepareCost.Result> prepare) {
@@ -61,8 +60,7 @@ public class NoticeEvaluationService {
       overall = Overall.NEEDS_INPUT;
       reason = NO_FRAME;
     } else {
-      Judge.Result result =
-          Judge.evaluate(JudgmentReader.read(source.judgment()), applicant, benchmarks);
+      Judge.Result result = Judge.evaluate(source.judgment(), applicant, benchmarks);
       overall = result.overall();
       targets = result.targets();
       missing = result.missingInputs();

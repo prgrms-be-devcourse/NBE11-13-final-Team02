@@ -20,7 +20,7 @@ import java.util.Set;
  * @param statuses 고른 유형 (수급자, 소상공인, 중소기업 …). 고를 게 없으면 빈 집합, 아직 고르지 않았으면 null
  * @param restrictions 고른 신청 제한 사유 (체납, 피후견인 …). 해당 없음이면 빈 집합, 아직 고르지 않았으면 null
  * @param answers 질문(ASK) ID → 답
- * @param birthMonth 출생 연월. 생년월일이 없을 때만 써요 (프론트는 정확한 날 대신 연월만 보내요). 그 달 안에서 결과가 갈리면 나이는 확인 필요
+ * @param birthMonth 출생 연월. 생년월일이 없을 때만 써요 (예전 화면 호환). 그 달 안에서 결과가 갈리면 나이는 확인 필요
  */
 public record Applicant(
     LocalDate birthDate,

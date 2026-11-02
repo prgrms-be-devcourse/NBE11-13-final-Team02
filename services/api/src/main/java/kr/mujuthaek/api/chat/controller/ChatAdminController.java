@@ -2,6 +2,7 @@ package kr.mujuthaek.api.chat.controller;
 
 import jakarta.validation.Valid;
 import java.util.UUID;
+import kr.mujuthaek.api.chat.controller.spec.ChatAdminApiSpec;
 import kr.mujuthaek.api.chat.domain.ReviewStatus;
 import kr.mujuthaek.api.chat.dto.request.ReviewRequest;
 import kr.mujuthaek.api.chat.dto.response.ChatReportResponse;
@@ -18,10 +19,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-/** 채팅 신고 검토 (관리자). /api/admin/** 은 시큐리티가 ADMIN만 들여보내요. */
+/**
+ * 채팅 신고 검토 (설명은 {@link ChatAdminApiSpec}). /api/admin/chat/** 은 권한 CHAT이 있는 관리자만 들어와요
+ * (SecurityConfig).
+ */
 @RestController
 @RequestMapping("/api/admin/chat")
-class ChatAdminController {
+class ChatAdminController implements ChatAdminApiSpec {
 
   private final ChatAdminService admin;
 
@@ -29,18 +33,24 @@ class ChatAdminController {
     this.admin = admin;
   }
 
-  /** 신고 목록 (최신순, 기본 검토 전). */
+  @Override
   @GetMapping("/reports")
-  CursorPageResponse<ChatReportResponse> reports(
+  public CursorPageResponse<ChatReportResponse> reports(
       @RequestParam(defaultValue = "PENDING") ReviewStatus status,
       @RequestParam(required = false) String cursor,
       @RequestParam(required = false) Integer size) {
     return admin.reports(status, cursor, size);
   }
 
-  /** 가림 유지(KEEP_HIDDEN) 또는 다시 보이기(RESTORE). */
+  @Override
+  @GetMapping("/reports/counts")
+  public ChatReportResponse.Counts counts() {
+    return admin.counts();
+  }
+
+  @Override
   @PatchMapping("/messages/{id}")
-  ResponseEntity<Void> review(
+  public ResponseEntity<Void> review(
       @PathVariable UUID id,
       @Valid @RequestBody ReviewRequest request,
       @AuthenticationPrincipal LoginUser user) {

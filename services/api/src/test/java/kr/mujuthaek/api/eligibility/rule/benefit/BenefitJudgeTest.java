@@ -51,6 +51,15 @@ class BenefitJudgeTest {
     assertThat(one(age, a().birthMonth(1980, 3).build())).isEqualTo(Status.NOT_MET);
     assertThat(one(age, a().birthMonth(1986, 10).build())).isEqualTo(Status.UNKNOWN);
     assertThat(one(age, a().build())).isEqualTo(Status.UNKNOWN);
+    assertThat(item(age, a().build()).needs()).containsExactly("applicant.birthDate");
+  }
+
+  @Test
+  void 생년월일이_있으면_생일_달에도_나이가_정해진다() {
+    Condition age = c("AGE", Map.of("min", 19, "max", 39), 1);
+    // 오늘 2026-10-22: 1986-10-22생은 40세, 1986-10-23생은 아직 39세
+    assertThat(one(age, a().birthDate(1986, 10, 22).build())).isEqualTo(Status.NOT_MET);
+    assertThat(one(age, a().birthDate(1986, 10, 23).build())).isEqualTo(Status.MET);
   }
 
   @Test

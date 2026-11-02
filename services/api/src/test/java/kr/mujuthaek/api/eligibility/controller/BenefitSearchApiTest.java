@@ -31,7 +31,13 @@ class BenefitSearchApiTest {
       new CriteriaService(
           new CriteriaStore(f.jdbc), new LoanProductStore(f.jdbc), BenefitFixture.JSON, f.clock);
   private final BenefitEvaluationService evaluations =
-      new BenefitEvaluationService(f.queries, criteria, BenefitFixture.JSON, f.clock);
+      new BenefitEvaluationService(
+          f.queries,
+          criteria,
+          BenefitFixture.JSON,
+          f.clock,
+          new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+          20000);
   private final MockMvc mvc =
       MockMvcBuilders.standaloneSetup(
               new BenefitSearchController(new BenefitSearchService(evaluations), evaluations))

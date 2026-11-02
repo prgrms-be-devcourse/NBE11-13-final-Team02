@@ -39,7 +39,16 @@ class NoticeSearchApiTest {
           criteria,
           new PrepareCostService(new LoanProductStore(f.jdbc), criteria, Clock.systemUTC()));
   private final MockMvc mvc =
-      f.mvc(new NoticeSearchController(new NoticeSearchService(f.queries, evaluations)));
+      f.mvc(
+          new NoticeSearchController(
+              new NoticeSearchService(
+                  f.queries,
+                  evaluations,
+                  new kr.mujuthaek.api.eligibility.service.JudgingFrames(
+                      f.queries,
+                      new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                      20000,
+                      false))));
 
   @org.junit.jupiter.api.BeforeEach
   void noLoans() {

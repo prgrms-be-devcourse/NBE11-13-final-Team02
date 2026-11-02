@@ -39,9 +39,23 @@ class CriterionJudgeTest {
     assertThat(judge(c, applicant().birthMonth(1997, 10).build()).status()).isEqualTo(MET);
     Item unknown = judge(c, Applicant.empty());
     assertThat(unknown.status()).isEqualTo(UNKNOWN);
-    assertThat(unknown.needs()).containsExactly("applicant.birthMonth");
+    assertThat(unknown.needs()).containsExactly("applicant.birthDate");
+    assertThat(unknown.reason()).isEqualTo("생년월일을 넣으면 판정돼요");
     assertThat(unknown.label()).isEqualTo("나이 · 만 19~39세");
     assertThat(unknown.evidence()).isEqualTo(new Item.Evidence("원문", 3));
+  }
+
+  @Test
+  void ageFromTheBirthDateIsDecidedEvenInTheBirthdayMonth() {
+    var c = new Judgment.Age(B, 19, 39);
+    // 기준일 2026-10-16: 1986-10-16생은 그날 40세, 1986-10-17생은 아직 39세. 출생 연월로는 둘 다 확인 필요였어요
+    assertThat(judge(c, applicant().birthDate(1986, 10, 16).build()).status()).isEqualTo(NOT_MET);
+    Item notYet = judge(c, applicant().birthDate(1986, 10, 17).build());
+    assertThat(notYet.status()).isEqualTo(MET);
+    assertThat(notYet.reason()).isNull();
+    // 생년월일이 있으면 출생 연월보다 먼저 써요
+    assertThat(judge(c, applicant().birthDate(1986, 10, 17).birthMonth(1986, 10).build()).status())
+        .isEqualTo(MET);
   }
 
   @Test

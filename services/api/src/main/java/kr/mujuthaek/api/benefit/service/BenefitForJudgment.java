@@ -11,6 +11,7 @@ import java.util.UUID;
  * @param category 화면 분야 HOUSING · ASSET · TRANSPORT
  * @param regionScope NATIONWIDE · SIDO · SIGUNGU · UNKNOWN
  * @param needsReview 사람 확인 전 (판정은 확인 필요를 넘지 않아요)
+ * @param updatedAt 마지막으로 바뀐 시각. 혜택이 바뀌면(새 버전·상태) 달라져서 판정 캐시의 키로 써요
  */
 public record BenefitForJudgment(
     UUID id,
@@ -26,7 +27,8 @@ public record BenefitForJudgment(
     boolean applyAlways,
     boolean needsReview,
     List<Support> supports,
-    List<Condition> conditions) {
+    List<Condition> conditions,
+    java.time.Instant updatedAt) {
 
   /**
    * @param kind RENT · DEPOSIT_LOAN · PURCHASE_LOAN · HOUSING_SUPPLY · MOVE_IN_GRANT · CASH · OTHER

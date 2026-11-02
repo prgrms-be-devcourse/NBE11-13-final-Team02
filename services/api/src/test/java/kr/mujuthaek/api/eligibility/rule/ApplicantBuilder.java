@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.eligibility.rule;
 
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -9,6 +10,7 @@ import kr.mujuthaek.api.eligibility.rule.Bands.Range;
 /** 테스트용 판정 입력. 넣지 않은 칸은 비어 있어요(null). */
 public final class ApplicantBuilder {
 
+  private LocalDate birthDate;
   private YearMonth birthMonth;
   private String regionCode;
   private Boolean householdHead;
@@ -29,6 +31,11 @@ public final class ApplicantBuilder {
   private Range assets;
   private Range car;
   private List<String> rankChecks;
+
+  public ApplicantBuilder birthDate(int y, int m, int d) {
+    birthDate = LocalDate.of(y, m, d);
+    return this;
+  }
 
   public ApplicantBuilder birthMonth(int y, int m) {
     birthMonth = YearMonth.of(y, m);
@@ -155,6 +162,7 @@ public final class ApplicantBuilder {
 
   public Applicant build() {
     return new Applicant(
+        birthDate,
         birthMonth,
         regionCode,
         householdHead,

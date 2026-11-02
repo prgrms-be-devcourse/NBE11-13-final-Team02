@@ -78,7 +78,8 @@ public class BenefitRepository {
       String status,
       boolean needsReview,
       List<Support> supports,
-      List<Condition> conditions) {}
+      List<Condition> conditions,
+      Instant updatedAt) {}
 
   public Optional<Saved> findByRawPolicyId(UUID rawPolicyId) {
     return jdbc.sql(
@@ -238,18 +239,73 @@ public class BenefitRepository {
    * BENEFIT만.
    */
   public List<Row> openBenefits(Collection<String> regionCodes) {
+    return openBenefits(regionCodes, r -> false);
+  }
+
+  /**
+   * {@link #openBenefits(Collection)}과 같되, skipLines가 참인 혜택(판정 캐시에 같은 수정 시각으로 이미 있는 것)은 지원 내용·조건을
+   * 읽지 않아요.
+   *
+   * <p>판정에 쓰는 칸만 읽어요(설명·서류·신청 방법 같은 긴 칸은 빼요: 한 줄 약 940바이트 → 판정 칸). 나이로 지원 불가를 DB에서 미리 거르던 하위 쿼리는
+   * 뺐어요: 혜택마다 조건을 다시 훑어 요청마다 DB 시간이 20ms 넘게 늘고 그동안 커넥션을 쥐었는데, 조건은 이제 앱이 캐시해 두고 판정하므로 얻는 게
+   * 없었어요(2026-11-02 로컬 실행 계획: 32~55ms → 12ms). 판정 결과는 같아요(BenefitJudge가 같은 규칙으로 판정해요).
+   */
+  public List<Row> openBenefits(
+      Collection<String> regionCodes, java.util.function.Predicate<Row> skipLines) {
     String[] regions = regionCodes.toArray(String[]::new);
     List<Row> rows =
         jdbc.sql(
-                "select * from benefit.benefits b where b.field = 'BENEFIT'"
+                "select "
+                    + JUDGMENT_COLUMNS
+                    + " from benefit.benefits b where b.field = 'BENEFIT'"
                     + " and b.status in ('UPCOMING', 'OPEN') and (cardinality(cast(:regions as"
                     + " text[])) = 0 or b.region_scope = 'NATIONWIDE' or exists (select 1 from"
                     + " unnest(b.region_codes) r, unnest(cast(:regions as text[])) f where r like f"
                     + " || '%' or f like r || '%')) order by b.apply_end nulls last, b.id")
             .param("regions", regions)
-            .query(BenefitRepository::row)
+            .query(BenefitRepository::judgmentRow)
             .list();
-    return withLines(rows);
+    java.util.Set<UUID> skip = new java.util.HashSet<>();
+    rows.stream().filter(skipLines).forEach(r -> skip.add(r.id()));
+    return withLines(rows, skip);
+  }
+
+  /** 판정(BenefitQueryService.toJudgment)에 쓰는 칸. */
+  private static final String JUDGMENT_COLUMNS =
+      "b.id, b.source_code, b.field, b.category, b.title, b.agency, b.region_scope, b.region_names,"
+          + " b.region_codes, b.summary, b.apply_start, b.apply_end, b.apply_always, b.status,"
+          + " b.needs_review, b.updated_at";
+
+  /** 판정 칸만 읽은 줄. 상세 화면 칸(설명·서류·신청 방법 …)은 비어 있어요. */
+  private static Row judgmentRow(ResultSet rs, int i) throws SQLException {
+    return new Row(
+        rs.getObject("id", UUID.class),
+        rs.getString("source_code"),
+        rs.getString("field"),
+        rs.getString("category"),
+        rs.getString("title"),
+        rs.getString("agency"),
+        rs.getString("region_scope"),
+        strings(rs.getArray("region_names")),
+        strings(rs.getArray("region_codes")),
+        List.of(),
+        null,
+        null,
+        rs.getString("summary"),
+        day(rs, "apply_start"),
+        day(rs, "apply_end"),
+        rs.getBoolean("apply_always"),
+        null,
+        null,
+        null,
+        null,
+        List.of(),
+        null,
+        rs.getString("status"),
+        rs.getBoolean("needs_review"),
+        List.of(),
+        List.of(),
+        rs.getTimestamp("updated_at").toInstant());
   }
 
   public Optional<Row> find(UUID id) {
@@ -258,7 +314,7 @@ public class BenefitRepository {
             .param(id)
             .query(BenefitRepository::row)
             .list();
-    return withLines(rows).stream().findFirst();
+    return withLines(rows, java.util.Set.of()).stream().findFirst();
   }
 
   /** 혜택 하나의 요약 (숨김 포함). */
@@ -275,6 +331,15 @@ public class BenefitRepository {
         .param(id)
         .query(BenefitRepository::summary)
         .optional();
+  }
+
+  /** 혜택 여러 개의 요약을 한 번에 (숨김 포함, 없는 ID는 빠져요). 관심 목록이 한 줄씩 묻지 않게요. */
+  public List<SummaryRow> summaries(Collection<UUID> ids) {
+    if (ids.isEmpty()) return List.of();
+    return jdbc.sql(SUMMARY + " where id = any(?)")
+        .param(ids.toArray(UUID[]::new))
+        .query(BenefitRepository::summary)
+        .list();
   }
 
   /** 수집 정책 ID로 혜택 하나의 요약 (숨김 포함). */
@@ -317,10 +382,10 @@ public class BenefitRepository {
         rs.getString("detail_url"));
   }
 
-  /** 지원 내용·조건 줄을 한 번에 읽어 붙여요 (혜택 수만큼 질의하지 않게). */
-  private List<Row> withLines(List<Row> rows) {
+  /** 지원 내용·조건 줄을 한 번에 읽어 붙여요 (혜택 수만큼 질의하지 않게). skip의 혜택은 읽지 않고 비워 둬요. */
+  private List<Row> withLines(List<Row> rows, java.util.Set<UUID> skip) {
     if (rows.isEmpty()) return rows;
-    UUID[] ids = rows.stream().map(Row::id).toArray(UUID[]::new);
+    UUID[] ids = rows.stream().map(Row::id).filter(id -> !skip.contains(id)).toArray(UUID[]::new);
     Map<UUID, List<Support>> supports = new LinkedHashMap<>();
     jdbc.sql(
             "select * from benefit.benefit_supports where benefit_id = any(?) order by benefit_id,"
@@ -389,7 +454,8 @@ public class BenefitRepository {
                     r.status(),
                     r.needsReview(),
                     supports.getOrDefault(r.id(), List.of()),
-                    conditions.getOrDefault(r.id(), List.of())))
+                    conditions.getOrDefault(r.id(), List.of()),
+                    r.updatedAt()))
         .toList();
   }
 
@@ -420,7 +486,8 @@ public class BenefitRepository {
         rs.getString("status"),
         rs.getBoolean("needs_review"),
         List.of(),
-        List.of());
+        List.of(),
+        rs.getTimestamp("updated_at").toInstant());
   }
 
   private static LocalDate day(ResultSet rs, String column) throws SQLException {

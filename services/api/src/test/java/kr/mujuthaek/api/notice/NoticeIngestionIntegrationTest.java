@@ -242,6 +242,38 @@ class NoticeIngestionIntegrationTest {
   }
 
   @Test
+  void 같은_이벤트가_동시에_와도_한_번만_처리하고_나머지는_예외_없이_DUPLICATE다() throws Exception {
+    // 2026-11-01 동시성 시험: 100개 동시에 9개가 처리 기록 기본 키에서 부딪혀 예외(→ 재시도·실패 큐)였어요
+    String body = body(fixture());
+    int threads = 20;
+    var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+    var ready = new java.util.concurrent.CountDownLatch(threads);
+    var go = new java.util.concurrent.CountDownLatch(1);
+    List<java.util.concurrent.Future<IngestionOutcome>> results = new java.util.ArrayList<>();
+    for (int i = 0; i < threads; i++) {
+      results.add(
+          pool.submit(
+              () -> {
+                ready.countDown();
+                go.await();
+                return ingestion.apply(body);
+              }));
+    }
+    ready.await();
+    go.countDown();
+    List<IngestionOutcome> outcomes = new java.util.ArrayList<>();
+    for (var f : results) {
+      outcomes.add(f.get(60, java.util.concurrent.TimeUnit.SECONDS)); // 예외면 여기서 실패해요
+    }
+    pool.shutdown();
+
+    assertThat(outcomes).filteredOn(o -> o == IngestionOutcome.DUPLICATE).hasSize(threads - 1);
+    assertThat(count("notice.notices")).isEqualTo(1);
+    assertThat(count("notice.notice_versions")).isEqualTo(1);
+    assertThat(count("notice.extraction_results")).isEqualTo(1);
+  }
+
+  @Test
   void 같은_이벤트를_두_번_받아도_공고와_버전은_하나다() {
     ObjectNode event = fixture();
     ingestion.apply(body(event));
@@ -786,6 +818,10 @@ class NoticeIngestionIntegrationTest {
     assertThat(summary.applyEnd()).isEqualTo(LocalDate.of(2026, 10, 22));
     assertThat(summary.regionCodes()).isEmpty();
     assertThat(query.findPolicySummary(UUID.randomUUID())).isEmpty();
+    // 관심 목록은 여러 개를 한 번에 읽어요: 하나씩 읽은 것과 같고, 없는·공개 전 정책은 빠져요
+    var many = query.findPolicySummaries(List.of(startupId, UUID.randomUUID()));
+    assertThat(many).containsOnlyKeys(startupId);
+    assertThat(many.get(startupId)).isEqualTo(summary);
 
     // 오늘 10/19: 10/22(D-3) 마감 중 이미 신청 중인 것만
     LocalDate today = LocalDate.of(2026, 10, 19);
@@ -1069,11 +1105,12 @@ class NoticeIngestionIntegrationTest {
                 .single())
         .isEqualTo(1); // 읽을 수 있는 공고는 마감 처리
     assertThat(
-            jdbc.sql("select next_status_check_at > now() from notice.notices where id = :id")
+            jdbc.sql("select next_status_check_at from notice.notices where id = :id")
                 .param("id", broken)
-                .query(Boolean.class)
-                .single())
-        .isTrue(); // 읽지 못한 공고는 하루 뒤로 미룸
+                .query(java.time.OffsetDateTime.class)
+                .single()
+                .toInstant())
+        .isAfter(clock.instant()); // 읽지 못한 공고는 하루 뒤로 미룸 (DB now()가 아니라 시험 시계 기준)
   }
 
   @Test

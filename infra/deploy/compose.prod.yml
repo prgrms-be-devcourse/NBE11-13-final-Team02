@@ -20,6 +20,9 @@ x-app: &app
 services:
   rabbitmq:
     image: rabbitmq:4.1-management
+    # 노드 이름(rabbit@<호스트 이름>)이 데이터 폴더 이름이에요. 고정하지 않으면 컨테이너가 다시 만들어질 때(설정이 바뀐 배포)
+    # 호스트 이름이 바뀌어 빈 폴더로 시작해 큐 안의 메시지·shovel 설정이 사라져요 (실측 2026-10-29 운영: 도로명주소 적재 요청 12건)
+    hostname: rabbitmq
     mem_limit: 300m
     restart: unless-stopped
     logging: *logging
@@ -68,6 +71,7 @@ services:
       # 같은 compose 안의 서비스 주소. 없으면 api 컨테이너 안의 localhost로 불러 연결이 거부돼요(관리자 검수·수집 현황 503)
       EXTRACTION_REVIEW_URL: http://extraction:8092
       COLLECTOR_ADMIN_URL: http://collector:8093
+      API_DOCS_ENABLED: "false"         # API 문서(스웨거)는 운영에서 꺼요. prod 프로필 기본값과 같지만, 프로필 설정이 빠져도 꺼지게
     ports: ["127.0.0.1:8080:8080"]
 
   notification:

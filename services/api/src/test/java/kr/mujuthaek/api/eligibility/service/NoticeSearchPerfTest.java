@@ -107,10 +107,19 @@ class NoticeSearchPerfTest {
     var evaluations =
         new NoticeEvaluationService(
             queries, criteria, new PrepareCostService(new LoanProductStore(jdbc), criteria, clock));
-    var search = new NoticeSearchService(queries, evaluations);
+    var search =
+        new NoticeSearchService(
+            queries,
+            evaluations,
+            new kr.mujuthaek.api.eligibility.service.JudgingFrames(
+                queries,
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry(),
+                20000,
+                false));
 
     var applicant =
         new ApplicantRequest(
+            null,
             YearMonth.of(1997, 3),
             "11440",
             true,

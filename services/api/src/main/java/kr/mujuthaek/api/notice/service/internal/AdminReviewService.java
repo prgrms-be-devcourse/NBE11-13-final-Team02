@@ -1,6 +1,7 @@
 package kr.mujuthaek.api.notice.service.internal;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import kr.mujuthaek.api.common.cache.RecentCache;
 import kr.mujuthaek.api.common.exception.CustomException;
 import kr.mujuthaek.api.common.exception.ErrorCode;
 import kr.mujuthaek.api.notice.client.ExtractionReviewClient;
@@ -27,7 +29,6 @@ import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Field;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Issue;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.LogEntry;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewDetailResponse.Source;
-import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewListResponse.Item;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewQueueResponse;
 import kr.mujuthaek.api.notice.dto.response.AdminReviewStatsResponse;
@@ -65,39 +66,66 @@ public class AdminReviewService {
 
   private static final ZoneId SEOUL = ZoneId.of("Asia/Seoul");
 
+  /**
+   * 마감이 가까운 검수 대기는 1분 동안 다시 써요. 대기 목록을 통째로 받아 건마다 마감일을 읽는 무거운 조회라 관리자 개요를 열 때마다 돌리면 추출 DB가
+   * 포화돼요(2026-10-29 부하 시험). 검수를 처리하면 바로 비워요.
+   */
+  static final Duration URGENT_TTL = Duration.ofMinutes(1);
+
+  /**
+   * 검수 대기열 첫 페이지는 5초 동안 다시 써요. 관리자 여럿이 검수 화면을 열 때마다 추출 DB에 같은 첫 페이지를 묻지 않게(2026-10-30 부하 시험: 대기열 첫
+   * 페이지가 추출 DB 시간의 대부분). 이 서버에서 공고 검수를 처리하면 바로 비우고, 혜택 검수 처리는 5초 안에 반영돼요.
+   */
+  static final Duration QUEUE_FIRST_PAGE_TTL = Duration.ofSeconds(5);
+
+  /**
+   * 대기 건수(사이드바·개요)도 5초 동안 다시 써요. 관리자 화면마다 부르는 숫자라 추출 서비스 호출 중 가장 많았어요(2026-10-30 부하 시험 1만여 번). 이
+   * 서버에서 공고 검수를 처리하면 바로 비워요.
+   */
+  static final Duration COUNTS_TTL = Duration.ofSeconds(5);
+
   private final ExtractionReviewClient client;
   private final Clock clock;
+
+  /** 마감 기준일(오늘+days)별 결과. 날짜가 키라 자정이 지나면 새로 계산해요. */
+  private final RecentCache<LocalDate, List<Item>> urgentCache;
+
+  /** 커서 없는 첫 페이지를 (종류·묶음·크기)별로. */
+  private final RecentCache<QueueKey, AdminReviewQueueResponse> queueFirstPageCache;
+
+  private record QueueKey(List<String> kinds, String reason, int size) {}
+
+  /** 키가 하나뿐인 캐시라 키는 늘 true예요. */
+  private final RecentCache<Boolean, AdminReviewCountsResponse> countsCache;
 
   public AdminReviewService(ExtractionReviewClient client, Clock clock) {
     this.client = client;
     this.clock = clock;
+    this.urgentCache = new RecentCache<>(URGENT_TTL, clock, this::urgentNow);
+    this.countsCache = new RecentCache<>(COUNTS_TTL, clock, k -> countsNow());
+    this.queueFirstPageCache =
+        new RecentCache<>(
+            QUEUE_FIRST_PAGE_TTL,
+            clock,
+            k -> queuePage(k.kinds(), k.reason(), ReviewQueueCursor.decode(null), k.size()));
   }
 
   /**
    * 마감이 가까운 검수 대기 (관리자 개요의 「지금 처리할 일」): 신청 마감이 오늘(한국 시간)부터 days일 안이거나 이미 지난 대기 건, 마감이 이른 것부터. 아직 발행
-   * 전(MUST)이면 사용자에게 안 보이는 공고예요.
+   * 전(MUST)이면 사용자에게 안 보이는 공고예요. 1분 안이면 지난 결과를 써요({@link #URGENT_TTL}).
    */
   public List<Item> urgent(int days) {
     if (days < 0 || days > 30) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "days는 0~30 사이예요");
     }
-    LocalDate limit = LocalDate.now(clock.withZone(SEOUL)).plusDays(days);
+    return urgentCache.get(LocalDate.now(clock.withZone(SEOUL)).plusDays(days));
+  }
+
+  private List<Item> urgentNow(LocalDate limit) {
     return items(client.list(PENDING)).stream()
         .filter(i -> i.applyEndsOn() != null && !i.applyEndsOn().isAfter(limit))
         .sorted(Comparator.comparing(Item::applyEndsOn))
         .toList();
-  }
-
-  /** 대기 목록. reason이 있으면 그 묶음만. */
-  public AdminReviewListResponse pending(String reason) {
-    if (reason != null && !REASONS.contains(reason)) {
-      throw new CustomException(ErrorCode.VALIDATION_FAILED, "reason은 MUST·CHECK·FORMAT 중 하나예요");
-    }
-    JsonNode page = client.page(PENDING);
-    List<Item> all = items(page == null ? null : page.get("items"));
-    List<Item> shown =
-        reason == null ? all : all.stream().filter(i -> reason.equals(i.reason())).toList();
-    return new AdminReviewListResponse(ExtractionReviewClient.total(page), shown);
   }
 
   /** 대기열 한 페이지 최대 건수. */
@@ -130,7 +158,15 @@ public class AdminReviewService {
     if (wanted.isEmpty() || !Set.of("NOTICE", "BENEFIT").containsAll(wanted)) {
       throw new CustomException(ErrorCode.VALIDATION_FAILED, "kinds는 NOTICE·BENEFIT 중에서 골라요");
     }
-    ReviewQueueCursor at = ReviewQueueCursor.decode(cursor);
+    if (cursor == null || cursor.isBlank()) {
+      return queueFirstPageCache.get(
+          new QueueKey(wanted.stream().sorted().distinct().toList(), reason, size));
+    }
+    return queuePage(wanted, reason, ReviewQueueCursor.decode(cursor), size);
+  }
+
+  private AdminReviewQueueResponse queuePage(
+      List<String> wanted, String reason, ReviewQueueCursor at, int size) {
     boolean withNotices = wanted.contains("NOTICE");
     boolean withBenefits = wanted.contains("BENEFIT") && !"FORMAT".equals(reason);
     Boolean reported = reason == null ? null : "MUST".equals(reason);
@@ -224,8 +260,14 @@ public class AdminReviewService {
     return out;
   }
 
+  /** 대기 건수와 가장 오래된 것. 5초 안이면 지난 결과를 써요({@link #COUNTS_TTL}). */
   public AdminReviewCountsResponse counts() {
-    JsonNode page = client.page(PENDING);
+    return countsCache.get(Boolean.TRUE);
+  }
+
+  /** 목록은 오래된 것부터라 한 건만 받아요(건수는 total). */
+  private AdminReviewCountsResponse countsNow() {
+    JsonNode page = client.pendingHead();
     List<Item> all = items(page == null ? null : page.get("items"));
     OffsetDateTime oldest =
         all.stream()
@@ -373,6 +415,9 @@ public class AdminReviewService {
       }
     }
     client.approve(id, request == null ? null : blankToNull(request.note()), reviewer, edits);
+    urgentCache.clear();
+    queueFirstPageCache.clear();
+    countsCache.clear();
     return new AdminReviewDecisionResponse(id, "APPROVED", remaining());
   }
 
@@ -380,6 +425,9 @@ public class AdminReviewService {
   public AdminReviewDecisionResponse reject(
       String id, AdminReviewDecisionRequest request, String reviewer) {
     client.reject(id, rejectNote(request), reviewer);
+    urgentCache.clear();
+    queueFirstPageCache.clear();
+    countsCache.clear();
     return new AdminReviewDecisionResponse(id, "REJECTED", remaining());
   }
 
@@ -604,7 +652,7 @@ public class AdminReviewService {
   }
 
   private int remaining() {
-    return ExtractionReviewClient.total(client.page(PENDING));
+    return ExtractionReviewClient.total(client.pendingHead());
   }
 
   private static List<Item> items(JsonNode list) {

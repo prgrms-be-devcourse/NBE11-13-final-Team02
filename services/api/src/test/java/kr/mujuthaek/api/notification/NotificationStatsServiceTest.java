@@ -50,6 +50,16 @@ class NotificationStatsServiceTest {
   }
 
   @Test
+  void sameDaysIsReusedForAMinute() {
+    when(inbox.engagement(Instant.parse("2026-10-21T03:00:00Z"))).thenReturn(List.of());
+    when(server.deliveryStats(7)).thenReturn(Optional.empty());
+
+    var first = service.stats(7);
+    assertThat(service.stats(7)).isSameAs(first); // 1분 안: 알림함·알림 서버를 다시 묻지 않아요
+    org.mockito.Mockito.verify(server, org.mockito.Mockito.times(1)).deliveryStats(7);
+  }
+
+  @Test
   void notificationServerDownStillShowsInboxNumbers() {
     when(inbox.engagement(Instant.parse("2026-10-27T03:00:00Z")))
         .thenReturn(List.of(new InboxRepository.Engagement("NEW_NOTICE", 2, 0, 1, 1)));

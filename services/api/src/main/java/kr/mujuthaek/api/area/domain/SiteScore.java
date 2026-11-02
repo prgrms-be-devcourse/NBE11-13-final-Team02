@@ -1,5 +1,6 @@
 package kr.mujuthaek.api.area.domain;
 
+import io.swagger.v3.oas.annotations.media.Schema;
 import java.util.Map;
 import java.util.UUID;
 
@@ -15,6 +16,9 @@ import java.util.UUID;
 public record SiteScore(
     UUID siteId,
     Integer total,
-    Map<LifeCategory, Integer> categoryScores,
+    @Schema(
+            example =
+                "{\"TRANSIT\": 85, \"SCHOOL\": 70, \"PARK\": 90, \"CONVENIENCE\": 60, \"HOSPITAL\": 55}")
+        Map<LifeCategory, Integer> categoryScores,
     Long commuteMeters,
     Integer commuteMinutes) {}
