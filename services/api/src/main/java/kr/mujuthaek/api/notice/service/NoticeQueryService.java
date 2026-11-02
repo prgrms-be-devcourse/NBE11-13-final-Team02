@@ -758,10 +758,12 @@ public class NoticeQueryService {
         statuses == null || statuses.isEmpty()
             ? !"CLOSED".equals(s.status())
             : statuses.contains(s.status());
+    // 공고 종류가 비어 있으면 분양이 아니라 임대로 봐요(목록 검색 SQL: notice_type is null or not in (분양)과 같게).
+    // BUY_TYPES는 List.of라 contains(null)이 NullPointerException을 던져, 종류 없는 공고가 하나라도 있으면 지도 API가
+    // 500이었어요
+    boolean buy = s.noticeType() != null && NoticeListFilter.BUY_TYPES.contains(s.noticeType());
     boolean tenureOk =
-        tenure == null
-            || ("BUY".equals(tenure) && NoticeListFilter.BUY_TYPES.contains(s.noticeType()))
-            || ("RENT".equals(tenure) && !NoticeListFilter.BUY_TYPES.contains(s.noticeType()));
+        tenure == null || ("BUY".equals(tenure) && buy) || ("RENT".equals(tenure) && !buy);
     return statusOk
         && tenureOk
         && (noticeTypes == null || noticeTypes.isEmpty() || noticeTypes.contains(s.noticeType()))

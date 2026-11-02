@@ -65,4 +65,22 @@ class NoticeMapClusterTest {
     return new kr.mujuthaek.api.common.region.RegionQueryService(f.jdbc)
         .displayName(NoticeQueryService.regionLookup(code.length() == 2 ? code + "000" : code));
   }
+
+  @Test
+  void noticeWithoutATypeIsShownAsRentAndDoesNotBreakTheMap() {
+    // 2026-11-02 운영: 공고 종류(notice_type)가 빈 공고가 있으면 임대·분양 거르기에서 NullPointerException → 지도 API 500
+    UUID untyped = f.notice(p -> {});
+    f.jdbc.update("update notice.notices set notice_type = null where id = ?", untyped);
+    site(untyped, 132.70, 38.70);
+    List<String> mine = List.of(f.provider);
+
+    NoticeMapResponse rent =
+        f.queries.map(38.6, 132.6, 38.8, 132.8, 12, "RENT", null, mine, null, 300);
+    NoticeMapResponse buy =
+        f.queries.map(38.6, 132.6, 38.8, 132.8, 12, "BUY", null, mine, null, 300);
+
+    // 목록 검색 SQL(notice_type is null or not in 분양)과 같게: 종류가 없으면 임대에 나오고 분양에는 안 나와요
+    assertThat(rent.pins()).extracting(NoticeMapResponse.Pin::id).containsExactly(untyped);
+    assertThat(buy.pins()).isEmpty();
+  }
 }
